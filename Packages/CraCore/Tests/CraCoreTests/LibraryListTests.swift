@@ -62,11 +62,30 @@ struct LibraryListTests {
             == LibraryList.Empty(symbol: "archivebox", title: "Nothing here yet!", detail: "Tabs you close end up here."))
         #expect(LibraryList.empty(.downloads, hasAny: false).detail == "Files you download show up here.")
         #expect(LibraryList.empty(.downloads, hasAny: true) == LibraryList.Empty(symbol: "arrow.down.circle", title: "No matches", detail: nil))
+        #expect(LibraryList.empty(.easels, hasAny: false)
+            == LibraryList.Empty(symbol: "pencil.and.scribble", title: "Out of ideas!", detail: "Choose File ▸ New Easel to create a new Easel."))
+        #expect(LibraryList.empty(.media, hasAny: false).detail == "Screenshots, pictures and videos in the folders you show appear here.")
+    }
+
+    @Test func easelsGroupByLastEditAndSearchTheirTitles() {
+        let easels: [(id: UUID, title: String, edited: Date)] = [
+            (UUID(), "Trip plan", Self.now.addingTimeInterval(-2 * Self.hour)),
+            (UUID(), "Sketch", Self.now.addingTimeInterval(-26 * Self.hour)),
+        ]
+        let all = LibraryList.easels(easels, title: { $0.title }, edited: { $0.edited }, matching: "",
+                                     now: Self.now, calendar: Self.calendar, locale: Self.locale)
+        #expect(all.map(\.title) == ["Today", "Yesterday"])
+        let trip = LibraryList.easels(easels, title: { $0.title }, edited: { $0.edited }, matching: " TRIP",
+                                      now: Self.now, calendar: Self.calendar, locale: Self.locale)
+        #expect(trip.flatMap(\.items).map { $0.title } == ["Trip plan"])
     }
 
     @Test func pagesKeepArcsRailOrderAndNames() {
-        #expect(LibraryPage.allCases.map(\.title) == ["Downloads", "Spaces", "Archived Tabs"])
-        #expect(LibraryPage.archive.searchPrompt == "Search Archive…")
+        #expect(LibraryPage.allCases.map(\.title) == ["Media", "Downloads", "Easels", "Spaces", "Archived Tabs"])
+        #expect(LibraryPage.allCases.map(\.searchPrompt)
+            == ["Search Media…", "Search Downloads…", "Search Easels…", "Search Archive…", "Search Archive…"])
         #expect(LibraryPage.downloads.selectedSymbol == "arrow.down.circle.fill")
+        #expect(LibraryPage.media.selectedSymbol == "photo.fill.on.rectangle.fill")
+        #expect(LibraryPage.easels.selectedSymbol == "pencil.and.scribble")
     }
 }

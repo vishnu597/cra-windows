@@ -276,7 +276,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         sidebarActions.editSpaceThemeBeside = { [weak self] s, card in self?.showSpaceStyleEditor(space: s, beside: card) }
         sidebarActions.newProfile = { [weak self] id in self?.showNewProfileDialog(forSpace: id) }
         sidebarActions.manageSpaces = { [weak self] in self?.showManageSpaces() }
-        sidebarActions.deleteSpace = { [weak self] s in self?.app.confirmDeleteSpace(s) }
+        sidebarActions.deleteSpace = { [weak self] s in self?.app.confirmDeleteSpace(s, in: self?.window) }
         sidebarActions.toggleSidebar = { [weak self] in self?.toggleSidebar() }
         sidebarActions.toggleLibrary = { [weak self] in self?.toggleLibrary() }
         sidebarActions.showLibrary = { [weak self] page in self?.showLibrary(page) }
@@ -380,7 +380,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             }
         }
         sidebarActions.performAction = { [weak self] id in
-            if id.hasPrefix("muteTab:"), let uuid = UUID(uuidString: String(id.dropFirst(8))) {
+            if id.hasPrefix("openInSplit:"), let uuid = UUID(uuidString: String(id.dropFirst(12))) {
+                self?.openTabInSplit(uuid)
+            } else if id.hasPrefix("muteTab:"), let uuid = UUID(uuidString: String(id.dropFirst(8))) {
                 let muted = self?.store.item(uuid)?.tab?.muted ?? false
                 self?.app.runtime(for: uuid)?.browser.setAudioMuted(muted)
             } else {
@@ -573,6 +575,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         guard store.addEmptyPane(nextTo: current) != nil else { return }
         refresh()
         openCommandBar(.editURL)
+    }
+
+    /// Arc's "Open in Split View" on a sidebar tab: that tab joins the open one in a split, as the
+    /// command bar's split row does with a tab it lists.
+    func openTabInSplit(_ id: UUID) {
+        guard let current = selectedTabID, current != id, store.item(current)?.isEmptyTab == false else { return }
+        if store.paneTabIDs(for: current).contains(id) { store.selectTab(id, window: windowID); return }
+        guard store.paneTabIDs(for: current).count < 4 else { showToast("Cannot Add New Pane"); return }
+        let split = store.splitContaining(current).map { sp in store.addToSplit(sp.id, tabID: id, at: nil); return store.item(sp.id) }
+            ?? store.createSplit(with: [current, id], at: current)
+        store.selectTab(split.flatMap { store.paneID(for: id, in: $0) } ?? id, window: windowID)
     }
 
     /// Arc's "Close this Split Pane" (⌃⇧-): the pane's tab closes like any tab;
@@ -1744,7 +1757,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// pinned URL loads the new one; one navigated away stays where it is.
     func editPinnedURL(_ id: UUID) {
         guard let window, let tab = store.item(id)?.tab, store.isPinned(id), tab.liveItemURL == nil else { return }
-        DialogOverlayWindow.present(over: window) { [weak self] close in
+        DialogPanel.present(over: window) { [weak self] close in
             EditPinnedURLDialog(url: tab.savedURL, onSave: { url in
                 close()
                 guard let self, let before = self.store.item(id)?.tab, self.store.setPinnedURL(id, to: url),
@@ -1839,6 +1852,35 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
+    /// Send To… an easel: the capture goes on it, under what is there, and its tab comes forward
+    /// (a new one when it has none open).
+    private func sendCapture(_ png: Data, toEasel id: UUID) {
+        guard EaselFiles.add(picture: png, to: id) else { return }
+        CraLog.note("capture sent to an easel, which now holds \(EaselFiles.load(id).items.count) items")
+        let url = Easel(id: id).url
+        if let tab = store.allTabs().first(where: { $0.tab?.url == url }) {
+            browsers.unload(tab.id)  // opened again from the file, picture included
+            store.selectTab(tab.id, window: windowID)
+            refresh()
+        } else {
+            _ = store.createTab(url: url, title: EaselFiles.load(id).title, select: true, window: windowID)
+        }
+    }
+
+    /// Testing without the pointer (cra://debug?captureToEasel=1): the visible page captured and
+    /// the capture menu's New Easel chosen.
+    func debugCaptureToEasel(send: Bool = false) {
+        currentBrowser?.sendDevToolsMethod("Page.captureScreenshot", params: #"{"format":"png"}"#) { [weak self] shot, _ in
+            MainActor.assumeIsolated {
+                let o = shot.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                let png = (o?["data"] as? String).flatMap { Data(base64Encoded: $0) }
+                // send: Send To… the easel edited last, as if picked from its menu.
+                if send, let png, let last = EaselFiles.all().first { self?.sendCapture(png, toEasel: last.id); return }
+                self?.captureFinished(.newEasel, png)
+            }
+        }
+    }
+
     /// The capture menu's choice, once the overlay is down.
     private func captureFinished(_ action: CaptureOverlay.Action?, _ png: Data?) {
         captureOverlay = nil
@@ -1855,6 +1897,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             if let png { saveCapture(png) }
         case .message?:
             if let png { sendCaptureViaMessages(png) }
+        case .newEasel?:
+            guard let png, let easel = EaselFiles.create(withPicture: png) else { return }
+            _ = store.createTab(url: easel.url, title: easel.title, select: true, window: windowID)
+        case .sendToEasel?:
+            guard let png else { return }
+            let easels = EaselFiles.all()
+            guard !easels.isEmpty else {
+                if let easel = EaselFiles.create(withPicture: png) { _ = store.createTab(url: easel.url, title: easel.title, select: true, window: windowID) }
+                return
+            }
+            let menu = NSMenu()
+            for e in easels {
+                MenuItems.add(menu, e.title) { [weak self] in self?.sendCapture(png, toEasel: e.id) }
+            }
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
         case .retake?:
             capturePage()
         case nil:
@@ -2525,7 +2582,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// The Site Control Center as if its sliders button was clicked, wherever the request came from
     /// (the protected media toast's Why?): under the toolbar's button, else under the sidebar's URL
     /// field at its right end, where that button sits. The arrow shows where to find it next time.
-    private func showSiteControlsFromTheirButton() {
+    func showSiteControlsFromTheirButton() {
         if let button = (shell.focusedCard?.toolbarHost as? PaneToolbarView)?.siteControlsButtonFrameOnScreen() {
             return showToolbarExtensionsMenu(from: button, inToolbar: true)
         }
@@ -2607,6 +2664,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     func debugSiteControlsShown() -> Bool { siteControlCenter.isShown
     }
 
+    /// Scenario hooks (#226): the sidebar's URL field hovered, its buttons logged as
+    /// "url field: copyURL extensions" ("url field: none" while the toolbar has the address).
+    func debugURLFieldHover(_ on: Bool) {
+        let items = (shell.sidebarHost as? SidebarView)?.debugURLFieldHover(on)
+        CraLog.note("url field: " + (items.map { $0.map(Self.debugName).joined(separator: " ") } ?? "none"))
+    }
+
+    /// A press on the URL field's button by name ("siteControls", "copyURL"), then whether the
+    /// Site Control Center is open once it had time to (it waits up to 0.3 s on the page).
+    func debugURLFieldPress(_ name: String) {
+        let item: ToolbarComposition.Item = name == "copyURL" ? .copyURL : .extensions
+        let pressed = (shell.sidebarHost as? SidebarView)?.debugURLFieldPress(item) == true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            CraLog.note("url field press \(name): pressed \(pressed), site control center \(self?.siteControlCenter.isShown == true ? "shown" : "not shown")")
+        }
+    }
+
+    private static func debugName(_ item: ToolbarComposition.Item) -> String {
+        switch item {
+        case .pinnedExtension(let id): return "pin:" + id
+        case .copyURL: return "copyURL"
+        case .extensions: return "siteControls"
+        default: return String(describing: item)
+        }
+    }
+
     private func openTab(_ url: String) {
         store.createTab(url: url, select: true, window: windowID)
         showWindow(nil)
@@ -2633,6 +2716,93 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     }
 
     /// Arc's "Capture the full page": the whole document, beyond the viewport, as a PNG.
+    // MARK: Arc parity (docs/arc-parity.md)
+
+    /// Arc's Window ▸ Stay On Top: the window floats over other apps' windows.
+    var staysOnTop: Bool { window?.level == .floating }
+    func toggleStayOnTop() { window?.level = staysOnTop ? .normal : .floating }
+
+    /// Arc's Reveal Tab in Sidebar / Reveal Current Tab (⌃Space): the sidebar comes out with the
+    /// open tab's folders and pinned section open, and scrolls to it.
+    func revealSelectedTab() {
+        guard let id = selectedTabID else { return }
+        store.revealInSidebar(store.splitContaining(id)?.id ?? id)
+        if sidebarUI.libraryPage != nil { closeLibrary() }
+        if !sidebarVisible { toggleSidebar() }
+        let ui = sidebarUI, space = focusedSpaceID
+        DispatchQueue.main.async { SpaceListView.jumpToSelected(for: ui, space: space) }
+    }
+
+    /// Arc's Switch to Split View 1–4 (⌃⇧1…4): the n-th pane of the open split.
+    func selectSplitPane(_ n: Int) {
+        guard let current = selectedTabID else { return }
+        let panes = store.paneTabIDs(for: current)
+        guard panes.count > 1, n >= 1, n <= panes.count else { return }
+        store.selectTab(panes[n - 1], window: windowID)
+    }
+
+    /// Chrome's extensions page, as the Site Control Center's Manage Extensions… opens it.
+    func openExtensionsPage() { openTab("chrome://extensions") }
+
+    /// Arc's Open Extensions (⌘E): the Site Control Center, as if its sliders were clicked.
+    func openSiteControls() { showSiteControlsFromTheirButton() }
+
+    /// Arc's Tabs ▸ Reset all tabs in this Space: every pinned tab away from its page goes back.
+    func resetAllPinnedTabs() {
+        guard !isStandalone else { return }
+        let space = store.focusedSpace(window: windowID)
+        for t in store.tabs(under: space.pinnedContainerID) where t.tab.map({ $0.url != $0.savedURL }) == true {
+            resetPinnedTab(t.id)
+        }
+    }
+
+    /// Arc's Edit ▸ Copy URL as Quote (⌃⇧⌘C): the page's selection in quotes with a link that
+    /// scrolls to it (CleanURL.quote; Arc's own link goes through arc.net).
+    func copyURLAsQuote() {
+        guard let b = currentBrowser, let url = selectedTabID.flatMap({ store.item($0)?.tab?.url }) else { return }
+        b.sendDevToolsMethod("Runtime.evaluate", params: #"{"expression":"getSelection().toString()","returnByValue":true}"#) { [weak self] result, _ in
+            MainActor.assumeIsolated {
+                let value = result.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                let text = (value?["result"] as? [String: Any])?["value"] as? String ?? ""
+                guard let quote = CleanURL.quote(text, url: url) else { self?.showToast("Select Text to Copy as a Quote"); return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(quote, forType: .string)
+                self?.showToast("Copied URL as Quote")
+            }
+        }
+    }
+
+    /// Arc's File ▸ Save Page As (⇧⌘S): Chrome's two formats, a single-file web archive or the
+    /// page's HTML.
+    func savePageAs() {
+        guard let b = currentBrowser, let window, let tab = selectedTabID.flatMap({ store.item($0) }) else { return }
+        let panel = NSSavePanel()
+        let format = SavePageFormat(panel: panel)
+        panel.accessoryView = format.view
+        let base = tab.displayTitle.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        panel.nameFieldStringValue = (base.isEmpty ? "Page" : base) + ".mhtml"
+        panel.canCreateDirectories = true
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let dest = panel.url else { return }
+            let single = format.singleFile
+            let (method, params) = single
+                ? ("Page.captureSnapshot", #"{"format":"mhtml"}"#)
+                : ("Runtime.evaluate", #"{"expression":"'<!DOCTYPE html>\n'+document.documentElement.outerHTML","returnByValue":true}"#)
+            b.sendDevToolsMethod(method, params: params) { result, error in
+                MainActor.assumeIsolated {
+                    let o = result.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                    let text = single ? o?["data"] as? String : (o?["result"] as? [String: Any])?["value"] as? String
+                    guard let text, (try? Data(text.utf8).write(to: dest, options: .atomic)) != nil else {
+                        NSLog("Cra: save page failed: %@", error ?? "no data")
+                        self?.showToast("Couldn’t Save the Page")
+                        return
+                    }
+                    self?.showToast("Page Saved")
+                }
+            }
+        }
+    }
+
     func captureFullPage() {
         captureOverlay?.close()
         guard let b = currentBrowser else { return }
@@ -2646,6 +2816,27 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             let params = PageCapture.screenshotParams(fullPageWidth: size.width, height: size.height)
             b.sendDevToolsMethod("Page.captureScreenshot", params: params) { shot, error in
                 MainActor.assumeIsolated { self?.finishCapture(shot, error: error) }
+            }
+        }
+    }
+
+    /// Arc's File ▸ Capture in Portrait Mode: the page laid out at a phone's width (390 × 844 pt,
+    /// the layout a site gives an iPhone 15) and captured at 3x, then put back as it was.
+    func capturePortrait() {
+        captureOverlay?.close()
+        guard let b = currentBrowser else { return }
+        showToast("Capture in Progress")
+        let metrics = #"{"width":390,"height":844,"deviceScaleFactor":3,"mobile":true}"#
+        b.sendDevToolsMethod("Emulation.setDeviceMetricsOverride", params: metrics) { [weak self] _, error in
+            MainActor.assumeIsolated {
+                guard error == nil else { self?.finishCapture(nil, error: error); return }
+                // A layout pass and a paint at the new width before the shot.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    b.sendDevToolsMethod("Page.captureScreenshot", params: #"{"format":"png"}"#) { shot, error in
+                        b.sendDevToolsMethod("Emulation.clearDeviceMetricsOverride", params: "{}") { _, _ in }
+                        MainActor.assumeIsolated { self?.finishCapture(shot, error: error) }
+                    }
+                }
             }
         }
     }
@@ -2970,6 +3161,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             find.orderOut(nil)
         }
         currentBrowser?.setFocused(true)
+    }
+
+    /// Arc's (and Chrome's) Edit ▸ Find ▸ Use Selection to Find: the page's selection becomes the
+    /// search, on the find pasteboard too as macOS apps share it, and the bar finds it.
+    func useSelectionForFind() {
+        guard let b = currentBrowser else { return }
+        b.sendDevToolsMethod("Runtime.evaluate", params: #"{"expression":"getSelection().toString()","returnByValue":true}"#) { [weak self] result, _ in
+            MainActor.assumeIsolated {
+                let o = result.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                let text = ((o?["result"] as? [String: Any])?["value"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let self, !text.isEmpty else { return }
+                let pb = NSPasteboard(name: .find)
+                pb.clearContents()
+                pb.setString(text, forType: .string)
+                self.overlay.findQuery = text
+                self.showFindBar()
+                self.find(text, forward: true)
+            }
+        }
+    }
+
+    /// Arc's (and Chrome's) Edit ▸ Find ▸ Jump to Selection (⌘J): the page scrolls its selection into view.
+    func jumpToSelection() {
+        currentBrowser?.executeJavaScript("(()=>{const s=getSelection();if(!s.rangeCount)return;const n=s.getRangeAt(0).startContainer;"
+            + "(n.nodeType===1?n:n.parentElement)?.scrollIntoView({block:'center'});})()")
     }
 
     func findNext(forward: Bool) {
@@ -3342,5 +3558,33 @@ final class CraWindow: NSWindow {
                 b.setFrameOrigin(target)
             }
         }
+    }
+}
+
+/// Save Page As's Format pop-up (Chrome's "Web Page, Single File" and "Web Page, HTML Only");
+/// switching it swaps the name's extension.
+@MainActor
+private final class SavePageFormat: NSObject {
+    let view: NSView
+    private let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private weak var panel: NSSavePanel?
+    var singleFile: Bool { popup.indexOfSelectedItem == 0 }
+
+    init(panel: NSSavePanel) {
+        self.panel = panel
+        let label = NSTextField(labelWithString: "Format:")
+        popup.addItems(withTitles: ["Web Page, Single File", "Web Page, HTML Only"])
+        let row = NSStackView(views: [label, popup])
+        row.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        view = row
+        super.init()
+        popup.target = self
+        popup.action = #selector(changed)
+    }
+
+    @objc private func changed() {
+        guard let panel else { return }
+        let name = (panel.nameFieldStringValue as NSString).deletingPathExtension
+        panel.nameFieldStringValue = name + (singleFile ? ".mhtml" : ".html")
     }
 }

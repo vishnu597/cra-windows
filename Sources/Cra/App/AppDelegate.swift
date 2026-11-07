@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private lazy var extensionsMenu = ExtensionsMenu(app: self)
     /// Arc's Little Arc windows: small, sidebar-less, disposable (see LittleWindowController).
     private(set) var littleWindows: [LittleWindowController] = []
+    /// When each Little Window was last the key window, for Arc's "Archive Little Arcs after:".
+    private var littleWindowLastUsed: [ObjectIdentifier: Date] = [:]
+    private var littleWindowArchiveCheck: ScheduledWork?
 
     /// Shortcuts the app takes before the web page sees them (Chrome calls
     /// these reserved). Everything else goes to the page first. Copy URL is reserved like Arc:
@@ -74,6 +77,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NotificationCenter.default.addObserver(forName: .craKeyBindingsChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.buildMenus() }
         }
+        // Arc's "When opening Arc, restore windows from previous session", off: one window comes back.
+        if !store.settings.restoreWindows { store.keepOnlyActiveWindow() }
+        // Before any page is made: an easel's tab opens its canvas.
+        EaselBrowser.register()
         mainWindows = store.prefs.windows.map { MainWindowController(app: self, session: $0) }
         followKeyWindow()
         // First launch: the default browser step and the import are the onboarding and
@@ -185,6 +192,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         observeContentBlocking()
         observeHttpsOnly()
+        // Arc's "Archive Little Arcs after:": a Little Window left alone that long closes, its page archived.
+        littleWindowArchiveCheck = composition.clock.every(60) { [weak self] in self?.archiveIdleLittleWindows() }
+        observeChanges(of: { [store] in store.settings.websiteAppearance }) { CraCEFRuntime.setWebsiteAppearance($0.chromiumMode) }
+        observeChanges(of: { [store] in store.settings.soundEffects }) { CaptureSound.enabled = $0 }
         observeLinkMenu()
         logSecureDNS()
     }
@@ -334,12 +345,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func confirmQuit() -> Bool {
-        let alert = NSAlert()
-        alert.messageText = "Quit Cra?"
-        alert.informativeText = "All windows and tabs will close. They come back when Cra starts again."
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn
+        let alert = AppDialog(title: "Quit Cra?",
+                              actions: [DialogAction("Quit"), .cancel, DialogAction("Quit, and don’t ask again", role: .secondary)],
+                              icon: .application, buttonSpacing: 45.5)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return true
+        case .alertThirdButtonReturn:
+            store.settings.warnBeforeQuitting = false
+            return true
+        default: return false
+        }
     }
 
     func openExternalURL(_ url: String) {
@@ -604,6 +619,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let parent = w.peekParent, !littleWindows.contains(where: { $0.peekParent === parent }) { parent.sidebarUI.peekBadge = nil }
     }
 
+    private func archiveIdleLittleWindows() {
+        let now = Date(), rule = store.settings.littleWindowArchiveAfter
+        let open = Set(littleWindows.map(ObjectIdentifier.init))
+        littleWindowLastUsed = littleWindowLastUsed.filter { open.contains($0.key) }
+        // A Peek belongs to its tab; only Little Windows of their own are archived (Arc).
+        for w in littleWindows where !w.isPeek {
+            let id = ObjectIdentifier(w), isKey = w.window?.isKeyWindow == true
+            if isKey || littleWindowLastUsed[id] == nil { littleWindowLastUsed[id] = now; continue }
+            if rule.expired(lastUsed: littleWindowLastUsed[id]!, now: now, isKey: isKey) {
+                CraLog.note("archiving a Little Window left alone for \(rule.label)")
+                w.closeWindow()
+            }
+        }
+    }
+
     func closeLittleWindows() {
         for w in littleWindows { w.closeWindow() }
     }
@@ -738,6 +768,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // tidy: the divider's Tidy on the window's space, without hovering it; undoTidy: ⌘Z's.
             if dict["tidy"] != nil { TidyTabsService.shared.tidy(store.focusedSpace(window: main.windowID).id, store: store); return }
             if dict["undoTidy"] != nil { _ = store.undoTidy(); return }
+            // captureToEasel=1: the page's screenshot, then the capture menu's New Easel.
+            if let how = dict["captureToEasel"] { main.debugCaptureToEasel(send: how == "send"); return }
             // settingsPane=max: Settings opened on that pane.
             if let p = dict["settingsPane"].flatMap(SettingsPane.init(rawValue:)) {
                 showSettingsWindow()
@@ -878,6 +910,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             if dict["siteControls"] != nil { main.debugSiteControls(); return }
+            // The sidebar's URL field (toolbar hidden): hovered, and a press on one of its buttons (#226).
+            if let v = dict["urlFieldHover"] { main.debugURLFieldHover(v == "1"); return }
+            if let name = dict["urlFieldPress"] { main.debugURLFieldPress(name); return }
             // The n-th space icon's tip, without a pointer.
             if let n = dict["spaceTip"].flatMap({ Int($0) }), let content = main.window?.contentView {
                 ArcTooltipController.shared.debugShowSpaceTip(n, in: content)
@@ -960,15 +995,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             // browserWindows=<label>: each browser window's kind, space, tabs (URLs), open tab and frame (#219, #220).
             if let label = dict["browserWindows"] {
+                CraLog.note("browser windows \(label): count=\(mainWindows.filter { $0.window?.isVisible == true }.count)")
                 for m in mainWindows {
                     let space = m.focusedSpace
                     let tabs = (store.tabs(under: space.pinnedContainerID) + store.tabs(under: space.todayContainerID)).compactMap { $0.tab?.url }
                     let open = store.selectedTabID(window: m.windowID).flatMap { store.item($0)?.tab?.url } ?? "-"
-                    NSLog("Cra browser windows %@: kind=%@ space=%@ listed=%d tabs=[%@] open=%@ page=%d frame=%@", label,
+                    let folders = (store.children(of: space.pinnedContainerID) + store.children(of: space.todayContainerID)).filter { $0.isFolder && !$0.isTabGroup }
+                    NSLog("Cra browser windows %@: kind=%@ space=%@ listed=%d tabs=[%@] open=%@ page=%d frame=%@ onTop=%d pinnedCollapsed=%d openFolders=%d/%d", label,
                           m.isBlank ? "blank" : m.isIncognito ? "incognito" : "normal", space.title,
                           store.orderedSpaces.contains { $0.id == space.id } ? 1 : 0, tabs.joined(separator: " "), open,
                           store.selectedTabID(window: m.windowID).flatMap { m.browsers.runtime(for: $0) } != nil ? 1 : 0,
-                          m.window.map { NSStringFromRect($0.frame) } ?? "-")
+                          m.window.map { NSStringFromRect($0.frame) } ?? "-", m.staysOnTop ? 1 : 0,
+                          store.isPinnedCollapsed(space.id) ? 1 : 0, folders.filter { store.isExpanded($0.id) }.count, folders.count)
                     // cra.log (which a relaunch keeps) gets no addresses or names: kinds and counts.
                     CraLog.note("browser windows \(label): kind=\(m.isBlank ? "blank" : m.isIncognito ? "incognito" : "normal") "
                         + "listed=\(store.orderedSpaces.contains { $0.id == space.id } ? 1 : 0) tabs=\(tabs.count) open=\(open == "-" ? 0 : 1)")
@@ -983,7 +1021,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             // dragEnd=<text>&at=x,y: the window's tab whose URL holds the text dragged and let go there
             // (from the screen's top left) with nothing taking it, as a drag out of the sidebar ends
-            // (#219). Without at: a point of the screen no Cra window covers.
+            // (#219). Without at: a point of the screen no Cra window covers, a corner if one is free,
+            // else anywhere along the screen's edges (a 1000×700 window covers every corner of the
+            // CI runners' 1024×768 screen).
             if let text = dict["dragEnd"], let screen = main.window?.screen ?? NSScreen.main {
                 let space = main.focusedSpace
                 let tab = (store.tabs(under: space.pinnedContainerID) + store.tabs(under: space.todayContainerID))
@@ -994,8 +1034,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     point = NSPoint(x: screen.frame.minX + g[0], y: screen.frame.maxY - g[1])
                 } else {
                     let v = screen.visibleFrame.insetBy(dx: 40, dy: 40)
-                    point = [NSPoint(x: v.maxX, y: v.minY), NSPoint(x: v.minX, y: v.minY), NSPoint(x: v.maxX, y: v.maxY), NSPoint(x: v.minX, y: v.maxY)]
-                        .first { !SpaceListView.isOverAppWindow($0) }
+                    let corners = [NSPoint(x: v.maxX, y: v.minY), NSPoint(x: v.minX, y: v.minY), NSPoint(x: v.maxX, y: v.maxY), NSPoint(x: v.minX, y: v.maxY)]
+                    let e = screen.visibleFrame.insetBy(dx: 4, dy: 4)
+                    let edges = stride(from: 0.0, through: 1.0, by: 0.02).flatMap { t -> [NSPoint] in
+                        let x = e.minX + t * e.width, y = e.minY + t * e.height
+                        return [NSPoint(x: x, y: e.minY), NSPoint(x: e.maxX, y: y), NSPoint(x: e.minX, y: y), NSPoint(x: x, y: e.maxY)]
+                    }
+                    point = (corners + edges).first { !SpaceListView.isOverAppWindow($0) }
                 }
                 guard let point else { CraLog.note("dragEnd: no point outside Cra's windows on screen \(NSStringFromRect(screen.visibleFrame))"); return }
                 CraLog.note("dragEnd: let go at \(NSStringFromPoint(point))")
@@ -1055,6 +1100,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         switch item.representedObject as? String {
         case "toggleSidebar": item.title = main.sidebarVisible ? "Hide Sidebar" : "Show Sidebar"
         case "toggleToolbar": item.title = store.settings.showToolbar ? "Hide Toolbar" : "Show Toolbar"
+        case "collapsePinned":
+            item.title = store.isPinnedCollapsed(main.focusedSpaceID) ? "Expand Pinned Tabs" : "Collapse Pinned Tabs"
+            return !main.isStandalone
+        case "stayOnTop": item.state = main.staysOnTop ? .on : .off
+        case "appearanceAutomatic", "appearanceLight", "appearanceDark":
+            item.state = "appearance" + store.settings.websiteAppearance.title == item.representedObject as? String ? .on : .off
+        case "copyURLQuote", "savePageAs", "captureFullPage", "capturePortrait", "revealTab": return store.selectedTabID != nil
+        case "clearArchive": return !store.archive.isEmpty
+        case "resetSpaceTabs": return !main.isStandalone
         case "toggleDeveloperMode":
             let on = store.selectedTab?.tab.map { store.settings.isDeveloperMode(url: $0.url) } ?? false
             item.title = on ? "Turn off Developer Mode for this Site" : "Turn on Developer Mode for this Site"
@@ -1066,7 +1120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return !SystemIntegration.shared.isDefaultBrowser
         case "pictureInPicture":
             item.title = main.currentBrowser?.isInPictureInPicture == true ? "Exit Picture in Picture" : "Picture in Picture"
-        case "promoteLittleWindow": return keyLittleWindow?.hasPage ?? false
+        case "promoteLittleWindow", "littleWindowOpenInMenu": return keyLittleWindow?.hasPage ?? false
         case "checkForUpdates": return SoftwareUpdater.shared.validateMenuItem(item)
         case "closeSplitPane", "separateFromSplit", "flipSplitOrientation":
             return store.selectedTabID.flatMap { store.splitContaining($0) } != nil
@@ -1119,7 +1173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard keyFallbackMonitor == nil else { return }
         keyFallbackMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             // Esc drops a ⌘/⇧-click tab selection before anything else sees it.
-            if event.keyCode == 53, let ui = self?.main.sidebarUI, !ui.multiSelection.isEmpty {
+            if event.keyCode == 53, !(event.window is DialogPanel), let ui = self?.main.sidebarUI, !ui.multiSelection.isEmpty {
                 ui.clearPicks()
                 return nil
             }
@@ -1178,6 +1232,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func perform(_ id: String) {
+        if let dialog = NSApp.keyWindow as? DialogPanel, ["closeTab", "closeWindow"].contains(id) {
+            dialog.close()
+            return
+        }
         store.recordCommandUse(id)
         // An extension's own window (Arc: BrowserExtensionWindowController.closeCurrentItem:)
         // closes on ⌘W instead of the tab behind it.
@@ -1191,7 +1249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         switch id {
         case "newLittleWindow": openLittleWindow(url: "")
         case "closeLittleWindows": closeLittleWindows()
-        case "promoteLittleWindow": break  // only meaningful while a little window is key
+        case "promoteLittleWindow", "littleWindowOpenInMenu": break  // only meaningful while a little window is key
         case "newTab": main.openCommandBar(.newTab)
         case "newWindow": openNewWindow()
         case "newIncognitoWindow": openNewWindow(incognito: true)
@@ -1209,6 +1267,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             store.setExpanded(f.id, true)
             if isNew { LiveFolderManager.shared.refresh(f.id) }
         case "newSpace": main.showSpaceEditor(space: nil)
+        case "newEasel":
+            guard !main.isIncognito else { break }
+            let easel = Easel()
+            _ = store.createTab(url: easel.url, title: easel.title, select: true, window: main.windowID)
         case "editSpace": if !main.isStandalone { main.showSpaceEditor(space: store.focusedSpace) }
         case "changeProfile": if !main.isStandalone { main.showChangeProfileDialog(forSpace: store.focusedSpace.id) }
         case "deleteSpace": if !main.isStandalone { confirmDeleteSpace(store.focusedSpace) }
@@ -1228,20 +1290,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 store.reopenLastArchived()
             }
         case "copyURL":
-            if let url = current.flatMap({ store.item($0)?.tab?.url }) {
+            // Arc: "Copy the current tab's URL without trackers".
+            if let url = current.flatMap({ store.item($0)?.tab?.url }).map(CleanURL.withoutTrackers) {
                 copy(url)
                 main.showToast("Copied Current URL", action: .share(url))
             }
         case "copyURLMarkdown":
             if let c = current, let it = store.item(c), let url = it.tab?.url {
-                copy("[\(it.displayTitle)](\(url))")
+                copy("[\(it.displayTitle)](\(CleanURL.withoutTrackers(url)))")
                 main.showToast("Copied URL as Markdown")
             }
+        case "copyURLQuote": main.copyURLAsQuote()
+        case "savePageAs": main.savePageAs()
+        case "captureFullPage": main.captureFullPage()
+        case "capturePortrait": main.capturePortrait()
+        case "collapsePinned": if !main.isStandalone { store.togglePinnedCollapsed(main.focusedSpaceID) }
+        case "revealTab": main.revealSelectedTab()
+        case "resetSpaceTabs": main.resetAllPinnedTabs()
+        case "collapseAllFolders": store.setAllFoldersExpanded(false, inSpace: main.focusedSpaceID)
+        case "expandAllFolders": store.setAllFoldersExpanded(true, inSpace: main.focusedSpaceID)
+        case "openExtensions": main.showSiteControlsFromTheirButton()
+        case "manageExtensions": main.openExtensionsPage()
+        case "cast": if main.currentBrowser?.runChromeCommand("IDC_ROUTE_MEDIA") != true { main.showToast("Nothing to Cast") }
+        case "taskManager": if main.currentBrowser?.runChromeCommand("IDC_TASK_MANAGER") != true { main.showToast("Open a Page First") }
+        case "showArchive": main.showLibrary(.archive)
+        case "clearArchive": store.clearArchive()
+        case "stayOnTop": main.toggleStayOnTop()
+        case "appearanceAutomatic": store.settings.websiteAppearance = .automatic
+        case "appearanceLight": store.settings.websiteAppearance = .light
+        case "appearanceDark": store.settings.websiteAppearance = .dark
+        case "essentialShortcuts":
+            EssentialShortcutsWindow.shared.show(bindings: bindings) { [weak self] in
+                self?.showSettingsWindow()
+                self?.settingsController?.show(.shortcuts)
+            }
+        case "revealData": NSWorkspace.shared.activateFileViewerSelecting([AppPaths.supportDir])
+        case "copyAppInfo": copy(appInfo())
         case "print": main.currentBrowser?.print()
         case "capturePage": main.capturePage()
         case "find": main.showFindBar()
         case "findNext": main.findNext(forward: true)
         case "findPrevious": main.findNext(forward: false)
+        case "useSelectionForFind": main.useSelectionForFind()
+        case "jumpToSelection": main.jumpToSelection()
         case "toggleSidebar": main.toggleSidebar()
         case "toggleToolbar": store.settings.showToolbar.toggle()
         case "toggleDeveloperMode": if let url = store.selectedTab?.tab?.url { store.settings.toggleDeveloperMode(url: url) }
@@ -1264,6 +1355,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "openLibrary": main.toggleLibrary()
         case "viewArchive": main.showLibrary(.archive)
         case "viewDownloads": main.showLibrary(.downloads)
+        case "viewMedia": main.showLibrary(.media)
+        case "viewEasels": main.showLibrary(.easels)
         case "goBack": main.currentBrowser?.goBack()
         case "goForward": main.currentBrowser?.goForward()
         case "pinTab": if let c = current, !main.isBlank { store.togglePinned(c) }
@@ -1310,7 +1403,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         default:
             if id.hasPrefix("item"), let n = Int(id.dropFirst(4)) {
                 let tabs = store.visibleTabs(in: store.focusedSpaceID)
-                if n - 1 < tabs.count { store.selectTab(tabs[n - 1].id) }
+                // ⌘9 is the last one (Arc's "Go to last Sidebar Item").
+                if n == 9, let last = tabs.last { store.selectTab(last.id) } else if n - 1 < tabs.count { store.selectTab(tabs[n - 1].id) }
+            } else if id.hasPrefix("splitPane"), let n = Int(id.dropFirst(9)) {
+                main.selectSplitPane(n)
             } else if id.hasPrefix("space"), let n = Int(id.dropFirst(5)) {
                 if n - 1 < store.spaceOrder.count { store.focusSpace(store.spaceOrder[n - 1]) }
             } else if id.hasPrefix("moveTabToSpace"), let n = Int(id.dropFirst(14)) {
@@ -1319,26 +1415,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    /// Help ▸ Troubleshooting ▸ Copy Cra Info: what a bug report needs about this copy.
+    private func appInfo() -> String {
+        let info = Bundle.main.infoDictionary
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        return """
+        Cra \(info?["CFBundleShortVersionString"] as? String ?? "") (\(info?["CFBundleVersion"] as? String ?? ""))
+        Chromium \(CraCEFRuntime.chromiumVersion()) · CEF \(CraCEFRuntime.cefVersion())
+        macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion)
+        """
+    }
+
     private func copy(_ s: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(s, forType: .string)
     }
 
-    func confirmDeleteSpace(_ space: Space) {
+    func confirmDeleteSpace(_ space: Space, in window: NSWindow? = nil) {
+        let window = window ?? main?.window ?? AppDialog.parentWindow
         guard store.spaceOrder.count > 1 else {
-            let a = NSAlert()
-            a.messageText = "You need at least one space."
-            a.runModal()
+            let a = AppDialog(title: "You need at least one space.")
+            a.runModal(over: window)
             return
         }
-        let a = NSAlert()
-        // Arc 1.171's copy (WindowsData+CloseItems).
-        a.messageText = "Delete your \(space.title) Space?"
-        a.informativeText = "This will archive all the tabs and folders inside it."
-        a.addButton(withTitle: "Delete")
-        a.addButton(withTitle: "Cancel")
-        a.alertStyle = .warning
-        if a.runModal() == .alertFirstButtonReturn { store.deleteSpace(space.id) }
+        let a = AppDialog(title: "Delete your “\(space.title)” Space?",
+                          message: "This will archive all the tabs and folders inside it.",
+                          actions: [DialogAction("Delete", role: .destructive), .cancel])
+        if a.runModal(over: window) == .alertFirstButtonReturn { store.deleteSpace(space.id) }
     }
 
     // MARK: Windows
@@ -1419,11 +1522,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menubar.addItem(submenu: appMenu, title: "Cra")
 
         let file = NSMenu(title: "File")
-        for id in ["newTab", "newWindow", "newBlankWindow", "newIncognitoWindow", "newLittleWindow", "reopenClosedTab", "editURL", "newFolder", "newSpace"] { file.addItem(item(id)) }
+        for id in ["newTab", "newWindow", "newBlankWindow", "newIncognitoWindow", "newLittleWindow", "reopenClosedTab", "editURL", "newFolder", "newSpace", "newEasel"] { file.addItem(item(id)) }
         file.addItem(.separator())
         file.addItem(item("closeWindow")); file.addItem(item("closeTab"))
         file.addItem(.separator())
-        file.addItem(item("capturePage")); file.addItem(item("print"))
+        // Arc: Capture…, Capture Full Page, Save Page As, Print.
+        for id in ["capturePage", "captureFullPage", "capturePortrait", "savePageAs", "print"] { file.addItem(item(id)) }
         menubar.addItem(submenu: file, title: "File")
 
         let edit = NSMenu(title: "Edit")
@@ -1432,19 +1536,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         edit.addItem(.separator())
         edit.addItem(std("Cut", #selector(NSText.cut(_:)), "x"))
         edit.addItem(std("Copy", #selector(NSText.copy(_:)), "c"))
-        edit.addItem(item("copyURL")); edit.addItem(item("copyURLMarkdown"))
+        edit.addItem(item("copyURL")); edit.addItem(item("copyURLMarkdown")); edit.addItem(item("copyURLQuote"))
         edit.addItem(std("Paste", #selector(NSText.paste(_:)), "v"))
         edit.addItem(std("Paste and Match Style", #selector(pasteAsPlainText(_:)), "v", [.command, .shift]))
         edit.addItem(std("Delete", #selector(NSText.delete(_:))))
         edit.addItem(std("Select All", #selector(NSText.selectAll(_:)), "a"))
         edit.addItem(.separator())
         let find = NSMenu(title: "Find")
-        find.addItem(item("find")); find.addItem(item("findNext")); find.addItem(item("findPrevious"))
+        for id in ["find", "findNext", "findPrevious", "useSelectionForFind", "jumpToSelection"] { find.addItem(item(id)) }
         edit.addItem(submenu: find, title: "Find")
         menubar.addItem(submenu: edit, title: "Edit")
 
         let view = NSMenu(title: "View")
-        view.addItem(item("toggleSidebar")); view.addItem(item("toggleToolbar"))
+        // Arc: View ▸ Appearance ▸ "Websites, Easels, and Notes will use:" Automatic / Light / Dark.
+        let appearance = NSMenu(title: "Appearance")
+        appearance.addItem(withTitle: "Websites will use:", action: nil, keyEquivalent: "").isEnabled = false
+        for a in WebsiteAppearance.allCases {
+            let m = item("appearance" + a.title)
+            m.title = a.title
+            appearance.addItem(m)
+        }
+        view.addItem(submenu: appearance, title: "Appearance")
+        view.addItem(.separator())
+        view.addItem(item("toggleSidebar")); view.addItem(item("toggleToolbar")); view.addItem(item("collapsePinned"))
         view.addItem(.separator())
         view.addItem(item("stop")); view.addItem(item("reload")); view.addItem(item("hardReload"))
         // Arc's View menu order: cookies, then cache.
@@ -1452,7 +1566,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         view.addItem(.separator())
         view.addItem(item("resetZoom")); view.addItem(item("zoomIn")); view.addItem(item("zoomOut"))
         view.addItem(.separator())
-        view.addItem(item("pictureInPicture"))
+        view.addItem(item("pictureInPicture")); view.addItem(item("cast"))
         view.addItem(.separator())
         for id in ["addSplitView", "closeSplitPane", "separateFromSplit", "flipSplitOrientation"] { view.addItem(item(id)) }
         view.addItem(.separator())
@@ -1476,7 +1590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menubar.addItem(submenu: spaces, title: "Spaces")
 
         let tabs = NSMenu(title: "Tabs")
-        for id in ["newTab", "pinTab", "nextTab", "previousTab", "recentTab", "clearToday"] { tabs.addItem(item(id)) }
+        for id in ["newTab", "pinTab", "nextTab", "previousTab", "revealTab", "recentTab", "clearToday", "resetSpaceTabs"] { tabs.addItem(item(id)) }
         tabs.addItem(.separator())
         for id in ["favoriteTab", "renameTab", "duplicateTab", "resetTab", "muteTab"] { tabs.addItem(item(id)) }
         tabs.addItem(.separator())
@@ -1484,19 +1598,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menubar.addItem(submenu: tabs, title: "Tabs")
 
         let archive = NSMenu(title: "Archive")
-        archive.addItem(item("goBack")); archive.addItem(item("goForward")); archive.addItem(item("viewArchive"))
+        archive.addItem(item("goBack")); archive.addItem(item("goForward"))
+        archive.addItem(.separator())
+        for id in ["viewArchive", "showArchive", "clearArchive"] { archive.addItem(item(id)) }
         menubar.addItem(submenu: archive, title: "Archive")
 
         // Dia: Extensions sits just before Window.
         menubar.addItem(submenu: extensionsMenu.makeMenu(), title: "Extensions")
 
         let window = NSMenu(title: "Window")
+        window.addItem(item("stayOnTop"))
         window.addItem(std("Minimize Window", #selector(NSWindow.performMiniaturize(_:)), "m"))
         window.addItem(std("Zoom", #selector(NSWindow.performZoom(_:))))
         window.addItem(.separator())
-        window.addItem(item("openLibrary")); window.addItem(item("viewDownloads"))
+        window.addItem(item("openLibrary")); window.addItem(item("viewDownloads")); window.addItem(item("viewEasels")); window.addItem(item("viewMedia"))
         window.addItem(.separator())
-        window.addItem(item("promoteLittleWindow")); window.addItem(item("closeLittleWindows"))
+        window.addItem(item("promoteLittleWindow")); window.addItem(item("littleWindowOpenInMenu")); window.addItem(item("closeLittleWindows"))
         window.addItem(.separator())
         window.addItem(std("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))))
         menubar.addItem(submenu: window, title: "Window")
@@ -1505,6 +1622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let help = NSMenu(title: "Help")
         help.addItem(withTitle: "Chromium \(CraCEFRuntime.chromiumVersion()) · CEF \(CraCEFRuntime.cefVersion())", action: nil, keyEquivalent: "")
         help.addItem(.separator())
+        help.addItem(item("essentialShortcuts"))
         for (title, url) in [("Cra Help", "https://crabrowser.app/help"), ("Release Notes", "https://crabrowser.app/release-notes"),
                              ("Report an Issue…", "https://github.com/VictorKildahl/cra/issues"), ("Support Cra…", "https://crabrowser.app/support")] {
             let link = NSMenuItem(title: title, action: #selector(openHelpLink(_:)), keyEquivalent: "")
@@ -1513,7 +1631,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             help.addItem(link)
         }
         help.addItem(.separator())
-        help.addItem(withTitle: "Export Diagnostics…", action: #selector(exportDiagnostics), keyEquivalent: "").target = self
+        // Arc: Help ▸ Troubleshooting.
+        let trouble = NSMenu(title: "Troubleshooting")
+        trouble.addItem(withTitle: "Export Diagnostics…", action: #selector(exportDiagnostics), keyEquivalent: "").target = self
+        trouble.addItem(.separator())
+        trouble.addItem(item("taskManager")); trouble.addItem(item("revealData")); trouble.addItem(item("copyAppInfo"))
+        help.addItem(submenu: trouble, title: "Troubleshooting")
         menubar.addItem(submenu: help, title: "Help")
         NSApp.helpMenu = help
 

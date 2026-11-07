@@ -844,16 +844,12 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     func changeProfile(to id: UUID?) {
         guard id != state.profileID, let window else { return }
         if UserDefaults.standard.bool(forKey: Self.bypassProfileDialogKey) { reload(inProfile: id); return }
-        let alert = NSAlert()
-        alert.messageText = "Open this page in \(store.profile(id)?.name ?? "Default")?"
-        alert.informativeText = "Each Profile has different browser data, so this webpage might look a little different."
-        alert.addButton(withTitle: "Change Profile")
-        alert.addButton(withTitle: "Cancel")
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "Don’t ask again"
-        alert.beginSheetModal(for: window) { [weak self, weak alert] resp in
+        let alert = AppDialog(title: "Open this page in \(store.profile(id)?.name ?? "Default")?",
+                              message: "Each Profile has different browser data, so this webpage might look a little different.",
+                              actions: [DialogAction("Change Profile"), .cancel], suppressionTitle: "Don’t ask again")
+        alert.present(over: window) { [weak self, weak alert] resp in
             guard let self, resp == .alertFirstButtonReturn else { return }
-            if alert?.suppressionButton?.state == .on { UserDefaults.standard.set(true, forKey: Self.bypassProfileDialogKey) }
+            if alert?.isSuppressed == true { UserDefaults.standard.set(true, forKey: Self.bypassProfileDialogKey) }
             self.reload(inProfile: id)
         }
     }
@@ -926,6 +922,8 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
             browser?.showDevTools()
         case "print": browser?.print()
         case "promoteLittleWindow": promote(to: nil)
+        // Arc's Show Little Arc "Open In" Menu (⇧⌘O): the ⌄ button's list of spaces.
+        case "littleWindowOpenInMenu": if hasPage, !isPeek { togglePopup() }
         // Move Tab to Space N (⌃⌘N, #86) sends the page there, as the spaces popup does (#92).
         case let id where id.hasPrefix("moveTabToSpace"):
             if let n = Int(id.dropFirst(14)), n >= 1, n <= store.spaceOrder.count { promote(to: store.spaceOrder[n - 1]) }
@@ -1171,12 +1169,10 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     func browser(_ browser: CraBrowser, requestsPermissionForOrigin origin: String, kinds: UInt, completion: @escaping (Bool) -> Void) {
         // The main window's sheet. A quiet notification deny here would save a block for the
         // site that its tabs then hit too (#137).
-        let alert = NSAlert()
-        alert.messageText = PermissionPrompt.message(origin: origin, kinds: kinds)
-        alert.addButton(withTitle: "Allow")
-        alert.addButton(withTitle: "Block")
+        let alert = AppDialog(title: PermissionPrompt.message(origin: origin, kinds: kinds),
+                              actions: [DialogAction("Allow"), DialogAction("Block", role: .cancel)])
         guard let window else { completion(false); return }
-        alert.beginSheetModal(for: window) { resp in completion(resp == .alertFirstButtonReturn) }
+        alert.present(over: window) { resp in completion(resp == .alertFirstButtonReturn) }
     }
 
     func browserDidReceiveFocus(_ browser: CraBrowser) {}

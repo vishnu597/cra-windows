@@ -27,6 +27,13 @@ enum StoreTests {
         integrity()
         liveFolderExpiry()
         liveFolderSignIn()
+        gitLabHiddenItems()
+        gitLabFolderExpiryAndDeletion()
+        gitLabMultipleServers()
+        liveFoldersRejectStandaloneSpaces()
+        gitLabProfileChangeClearsResults()
+        gitLabFolderMovesRejectDuplicateServers()
+        gitLabProfileChangeKeepsNavigatedPages()
         stampsUseTheClock()
         persistenceFaults()
         incognitoStaysOffDisk()
@@ -51,6 +58,10 @@ enum StoreTests {
         blankWindows()
         blankWindowWithoutItsWindow()
         tornOffTabMovesToABlankWindow()
+        archiveTabsBelow()
+        allFoldersExpanded()
+        revealInSidebar()
+        oneWindowAtLaunch()
         print("Store: \(checks) checks passed")
     }
 
@@ -344,6 +355,168 @@ enum StoreTests {
         store.expireLiveItems(olderThan: 3600)
         expect(store.children(of: folder.id).map(\.tab?.liveItemURL) == [one.url], "and goes when it ends")
         expect(store.integrityProblems().isEmpty, "live folder changes keep the sidebar sound")
+    }
+
+    private static func gitLabRequest(_ number: Int, server: String = "https://git.example.test") -> LivePullRequest {
+        var request = LivePullRequest(owner: "company/team", repo: "app", number: number, title: "Merge request \(number)", createdByMe: true)
+        request.webURL = "\(server)/company/team/app/-/merge_requests/\(number)"
+        return request
+    }
+
+    @MainActor
+    private static func liveFoldersRejectStandaloneSpaces() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let windows = [store.addBlankWindow(frame: nil), store.addIncognitoWindow(frame: nil)]
+        for window in windows {
+            let space = store.focusedSpaceID(window: window.id)
+            for source in [LiveFolderSource.github, .gitlab] {
+                expect(store.createLiveFolder(source, inSpace: space, serverURL: source == .gitlab ? "https://gitlab.com" : nil) == nil,
+                       "neither provider creates live folders inside Blank or Incognito windows")
+            }
+        }
+        expect(store.integrityProblems().isEmpty, "rejected live folders leave standalone windows unchanged")
+    }
+
+    @MainActor
+    private static func gitLabProfileChangeKeepsNavigatedPages() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let space = store.createSpace(title: "GitLab navigated pages", emoji: "G", focus: true)
+        guard let folder = store.createLiveFolder(.gitlab, inSpace: space.id, serverURL: "https://git.example.test") else { return expect(false, "a GitLab folder exists") }
+        store.applyLiveResults([gitLabRequest(60)], to: folder.id, ssoOrganizations: [])
+        guard let tab = store.tabs(under: folder.id).first else { return expect(false, "an MR tab exists") }
+        store.selectTab(tab.id)
+        store.updateTab(tab.id, url: "https://example.test/reading", title: "Reading")
+        let profile = store.createProfile(name: "Other account")
+        store.setProfile(profile.id, forSpace: space.id)
+        expect(store.item(tab.id)?.tab?.url == "https://example.test/reading" && store.item(tab.id)?.tab?.savedTitle == "Reading",
+               "a profile change keeps the page a live tab navigated to")
+        expect(store.item(tab.id)?.parentID == space.todayContainerID && store.selectedTabID == tab.id,
+               "the navigated page remains selected as an ordinary Today tab")
+        expect(store.item(tab.id)?.tab?.liveItemURL == nil && store.integrityProblems().isEmpty,
+               "the preserved page is no longer controlled by the live folder")
+    }
+
+    @MainActor
+    private static func gitLabProfileChangeClearsResults() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let space = store.createSpace(title: "GitLab profiles", emoji: "G", focus: true)
+        guard let folder = store.createLiveFolder(.gitlab, inSpace: space.id, serverURL: "https://git.example.test") else { return expect(false, "a GitLab folder exists") }
+        store.applyLiveResults([gitLabRequest(41)], to: folder.id, ssoOrganizations: [])
+        let oldContext = store.liveRequestContext(folder.id)
+        store.updateLiveFolder(folder.id) { $0.hiddenItems = ["https://git.example.test/private/mr"] }
+        let profile = store.createProfile(name: "Other GitLab account")
+        store.setProfile(profile.id, forSpace: space.id)
+        expect(store.tabs(under: folder.id).isEmpty, "changing profile clears the previous account's MR tabs")
+        expect(store.item(folder.id)?.liveFolder?.lastFetch == nil, "changing profile makes the folder refresh at once")
+        expect(store.item(folder.id)?.liveFolder?.hiddenItems.isEmpty == true, "the new profile does not inherit another account's exclusions")
+        store.applyLiveResults([gitLabRequest(41)], to: folder.id, ssoOrganizations: [], context: oldContext)
+        store.applyLiveFailure(.notSignedIn, to: folder.id, context: oldContext)
+        expect(store.tabs(under: folder.id).isEmpty && store.item(folder.id)?.liveFolder?.lastError == nil,
+               "late successes and failures from the previous profile are ignored")
+        store.setProfile(nil, forSpace: space.id)
+        expect(store.liveRequestContext(folder.id) != oldContext, "switching away and back still invalidates the original request")
+        store.applyLiveResults([gitLabRequest(41)], to: folder.id, ssoOrganizations: [], context: oldContext)
+        expect(store.tabs(under: folder.id).isEmpty, "returning to the original profile cannot revive an obsolete response")
+        expect(store.integrityProblems().isEmpty, "profile invalidation keeps the tree sound")
+    }
+
+    @MainActor
+    private static func gitLabFolderMovesRejectDuplicateServers() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let a = store.createSpace(title: "GitLab A", emoji: "A", focus: true)
+        let b = store.createSpace(title: "GitLab B", emoji: "B", focus: false)
+        guard let one = store.createLiveFolder(.gitlab, inSpace: a.id, serverURL: "https://git.example.test"),
+              let two = store.createLiveFolder(.gitlab, inSpace: b.id, serverURL: "https://git.example.test") else { return expect(false, "both spaces have a server folder") }
+        store.moveTab(one.id, toSpace: b.id)
+        expect(store.spaceID(ofItem: one.id) == a.id && store.spaceID(ofItem: two.id) == b.id, "a folder move cannot create a duplicate server in the destination")
+        let wrapper = store.createFolder(named: "Work", in: a.pinnedContainerID)
+        store.moveItem(one.id, to: wrapper.id, index: nil)
+        store.moveTab(wrapper.id, toSpace: b.id)
+        expect(store.spaceID(ofItem: wrapper.id) == a.id, "wrapping a live folder does not bypass server uniqueness")
+        let c = store.createSpace(title: "GitLab C", emoji: "C", focus: false)
+        let profile = store.createProfile(name: "GitLab C account")
+        store.setProfile(profile.id, forSpace: c.id)
+        store.applyLiveResults([gitLabRequest(42)], to: one.id, ssoOrganizations: [])
+        let context = store.liveRequestContext(one.id)
+        store.moveTab(wrapper.id, toSpace: c.id)
+        expect(store.spaceID(ofItem: one.id) == c.id && store.tabs(under: one.id).isEmpty,
+               "moving a wrapper to a different profile invalidates its live folder results")
+        store.applyLiveResults([gitLabRequest(42)], to: one.id, ssoOrganizations: [], context: context)
+        expect(store.tabs(under: one.id).isEmpty, "a pre-move response cannot cross into the new profile")
+        expect(store.integrityProblems().isEmpty, "rejected moves keep both spaces sound")
+    }
+
+    @MainActor
+    private static func gitLabMultipleServers() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let space = store.createSpace(title: "GitLab servers", emoji: "G", focus: true)
+        guard let one = store.createLiveFolder(.gitlab, inSpace: space.id, serverURL: "https://git.example.test"),
+              let two = store.createLiveFolder(.gitlab, inSpace: space.id, serverURL: "https://gitlab.com") else {
+            return expect(false, "folders for two GitLab servers can be created")
+        }
+        expect(one.id != two.id && one.title == "Merge Requests" && two.title == "Merge Requests",
+               "each server has its own folder, named like Arc's Pull Requests folder")
+        expect(one.liveFolder?.filter.attributes == [.authored, .reviewRequests, .assigned], "every filter starts on, as in Arc")
+        let duplicate = store.createLiveFolder(.gitlab, inSpace: space.id, serverURL: "HTTPS://GIT.EXAMPLE.TEST:443/")
+        expect(duplicate?.id == one.id, "equivalent server URLs reuse the existing folder")
+        expect(store.liveFolder(.gitlab, inSpace: space.id, serverURL: "gitlab.com/")?.id == two.id, "server lookup identifies the right folder")
+        store.applyLiveResults([gitLabRequest(30)], to: one.id, ssoOrganizations: [])
+        store.applyLiveResults([gitLabRequest(30, server: "https://gitlab.com")], to: two.id, ssoOrganizations: [])
+        if let tab = store.tabs(under: one.id).first { store.archiveTab(tab.id, reason: .manual) }
+        expect(store.item(one.id)?.liveFolder?.hiddenItems.count == 1 && store.item(two.id)?.liveFolder?.hiddenItems.isEmpty == true,
+               "hidden lists are independent even for matching project names and MR numbers")
+        let three = store.createLiveFolder(.gitlab, inSpace: space.id, serverURL: "https://git.example.test:8443/gitlab")
+        expect(three != nil && three?.id != one.id, "ports and installation paths distinguish GitLab instances")
+        expect(store.createLiveFolder(.gitlab, inSpace: space.id, serverURL: "file:///etc") == nil, "invalid servers are rejected")
+        let github = store.createLiveFolder(.github, inSpace: space.id)
+        expect(store.createLiveFolder(.github, inSpace: space.id)?.id == github?.id, "GitHub still has one folder per space")
+        store.deleteFolder(one.id)
+        expect(store.item(two.id) != nil && store.tabs(under: two.id).count == 1, "deleting a server folder leaves the other server untouched")
+        expect(store.integrityProblems().isEmpty, "multiple server folders keep the sidebar sound")
+    }
+
+    @MainActor
+    private static func gitLabHiddenItems() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let space = store.createSpace(title: "GitLab hidden", emoji: "G", focus: true)
+        guard let folder = store.createLiveFolder(.gitlab, inSpace: space.id, serverURL: "https://git.example.test") else {
+            return expect(false, "a GitLab live folder is made")
+        }
+        let requests = [gitLabRequest(10), gitLabRequest(11)]
+        store.applyLiveResults(requests, to: folder.id, ssoOrganizations: [])
+        for tab in store.tabs(under: folder.id) { store.archiveTab(tab.id, reason: .manual) }
+        expect(Set(store.item(folder.id)?.liveFolder?.hiddenItems ?? []) == Set(requests.map(\.url)), "closing an MR's tab hides it, as in Arc")
+        store.applyLiveResults(requests, to: folder.id, ssoOrganizations: [])
+        expect(store.tabs(under: folder.id).isEmpty, "refreshing does not restore hidden merge requests")
+        if let archived = store.archive.first(where: { $0.item.tab?.liveItemURL == requests[1].url }) { store.restoreArchived(archived.id, select: false) }
+        expect(store.tabs(under: folder.id).map(\.tab?.liveItemURL) == [requests[1].url], "Reopen Closed Tab puts the MR back in its folder")
+        expect(store.item(folder.id)?.liveFolder?.hiddenItems == [requests[0].url], "the other MR remains hidden")
+        guard let moved = store.tabs(under: folder.id).first else { return expect(false, "a tab can be moved out") }
+        store.moveItem(moved.id, to: space.todayContainerID, index: 0)
+        expect(store.item(folder.id)?.liveFolder?.hiddenItems.count == 2 && store.item(moved.id)?.tab?.liveItemURL == nil,
+               "dragging an MR out of the folder hides it too")
+        expect(store.integrityProblems().isEmpty, "hide and restore keep the sidebar sound")
+    }
+
+    @MainActor
+    private static func gitLabFolderExpiryAndDeletion() {
+        let clock = ManualScheduler()
+        let store = AppComposition(clock: clock).store
+        let space = store.createSpace(title: "GitLab expiry", emoji: "G", focus: true)
+        guard let folder = store.createLiveFolder(.gitlab, inSpace: space.id, serverURL: "https://git.example.test") else {
+            return expect(false, "a GitLab live folder is made")
+        }
+        let requests = [gitLabRequest(20), gitLabRequest(21)]
+        store.applyLiveResults(requests, to: folder.id, ssoOrganizations: [])
+        store.applyLiveResults([requests[0]], to: folder.id, ssoOrganizations: [])
+        clock.advance(by: 121)
+        store.expireLiveItems(olderThan: 120)
+        expect(store.tabs(under: folder.id).map(\.tab?.liveItemURL) == [requests[0].url], "a merged MR leaves after the grace period")
+        expect(store.item(folder.id)?.liveFolder?.hiddenItems.isEmpty == true, "automatic expiry never hides an MR")
+        let tabs = store.tabs(under: folder.id).map(\.id)
+        store.deleteFolder(folder.id)
+        expect(store.item(folder.id) == nil && tabs.allSatisfy { store.item($0) == nil }, "deleting the folder deletes its MR tabs")
+        expect(store.integrityProblems().isEmpty, "deleting a live folder leaves no orphan tabs")
     }
 
     /// Every date the store writes comes from its clock.
@@ -1197,28 +1370,46 @@ enum StoreTests {
         expect(heard == [a.id, a.id], "pinning it again does")
     }
 
-    // promise: #191
-    /// A tab dropped on a pinned tab makes a split, as on a Today tab (Arc, #191): the pinned tab
-    /// stays pinned where it was, and the split opens at the top of Today with the dropped tab on
-    /// the side it was dropped and a copy of the pinned page beside it.
+    // promise: #191 #180
+    /// A tab dropped on the middle of a pinned tab makes a split, not a folder (#191), in the
+    /// pinned tab's place, as Arc 1.172 does (#180, observed live): a Today tab becomes a pinned
+    /// split with it, two pinned tabs combine where the target was, inside its folder if it has
+    /// one. Both tabs move into the split (no copies), the dropped one on the side it was dropped,
+    /// its pane focused.
     @MainActor
     private static func dropOnPinnedTabSplits() {
         let store = AppComposition(clock: ManualScheduler()).store
         let sid = store.createSpace(title: "Drop", emoji: "🪂").id
         guard let space = store.space(sid) else { return expect(false, "the space is made") }
+        let first = store.createTab(url: "https://example.com/first", title: "First", in: sid, pinned: true, select: false)
         let pinned = store.createTab(url: "https://example.com/pinned", title: "Pinned", in: sid, pinned: true, select: false)
+        let last = store.createTab(url: "https://example.com/last", title: "Last", in: sid, pinned: true, select: false)
         let older = store.createTab(url: "https://example.com/older", in: sid, select: false)
         let dragged = store.createTab(url: "https://example.com/dragged", in: sid, select: false)
-        let pinnedOrder = store.children(of: space.pinnedContainerID).map(\.id)
-        // What the list does with a drop on the left half of the pinned row: .split(with: pinned, leading: true).
-        guard let split = store.createSplit(with: [dragged.id, pinned.id], at: pinned.id) else { return expect(false, "the drop makes a split") }
-        expect(store.isPinned(pinned.id) && store.children(of: space.pinnedContainerID).map(\.id) == pinnedOrder,
-               "the pinned tab stays pinned, in its place")
-        expect(store.children(of: space.todayContainerID).map(\.id) == [split.id, older.id], "the split opens at the top of Today")
-        let panes = store.children(of: split.id)
-        expect(panes.count == 2 && panes[0].id == dragged.id && panes[1].id != pinned.id
-               && panes[1].tab?.url == "https://example.com/pinned" && store.paneID(for: pinned.id, in: split) == panes[1].id,
-               "the dropped tab takes the side it was dropped on, a copy of the pinned page the other")
+
+        // A Today tab on the left half of the pinned row: .split(with: pinned, leading: true).
+        guard let split = store.combineIntoSplit(dragged.id, onto: pinned.id, leading: true) else {
+            return expect(false, "the drop makes a split")
+        }
+        expect(store.children(of: space.pinnedContainerID).map(\.id) == [first.id, split.id, last.id],
+               "the split is pinned, in the pinned tab's place")
+        expect(store.children(of: space.todayContainerID).map(\.id) == [older.id], "the dropped tab left Today; nothing opened there")
+        expect(store.children(of: split.id).map(\.id) == [dragged.id, pinned.id],
+               "both tabs are the panes, the dropped one on the side it was dropped")
+        expect(store.isPinned(dragged.id) && store.item(dragged.id)?.tab?.savedURL == "https://example.com/dragged",
+               "the dropped tab is pinned, its page its home")
+        expect(store.item(split.id)?.split?.focusTabID == dragged.id, "the dropped tab's pane is focused")
+
+        // Pinned on pinned (the reporter's case), inside a folder, on the right half.
+        let folder = store.createFolder(named: "F", in: space.pinnedContainerID)
+        let a = store.createTab(url: "https://example.com/a", in: sid, pinned: true, select: false, parent: folder.id)
+        let b = store.createTab(url: "https://example.com/b", in: sid, pinned: true, select: false, parent: folder.id)
+        guard let inner = store.combineIntoSplit(last.id, onto: b.id, leading: false) else {
+            return expect(false, "the second drop makes a split")
+        }
+        expect(store.children(of: folder.id).map(\.id) == [a.id, inner.id] && store.children(of: inner.id).map(\.id) == [b.id, last.id],
+               "two pinned tabs combine in the target's folder, with no new folder and no copy")
+        expect(store.children(of: space.pinnedContainerID).map(\.id) == [first.id, split.id, folder.id], "the dropped tab left its slot")
         expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
     }
 
@@ -1397,6 +1588,83 @@ enum StoreTests {
         expect(store.item(stays.id) != nil && store.integrityProblems().isEmpty, "and the sidebar stays sound")
         store.removeWindow(second)
         store.saveAll()
+    }
+
+    /// Arc's Today tab menu: "Archive Tabs Below" archives every Today row under the one clicked.
+    @MainActor
+    private static func archiveTabsBelow() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.createSpace(title: "Below", emoji: "⬇️").id
+        let today = store.space(sid)!.todayContainerID
+        let a = store.createTab(url: "https://a.example/", in: sid, select: false, parent: today, index: 0)
+        let b = store.createTab(url: "https://b.example/", in: sid, select: false, parent: today, index: 1)
+        let c = store.createTab(url: "https://c.example/", in: sid, select: false, parent: today, index: 2)
+        let d = store.createTab(url: "https://d.example/", in: sid, select: false, parent: today, index: 3)
+        let split = store.createSplit(with: [c.id, d.id])!
+        let pinned = store.createTab(url: "https://p.example/", in: sid, pinned: true, select: false)
+        expect(store.children(of: today).map(\.id) == [a.id, b.id, split.id], "set up: two tabs and a split in Today")
+        store.archiveTabsBelow(a.id)
+        expect(store.children(of: today).map(\.id) == [a.id], "the tabs and the split below it are archived")
+        expect(Set(store.archive.prefix(3).compactMap(\.item.tab?.url)) == ["https://b.example/", "https://c.example/", "https://d.example/"],
+               "and land in the archive")
+        store.archiveTabsBelow(pinned.id)
+        expect(store.item(pinned.id) != nil, "a pinned tab archives nothing below it (Arc offers it on Today tabs only)")
+        expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
+    }
+
+    /// Arc's Shortcuts list: Collapse All Folders / Expand All Folders, nested folders included.
+    @MainActor
+    private static func allFoldersExpanded() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.createSpace(title: "Folders", emoji: "📁").id
+        let pinned = store.space(sid)!.pinnedContainerID
+        let outer = store.createFolder(named: "Outer", in: pinned)
+        let inner = store.createFolder(named: "Inner", in: outer.id)
+        let other = store.createSpace(title: "Other", emoji: "🗂️", focus: false).id
+        let elsewhere = store.createFolder(named: "Elsewhere", in: store.space(other)!.pinnedContainerID)
+        store.setExpanded(elsewhere.id, false)
+        store.setAllFoldersExpanded(false, inSpace: sid)
+        expect(!store.isExpanded(outer.id) && !store.isExpanded(inner.id), "every folder in the space closes, nested ones too")
+        store.setAllFoldersExpanded(true, inSpace: sid)
+        expect(store.isExpanded(outer.id) && store.isExpanded(inner.id), "and they all open again")
+        expect(!store.isExpanded(elsewhere.id), "another space's folders stay as they were")
+    }
+
+    /// Arc's Settings ▸ Advanced "When opening Arc, restore windows from previous session", off:
+    /// launch keeps one window, the one in use last; a Blank Window's own space goes with it.
+    @MainActor
+    private static func oneWindowAtLaunch() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.focusedSpace.id
+        let second = store.addWindow(spaceID: sid, frame: nil)
+        let blank = store.addBlankWindow(frame: nil)
+        let blankSpace = store.window(blank.id).focusedSpaceID!
+        store.activeWindowID = second.id
+        store.keepOnlyActiveWindow()
+        expect(store.prefs.windows.map(\.id) == [second.id], "only the window in use last stays")
+        expect(store.space(blankSpace) == nil, "the Blank Window's own space goes with it")
+        expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
+    /// Arc's Reveal Tab in Sidebar (⌃Space): the folders around the tab open, and a collapsed
+    /// pinned section opens when the tab is in it.
+    @MainActor
+    private static func revealInSidebar() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.createSpace(title: "Reveal", emoji: "🔦").id
+        let pinned = store.space(sid)!.pinnedContainerID
+        let outer = store.createFolder(named: "Outer", in: pinned)
+        let inner = store.createFolder(named: "Inner", in: outer.id)
+        let tab = store.createTab(url: "https://deep.example/", in: sid, pinned: true, select: false, parent: inner.id)
+        store.setAllFoldersExpanded(false, inSpace: sid)
+        store.togglePinnedCollapsed(sid)
+        store.revealInSidebar(tab.id)
+        expect(store.isExpanded(outer.id) && store.isExpanded(inner.id), "both folders around the tab open")
+        expect(!store.isPinnedCollapsed(sid), "and the collapsed pinned section opens")
+        let today = store.createTab(url: "https://today.example/", in: sid, select: false)
+        store.togglePinnedCollapsed(sid)
+        store.revealInSidebar(today.id)
+        expect(store.isPinnedCollapsed(sid), "a Today tab leaves the pinned section as it is")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

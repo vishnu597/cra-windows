@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// Arc's Library: not a window but a mode of the sidebar (WindowState+Library, HomeButton/*),
 /// so it never ends up behind the browser. Measured on Arc 1.170 (window captures + AX tree,
@@ -245,6 +246,8 @@ private final class LibraryRailButton: NSView {
 private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
     enum Row {
         case header(String)
+        case media([MediaLibrary.File])
+        case easel(id: UUID, title: String, edited: Date)
         case download(DownloadHistory.Entry)
         case archived(ArchivedItem)
     }
@@ -265,6 +268,7 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
     private let scroll = NSScrollView()
     private let table = NSTableView()
     private let empty = LibraryEmptyView()
+    private var mediaCard: NSHostingView<MediaOptInCard>?
 
     init(page: LibraryPage, store: SidebarStore, actions: SidebarActions, favicons: FaviconCache) {
         self.page = page
@@ -336,6 +340,9 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
             _ = store.archive
             _ = DownloadHistory.shared.entries
             _ = DownloadHistory.shared.thumbnails.count
+            _ = MediaScanner.shared.files
+            _ = store.settings.mediaLibraryEnabled
+            _ = store.settings.mediaFolders
         } onChange: { [weak self] in
             Task { @MainActor in self?.observe() }
         }
@@ -344,7 +351,21 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
 
     private func reload() {
         var out: [Row] = []
+        mediaCard?.isHidden = true
         switch page {
+        case .media:
+            guard store.settings.mediaLibraryEnabled else {
+                showMediaCard()
+                empty.show(symbol: "photo.on.rectangle", title: "", detail: nil)
+                break
+            }
+            // Read again whenever the page shows, a search changes or the folders change; the scan is
+            // cheap, off the main thread, and reads only the folders ticked.
+            MediaScanner.shared.rescan(store.settings.mediaFolders)
+            let all = MediaScanner.shared.files
+            let shown = MediaLibrary.shown(all, query: query)
+            out = MediaLibrary.rows(shown).map { .media($0) }
+            showEmpty(.media, hasAny: !all.isEmpty)
         case .downloads:
             let exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
             for section in LibraryList.downloads(DownloadHistory.shared.entries, matching: query, exists: exists) {
@@ -352,6 +373,13 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
                 out += section.items.map { .download($0) }
             }
             showEmpty(.downloads, hasAny: DownloadHistory.shared.entries.contains { exists($0.path) })
+        case .easels:
+            let easels = EaselFiles.all()
+            for section in LibraryList.easels(easels, title: { $0.title }, edited: { $0.edited }, matching: query) {
+                out.append(.header(section.title))
+                out += section.items.map { .easel(id: $0.id, title: $0.title, edited: $0.edited) }
+            }
+            showEmpty(.easels, hasAny: !easels.isEmpty)
         case .spaces:
             break
         case .archive:
@@ -362,7 +390,7 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
             showEmpty(.archive, hasAny: !store.archive.isEmpty)
         }
         rows = out
-        empty.isHidden = !out.isEmpty
+        empty.isHidden = !out.isEmpty || (page == .media && !store.settings.mediaLibraryEnabled)
         scroll.isHidden = out.isEmpty
         table.reloadData()
         refresh()
@@ -383,6 +411,18 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
         empty.show(symbol: e.symbol, title: e.title, detail: e.detail)
     }
 
+    /// Arc's opt-in card, over the page until Show Media is pressed.
+    private func showMediaCard() {
+        let card = MediaOptInCard(dark: colors.isDark) { [store] in store.settings.mediaLibraryEnabled = true }
+        if let mediaCard { mediaCard.rootView = card } else {
+            let host = NSHostingView(rootView: card)
+            addSubview(host)
+            mediaCard = host
+        }
+        mediaCard?.isHidden = false
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         // HStack(spacing: 4) 10 pt down, 7 pt in, 8 pt from the right: the field, the ⋯ button.
@@ -397,6 +437,11 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
         scroll.frame = NSRect(x: 0, y: 46, width: w, height: max(0, bounds.height - 46))
         table.tableColumns.first?.width = w
         empty.frame = scroll.frame
+        if let card = mediaCard {
+            let size = card.fittingSize
+            card.frame = NSRect(x: ((w - size.width) / 2).rounded(), y: max(56, ((bounds.height - size.height) / 2).rounded()),
+                                width: size.width, height: size.height)
+        }
     }
 
     // MARK: Search
@@ -419,6 +464,22 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
         let menu = NSMenu()
         menu.autoenablesItems = false
         switch page {
+        case .media:
+            // Arc's "Show media" folders (its Library button's right-click menu).
+            let store = store
+            let header = NSMenuItem(title: "Show media", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for f in MediaLibrary.Folder.allCases {
+                let on = store.settings.mediaFolders.contains(f)
+                MenuItems.add(menu, f.title, on: on) {
+                    if on { store.settings.mediaFolders.removeAll { $0 == f } } else { store.settings.mediaFolders.append(f) }
+                }
+            }
+            if store.settings.mediaLibraryEnabled {
+                menu.addItem(.separator())
+                MenuItems.add(menu, "Hide Media") { store.settings.mediaLibraryEnabled = false }
+            }
         case .downloads:
             // The folder the window's profile downloads to (#190).
             let profile = (window?.windowController as? MainWindowController)?.profileDirectoryName
@@ -428,6 +489,8 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
         case .archive:
             let store = store
             MenuItems.add(menu, "Clear Archive", enabled: !store.archive.isEmpty) { store.clearArchive() }
+        case .easels:
+            MenuItems.add(menu, "New Easel") { [weak self] in self?.actions.performAction("newEasel") }
         case .spaces:
             return
         }
@@ -440,6 +503,7 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         if case .header = rows[row] { return 40 }
+        if case .media = rows[row] { return MediaGridMetrics.rowHeight }
         return 56
     }
 
@@ -449,6 +513,26 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
             let v = tableView.makeView(withIdentifier: .init("header"), owner: nil) as? LibraryHeaderCell ?? LibraryHeaderCell()
             v.identifier = .init("header")
             v.show(label, ink: colors.isDark ? .white : .black)
+            return v
+        case .easel(let id, let title, let edited):
+            let v = tableView.makeView(withIdentifier: .init("item"), owner: nil) as? LibraryItemCell ?? LibraryItemCell()
+            v.identifier = .init("item")
+            v.showEasel(title: title, edited: edited, colors: colors) { [store, actions] in
+                let url = Easel(id: id).url
+                if let tab = store.allTabs().first(where: { $0.tab?.url == url }) { store.selectTab(tab.id) }
+                else { _ = store.createTab(url: url, title: title, select: true) }
+                actions.closeLibrary()
+            }
+            return v
+        case .media(let files):
+            let v = tableView.makeView(withIdentifier: .init("media"), owner: nil) as? MediaRowCell ?? MediaRowCell()
+            v.identifier = .init("media")
+            v.open = { [store, actions] file in
+                // Arc opens a picked picture in a tab, and the Library steps aside.
+                _ = store.createTab(url: URL(fileURLWithPath: file.path).absoluteString, select: true)
+                actions.closeLibrary()
+            }
+            v.show(files, ink: colors.isDark ? .white : .black)
             return v
         case .download(let e):
             let v = tableView.makeView(withIdentifier: .init("item"), owner: nil) as? LibraryItemCell ?? LibraryItemCell()
@@ -473,7 +557,7 @@ extension LibraryListView: NSMenuDelegate {
         let row = table.clickedRow
         guard rows.indices.contains(row) else { return }
         switch rows[row] {
-        case .header: break
+        case .header, .media, .easel: break
         case .archived(let e):
             let actions = actions, store = store
             MenuItems.add(menu, "Restore") { actions.restoreArchived(e.id) }
@@ -578,6 +662,25 @@ private final class LibraryItemCell: NSView, NSDraggingSource {
         let url = e.item.tab?.url ?? ""
         if let tip { (tip.text, tip.keys) = (url, []) } else if !url.isEmpty { tip = ArcTooltipAnchorView.attach(to: self, help: url) }
         tip?.text = url
+        apply(ink: ink)
+    }
+
+    /// An easel on Library ▸ Easels: its glyph, its title, when it was last edited.
+    func showEasel(title text: String, edited: Date, colors: SidebarColors, open: @escaping () -> Void) {
+        self.colors = colors
+        download = nil
+        restore = open
+        let ink: NSColor = colors.isDark ? .white : .black
+        tile.layer?.contents = nil
+        tile.layer?.backgroundColor = ink.withAlphaComponent(0.04).cgColor
+        icon.isHidden = false
+        icon.image = NSImage(systemSymbolName: "pencil.and.scribble", accessibilityDescription: "Easel")
+        title.stringValue = text
+        title.lineBreakMode = .byTruncatingTail
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        detail.stringValue = "Edited " + f.localizedString(for: edited, relativeTo: Date())
+        tip?.text = text
         apply(ink: ink)
     }
 

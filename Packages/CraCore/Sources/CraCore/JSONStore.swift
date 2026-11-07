@@ -9,6 +9,9 @@ public enum CoreLog {
     /// How long a file took to decode or write, in ms; the Mac app hands it to its performance
     /// recorder (Perf, wired in main.swift). Called off the main thread for writes.
     nonisolated(unsafe) public static var time: (PerfMetric, Double) -> Void = { _, _ in }
+    /// A counter bumped, with its key (a file saved, by name); the Mac app hands it to Perf too.
+    /// Called off the main thread for writes.
+    nonisolated(unsafe) public static var count: (PerfCounter, String) -> Void = { _, _ in }
 
     static func ms(since start: UInt64) -> Double { Double(DispatchTime.now().uptimeNanoseconds &- start) / 1e6 }
 }
@@ -81,7 +84,10 @@ public final class JSONStore<T: Codable> {
             try? fm.removeItem(at: bak)
             try? fm.copyItem(at: url, to: bak)
         }
-        do { try data.write(to: url, options: .atomic) } catch {
+        do {
+            try data.write(to: url, options: .atomic)
+            CoreLog.count(.fileSaved, url.lastPathComponent)
+        } catch {
             CoreLog.fault("\(url.lastPathComponent) not saved: \(error.localizedDescription)")
         }
     }

@@ -4,9 +4,9 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 3d3ff80 -->
-Upstream reviewed through **565e477** (VictorKildahl/cra main, 6 Nov 2026). Fork main has
-merged upstream through 565e477 (#24).
+<!-- upstream-reviewed: 3e2757b -->
+Upstream reviewed through **3e2757b** (VictorKildahl/cra main, 7 Nov 2026). Fork main has
+merged upstream through 3e2757b (#28).
 
 **Status:** ✅ on Windows · 🟡 partly · 🔜 in review · ❌ not yet · ➖ Mac only, or replaced by a
 Windows counterpart
@@ -21,21 +21,21 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 <!-- summary: parity.py summary --write -->
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
-| Window, pages and toolbar | 6 | 3 | 0 | 6 | 1 |
-| Sidebar | 5 | 5 | 0 | 11 | 0 |
-| Command bar and shortcuts | 3 | 1 | 0 | 1 | 0 |
-| Split view | 1 | 1 | 0 | 0 | 0 |
-| Little Windows, Peek and the Library | 3 | 2 | 0 | 2 | 0 |
+| Window, pages and toolbar | 6 | 3 | 0 | 11 | 1 |
+| Sidebar | 5 | 5 | 0 | 12 | 0 |
+| Command bar and shortcuts | 3 | 1 | 0 | 2 | 0 |
+| Split view | 1 | 1 | 0 | 1 | 0 |
+| Little Windows, Peek and the Library | 2 | 3 | 0 | 4 | 0 |
 | Tabs and memory | 1 | 1 | 0 | 3 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
-| Profiles, privacy and site data | 3 | 1 | 0 | 7 | 0 |
+| Profiles, privacy and site data | 3 | 1 | 0 | 8 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 0 | 0 | 5 | 0 |
 | Settings | 4 | 1 | 0 | 4 | 0 |
 | Import and onboarding | 0 | 0 | 0 | 5 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 3 |
 | System integration and release | 3 | 0 | 0 | 8 | 2 |
-| **All** | 31 | 17 | 0 | 55 | 8 |
+| **All** | 30 | 18 | 0 | 66 | 8 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -51,13 +51,18 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Hide the sidebar (`toggleSidebar`) and the floating sidebar that slides in from the left edge | ❌ | `FloatingSidebar.swift`, `FloatingSidebarGeometry.swift` | (move `FloatingSidebarGeometry` here) | `FloatingSidebarGeometry` is a CLAUDE.md known exception: move it to CraCore with this PR. |
 | Find in page with match count | ✅ [#10] | `Overlays.swift` | `FindInPage` | |
 | Toasts (copied URL with Share, captures, downloads) | ✅ [#17] | `ShinyToast.swift`, `Overlays.swift` | `ToastStyle` | Share button on Windows needs the Windows share sheet (DataTransferManager). |
-| Site Control Center, lock badge and certificate viewer | ✅ [#17] | `SiteControlCenter.swift`, `CertificateWindow.swift` | `SiteControlCenter`, `ConnectionSecurity`, `PageCapture` | Missing: the protected-media card (Mac only, see Media). |
+| Site Control Center, lock badge and certificate viewer | ✅ [#17] | `SiteControlCenter.swift`, `CertificateWindow.swift` | `SiteControlCenter`, `ConnectionSecurity`, `PageCapture` | Missing: the protected-media card (Mac only, see Media). Since upstream 8dbd6d1 (#226) the sliders show without extensions too; Windows already shows them in the sidebar's address pill. |
 | Zoom (`zoomIn`, `zoomOut`, `resetZoom`), `print`, `viewSource` | 🟡 | `AppDelegate.swift` | `KeyBindingDefaults` | Left to Chromium's own keys on Windows: not in Cra's key table, the command bar or Settings ▸ Shortcuts. Add them to `KeyBindingDefaults.windowsShortcuts`. |
 | Page context menu: Open Link in New Tab / Background Tab | 🟡 | `BrowserManager.swift` | `LinkMenu` | Chromium's menu shows; Cra's two items and the background setting are missing. |
 | Arc-style tooltips in the space's tones | ❌ | `ArcTooltip.swift` | `ThemeTones` (`TooltipTones`) | Windows uses plain WinUI tooltips. |
 | Theme, metrics and the brand mark | 🟡 | `Theme.swift`, `Tuning.swift`, `BrandMark.swift` | `SpaceTheme`, `ThemeTones` | Sidebar palette from `SpaceTheme` is shared; Windows has its own metrics. Brand mark from `brand/`. |
 | Sidebar blur, Reduce transparency, active/inactive look | ❌ | `ActiveAppearanceProbe.swift` | `SidebarBackdrop` | Windows counterpart: Mica or Acrylic, and Windows' transparency setting. Since f6b9fb6 a full-screen window keeps its active look while its Space slides away (AppKit's own answer, `windowActive(activeAppearance:)`). |
 | Only one Cra running (an older copy quits) | ➖ | `NewestCopy.swift` | | Windows: a single-instance mutex when the installer lands. |
+| Arc's dialog sheet for every confirmation: one card, its buttons, keys and hover | ❌ | `AppDialog.swift`, `DialogComponents.swift`, `Colors.swift` | `DialogActions` | Upstream bc47470 (#224). Windows asks with WinUI flyouts and dialogs; `DialogActions` (which button Return and Escape press) is shared for the Windows card. `Colors.swift` is SwiftUI's hex colours. |
+| Stay On Top (`stayOnTop`), Save Page As (`savePageAs`), Copy URL as Quote (`copyURLQuote`), Copy URL without trackers | ❌ | `MainWindowController.swift`, `AppDelegate.swift` | `CleanURL` | Upstream d110dc6. Windows' Copy URL copies the address as it is: call `CleanURL` there first. Stay On Top: `HWND_TOPMOST`. |
+| Find ▸ Use Selection to Find (`useSelectionForFind`), Jump to Selection (`jumpToSelection`) | ❌ | `MainWindowController.swift` | `FindInPage` | Upstream 894f1f6. Windows' find bar would take the page's selection. |
+| What websites see: View ▸ Appearance (`appearanceAutomatic`, `appearanceLight`, `appearanceDark`), sound effects, "Allow websites to get your theme data" | ❌ | `AppDelegate.swift`, `BrowserManager.swift`, `AdvancedPane.swift`, `CraCEF.mm` | `SidebarModel` (`WebsiteAppearance`), `ArcThemeData`, `ThemeTones`, `SidebarStore` (`themeDataCSS`) | Upstream 35bc84a, bfd9962. The settings are in the shared `settings.json`; Windows needs the CEF colour-scheme call and the `:root` style injection. |
+| "When opening Cra, restore windows from previous session" | ❌ | `AppDelegate.swift`, `AdvancedPane.swift` | `SidebarModel` (`restoreWindows`), `SidebarStore` | Upstream 337d5f8. Windows always restores its windows; read the setting with the Advanced pane. |
 
 ## Sidebar
 
@@ -78,12 +83,13 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Space tooltip with its profile and keys | ❌ | `SpaceDock.swift`, `ArcTooltip.swift` | `ThemeTones` | |
 | Jump pill back to the open tab | ❌ | `SidebarJumpPill.swift` | | |
 | Rename (`renameTab`), duplicate (`duplicateTab`), Add to Favorites (`favoriteTab`) as commands | 🟡 | `SidebarMenus.swift` | `SidebarStore` | Duplicate and favorites are in the row menu; rename is missing; none are commands yet. |
+| Arc's other sidebar actions: Collapse Pinned Tabs (`collapsePinned`), Collapse and Expand All Folders (`collapseAllFolders`, `expandAllFolders`), Reveal Tab in Sidebar (`revealTab`), Reset all tabs in this Space (`resetSpaceTabs`), Archive Tabs Below, Change Icon…, Share ▸ | ❌ | `SidebarMenus.swift`, `MainWindowController.swift`, `SiteControlCenter.swift` | `SidebarStore` (`setAllFoldersExpanded`, `revealInSidebar`, `archiveTabsBelow`) | Upstream d110dc6, 6f3f298. The store side is shared; Windows needs the menu items and commands. |
 | Unread dots and theme colours | ✅ [#5] | `SidebarRowViews.swift` | `SidebarModel` | |
 | Download location per profile: a folder, or ask where to save each file (Settings ▸ Profiles) | ❌ | `DownloadDestinations.swift`, `ProfilesPane.swift` | `DownloadLocation` | Upstream ef42649. `DownloadLocation`'s decoder keeps only folders starting with "/": Windows needs drive paths (`C:\…`) to count as absolute first. |
 | Downloads list in the footer, thumbnails, no Chrome download arrow | ✅ [#10] [#12] | `DownloadsTray.swift`, `DownloadThumbnails.swift`, `ChromeDownloadAnimation.swift` | `DownloadHistory`, `DownloadRow`, `RelativeTime` | `viewDownloads` is Ctrl+J (Chrome's Downloads key): the Library's Downloads page (#27), with Open, Show in Folder and Open Downloads Folder. Missing: the flight into the bin (`DownloadFlight.swift`). |
 | Download flight into the Library button | ❌ | `DownloadFlight.swift` | | |
 | Favicons in rows, tiles and the command bar | 🟡 [#12] | `FaviconCache.swift` | `FaviconKey` | Since upstream 061a0ef (#211) tabs on one host keep their own icons (`FaviconKey.key(for:iconURL:)`, `SidebarStore.setFaviconKey`); Windows still keeps one icon a site. |
-| GitHub live folders (`newGitHubLiveFolder`) | ❌ | `LiveFolderManager.swift`, `GitHubLiveClient.swift`, `LiveFolderViews.swift` | `LiveFolderModel` | `GitHubLiveClient.swift` is Foundation only: move it to CraCore so Windows doesn't rewrite it. Sign-in token storage needs Credential Manager. |
+| GitHub and GitLab live folders (`newGitHubLiveFolder`, Live Folders ▸ GitLab…) | ❌ | `LiveFolderManager.swift`, `GitHubLiveClient.swift`, `LiveFolderViews.swift` | `LiveFolderModel`, `GitLabLiveClient` | GitLab came upstream in bb38e5a (#223), its client already in CraCore. `GitHubLiveClient.swift` is Foundation only: move it to CraCore so Windows doesn't rewrite it. Sign-in token storage needs Credential Manager. |
 
 ## Command bar and shortcuts
 
@@ -92,6 +98,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Command bar: tabs, archive, history, domains, actions, inline completion, ⌘Return background tab, Tab on the empty field lists actions (#195) | ✅ [#8] [#9] [#24] | `CommandBarController.swift`, `CommandBarView.swift`, `CommandTextField.swift`, `SearchSuggestLoader.swift` | `SuggestionEngine`, `CommandBarDedupe`, `CommandBarGlyph`, `TypedURL`, `RelativeTime`, `ActionSearchScope` | The actions scope (upstream 390cc0b) came with #24's sync. Windows: `WinSuggestLoader` repeats the Mac's loader on FoundationNetworking; move the loader to CraCore. Missing: the theme-following glow and scope bounce, ⌥Return as a split, `checkForUpdates`. |
 | Search suggestions, Site Search with Tab, % tab search, Chromium's engines | ✅ [#9] [#13] | `SearchEngines.swift` | `SearchSuggestions`, `SiteSearch`, `TabSearchScope` | Windows reads Cra's engine setting; the Mac also reads Chromium's engine list (SQLite). |
 | Shortcuts in `keybindings.json`, Settings ▸ Shortcuts | ✅ [#15] | `KeyBindings.swift`, `ShortcutsPane.swift`, `KeyboardLayoutCharacters.swift` | `KeyBindingDefaults`, `KeyBindings`, `KeyChord`, `KeyChord+Windows` | Since upstream 370ca1a (#212) the Mac matches by the character the layout types and falls back to the key's ANSI place (`KeyChord.match`); Windows matches virtual keys, which already follow the layout. Windows' table is `KeyBindingDefaults.windowsShortcuts`; a command joins it when Windows performs it (`parity.py report` lists the rest, each named in its feature's row). |
+| Help menu: Essential Keyboard Shortcuts card (`essentialShortcuts`), Reveal Cra Data (`revealData`), Copy Cra Info (`copyAppInfo`), Open Task Manager (`taskManager`), Cast… (`cast`) | ❌ | `EssentialShortcutsWindow.swift`, `AppDelegate.swift` | `KeyBindingDefaults` | Upstream a6b5d41, d729895, d110dc6. Task Manager and Cast are Chrome's own pages. |
 | Recent-tab switcher on ⌃Tab (`recentTab`, `recentTabBackward`) | ❌ | `TabSwitcher.swift`, `TabSwitcherView.swift` | `SidebarStore` | Ctrl+Tab cycles sidebar order on Windows until this lands. |
 | Context menus show shortcut glyphs | 🟡 | `SidebarMenus.swift` | `KeyBindings` | WinUI menu items take KeyboardAcceleratorTextOverride. |
 
@@ -101,16 +108,19 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Up to four panes, dragger, add, close, separate, flip, cycle, split menu | ✅ [#11] | `PaneCardView.swift`, `SplitDraggerHandleView.swift`, `SplitPaneLayout.swift` | `SplitPaneLayout` | |
 | Pane controls on focus and hover, focus ring, rename a split, pinned and favorite splits | 🟡 | `PaneCardView.swift`, `SidebarRowViews.swift` | `SidebarStore` | Windows has the layout and the menu; the per-pane bar, ring and rename are missing. |
+| Switch to Split View 1–4 (`splitPaneN`), Open in Split View and Add Split View on the tab menu, a tab dropped on a pinned tab makes a pinned split (#180) | ❌ | `MainWindowController.swift`, `SidebarMenus.swift` | `SidebarStore` (`createSplit(inPlace:)`, `combineIntoSplit`) | Upstream 56a5232, b2955ba. The drop waits for drag and drop. |
 
 ## Little Windows, Peek and the Library
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Little Windows (`newLittleWindow`, `promoteLittleWindow`, `closeLittleWindows`), profile chip, ⌥⌘N from any app | ✅ [#23] | `LittleWindowController.swift`, `GlobalHotkey.swift` | `LittleWindowLayout`, `SpaceWindow`, `GlobalShortcut` | Windows: Ctrl+Alt+N (also from any app, RegisterHotKey, skipped where AltGr+N types a letter), Ctrl+O; the strip, Open in Space and its menu, the profile chip, the command bar, size and cascade, archive on close. The live page moves into the browser window (`cra_browser_set_parent`). Windows keeps its own title bar in the strip's navy. Left: Arc's searchable spaces popup (a menu here), the grow-from-the-pointer animation, "Don't ask again" on the profile change. |
+| Little Windows (`newLittleWindow`, `promoteLittleWindow`, `closeLittleWindows`), profile chip, ⌥⌘N from any app | ✅ [#23] | `LittleWindowController.swift`, `GlobalHotkey.swift` | `LittleWindowLayout`, `SpaceWindow`, `GlobalShortcut` | Windows: Ctrl+Alt+N (also from any app, RegisterHotKey, skipped where AltGr+N types a letter), Ctrl+O; the strip, Open in Space and its menu, the profile chip, the command bar, size and cascade, archive on close. The live page moves into the browser window (`cra_browser_set_parent`). Windows keeps its own title bar in the strip's navy. Left: Arc's searchable spaces popup (a menu here), the grow-from-the-pointer animation, "Don't ask again" on the profile change, Show Little Window "Open In" Menu (`littleWindowOpenInMenu`, upstream e8675b2), archiving Little Windows after 1, 6 or 12 hours (`LittleWindowArchive`, upstream d4e9705). |
 | Peek: card over the page with its own bar, Close, Expand, Add To Split | ✅ [#24] | `PeekChrome.swift`, `PeekDimPanel.swift`, `ChromiumChildFocus.swift`, `LittleWindowController.swift` | `PeekLayout`, `PeekBarColors`, `PeekTrigger`, `PeekVeil`, `PinnedNavigation`, `PeekTabs` (`openLinkTab`, `peekSplitTabs`, `joinSplit`) | Windows: the card is an owned HostWindow with the page-coloured bar (`Peek/PeekBarView.swift`); the veil, click catcher and round buttons are owned layered windows (`CraOverlay.cpp`, `Peek/PeekOverlays.swift`). Settings ▸ Tabs ▸ Links, Shift-click, Escape (from the page or the bar), Ctrl+O, Ctrl+Shift+T reopening it, the card keeping the keyboard while it is up (#26), links leaving it for a tab, the badge on the tab it came from. Left: the card growing out of the link and back (#204, `PeekTransition`); the veil only fades. Since #24 the Mac shrinks the page behind a Peek a little unless pages fill the window edge to edge (#221, `PeekVeil`, `PeekLayout.backdrop`) and keeps the browser window's shadow (#222, `ChromiumChildFocus.swift`); Windows' browser window already stays active under the card, and its page doesn't shrink yet. |
 | Air Traffic Control: route links from other apps to a space or Little Window | ❌ | `AirTrafficControlView.swift` | `LinkRouting` | Needs Cra to be a registered browser first (System integration). |
-| Library in the sidebar (`openLibrary`), swipe or button slides it in | 🟡 [#27] | `LibraryView.swift` | `LibraryPage`, `LibraryLayout`, `LibraryList`, `LibrarySwipe` | Windows (`Sidebar/LibraryView.swift`): the sidebar widens 70 DIPs for the rail (Downloads, Archived Tabs), the page's search and ⋯ menu, rows by day; Ctrl+Shift+L, the downloads button (Arc's Library button: hover lists downloads, a click opens the Library), Escape and the back arrow leave it, and it opens again on the page last shown. Left: the slide in and out, the two-finger swipe (`LibrarySwipe`), the Spaces page (Manage Spaces row), dragging a download out. |
-| History and archive view (`viewArchive`) | ✅ [#27] | `LibraryView.swift` | `SidebarStore`, `LibraryList` | Ctrl+H (Chrome's History key) opens the Library's Archived Tabs: search by title or address, a click restores the tab where it was closed from; Restore, Copy Link, Remove from Archive, and Clear Archive in the ⋯ menu. |
+| Library in the sidebar (`openLibrary`), swipe or button slides it in | 🟡 [#27] | `LibraryView.swift` | `LibraryPage`, `LibraryLayout`, `LibraryList`, `LibrarySwipe` | Windows (`Sidebar/LibraryView.swift`): the sidebar widens 70 DIPs for the rail (Downloads, Archived Tabs), the page's search and ⋯ menu, rows by day; Ctrl+Shift+L, the downloads button (Arc's Library button: hover lists downloads, a click opens the Library), Escape and the back arrow leave it, and it opens again on the page last shown. Left: the slide in and out, the two-finger swipe (`LibrarySwipe`), the Spaces page (Manage Spaces row), the Media and Easels pages (their rows), dragging a download out. |
+| History and archive view (`viewArchive`), Archive ▸ View Archive… (`showArchive`) and Clear Archive (`clearArchive`) | 🟡 [#27] | `LibraryView.swift` | `SidebarStore`, `LibraryList` | Ctrl+H (Chrome's History key) opens the Library's Archived Tabs: search by title or address, a click restores the tab where it was closed from; Restore, Copy Link, Remove from Archive, and Clear Archive in the ⋯ menu. Upstream d110dc6 made View Archive… and Clear Archive commands of their own: not in Windows' command bar yet. |
+| Library ▸ Media (`viewMedia`): screenshots, pictures and videos from the folders shown, after Arc's opt-in card | ❌ | `LibraryMedia.swift`, `LibraryView.swift` | `MediaLibrary`, `LibraryPage` | Upstream 2294e13. Windows needs the folder scan (Pictures, Screenshots, Videos) and the grid. |
+| Easels (`newEasel`, `viewEasels`): Arc's canvas with text, shapes, freehand and captures, Library ▸ Easels | ❌ | `EaselBrowser.swift`, `EaselCanvasView.swift`, `LibraryView.swift` | `Easel`, `LibraryList` (`easels`) | Upstream f7e3b8f to 3e2757b. The model, tools, hit-testing and saving are shared; Windows needs the canvas (Win2D or a XAML Canvas). |
 | Now-playing player in the sidebar | ❌ | `NowPlayingTray.swift`, `NowPlaying.swift` | `AudibleHold` (Mac's WebKit tabs) | Windows counterpart for media keys: System Media Transport Controls. |
 | Downloads rename card | 🟡 | `DownloadRenameCard.swift` | `TidyDownloads` | The Windows list has open and Show in Folder; the rename card comes with Tidy Downloads. |
 
@@ -119,7 +129,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
 | Auto-archive Today tabs after a set time | ✅ [#14] | `TabsPane.swift` | `SidebarModel` (`AutoArchiveThreshold`) | |
-| Tab freezing and sleeping, Tab Cleanup timers, calls stay awake | ❌ | `BrowserManager.swift` | `TabSleepPolicy` | The policy is shared; Windows needs the CEF discard calls and the two Settings ▸ Tabs switches. |
+| Tab freezing and sleeping, Tab Cleanup timers, calls stay awake | ❌ | `BrowserManager.swift` | `TabSleepPolicy` | The policy is shared; Windows needs the CEF discard calls and the two Settings ▸ Tabs switches. Since upstream 135f794 (#214) the policy reads a `PageState` per page and says why it passed one over. |
 | Mute a tab (`muteTab`), speaker icon, camera and microphone dot | 🟡 | `SidebarRowViews.swift` | `SidebarModel` | The bridge can mute; the sidebar shows no speaker yet. |
 | Open links in new tabs in the background | ❌ | `TabsPane.swift` | `LinkMenu` | |
 | Background tabs laid out at the pane's size, first seconds of a tab, hidden tabs give their GPU tiles back (#195) | ❌ | `BrowserManager.swift`, `PageProbe.swift`, `PageScript.swift` | `HiddenFrameRelease` | `PageScript.swift` is Foundation only: move it to CraCore. |
@@ -128,7 +138,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Capture (`capturePage`): copy the page | 🟡 [#17] | `CaptureOverlay.swift`, `ViewSnapshot.swift` | `PageCapture`, `ContentCapture` | Windows copies the visible page or the full page. Missing: Arc's element pick and region drag with copy, save and send (`ContentCapture`). |
+| Capture (`capturePage`): copy the page | 🟡 [#17] | `CaptureOverlay.swift`, `ViewSnapshot.swift` | `PageCapture`, `ContentCapture` | Windows copies the visible page or the full page. Missing: Arc's element pick and region drag with copy, save and send (`ContentCapture`); Capture Full Page (`captureFullPage`) and Capture in Portrait Mode (`capturePortrait`) as commands (upstream 2294e13); the menu's New Easel and Send To… an easel (c85c878, b09185a). |
 | Picture in Picture (`pictureInPicture`), automatic on leaving a video tab or a Meet call (Document Picture in Picture, upstream #198), throw into corners | ❌ | `PictureInPictureChrome.swift`, `PictureInPictureControls.swift` | `PictureInPictureGesture`, `PictureInPictureThrow` | Gestures and throws are shared. |
 | Protected media (DRM services in Safari's engine) | ➖ | `PageEngines.swift`, `WebKitBrowser.swift`, `WebKitStores.swift` | `ProtectedMedia` | Mac only (FairPlay in WebKit). On Windows the counterpart is a Widevine-capable CEF build; the per-site choices in `ProtectedMedia` can be reused. |
 | Screen sharing with tab audio, web notifications shown and clicked | 🟡 [#17] | `CraCEF.mm` | `PermissionPrompt` | The prompts work on Windows; Chrome's screen picker and notifications opening their page haven't been checked on the PC. |
@@ -145,6 +155,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Clear Cache, Clear Cookies | ✅ [#17] | `SiteData.swift` | `SiteDataClearing` | |
 | Clear Browsing Data (`clearBrowsingData`) | 🟡 | `AppDelegate.swift` | `BrowsingDataClear` | The store side is shared; the command and Chrome's dialog are missing. |
 | Ad and tracker blocker | ❌ | `CraContentBlocker.h`, `CraCEF.mm` | | `CraContentBlocker.h` is plain C++ with no Cocoa or CEF: `CraCEFWin.cpp` can include it as is, with the same domain list. |
+| Block Cookie Banners (Arc's, off by default) | ❌ | `BrowserManager.swift`, `PrivacyPane.swift` | `CookieBanners`, `SidebarStore` (`cookieBannerCSS`) | Upstream 93b20a6. The stylesheet is shared; Windows injects it with the Privacy pane. |
 | Always use secure connections (HTTPS-only), Secure DNS | ❌ | `PrivacyPane.swift`, `SecureDNSSetting.swift` | `SecureDNS` | Both are Chromium prefs; the decisions are shared. |
 | Passwords and cookies encrypted with a key of Cra's own | ❌ | `SafeStorage.swift`, `keychain-service-name.patch` | | Windows counterpart: DPAPI, which Chromium uses by default. Confirm the stock CEF build does. |
 | Safe Browsing, Web Push | ❌ | `CraCEF.mm`, `safe-browsing-update-interval.patch`, `gcm-enabled.patch` | | Needs Cra's CEF patches on the Windows build (today it uses Spotify's stock build). |
@@ -162,7 +173,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Install from the Chrome Web Store or a folder, Extensions menu | ❌ | `ExtensionStore.swift`, `ExtensionsMenu.swift`, `ExtensionLaunch.swift` | `ExtensionProfiles`, `ExtensionPagePlacement`, `ExtensionPageRetry`, `WebStoreInstalls` | Phase 2 items 12 and 13. `ExtensionLaunch.swift` is a known exception: move it. |
+| Install from the Chrome Web Store or a folder, Extensions menu (`openExtensions`, `manageExtensions`) | ❌ | `ExtensionStore.swift`, `ExtensionsMenu.swift`, `ExtensionLaunch.swift` | `ExtensionProfiles`, `ExtensionPagePlacement`, `ExtensionPageRetry`, `WebStoreInstalls` | Phase 2 items 12 and 13. `ExtensionLaunch.swift` is a known exception: move it. Upstream 3fe0c5b (#227): quitting while a Web Store install runs no longer crashes. |
 | Toolbar and pinned buttons, popups, badges, live icons | ❌ | `ExtensionActions.swift`, `ExtensionPopupWindow.swift`, `ExtensionPopupCandidate.swift` | `ExtensionActionState`, `ExtensionBadge`, `PinnedExtensions`, `PinnedExtensionGrid`, `ToolbarExtensionFit`, `DismissingClick`, `FirstClick` | The extension CEF patches (`extension-popup-browser-info.patch` and the others) need the Windows CEF build too. |
 | Extension side panels (MetaMask) | ❌ | `ExtensionSidePanel.swift` | `ExtensionSidePanel` | |
 | Native messaging hosts (1Password and others) | ❌ | `NativeMessagingHosts.swift`, `ExtensionProtocolReply.swift` | `ExtensionProxyControl` | Windows reads hosts from the registry, not folders. Both files are Foundation only: move the shared part to CraCore. |
@@ -254,6 +265,20 @@ merged (565e477 to 9da50e7), with what each means for Windows:
 | 9e2d728, 60d6e13, 800cc36, 5e79e3a | Perf harness, nightly, snapshots, mutation testing | Nothing for Windows. 9e2d728 was also cherry-picked into #24. |
 
 Then 3d3ff80 (synced with PR 8): the blank-window scenario's window fits GitHub's 1024×768 runner screen. Test tooling, nothing for Windows.
+
+The 34 commits #28 merged (3d3ff80 to 3e2757b), mostly upstream's Arc parity sweep:
+
+| Commit | What | Windows |
+|---|---|---|
+| d2dcd18, 135f794, 3fe0c5b | Tear-off drop spot, tab sleeping's reasons (#214), quitting during a Web Store install (#227) | Tabs and memory, Extensions rows. |
+| b2955ba, 56a5232 | A tab dropped on a pinned tab makes a pinned split (#180); split items on the tab menu | New split row. |
+| bc47470 | Arc's dialog sheet for every confirmation (#224) | New dialog row (`AppDialog.swift`, `DialogActions`). |
+| bb38e5a | GitLab live folders (#223) | Live folders row (`GitLabLiveClient`). |
+| 8dbd6d1 | Site Control Center sliders without extensions (#226) | Site Control Center row. |
+| d110dc6, 6f3f298, d4e9705, 337d5f8, e8675b2, 894f1f6, d729895, a6b5d41, 35bc84a, bfd9962, 93b20a6 | Arc's menu items: Stay On Top, Save Page As, Copy URL as Quote, clean Copy URL, sidebar actions, Little Window archive and Open In menu, restore windows, find selection, Cast and Task Manager, Essential Keyboard Shortcuts, website appearance and sound effects, theme data, cookie banners | New rows in Window, Sidebar, Command bar, Little Windows and Privacy. |
+| 2294e13, 35d3c8a | Library ▸ Media, Capture in Portrait Mode | New Media row; Capture row. `LibraryPage` gained `media` and `easels` in CraCore; Windows' rail keeps Downloads and Archived Tabs. |
+| f7e3b8f, 719a4bf, a4463ed, bb1ac55, a4c2286, 5ea57ec, c85c878, b09185a, 3e2757b | Easels: model, canvas, Library page, backdrop, text size, toolbar, capture menu, duplicate | New Easels row (`Easel`, `LibraryList.easels`). |
+| 2985c38, 1759699, b68d430, 7f31945 | docs/arc-parity.md and live checks | Nothing for Windows. |
 
 ## Keeping this current
 
