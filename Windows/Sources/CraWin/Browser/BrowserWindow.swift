@@ -649,6 +649,7 @@ final class BrowserWindow {
         case "findNext": findNext(forward: true)
         case "findPrevious": findNext(forward: false)
         case "settings": openSettings()
+        case "setDefaultBrowser": DefaultBrowser.makeDefault()
         case "newWindow": host?.openNewWindow(incognito: false)
         case "newIncognitoWindow": host?.openNewWindow(incognito: true)
         case "newLittleWindow": host?.newLittleWindow()

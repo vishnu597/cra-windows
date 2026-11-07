@@ -39,9 +39,9 @@ int cra_cef_execute_process(void);
 int cra_cef_initialize(const CraCEFSettings *settings);
 int cra_cef_another_instance_was_notified(void);
 
-/// Another Cra launch was handed to this one (Chromium's process singleton): the URLs on its
-/// command line.
-typedef void (*CraRelaunchHandler)(void *context, const char *const *urls, size_t count);
+/// Another Cra launch was handed to this one (Chromium's process singleton): the arguments on
+/// its command line (its switches left out), UTF-8.
+typedef void (*CraRelaunchHandler)(void *context, const char *const *arguments, size_t count);
 void cra_cef_set_relaunch_handler(void *context, CraRelaunchHandler handler);
 
 /// Closes every browser, pumps until Chromium has let go of them (at most a few seconds) and
