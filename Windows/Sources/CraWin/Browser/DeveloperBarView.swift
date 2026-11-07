@@ -134,7 +134,7 @@ final class DeveloperBarView {
         try? Grid.setColumn(address, 1)
 
         let bar = ToolbarComposition(kind: .developer, inSplit: false, sidebarVisible: true, focusedPane: true, canGoBack: false,
-                                     canGoForward: false, isLoading: false, pinnedExtensions: [], hasExtensions: false)
+                                     canGoForward: false, isLoading: false, pinnedExtensions: [])
         // copy · divider · Console, Network, Inspect, then the right end (Split View), each in
         // its column above; Arc's second rule only when something follows Inspect.
         for item in bar.right {

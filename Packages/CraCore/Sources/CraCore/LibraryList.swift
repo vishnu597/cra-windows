@@ -1,13 +1,15 @@
 import Foundation
 
-/// The Library's pages Cra has, in the order of Arc's rail (which also lists Media, Easels and
-/// Boosts). The Mac's LibraryView and Windows' Library column draw them.
+/// The Library's pages Cra has, in the order of Arc's rail (which also lists Boosts). The Mac's
+/// LibraryView and Windows' Library column draw them.
 public enum LibraryPage: String, CaseIterable, Sendable {
-    case downloads, spaces, archive
+    case media, downloads, easels, spaces, archive
 
     public var title: String {
         switch self {
+        case .media: "Media"
         case .downloads: "Downloads"
+        case .easels: "Easels"
         case .spaces: "Spaces"
         case .archive: "Archived Tabs"
         }
@@ -16,14 +18,30 @@ public enum LibraryPage: String, CaseIterable, Sendable {
     /// The rail's SF Symbol (WinGlyph maps it on Windows).
     public var symbol: String {
         switch self {
+        case .media: "photo.on.rectangle"
         case .downloads: "arrow.down.circle"
+        case .easels: "pencil.and.scribble"
         case .spaces: "square.on.square"
         case .archive: "archivebox"
         }
     }
 
-    public var selectedSymbol: String { symbol + ".fill" }
-    public var searchPrompt: String { self == .downloads ? "Search Downloads…" : "Search Archive…" }
+    public var selectedSymbol: String {
+        switch self {
+        case .media: "photo.fill.on.rectangle.fill"
+        case .easels: symbol
+        default: symbol + ".fill"
+        }
+    }
+
+    public var searchPrompt: String {
+        switch self {
+        case .media: "Search Media…"
+        case .downloads: "Search Downloads…"
+        case .easels: "Search Easels…"
+        default: "Search Archive…"
+        }
+    }
 }
 
 /// The Library's sizes, measured on Arc 1.170 (LibraryView on the Mac has the whole list).
@@ -52,7 +70,7 @@ public enum LibraryList {
         let shown = needle.isEmpty ? archive : archive.filter {
             $0.item.displayTitle.lowercased().contains(needle) || ($0.item.tab?.url.lowercased().contains(needle) ?? false)
         }
-        return grouped(shown, date: \.archivedAt, now: now, calendar: calendar, locale: locale)
+        return grouped(shown, date: { $0.archivedAt }, now: now, calendar: calendar, locale: locale)
     }
 
     /// The finished downloads still on disk whose file name holds the search, newest first
@@ -63,7 +81,16 @@ public enum LibraryList {
         let needle = needle(query)
         let all = entries.reversed().filter { exists($0.path) }
         let shown = needle.isEmpty ? all : all.filter { fileName($0.path).lowercased().contains(needle) }
-        return grouped(shown, date: \.date, now: now, calendar: calendar, locale: locale)
+        return grouped(shown, date: { $0.date }, now: now, calendar: calendar, locale: locale)
+    }
+
+    /// The easels whose title holds the search, by the day each was last edited (in the order
+    /// given: the Mac's EaselFiles lists them newest first).
+    public static func easels<Easel>(_ easels: [Easel], title: (Easel) -> String, edited: (Easel) -> Date, matching query: String,
+                                     now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) -> [Section<Easel>] {
+        let needle = needle(query)
+        let shown = needle.isEmpty ? easels : easels.filter { title($0).lowercased().contains(needle) }
+        return grouped(shown, date: edited, now: now, calendar: calendar, locale: locale)
     }
 
     /// A path's last component, for either platform's separators.
@@ -100,8 +127,19 @@ public enum LibraryList {
     }
 
     public static func empty(_ page: LibraryPage, hasAny: Bool) -> Empty {
-        let detail = page == .downloads ? "Files you download show up here." : "Tabs you close end up here."
-        return Empty(symbol: page.symbol, title: hasAny ? "No matches" : "Nothing here yet!", detail: hasAny ? nil : detail)
+        guard !hasAny else { return Empty(symbol: page.symbol, title: "No matches", detail: nil) }
+        switch page {
+        case .media:
+            return Empty(symbol: page.symbol, title: "Nothing here yet!",
+                         detail: "Screenshots, pictures and videos in the folders you show appear here.")
+        case .downloads:
+            return Empty(symbol: page.symbol, title: "Nothing here yet!", detail: "Files you download show up here.")
+        case .easels:
+            // Arc's empty Easels page.
+            return Empty(symbol: page.symbol, title: "Out of ideas!", detail: "Choose File ▸ New Easel to create a new Easel.")
+        case .spaces, .archive:
+            return Empty(symbol: page.symbol, title: "Nothing here yet!", detail: "Tabs you close end up here.")
+        }
     }
 
     private static func needle(_ query: String) -> String {
@@ -109,11 +147,11 @@ public enum LibraryList {
     }
 
     /// In the items' order, a section per day as each day first appears.
-    private static func grouped<T>(_ items: [T], date: KeyPath<T, Date>, now: Date, calendar: Calendar, locale: Locale) -> [Section<T>] {
+    private static func grouped<T>(_ items: [T], date: (T) -> Date, now: Date, calendar: Calendar, locale: Locale) -> [Section<T>] {
         var order: [String] = []
         var groups: [String: [T]] = [:]
         for item in items {
-            let title = dayTitle(item[keyPath: date], now: now, calendar: calendar, locale: locale)
+            let title = dayTitle(date(item), now: now, calendar: calendar, locale: locale)
             if groups[title] == nil { order.append(title) }
             groups[title, default: []].append(item)
         }

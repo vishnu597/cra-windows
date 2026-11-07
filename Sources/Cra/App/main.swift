@@ -6,6 +6,7 @@ MainActor.assumeIsolated {
     Perf.launch()
     // The data folder's files load in CraCore (JSONStore), which reports its timings here.
     CoreLog.time = { Perf.time($0, ms: $1) }
+    CoreLog.count = { Perf.count($0, $1) }
     // Order matters: the CefAppProtocol NSApplication must exist before Chromium
     // initializes, and Chromium must be initialized before any browser is made.
     let app = CraApplication.shared
@@ -66,9 +67,8 @@ MainActor.assumeIsolated {
         exit(0)
     }
     if !started {
-        let alert = NSAlert()
-        alert.messageText = "Cra could not start Chromium"
-        alert.informativeText = "Chromium Embedded Framework failed to initialize. See \(AppPaths.log.path)."
+        let alert = AppDialog(title: "Cra could not start Chromium",
+                              message: "Chromium Embedded Framework failed to initialize. See \(AppPaths.log.path).")
         alert.runModal()
         exit(1)
     }

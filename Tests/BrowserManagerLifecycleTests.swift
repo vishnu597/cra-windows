@@ -75,6 +75,7 @@ enum BrowserManagerLifecycleTests {
         embeddedPageHandoffCase()
         await snapshotCase()
         loadingTabCase()
+        themeDataCase()
         await sleepCase("an unchanged idle page sleeps", shouldSleep: true) { _, _ in }
         await sleepCase("loading started while the probe was pending stays awake") { _, rt in rt.browser.setLoading(true) }
         await sleepCase("a completed same-URL reload invalidates the old probe") { _, rt in
@@ -102,6 +103,8 @@ enum BrowserManagerLifecycleTests {
         await sleepClockCase()
         await pressureSweepCase()
         await discardCase()
+        await discardedPageLoadCase()
+        await sleepCountsCase()
         shortTimerCase()
         recentlyAudibleCase()
         await audiblePageStaysAwakeCase()
@@ -339,6 +342,32 @@ enum BrowserManagerLifecycleTests {
         manager.closeAll()
     }
 
+    /// Arc's "Allow websites to get your theme data" (on by default): each page that commits gets the
+    /// space's palette as `--arc-palette-*` variables from Cra's world; off, pages get none.
+    @MainActor
+    private static func themeDataCase() {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let id = store.createTab(url: "https://example.test/themed").id
+        let rt = manager.ensureRuntime(for: id)!
+        let themed = { rt.browser.replies.filter { $0.method == isolatedProbe }.count }
+        let before = themed()
+        manager.browser(rt.browser, didChangeCommittedLoad: true)
+        expect(themed() == before + 1 && rt.browser.lastIsolatedParams.contains("--arc-palette-title: #")
+               && rt.browser.lastIsolatedParams.contains("adoptedStyleSheets"), "a committed page gets the theme's variables")
+        manager.browser(rt.browser, didChangeCommittedLoad: false)
+        expect(themed() == before + 1, "a load that hasn't committed gets nothing yet")
+        store.settings.shareThemeWithWebsites = false
+        manager.browser(rt.browser, didChangeCommittedLoad: true)
+        expect(themed() == before + 1, "with the setting off, pages get none")
+        // Arc's "Block Cookie Banners", off by default: on, a committed page gets the banner rules.
+        store.settings.blockCookieBanners = true
+        manager.browser(rt.browser, didChangeCommittedLoad: true)
+        expect(themed() == before + 2 && rt.browser.lastIsolatedParams.contains("__craCookieBanners")
+               && rt.browser.lastIsolatedParams.contains("#onetrust-banner-sdk"), "blocking cookie banners hides them on every committed page")
+        manager.closeAll()
+    }
+
     @MainActor
     private static func sleepCase(_ message: String, shouldSleep: Bool = false, reply: String? = idleReply,
                                   mutate: (BrowserManager, TabRuntime) -> Void) async {
@@ -550,6 +579,79 @@ enum BrowserManagerLifecycleTests {
         let (busy, busyRT) = await sleepOne(discard: #"{"discarded":false}"#)
         expect(!busyRT.discarded && manager.runtime(for: busy) === busyRT && busyRT.sleepRefusal == "navigating",
                "a page Chromium wouldn't discard is asked again later")
+        manager.closeAll()
+    }
+
+    // promise: #214
+    /// CEF reports a load end for the page a discard just ended (#214). That page isn't there: the
+    /// log says nothing, history gets no visit and no Web Store install starts. Loaded again on
+    /// waking, it counts.
+    @MainActor
+    private static func discardedPageLoadCase() async {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        manager.protectedRecentTabs = 0
+        let url = "https://example.test/discarded-load"
+        let id = store.createTab(url: url).id
+        let rt = manager.ensureRuntime(for: id)!
+        rt.hiddenAt = Date.distantPast
+        manager.sleepIdleTabs(TabSleepPolicy(hiddenFor: 60))
+        rt.browser.reply(to: isolatedProbe, with: idleReply)
+        await drainMainQueue()
+        rt.browser.reply(to: "Runtime.evaluate", with: idleReply)
+        await drainMainQueue()
+        await finishSleep(rt.browser)
+        let installs = ExtensionStore.shared.webStoreProfiles.count
+        expect(rt.discarded, "the page is discarded")
+        manager.browser(rt.browser, didFinishLoadingURL: url, title: "Discarded", statusCode: 200)
+        expect(store.visits.isEmpty && ExtensionStore.shared.webStoreProfiles.count == installs,
+               "a discarded page's load end is no visit and starts no Web Store install")
+        manager.show(id, focus: false)
+        manager.browser(rt.browser, didFinishLoadingURL: url, title: "Woken", statusCode: 200)
+        expect(store.visits == [url] && ExtensionStore.shared.webStoreProfiles.count == installs + 1,
+               "the page loaded again on waking is a visit")
+        manager.closeAll()
+    }
+
+    // promise: #214
+    /// What the recorder says about tab sleeping (#214): a candidate passed over counts once per
+    /// reason (the first that holds, TabSleepPolicy.hold), and a page refusing again after the
+    /// back-off counts as a retry of the same page, not as another page.
+    @MainActor
+    private static func sleepCountsCase() async {
+        var facts: [(PerfCounter, String)] = []
+        Perf.attach { fact in if case .count(let c, let key, _, _) = fact { facts.append((c, key)) } }
+        defer { Perf.attach(nil) }
+        facts = []  // what earlier cases left in the recorder's start-up buffer
+        func counted(_ c: PerfCounter) -> [String] { facts.filter { $0.0 == c }.map(\.1) }
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        manager.protectedRecentTabs = 0
+
+        let loadingID = store.createTab(url: "https://example.test/loading").id
+        let loading = manager.ensureRuntime(for: loadingID)!
+        loading.hiddenAt = Date.distantPast
+        loading.browser.setLoading(true)
+        for _ in 0..<3 { manager.sleepIdleTabs(TabSleepPolicy(hiddenFor: 60)) }
+        expect(counted(.sleepSkip) == ["loading"] && !loading.browser.replies.contains { $0.method == isolatedProbe },
+               "a loading page passed over three times counts once, as loading")
+        loading.browser.setLoading(false)
+        loading.browser.hasDevTools = true
+        manager.sleepIdleTabs(TabSleepPolicy(hiddenFor: 60))
+        expect(counted(.sleepSkip) == ["loading", "devTools"], "a new reason counts again")
+        loading.browser.hasDevTools = false
+        manager.sleepIdleTabs(TabSleepPolicy(hiddenFor: 60))
+        expect(loading.browser.replies.contains { $0.method == isolatedProbe }, "with nothing holding it the page is asked")
+        loading.browser.reply(to: isolatedProbe, with: #"{"result":{"type":"string","value":"typed"}}"#)
+        await drainMainQueue()
+        for _ in 0..<2 {
+            loading.sleepProbeAfter = Date.distantPast
+            manager.sleepIdleTabs(TabSleepPolicy(hiddenFor: 60))
+            loading.browser.reply(to: isolatedProbe, with: #"{"result":{"type":"string","value":"typed"}}"#)
+            await drainMainQueue()
+        }
+        expect(counted(.sleepRefusal) == ["typed"] && counted(.sleepRetry) == ["typed", "typed"],
+               "one page refusing three times is one refusal and two retries")
         manager.closeAll()
     }
 

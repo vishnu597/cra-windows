@@ -27,19 +27,37 @@ public enum KeyBindingDefaults {
             KeyAction(id: "newGitHubLiveFolder", name: "New GitHub Live Folder", section: .file, shortcuts: [],
                       triggers: ["live folder", "pull requests", "github"]),
             KeyAction(id: "newSpace", name: "New Space…", section: .file, shortcuts: [], triggers: ["space"]),
+            // Arc: File ▸ New Easel ⌃⇧E.
+            KeyAction(id: "newEasel", name: "New Easel", section: .file, shortcuts: [KeyChord("e", [.control, .shift])],
+                      triggers: ["easel", "whiteboard", "canvas", "draw"]),
             KeyAction(id: "closeWindow", name: "Close Window", section: .file, shortcuts: [KeyChord("w", cmdShift)], inCommandBar: false),
             KeyAction(id: "closeTab", name: "Close Tab", section: .file, shortcuts: [KeyChord("w", cmd)], triggers: ["close", "archive tab"]),
             KeyAction(id: "capturePage", name: "Capture…", section: .file, shortcuts: [KeyChord("2", cmdShift)], triggers: ["capture", "screenshot"]),
+            // Arc: File ▸ Capture Full Page, Save Page As ⇧⌘S.
+            KeyAction(id: "captureFullPage", name: "Capture Full Page", section: .file, shortcuts: [], triggers: ["full page", "screenshot"]),
+            KeyAction(id: "capturePortrait", name: "Capture in Portrait Mode", section: .file, shortcuts: [], triggers: ["portrait", "mobile screenshot"]),
+            KeyAction(id: "savePageAs", name: "Save Page As…", section: .file, shortcuts: [KeyChord("s", cmdShift)], triggers: ["save page", "download page"]),
             KeyAction(id: "print", name: "Print", section: .file, shortcuts: [KeyChord("p", cmd)]),
             // Edit
             KeyAction(id: "copyURL", name: "Copy URL", section: .edit, shortcuts: [KeyChord("c", cmdShift)], triggers: ["copy link"]),
             KeyAction(id: "copyURLMarkdown", name: "Copy URL as Markdown", section: .edit, shortcuts: [KeyChord("c", cmdOptShift)], triggers: ["markdown"]),
+            // Arc: Edit ▸ Copy URL as Quote ⌃⇧⌘C, the selection with a link to it.
+            KeyAction(id: "copyURLQuote", name: "Copy URL as Quote", section: .edit, shortcuts: [KeyChord("c", [.command, .shift, .control])], triggers: ["quote", "highlight"]),
             KeyAction(id: "find", name: "Find…", section: .edit, shortcuts: [KeyChord("f", cmd)], triggers: ["find", "search page"]),
             KeyAction(id: "findNext", name: "Find Next", section: .edit, shortcuts: [KeyChord("g", cmd)], inCommandBar: false),
             KeyAction(id: "findPrevious", name: "Find Previous", section: .edit, shortcuts: [KeyChord("g", cmdShift)], inCommandBar: false),
+            // Arc: Edit ▸ Find ▸ Use Selection to Find (no key: ⌘E opens extensions) and Jump to Selection ⌘J.
+            KeyAction(id: "useSelectionForFind", name: "Use Selection to Find", section: .edit, shortcuts: [], inCommandBar: false),
+            KeyAction(id: "jumpToSelection", name: "Jump to Selection", section: .edit, shortcuts: [KeyChord("j", cmd)], inCommandBar: false),
             // View
             KeyAction(id: "toggleSidebar", name: "Hide Sidebar", section: .view, shortcuts: [KeyChord("s", cmd)], triggers: ["sidebar", "hide sidebar", "show sidebar"]),
             KeyAction(id: "toggleToolbar", name: "Hide Toolbar", section: .view, shortcuts: [KeyChord("d", cmdShift)], triggers: ["toolbar"]),
+            // Arc: View ▸ Appearance, what websites see (Websites, Easels, and Notes will use:).
+            KeyAction(id: "appearanceAutomatic", name: "Website Appearance: Automatic", section: .none, shortcuts: [], triggers: ["website appearance", "system appearance"], symbol: "circle.lefthalf.filled"),
+            KeyAction(id: "appearanceLight", name: "Website Appearance: Light", section: .none, shortcuts: [], triggers: ["light mode", "light websites"], symbol: "sun.max"),
+            KeyAction(id: "appearanceDark", name: "Website Appearance: Dark", section: .none, shortcuts: [], triggers: ["dark mode", "dark websites"], symbol: "moon"),
+            // Arc: View ▸ Collapse Pinned Tabs / Expand Pinned Tabs.
+            KeyAction(id: "collapsePinned", name: "Collapse Pinned Tabs", section: .view, shortcuts: [], triggers: ["collapse pinned", "expand pinned"]),
             KeyAction(id: "stop", name: "Stop Loading", section: .view, shortcuts: [KeyChord(".", cmd)], inCommandBar: false),
             KeyAction(id: "reload", name: "Refresh the Page", section: .view, shortcuts: [KeyChord("r", cmd)], triggers: ["refresh", "reload"]),
             KeyAction(id: "hardReload", name: "Force Refresh the Page", section: .view, shortcuts: [KeyChord("r", cmdShift)]),
@@ -52,10 +70,13 @@ public enum KeyBindingDefaults {
             KeyAction(id: "zoomIn", name: "Zoom In", section: .view, shortcuts: [KeyChord("=", cmd), KeyChord("=", cmdShift)]),
             KeyAction(id: "zoomOut", name: "Zoom Out", section: .view, shortcuts: [KeyChord("-", cmd)]),
             KeyAction(id: "viewSource", name: "View Source", section: .view, shortcuts: [KeyChord("u", cmdOpt)]),
-            KeyAction(id: "devTools", name: "Developer Tools", section: .view, shortcuts: [KeyChord("i", cmdOpt)], triggers: ["devtools", "inspect", "console"]),
+            KeyAction(id: "devTools", name: "Developer Tools", section: .view, shortcuts: [KeyChord("i", cmdOpt), KeyChord(KeyChord.f12, [])], triggers: ["devtools", "inspect", "console"]),
             KeyAction(id: "inspectElement", name: "Inspect Elements", section: .view, shortcuts: [KeyChord("c", cmdOpt)], inCommandBar: false),
             KeyAction(id: "jsConsole", name: "JavaScript Console", section: .view, shortcuts: [KeyChord("j", cmdOpt)], inCommandBar: false),
             // Arc: Extensions ▸ Picture in Picture (no shortcut); "Open Picture in Picture" in the command bar.
+            // Arc: View ▸ Cast; Help ▸ Troubleshooting ▸ Open Task Manager. Chrome's own.
+            KeyAction(id: "cast", name: "Cast…", section: .view, shortcuts: [], triggers: ["cast", "chromecast", "airplay"]),
+            KeyAction(id: "taskManager", name: "Open Task Manager", section: .help, shortcuts: [], triggers: ["task manager", "memory", "processes"]),
             KeyAction(id: "pictureInPicture", name: "Picture in Picture", section: .view, shortcuts: [], triggers: ["pip", "picture in picture", "pop out", "popout", "video"]),
             // Arc: View ▸ Add Split View ⌃⇧=, Close this Split Pane ⌃⇧-, Separate Page from Split View, Expand Current Split.
             KeyAction(id: "addSplitView", name: "Add Split View", section: .view, shortcuts: [KeyChord("=", [.control, .shift])], triggers: ["split", "split view", "add split"]),
@@ -73,8 +94,11 @@ public enum KeyBindingDefaults {
             KeyAction(id: "manageSpaces", name: "Manage Spaces…", section: .spaces, shortcuts: [], triggers: ["manage spaces", "reorder spaces"]),
             // Tabs
             KeyAction(id: "pinTab", name: "Pin/Unpin Tab", section: .tabs, shortcuts: [KeyChord("d", cmd)], triggers: ["pin", "unpin"]),
-            KeyAction(id: "nextTab", name: "Next Tab", section: .tabs, shortcuts: [KeyChord(KeyChord.down, cmdOpt)], inCommandBar: false),
-            KeyAction(id: "previousTab", name: "Previous Tab", section: .tabs, shortcuts: [KeyChord(KeyChord.up, cmdOpt)], inCommandBar: false),
+            // Arc: Next Tab ⌥⌘↓ and ⌘}, Previous Tab ⌥⌘↑ and ⌘{ (Settings ▸ Shortcuts).
+            KeyAction(id: "nextTab", name: "Next Tab", section: .tabs, shortcuts: [KeyChord(KeyChord.down, cmdOpt), KeyChord("]", cmdShift)], inCommandBar: false),
+            KeyAction(id: "previousTab", name: "Previous Tab", section: .tabs, shortcuts: [KeyChord(KeyChord.up, cmdOpt), KeyChord("[", cmdShift)], inCommandBar: false),
+            // Arc: Tabs ▸ Reveal Tab in Sidebar; Reveal Current Tab ⌃Space.
+            KeyAction(id: "revealTab", name: "Reveal Tab in Sidebar", section: .tabs, shortcuts: [KeyChord(KeyChord.space, .control)], triggers: ["reveal", "find tab"]),
             KeyAction(id: "recentTab", name: "Next Recent Tab", section: .tabs, shortcuts: [KeyChord(KeyChord.tab, .control)], inCommandBar: false),
             KeyAction(id: "recentTabBackward", name: "Previous Recent Tab", section: .tabs, shortcuts: [KeyChord(KeyChord.tab, [.control, .shift])], inCommandBar: false),
             KeyAction(id: "clearToday", name: "Clear Today", section: .tabs, shortcuts: [KeyChord("k", cmdShift)], triggers: ["clear", "tidy"]),
@@ -83,15 +107,33 @@ public enum KeyBindingDefaults {
             KeyAction(id: "duplicateTab", name: "Duplicate Tab", section: .tabs, shortcuts: [], triggers: ["duplicate"]),
             KeyAction(id: "resetTab", name: "Reset Pinned Tab", section: .tabs, shortcuts: [], triggers: ["reset", "home"]),
             KeyAction(id: "muteTab", name: "Mute / Unmute Tab", section: .tabs, shortcuts: [], triggers: ["mute"]),
+            KeyAction(id: "resetSpaceTabs", name: "Reset all tabs in this Space", section: .tabs, shortcuts: [], triggers: ["reset all", "reset pinned"]),
+            // Arc lists these in Settings ▸ Shortcuts and the command bar only.
+            KeyAction(id: "collapseAllFolders", name: "Collapse All Folders", section: .none, shortcuts: [], triggers: ["collapse folders", "close folders"]),
+            KeyAction(id: "expandAllFolders", name: "Expand All Folders", section: .none, shortcuts: [], triggers: ["expand folders", "open folders"]),
+            KeyAction(id: "manageExtensions", name: "Manage Extensions…", section: .none, shortcuts: [], triggers: ["manage extensions", "chrome extensions"], symbol: "puzzlepiece.extension"),
+            KeyAction(id: "openExtensions", name: "Open Extensions", section: .none, shortcuts: [KeyChord("e", cmd)], triggers: ["extensions", "site controls"]),
             // Archive
             KeyAction(id: "goBack", name: "Go Back", section: .archive, shortcuts: [KeyChord("[", cmd), KeyChord(KeyChord.left, cmd)]),
             KeyAction(id: "goForward", name: "Go Forward", section: .archive, shortcuts: [KeyChord("]", cmd), KeyChord(KeyChord.right, cmd)]),
             KeyAction(id: "viewArchive", name: "View History", section: .archive, shortcuts: [KeyChord("y", cmd)], triggers: ["archive", "history", "closed tabs"]),
+            // Arc: Archive ▸ View Archive…, Clear Archive.
+            KeyAction(id: "showArchive", name: "View Archive…", section: .archive, shortcuts: [], triggers: ["archive", "archived tabs"]),
+            KeyAction(id: "clearArchive", name: "Clear Archive", section: .archive, shortcuts: [], triggers: ["clear archive"], symbol: "trash"),
             // Window
             KeyAction(id: "openLibrary", name: "Open Library…", section: .window, shortcuts: [KeyChord("l", cmdShift)], triggers: ["library"]),
             KeyAction(id: "viewDownloads", name: "View Downloads…", section: .window, shortcuts: [KeyChord("j", cmdShift)], triggers: ["downloads"]),
+            // Arc: Window ▸ View Easels….
+            KeyAction(id: "viewEasels", name: "View Easels…", section: .window, shortcuts: [], triggers: ["easels"]),
+            // Arc: Window ▸ View Media….
+            KeyAction(id: "viewMedia", name: "View Media…", section: .window, shortcuts: [], triggers: ["media", "screenshots", "photos"]),
+            // Arc: Window ▸ Stay On Top.
+            KeyAction(id: "stayOnTop", name: "Stay On Top", section: .window, shortcuts: [], triggers: ["stay on top", "float", "always on top", "pin window"]),
             // Arc's Little Arc "Open in Space" button (LittleBrowserMoveButton) and "Close Little Arc Windows".
             KeyAction(id: "promoteLittleWindow", name: "Open Little Window in Space", section: .window, shortcuts: [KeyChord("o", cmd)], inCommandBar: false),
+            // Arc: Show Little Arc "Open In" Menu ⇧⌘O.
+            KeyAction(id: "littleWindowOpenInMenu", name: "Show Little Window “Open In” Menu", section: .window,
+                      shortcuts: [KeyChord("o", cmdShift)], inCommandBar: false),
             KeyAction(id: "closeLittleWindows", name: "Close Little Windows", section: .window, shortcuts: [], triggers: ["close little"]),
             // App
             KeyAction(id: "settings", name: "Settings…", section: .app, shortcuts: [KeyChord(",", cmd)], triggers: ["preferences", "settings"]),
@@ -107,9 +149,21 @@ public enum KeyBindingDefaults {
                       triggers: ["language", "languages", "preferred language", "accept language"], symbol: "globe"),
             KeyAction(id: "checkForUpdates", name: "Check for Updates…", section: .app, shortcuts: [],
                       triggers: ["update", "upgrade", "new version"], symbol: "arrow.down.circle"),
+            // Arc: Help ▸ Essential Keyboard Shortcuts.
+            KeyAction(id: "essentialShortcuts", name: "Essential Keyboard Shortcuts", section: .help, shortcuts: [],
+                      triggers: ["shortcuts", "keyboard shortcuts", "hotkeys"], symbol: "keyboard"),
+            // Arc: Help ▸ Troubleshooting ▸ Reveal Arc Data, Copy Arc Info.
+            KeyAction(id: "revealData", name: "Reveal Cra Data", section: .help, shortcuts: [], triggers: ["data folder", "reveal data"]),
+            KeyAction(id: "copyAppInfo", name: "Copy Cra Info", section: .help, shortcuts: [], triggers: ["version", "copy info"]),
         ]
+        // Arc: Switch to Split View 1–4 (⌃⇧1…4), the panes of the open split.
+        for n in 1...4 {
+            list.append(KeyAction(id: "splitPane\(n)", name: "Switch to Split View \(n)", section: .none,
+                                  shortcuts: [KeyChord("\(n)", [.control, .shift])], inCommandBar: false))
+        }
         for n in 1...9 {
-            list.append(KeyAction(id: "item\(n)", name: "Go to Tab \(n)", section: .tabs,
+            // Arc: ⌘9 is "Go to last Sidebar Item", as in Chrome.
+            list.append(KeyAction(id: "item\(n)", name: n == 9 ? "Go to Last Tab" : "Go to Tab \(n)", section: .tabs,
                                   shortcuts: [KeyChord("\(n)", cmd)], triggers: ["\(n). tab", "\(n). item"], inCommandBar: false))
             list.append(KeyAction(id: "space\(n)", name: "Go to Space \(n)", section: .spaces,
                                   shortcuts: [KeyChord("\(n)", .control)], inCommandBar: false))
@@ -210,11 +264,41 @@ public enum ShortcutDescriptions {
         if let t = table[a.id] { return t }
         if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). tab in the sidebar." }
         if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return "Switch to the \(n). space." }
+        if a.id.hasPrefix("splitPane"), let n = a.id.dropFirst(9).first { return "Switch to the \(n). pane of the open split." }
         if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return "Move the current tab, or a Little Window's page, to the \(n). space and switch to it." }
         return a.name + "."
     }
 
     private static let table: [String: String] = [
+        // Upstream's Arc parity sweep (#28).
+        "newEasel": "Create an Easel, a canvas for text, shapes, drawings and captures.",
+        "captureFullPage": "Capture the whole page, top to bottom.",
+        "capturePortrait": "Capture the page as a phone would show it.",
+        "savePageAs": "Save the page to a file.",
+        "copyURLQuote": "Copy the selected text with a link to it.",
+        "useSelectionForFind": "Search the page for the selected text.",
+        "jumpToSelection": "Scroll the selected text into view.",
+        "appearanceAutomatic": "Websites follow your system's light or dark appearance.",
+        "appearanceLight": "Websites always show their light appearance.",
+        "appearanceDark": "Websites always show their dark appearance.",
+        "collapsePinned": "Collapse or expand the pinned tabs.",
+        "cast": "Cast the page to a device on your network.",
+        "taskManager": "Open Chromium's task manager to see what each page uses.",
+        "revealTab": "Scroll the sidebar to the open tab.",
+        "resetSpaceTabs": "Take every pinned tab in this space back to its pinned page.",
+        "collapseAllFolders": "Close every folder in the space.",
+        "expandAllFolders": "Open every folder in the space.",
+        "manageExtensions": "Open the page that lists your extensions.",
+        "openExtensions": "Open the Extensions menu for this page.",
+        "showArchive": "Open the Library's Archived Tabs.",
+        "clearArchive": "Remove every archived tab.",
+        "viewEasels": "Open the Library's Easels.",
+        "viewMedia": "Open the Library's Media: screenshots, pictures and videos.",
+        "stayOnTop": "Keep this window above other apps' windows.",
+        "littleWindowOpenInMenu": "Show where a Little Window's page can open.",
+        "essentialShortcuts": "Show a card with five shortcuts worth knowing.",
+        "revealData": "Show Cra's data folder.",
+        "copyAppInfo": "Copy Cra's version and system details, for a bug report.",
         "newTab": "Create a new tab.",
         "newWindow": "Open a new window.",
         "newBlankWindow": "Open a window with a sidebar of its own, apart from your spaces.",

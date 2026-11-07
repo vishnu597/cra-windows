@@ -23,8 +23,9 @@ protocol LibraryActions: AnyObject {
 /// shortcut, Escape or the arrow, and opens it again on the page last shown.
 @MainActor
 final class LibraryView {
-    /// Windows has no Spaces page yet (the Mac's SpacesManagerView): its rail lists the others.
-    static let pages: [LibraryPage] = LibraryPage.allCases.filter { $0 != .spaces }
+    /// The pages Windows has: no Media (the Mac's MediaScanner), Easels (EaselCanvasView) or
+    /// Spaces (SpacesManagerView) yet.
+    static let pages: [LibraryPage] = [.downloads, .archive]
 
     let root = Grid()
     private(set) var page: LibraryPage = .downloads
@@ -136,7 +137,7 @@ final class LibraryView {
                 for item in section.items { addArchived(item) }
             }
             showEmpty(sections.isEmpty, LibraryList.empty(.archive, hasAny: !archive.isEmpty))
-        case .spaces:
+        case .media, .easels, .spaces:
             showEmpty(true, LibraryList.Empty(symbol: page.symbol, title: "Not on Windows yet", detail: nil))
         }
     }
@@ -324,7 +325,7 @@ final class LibraryView {
             let clear = UI.menuItem("Clear Archive") { [weak self] in self?.store.clearArchive() }
             clear.isEnabled = !store.archive.isEmpty
             pageMenu.items.append(clear)
-        case .spaces:
+        case .media, .easels, .spaces:
             break
         }
     }
