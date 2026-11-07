@@ -358,25 +358,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func openExternalURL(_ url: String) {
-        if let u = URL(string: url), u.scheme?.lowercased() == "cra" {
-            if Self.isUserFacing(u) || UserDefaults.standard.bool(forKey: "scriptingURLs") {
-                handleInternalURL(u)
-            } else {
-                NSLog("Cra: ignored %@ from another app (defaults write dk.kildahl.cra scriptingURLs -bool YES allows it)", url)
-            }
+        // Arc's Air Traffic Control: the first matching route, else the default ("Links from
+        // other apps open in Little Arc"); CraCore's ExternalLink decides, Windows asks it too.
+        let target = ExternalLink.target(for: url, settings: store.settings,
+                                         allowsScripting: UserDefaults.standard.bool(forKey: "scriptingURLs")) { [store] in store.space($0) != nil }
+        switch target {
+        case .internalURL:
+            if let u = URL(string: url) { handleInternalURL(u) }
             return
+        case .ignored:
+            NSLog("Cra: ignored %@ from another app (defaults write dk.kildahl.cra scriptingURLs -bool YES allows it)", url)
+            return
+        default:
+            break
         }
         // Links from other apps never land in an incognito window (Chrome does the same).
         useNormalWindow()
-        // Arc's Air Traffic Control: the first matching route, else the default
-        // ("Links from other apps open in Little Arc").
-        switch store.settings.destination(forExternalURL: url) {
+        switch target {
         case .littleWindow:
             openLittleWindow(url: url)
             return
-        case .space(let id) where store.space(id) != nil:
+        case .space(let id):
             store.createTab(url: url, in: id, select: true)
-        case .space, .mostRecentSpace:
+        default:
             store.createTab(url: url, select: true)
         }
         main.showWindow(nil)
@@ -638,23 +642,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         for w in littleWindows { w.closeWindow() }
     }
 
-    /// cra:// URLs any app may send: they do what the user could do from the Dock.
-    /// The rest (action, navigate, key, import, debug, open with a file: or javascript:
-    /// URL) run scripts, DevTools Protocol and key presses, so a link in a mail or another
-    /// browser must not reach them. CRA_COMMAND_FILE and the scriptingURLs default do.
-    static func isUserFacing(_ u: URL) -> Bool {
-        switch u.host {
-        case "commandbar", "dismiss":
-            return true
-        case "open":
-            let target = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "url" }?.value
-            let scheme = target.flatMap { URL(string: $0)?.scheme?.lowercased() }
-            return scheme == "http" || scheme == "https"
-        default:
-            return false
-        }
-    }
-
+    /// Other apps reach only ExternalLink.isUserFacing's links; CRA_COMMAND_FILE and the
+    /// scriptingURLs default reach the rest.
     /// cra://commandbar?query=…&mode=edit, cra://action/<id>,
     /// cra://open?url=…[&space=<space id>][&background=1|&little=1], cra://dismiss.
     func handleInternalURL(_ u: URL) {
