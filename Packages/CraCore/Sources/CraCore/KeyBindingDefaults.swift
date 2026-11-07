@@ -264,11 +264,41 @@ public enum ShortcutDescriptions {
         if let t = table[a.id] { return t }
         if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). tab in the sidebar." }
         if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return "Switch to the \(n). space." }
+        if a.id.hasPrefix("splitPane"), let n = a.id.dropFirst(9).first { return "Switch to the \(n). pane of the open split." }
         if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return "Move the current tab, or a Little Window's page, to the \(n). space and switch to it." }
         return a.name + "."
     }
 
     private static let table: [String: String] = [
+        // Upstream's Arc parity sweep (#28).
+        "newEasel": "Create an Easel, a canvas for text, shapes, drawings and captures.",
+        "captureFullPage": "Capture the whole page, top to bottom.",
+        "capturePortrait": "Capture the page as a phone would show it.",
+        "savePageAs": "Save the page to a file.",
+        "copyURLQuote": "Copy the selected text with a link to it.",
+        "useSelectionForFind": "Search the page for the selected text.",
+        "jumpToSelection": "Scroll the selected text into view.",
+        "appearanceAutomatic": "Websites follow your system's light or dark appearance.",
+        "appearanceLight": "Websites always show their light appearance.",
+        "appearanceDark": "Websites always show their dark appearance.",
+        "collapsePinned": "Collapse or expand the pinned tabs.",
+        "cast": "Cast the page to a device on your network.",
+        "taskManager": "Open Chromium's task manager to see what each page uses.",
+        "revealTab": "Scroll the sidebar to the open tab.",
+        "resetSpaceTabs": "Take every pinned tab in this space back to its pinned page.",
+        "collapseAllFolders": "Close every folder in the space.",
+        "expandAllFolders": "Open every folder in the space.",
+        "manageExtensions": "Open the page that lists your extensions.",
+        "openExtensions": "Open the Extensions menu for this page.",
+        "showArchive": "Open the Library's Archived Tabs.",
+        "clearArchive": "Remove every archived tab.",
+        "viewEasels": "Open the Library's Easels.",
+        "viewMedia": "Open the Library's Media: screenshots, pictures and videos.",
+        "stayOnTop": "Keep this window above other apps' windows.",
+        "littleWindowOpenInMenu": "Show where a Little Window's page can open.",
+        "essentialShortcuts": "Show a card with five shortcuts worth knowing.",
+        "revealData": "Show Cra's data folder.",
+        "copyAppInfo": "Copy Cra's version and system details, for a bug report.",
         "newTab": "Create a new tab.",
         "newWindow": "Open a new window.",
         "newBlankWindow": "Open a window with a sidebar of its own, apart from your spaces.",
