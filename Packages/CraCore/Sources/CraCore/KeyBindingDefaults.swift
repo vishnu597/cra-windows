@@ -27,6 +27,9 @@ public enum KeyBindingDefaults {
             KeyAction(id: "newGitHubLiveFolder", name: "New GitHub Live Folder", section: .file, shortcuts: [],
                       triggers: ["live folder", "pull requests", "github"]),
             KeyAction(id: "newSpace", name: "New Space…", section: .file, shortcuts: [], triggers: ["space"]),
+            // Arc's command bar: New Boost, the open site's boost.
+            KeyAction(id: "newBoost", name: "New Boost", section: .none, shortcuts: [], triggers: ["boost", "restyle", "zap"],
+                      symbol: "paintbrush.pointed"),
             // Arc: File ▸ New Easel ⌃⇧E.
             KeyAction(id: "newEasel", name: "New Easel", section: .file, shortcuts: [KeyChord("e", [.control, .shift])],
                       triggers: ["easel", "whiteboard", "canvas", "draw"]),
@@ -69,6 +72,9 @@ public enum KeyBindingDefaults {
             KeyAction(id: "resetZoom", name: "Zoom to Actual Size", section: .view, shortcuts: [KeyChord("0", cmd)], triggers: ["reset zoom"]),
             KeyAction(id: "zoomIn", name: "Zoom In", section: .view, shortcuts: [KeyChord("=", cmd), KeyChord("=", cmdShift)]),
             KeyAction(id: "zoomOut", name: "Zoom Out", section: .view, shortcuts: [KeyChord("-", cmd)]),
+            // Arc: View ▸ Developer ▸ Allow JavaScript from Apple Events (AppleScript's `execute`).
+            KeyAction(id: "allowAppleEventsJavaScript", name: "Allow JavaScript from Apple Events", section: .none, shortcuts: [],
+                      triggers: ["applescript", "apple events"], inCommandBar: false),
             KeyAction(id: "viewSource", name: "View Source", section: .view, shortcuts: [KeyChord("u", cmdOpt)]),
             KeyAction(id: "devTools", name: "Developer Tools", section: .view, shortcuts: [KeyChord("i", cmdOpt), KeyChord(KeyChord.f12, [])], triggers: ["devtools", "inspect", "console"]),
             KeyAction(id: "inspectElement", name: "Inspect Elements", section: .view, shortcuts: [KeyChord("c", cmdOpt)], inCommandBar: false),
@@ -103,6 +109,10 @@ public enum KeyBindingDefaults {
             KeyAction(id: "recentTabBackward", name: "Previous Recent Tab", section: .tabs, shortcuts: [KeyChord(KeyChord.tab, [.control, .shift])], inCommandBar: false),
             KeyAction(id: "clearToday", name: "Clear Today", section: .tabs, shortcuts: [KeyChord("k", cmdShift)], triggers: ["clear", "tidy"]),
             KeyAction(id: "favoriteTab", name: "Add to Favorites", section: .tabs, shortcuts: [], triggers: ["favorite", "top app"]),
+            // Arc's Join Meeting ⌃⌘J (Settings ▸ Shortcuts; the command bar's "Join next video conference"):
+            // the call from a Calendar favorite's Live Calendar.
+            KeyAction(id: "joinNextMeeting", name: "Join Meeting", section: .none, shortcuts: [KeyChord("j", [.control, .command])],
+                      triggers: ["join", "meeting", "video call", "join next video conference"]),
             KeyAction(id: "renameTab", name: "Rename Tab…", section: .tabs, shortcuts: [], triggers: ["rename"]),
             KeyAction(id: "duplicateTab", name: "Duplicate Tab", section: .tabs, shortcuts: [], triggers: ["duplicate"]),
             KeyAction(id: "resetTab", name: "Reset Pinned Tab", section: .tabs, shortcuts: [], triggers: ["reset", "home"]),
@@ -123,6 +133,8 @@ public enum KeyBindingDefaults {
             // Window
             KeyAction(id: "openLibrary", name: "Open Library…", section: .window, shortcuts: [KeyChord("l", cmdShift)], triggers: ["library"]),
             KeyAction(id: "viewDownloads", name: "View Downloads…", section: .window, shortcuts: [KeyChord("j", cmdShift)], triggers: ["downloads"]),
+            // Arc: Window ▸ View Boosts….
+            KeyAction(id: "viewBoosts", name: "View Boosts…", section: .window, shortcuts: [], triggers: ["boosts"]),
             // Arc: Window ▸ View Easels….
             KeyAction(id: "viewEasels", name: "View Easels…", section: .window, shortcuts: [], triggers: ["easels"]),
             // Arc: Window ▸ View Media….
@@ -295,6 +307,10 @@ public enum ShortcutDescriptions {
         "showArchive": "Open the Library's Archived Tabs.",
         "clearArchive": "Remove every archived tab.",
         "viewEasels": "Open the Library's Easels.",
+        "viewBoosts": "Open the Library's Boosts.",
+        "newBoost": "Create a Boost that restyles the site you're on.",
+        "allowAppleEventsJavaScript": "Let AppleScript run JavaScript in your tabs.",
+        "joinNextMeeting": "Join the next video call on your Calendar favorite's Live Calendar.",
         "viewMedia": "Open the Library's Media: screenshots, pictures and videos.",
         "stayOnTop": "Keep this window above other apps' windows.",
         "littleWindowOpenInMenu": "Show where a Little Window's page can open.",

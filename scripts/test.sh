@@ -27,6 +27,7 @@ if [ "${1:-}" != core ]; then
   suite "Extension store migration" scripts/test-extension-store-migration.sh
   suite "Store and importers" scripts/test-store.sh
   suite "Policies" scripts/test-policies.sh
+  suite "Folder glyph" scripts/test-folder-glyph.sh
   suite "Perf recorder" scripts/test-perf.sh
   suite "Lint" scripts/lint.py
 fi

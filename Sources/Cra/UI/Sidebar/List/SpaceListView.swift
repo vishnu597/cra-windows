@@ -307,7 +307,7 @@ final class SpaceListView: NSView, NSDraggingSource {
                     navigatedAway: navigatedAway,
                     focusRing: focusID == item.id, developerMode: developerMode, peeked: peeked,
                     homeIcon: homeImg, homeFlipIcon: homeFlip,
-                    peekIcon: ui.peekBadge?.tabID == item.id ? icon(ui.peekBadge?.iconKey).0 : nil,
+                    peekIcon: ui.peekBadges[item.id].flatMap { icon($0.iconKey).0 },
                     tidyRename: tidyRename, gitlabMark: liveSource == .gitlab))
                 out.append(row)
             } else if item.isSplit {
@@ -817,6 +817,12 @@ final class SpaceListView: NSView, NSDraggingSource {
         let p = w.mouseLocationOutsideOfEventStream
         let inside = document.visibleRect.contains(document.convert(p, from: nil)) && w.isVisible
         hoverAt(inside && document.isMouseInside ? p : nil)
+    }
+
+    /// Scenarios (cra://debug?hover=): `row` takes the hover as if the pointer were on its middle.
+    /// The pointer's next move, or the list's next sync, puts it back where the pointer is.
+    func debugHover(_ row: SidebarRowView) {
+        hoverAt(row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil))
     }
 
     private func hoverAt(_ windowPoint: NSPoint?) {

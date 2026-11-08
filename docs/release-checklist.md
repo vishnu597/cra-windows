@@ -41,6 +41,10 @@ built release app with a test profile. Note anything that fails in the release's
 - **#7:** click a tab while moving the pointer a few points on a trackpad. It opens.
 - **#3, #208:** a middle click on a sidebar tab row closes it; one in a page never does. ⇧⌘J
   opens Downloads in the sidebar; Esc or the back arrow closes the Library.
+- **#233:** with a real mouse, its back button over the sidebar goes to the previous space and
+  forward to the next, docked and in the hidden sidebar (⌘S); over a page they still go back and
+  forward in the tab's history. The scenario hands the button to the window's handler, so only a
+  real mouse proves the monitor sees it.
 - **#12:** a two-finger swipe in the hidden sidebar (⌘S) switches spaces, and the next space
   draws mid-swipe. There is one link bubble only, and the dashed ring shows only on a
   cross-space keyboard switch.
@@ -70,13 +74,24 @@ built release app with a test profile. Note anything that fails in the release's
   the grey picture and the lens follow. With another app full screen, ⌥⌘N opens a Little
   Window over it, and doesn't when Settings ▸ Tabs ▸ Links is off.
 - **#202:** in a Peek, ⌘-click a `target=_blank` link: a background tab opens and the Peek
-  stays. A plain click on it closes the Peek and selects the new tab below the source tab.
+  stays. A plain click on it takes the Peek away and selects the new tab below the source tab.
+- **#242:** Peek a link from a pinned tab, scroll the Peek, click a `target=_blank` link in it: the
+  new tab shows with no Peek and the pinned row keeps the peeked page's favicon. Click the pinned
+  row: the same Peek is back at the same scroll, the page behind faded, and clicks in it work.
+  With the Peek shown, click another tab's row: that tab opens (the Peek waits); a click on the
+  faded page beside the card closes it. (Which Peek shows when is the peek-per-tab scenario;
+  this is the look, the scroll and the real clicks.)
 - **PR #222:** with a Peek open, the browser window keeps its full shadow and coloured traffic
   lights, also after a click in the Peek, as in Arc. A drag from every edge and corner resizes the
   window with the Peek open and the card follows; a click on the background 4 pt or more inside
   the window closes it.
 - **#186:** send a link from a full-screen app. The Little Window opens centred on that Space
   with no switch to the desktop, and a video in it can still go full screen.
+- **#231:** with Keep Cra in the menu bar on, the C shows in the menu bar in light and dark.
+  ⌘Q takes the windows and the Dock icon away, and focus goes to the app behind. A full-screen
+  window leaves its Space first. ⌥⌘N from another app opens a Little Window at once, with the
+  Dock icon. Closing it takes the icon away again. New Window in the item's menu brings the
+  windows back, and Quit Cra there quits.
 - **#172:** with a space on its own profile, a Little Window from that space and a Peek from its
   tab see that profile's cookies. The chip names the profile; switching it reloads the page in
   the other profile.
@@ -86,6 +101,10 @@ built release app with a test profile. Note anything that fails in the release's
   PiP and coming back closes it. The tab shows the recording dot and doesn't sleep.
 - **#134:** with another app in front, the PiP edges show resize cursors, and a click on play
   doesn't move the window.
+- **#246:** a YouTube video's PiP shows no Chrome strip (site icon, host, dark top band) at any
+  point, also in the first seconds; with the pointer away it is the bare video. On hover: Back to
+  Tab on the left (with its words from 400 pt wide), the host centred and whole, Close on the
+  right, one even dim layer.
 - **#178:** in a split, the focused pane's ring shows (also over docked DevTools), and so does
   the card shadow.
 - **#90:** Capture on a second display and behind other windows isn't blank. It goes to the

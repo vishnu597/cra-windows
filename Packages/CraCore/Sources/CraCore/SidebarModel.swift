@@ -460,6 +460,9 @@ public struct AppSettings: Codable, Equatable {
     /// Arc's per-site Developer Mode (⌃D): the toolbar shows the full URL in
     /// monospace with the developer icons, and the nav buttons move to the sidebar.
     public var developerHosts: Set<String> = []
+    /// Arc's `disabledDefaultHosts`: local servers start in Developer Mode, and ⌃D on one
+    /// records its host here (#228).
+    public var disabledDefaultDeveloperHosts: Set<String> = []
     /// Host pages in Chrome-style windows: Chrome extensions and Chrome's own
     /// DevTools docking. Needs a restart to change.
     public var chromeEngine: Bool = true
@@ -497,6 +500,9 @@ public struct AppSettings: Codable, Equatable {
     public var hapticFeedbackOnReorder: Bool = true
     /// Dia's Advanced ▸ "Warn before quitting" (shouldWarnBeforeQuitting, off by default).
     public var warnBeforeQuitting: Bool = false
+    /// GitHub #231, not in Arc (Arc quits on ⌘Q): ⌘Q puts the pages away and Cra stays in the menu
+    /// bar, so ⌥⌘N opens a Little Window without a launch. Off, ⌘Q quits as in Arc (MenuBarMode).
+    public var keepInMenuBar: Bool = false
     /// Dia's Tabs ▸ "Clean up tabs I haven't used in:" checkbox; `autoArchive` keeps the
     /// threshold while this is off.
     public var autoArchiveEnabled: Bool = true
@@ -517,6 +523,8 @@ public struct AppSettings: Codable, Equatable {
     /// asks macOS for access), then the folders the Library button's "Show media" menu ticks.
     public var mediaLibraryEnabled: Bool = false
     public var mediaFolders: [MediaLibrary.Folder] = MediaLibrary.Folder.allCases
+    /// Files taken off Library ▸ Media with Arc's "Hide from Arc" (the file stays on disk).
+    public var mediaHidden: [String] = []
     /// Arc's Settings ▸ Links ▸ "Archive Little Arcs after:".
     public var littleWindowArchiveAfter: LittleWindowArchive = .sixHours
     /// Arc's Settings ▸ Advanced "When opening Arc, restore windows from previous session", on by default.
@@ -525,6 +533,23 @@ public struct AppSettings: Codable, Equatable {
     public var shareThemeWithWebsites: Bool = true
     /// Arc's Settings ▸ General "Block Cookie Banners" (CookieBanners), off by default as in Arc.
     public var blockCookieBanners: Bool = false
+    /// Arc's View ▸ Developer ▸ "Allow JavaScript from Apple Events": AppleScript's `execute`, off by default.
+    public var allowAppleEventsJavaScript: Bool = false
+    /// Arc's Settings ▸ Advanced "Allow window dragging from the top of webpages" (PageTopDrag), on by default.
+    public var pageTopWindowDrag: Bool = true
+    /// Arc's Settings ▸ Advanced "Enable Boosts on websites you visit", on by default.
+    public var boostsEnabled: Bool = true
+    /// Arc's Settings ▸ General ▸ Previews: hovering a Gmail favorite shows its unread mail.
+    public var favoritePreviews: Bool = true
+    /// Arc's Live Calendar on a Google Calendar favorite (the favorite's menu ▸ Live Calendar), on
+    /// until "Disable Live Calendar".
+    public var liveCalendar: Bool = true
+    /// Live Calendar ▸ Show Hover Preview: today's timeline when the pointer rests on the tile.
+    public var calendarHoverPreview: Bool = true
+    /// Live Calendar ▸ Show Time to Next Meeting: the tile counts down to it.
+    public var calendarTimeToNextMeeting: Bool = true
+    /// Live Calendar ▸ Show Next Meeting Link, Two Minutes Before in Arc.
+    public var calendarMeetingLink: CalendarPreview.LinkTiming = .twoMinutes
     /// Arc's searchSuggestEnabled: the command bar asks the search engine for suggestions
     /// as you type and fills its rows with them.
     public var searchSuggestions: Bool = true
@@ -576,7 +601,16 @@ public struct AppSettings: Codable, Equatable {
         get { defaultLinkDestination == .littleWindow }
         set { defaultLinkDestination = newValue ? .littleWindow : .mostRecentSpace }
     }
-    public func isDeveloperMode(url: String) -> Bool { AppSettings.siteKey(for: url).map(developerHosts.contains) ?? false }
+    /// Hosts Arc puts in Developer Mode by itself, on any port: localhost, 127.0.0.1 and any
+    /// *.localhost, not [::1] (Arc 1.172, checked live 8 Nov 2026).
+    public static func isDefaultDeveloperHost(_ host: String) -> Bool {
+        host == "localhost" || host == "127.0.0.1" || host.hasSuffix(".localhost")
+    }
+    public func isDeveloperMode(url: String) -> Bool {
+        guard let k = AppSettings.siteKey(for: url) else { return false }
+        return developerHosts.contains(k)
+            || (Self.isDefaultDeveloperHost(k) && !disabledDefaultDeveloperHosts.contains(k))
+    }
     /// Whether a page shown alone carries a bar above it: the toolbar while it is shown, and
     /// Arc's developer bar on a Developer Mode site even with the toolbar hidden (#185). A
     /// split's panes always carry bars (#178); the shell adds that rule.
@@ -585,7 +619,11 @@ public struct AppSettings: Codable, Equatable {
     }
     public mutating func toggleDeveloperMode(url: String) {
         guard let k = AppSettings.siteKey(for: url) else { return }
-        if developerHosts.contains(k) { developerHosts.remove(k) } else { developerHosts.insert(k) }
+        let on = isDeveloperMode(url: url)
+        if Self.isDefaultDeveloperHost(k) {
+            developerHosts.remove(k)
+            if on { disabledDefaultDeveloperHosts.insert(k) } else { disabledDefaultDeveloperHosts.remove(k) }
+        } else if on { developerHosts.remove(k) } else { developerHosts.insert(k) }
     }
     /// Settings saved without `toolbarDefaultMigrated` take the toolbar from Arc's View ▸
     /// Show Toolbar (nil without Arc: off), once. Arc's preference is read only then.
@@ -704,6 +742,7 @@ extension AppSettings {
         toolbarShowsFullURL = try c.decodeIfPresent(Bool.self, forKey: .toolbarShowsFullURL) ?? false
         hasSeenImportPrompt = try c.decodeIfPresent(Bool.self, forKey: .hasSeenImportPrompt) ?? false
         developerHosts = try c.decodeIfPresent(Set<String>.self, forKey: .developerHosts) ?? []
+        disabledDefaultDeveloperHosts = try c.decodeIfPresent(Set<String>.self, forKey: .disabledDefaultDeveloperHosts) ?? []
         chromeEngine = try c.decodeIfPresent(Bool.self, forKey: .chromeEngine) ?? true
         autoPictureInPicture = try c.decodeIfPresent(Bool.self, forKey: .autoPictureInPicture) ?? true
         blockAdsAndTrackers = try c.decodeIfPresent(Bool.self, forKey: .blockAdsAndTrackers) ?? true
@@ -723,6 +762,7 @@ extension AppSettings {
         folderPreviews = try c.decodeIfPresent(Bool.self, forKey: .folderPreviews) ?? true
         hapticFeedbackOnReorder = try c.decodeIfPresent(Bool.self, forKey: .hapticFeedbackOnReorder) ?? true
         warnBeforeQuitting = try c.decodeIfPresent(Bool.self, forKey: .warnBeforeQuitting) ?? false
+        keepInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .keepInMenuBar) ?? false
         autoArchiveEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoArchiveEnabled) ?? true
         tabSleepTimerEnabled = try c.decodeIfPresent(Bool.self, forKey: .tabSleepTimerEnabled) ?? true
         tabSleepAfter = (try? c.decodeIfPresent(TabSleepThreshold.self, forKey: .tabSleepAfter)) ?? .fourHours
@@ -732,10 +772,19 @@ extension AppSettings {
         soundEffects = try c.decodeIfPresent(Bool.self, forKey: .soundEffects) ?? true
         mediaLibraryEnabled = try c.decodeIfPresent(Bool.self, forKey: .mediaLibraryEnabled) ?? false
         mediaFolders = (try? c.decodeIfPresent([MediaLibrary.Folder].self, forKey: .mediaFolders)) ?? MediaLibrary.Folder.allCases
+        mediaHidden = (try? c.decodeIfPresent([String].self, forKey: .mediaHidden)) ?? []
         littleWindowArchiveAfter = (try? c.decodeIfPresent(LittleWindowArchive.self, forKey: .littleWindowArchiveAfter)) ?? .sixHours
         restoreWindows = try c.decodeIfPresent(Bool.self, forKey: .restoreWindows) ?? true
         shareThemeWithWebsites = try c.decodeIfPresent(Bool.self, forKey: .shareThemeWithWebsites) ?? true
         blockCookieBanners = try c.decodeIfPresent(Bool.self, forKey: .blockCookieBanners) ?? false
+        allowAppleEventsJavaScript = try c.decodeIfPresent(Bool.self, forKey: .allowAppleEventsJavaScript) ?? false
+        pageTopWindowDrag = try c.decodeIfPresent(Bool.self, forKey: .pageTopWindowDrag) ?? true
+        boostsEnabled = try c.decodeIfPresent(Bool.self, forKey: .boostsEnabled) ?? true
+        favoritePreviews = try c.decodeIfPresent(Bool.self, forKey: .favoritePreviews) ?? true
+        liveCalendar = try c.decodeIfPresent(Bool.self, forKey: .liveCalendar) ?? true
+        calendarHoverPreview = try c.decodeIfPresent(Bool.self, forKey: .calendarHoverPreview) ?? true
+        calendarTimeToNextMeeting = try c.decodeIfPresent(Bool.self, forKey: .calendarTimeToNextMeeting) ?? true
+        calendarMeetingLink = (try? c.decodeIfPresent(CalendarPreview.LinkTiming.self, forKey: .calendarMeetingLink)) ?? .twoMinutes
         searchSuggestions = try c.decodeIfPresent(Bool.self, forKey: .searchSuggestions) ?? true
         showSpaceHeaderOnSingleSpace = try c.decodeIfPresent(Bool.self, forKey: .showSpaceHeaderOnSingleSpace) ?? true
         sharedFavorites = try c.decodeIfPresent(Bool.self, forKey: .sharedFavorites) ?? false

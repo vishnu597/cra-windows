@@ -127,6 +127,11 @@ Legend: [O] observed in shipped artifact or data file, [I] inference, [U] unknow
   gold theme the back was #E9B300, the front #FCEDBC and every edge black at ~26%; how the back colour follows the
   theme is worked out in the next entry. Cra: FolderGlyphView. Cra masks the back with the front panel's shape
   (`frontHole`, turned with the front's transform) for the translucent White and Black icon styles.
+  The live folder's mark (7 Nov, PR #234, Arc 1.171's ivars and disassembly): `customIconImage` sets
+  `_customIconLayer`, which is inserted at index 0 of the front path layer (`insertSublayer:atIndex:0`), so it
+  turns with the front panel and sits under the front shading. Arc's other fields there: `frontContainerLayer`,
+  `frontPathLayer`, `_frontMaskLayer`, `frontShadingLayer`, `backLayer`, `_backMaskLayer`,
+  `backShadingMaskLayer`, `backShadingLayer`, `_badgeLayer`, `_ellipsisLayer`.
 - [O] Folder glyph colours (4 Nov, offline Arc 1.171, 2x window captures in sRGB of the default dark theme, a
   dark gold and a light blue, folders opened over AX `AXDisclosing`): every panel is opaque and comes from the
   theme's primaryColorPalette. Back = midTone on every theme. Light themes: front tintedLight (#E4F2F8 exact),
@@ -307,6 +312,17 @@ swaps the toolbar: default = nav buttons left, centred host (path dim with Show 
 behind a link glyph, sidebar toggle right; developer = lock + full monospace URL left,
 copy/capture/DevTools/source icons right, nav buttons in the sidebar's title row. Cra
 stores the hosts in `AppSettings.developerHosts`.
+
+Local servers are in Developer Mode before anyone turns it on (8 Nov 2026, #228). Arc's
+StorableDeveloperModeState.json holds `enabledHosts` and `disabledDefaultHosts`, and Victor's
+has `"disabledDefaultHosts": ["localhost"]` after ⌃D turned it off there. Checked live in
+Victor's hidden Arc 1.172 (AppleScript new tab, then the AX tree; a sidebar row's
+`sidebarItemSubtitleTextField` shows host:port only in Developer Mode, e.g. ahrefs.com and
+example.com from `enabledHosts`): `127.0.0.1:47188` and `app.localhost:47188` showed it,
+`[::1]:47188` didn't, and localhost didn't because Victor had turned it off. The
+`(localhost|127\.0\.0\.1)` regex in ARCFoundationBase's String+URL is URL detection, not this.
+Cra: `AppSettings.isDefaultDeveloperHost` and `disabledDefaultDeveloperHosts`; scenario runs
+start with 127.0.0.1 turned off so ${PAGE} keeps the normal bar.
 
 The ⌄ after ↻ in that title row (GitHub #89, Arc screenshot from vrubzov1957): "✓ Reload ⌘R",
 "Refresh (Ignore Cache) ⇧⌘R", a separator, "Clear Cookies and Refresh". Arc's context menus show
@@ -721,10 +737,33 @@ Over another app's full-screen Space (6 Nov, GitHub #206):
   overlay is a borderless non-activating NSPanel. Measured on a test copy with a full-screen stand-in app in
   front: main had video and Document PiP off that Space. Now both are on it, so is a video PiP opened while that
   Space is in front, and a click and a drag on it keep the full-screen app frontmost and its Space active.
-One residual difference: Chrome paints its origin strip ("File on your device", top gradient)
-inside the compositor layer for about two seconds when the window first appears (present at
-1.5 s, gone at 2.5 s in quarter-second captures); it is drawn whether or not the window is
-resized or focused, so it cannot be suppressed from CEF. After that nothing is drawn, as in Arc.
+Chrome's origin strip (8 Nov, GitHub #246): Chrome draws its title strip (favicon, host, top scrim)
+for 5 s after the window appears and then keeps it until a click or key press reaches its window,
+unless the page is trusted for media playback (file://, or high media engagement;
+`VideoOverlayWindowViews::UpdateControlsVisibility`). The 24 Oct captures used a file:// page, so
+the strip went after about two seconds; on YouTube it never went, because Cra's overlay takes every
+click. CraCEF enables `VideoPipForceTrustedForMediaPlaybackForTesting` (it only feeds that check), so
+the strip never shows: on an http page it is absent at 0.5 s and after 10 s (captures of a test copy).
+Arc 1.172 binary (otool/llvm-objdump on the arm64 slice, 8 Nov, #246):
+- [O static] Position keys are now `LastVideoPIPPosition` / `LastDocumentPIPPosition`. No fixed default
+  size: `.screen(corner, size: nil)` keeps the window's current size inside the limits, 10 pt in. The
+  first size most likely comes from the video's rect on the page [I]. Limits: at least 224×126 scaled
+  to the content's aspect (a 16:9 window is 224×126 at its smallest, which is the 223×125.5 the #246
+  reporter measured), at most max(224, 0.617 × screen width) × max(126, visible height − 20).
+- [O static] Hover layer: one flat `Color.black.opacity(0.33)` scrim, `.easeInOut(duration: 0.2)` in
+  and out; the controls fade with it. Buttons press-scale to 0.95.
+- [O static] Size classes by width: tiny < 280, small < 400, normal < 600, large. Controls 12 pt in when
+  tiny, 16 pt otherwise, button padding 8 (10 from 400 pt): glyph centres 26 / 30 / 32 pt from the
+  edges (the reporter measured 26 on a tiny window). Back to Tab is a pill top-left, 12 pt medium
+  words from 400 pt wide, 6 pt continuous corners. Minimize and Close are a group (top-right [I]),
+  glyphs with tooltips only. The address centred between them is from the reporter's captures; no
+  host label was found in the binary.
+- [O static] Minimize is per site (`minimizeEnabled` in its PiP config) and asks Chromium to leave PiP;
+  `offscreen` is a separate "stash" past the screen edge. Cra has neither.
+- [O static] Scrubber: 5 pt capsule (15 pt drag area) 8 pt above the bottom (4 when tiny), white over
+  white 30 %; dragging upwards slows seeking by 2^round(dy / 60 pt), down to 1/16. Cra has none yet.
+Cra follows the limits, the scrim, the fade, the insets and the Back to Tab words
+(`PictureInPictureLayout` in CraCore) and keeps its 782×440-on-1728×1117 opening size.
 
 Chromium only enters PiP from a page holding a user activation. `CefBrowserHost::SendKeyEvent`
 never reached the page in Chrome-style hosting (CEF 154), so Cra sends an F19 key down/up straight
@@ -1209,6 +1248,11 @@ so test pages must not use it). Live HID clicks and hovers at 1x, plus a static 
   | Today split, open | an ✕ inside every pane | Archive this item | that pane is archived, the split becomes a tab |
   | Today split, background | one ✕ at the row's end | Archive this item | the whole split is archived |
 
+- [O reporter, 2x screenshots, GitHub #243] With the button shown, a long name's ink ends 20.5 pt before the ✕'s
+  ink (✕ centred 18 pt from the fill's end), so its box ends ~13.5 pt before the button. At rest the rows look the
+  same as Cra's 21 pt tail (not measured). Cra (`TabRowTrailing`): the name's box 15 pt before the first trailing
+  control (13 pt from the label's widened box), 21 pt before the row's end with none; it was 26 pt, kept from the
+  old trailing ↩ button.
 - [O live] ⌘W on several picked tabs closes them all; [O static] a Today tab among them archives every one,
   otherwise they all deselect. The ⌘W keycaps only show on the open row's tooltip.
 - [O live] Split cells: 4 pt inside the fill, 4 pt apart, each favicon 6 pt into its cell. An open split draws
@@ -1810,6 +1854,13 @@ Arc's popup this time, so geometry is not measured.
 
 ## Site Control Center and pinned extensions (Arc 1.170, 26 Oct 2026, live via AX + captures)
 
+- [O] The right group's spacing (Arc 1.171, window captures and AX frames, 8 Nov 2026), all 5 pt in from the card
+  edge: normal bar, pinned extensions, sliders, Split View as 32 pt boxes 4 pt apart, icons centred 21, 57, 93,
+  129 pt from the edge; a focused split pane ends in Split View Options and Close Split View Pane (32 pt, edge to
+  edge, centred 53 and 21), the sliders 4 pt before them (89) and the pins on from there (125, 161); an unfocused
+  or empty pane keeps only the close, centred 21; the developer bar has Extensions Menu, pinned extensions, Split
+  View Menu as 28 pt boxes edge to edge (centred 103, 75, 47, 19 with two pins), 16.5 pt after Inspect Element.
+  Cra matches all three (toolbar-pinned-extensions scenario).
 - [O] The toolbar's sliders button is "Site Control Center" (32×28 at the bar's right end, after the pinned extension
   icons at a 36 pt pitch; `SiteControlCenterView` in ARC_SiteControlCenter). It opens an `AXPopover` 262 wide whose
   content column is 236 wide, inset 13; the popover's top sits 4 pt above the bar's bottom edge.
@@ -2728,6 +2779,24 @@ tap with a real Shift key held around them; the space read from each window's `s
   Library in or out like its button. On the Spaces page the cards take the wheel first (10 pt per line, as in Arc)
   and the wheel leaves the Library only at their end.
 
+## Mouse back and forward buttons (Arc 1.172.1, 7 Nov 2026, issue #233, static: main binary arm64)
+
+Reported on #233: in Arc a mouse's back and forward buttons over the sidebar switch spaces.
+- [O static] `Arc.SidebarView` implements `otherMouseUp:` (method list 0x1036918e0, with `hitTest:`, `mouseDown:`,
+  `menuForEvent:`; imp 0x100313594 → 0x1003134a0). Behind a Bool stored property being true (not identified),
+  `buttonNumber` 3 sends the spaces reducer's empty case 3 and 4 sends case 2. That enum's empty cases, in order
+  (`__swift5_fieldmd`): `didTriggerCreateSpaceGesture`, `didTapCreateSpaceButton`, `focusNextSpace`,
+  `focusPreviousSpace`, `iconPickerWillClose`. So back (3) = `focusPreviousSpace`, forward (4) = `focusNextSpace`, on
+  the button's release; the press does nothing there. No `otherMouseUp:` on the page, where Chromium's own
+  back/forward runs.
+- [O static] NSEvent helpers next to `PageSwipeController` (0x100a0d608…0x100a0d6b8): `otherMouseDown` with button
+  2, `otherMouseUp` with button 3 and with button 4.
+- [U] Whether `focusNextSpace` wraps at the last space or opens the Library before the first; what the Bool gate is.
+  Not checked live (Victor was using the Mac).
+- Cra: `MouseButtonSpaceSwitch` (CraCore) maps 3 → −1 and 4 → +1. The window's `otherMouseUp` monitor, over the
+  sidebar (docked or floating, not a Little Window), calls `focusSpace(offset:)` like Spaces ▸ Previous/Next Space
+  (which wrap) and swallows the event; anywhere else the event goes on. Scenario `mouse-buttons-switch-spaces`.
+
 ### Extension action icons, badges and tooltips (Arc 1.171, 2 Nov 2026, issue #106, offline Arc + probe)
 - [O live] Offline Arc (fake home with the Storable*.json files minus both sync states, `--load-extension` with
   a probe, pinned through the fake profile's `extensions.pinned_extensions`). Probe: red top-level `icons`, blue
@@ -3019,6 +3088,31 @@ event with `shiftClickModalEntryPointEnabled` set for the run, AX frames and 60 
   from a pinned tab the top of Today). Not observed in Arc: a ⌘-click inside the Peek (Cra: a background tab,
   the Peek stays) and window.open with features (Cra: still a Little Window over the Peek, which keeps the
   opener alive for sign-ins).
+- [O static + reported, 8 Nov, GitHub #242] A Peek belongs to its tab. Arc 1.172.1's
+  WindowContents/WindowContentState keeps `modalByWindowContent` (next to `presentationState`,
+  `sourceToWindowContentMap` and `windowContentSidebarItemMap`), a modal per window content, and the
+  reporter (Arc 1.172, daily use) sees the Peek a target=_blank link "closed" there again, same page and
+  scroll, back on its pinned tab. So the 6 Nov run above saw the Peek go out of sight, not end. Cra:
+  PeekPresence (CraCore), MainWindowController.syncPeeks → LittleWindowController.parkPeek /
+  unparkPeek / dropPeek; the tab's row keeps the peeked favicon while the Peek waits (modalIcon).
+- [O live, 8 Nov, GitHub #242] Checked in offline Arc 1.172.1 (fake home, one space, pages on pin/away/other
+  .lvh.me:47139 that report load, scroll, visibility and pagehide to the server, HID clicks at 2x, a 60 fps
+  recording). From the pinned tab: its link peeked, the peeked page scrolled itself to 1234; the Peek's
+  target=_blank link opened a selected Today tab and the peeked page went `hidden`, alive (no pagehide).
+  A click on the pinned row brought the same page back (same instance, never reloaded) at 1234.
+  - A click on another sidebar row with the Peek on screen only hides it too: that tab opens, the peeked
+    page goes hidden, and the Peek is back with its tab. The 4 Nov "closed the Peek" was this.
+  - A Peek from a Today tab (Shift-click) waits the same way; its target=_blank link put the new tab right
+    below its tab. Both rows showed the badge at once.
+  - Coming back: the card is there whole in one frame (one blank frame while the page repaints), no
+    grow or fade; only the dimming behind it eases in, ~5 frames (~80 ms). Cra: at once.
+  - The background pinned row with a Peek waiting on it shows ✕ (Archive this tab) on hover, being on its
+    page, and archiving it ended the Peek (pagehide). A pinned tab with a waiting Peek is never away from
+    its page, so the minus (Close and Keep Pinned) and ⌘W don't meet a waiting Peek; ⌘W with the pinned
+    tab open closes the Peek on screen (4 Nov). Cra: archiving drops the Peek; a pinned ⌘W drops it too.
+  - Cra: the click catcher (PeekDimPanel, PeekLayout.dismissArea with `contentMinX`) covered the sidebar,
+    so a row click closed the Peek; it now covers the page area only and the row's tab opens (syncPeeks
+    parks the Peek). cra://debug?peekCatcher reads it.
 
 ### Peek grows out of the link (Arc 1.171, 6 Nov 2026, GitHub #204, offline Arc)
 The reporter recorded Arc 1.172.1 growing the card out of the clicked link. 1.172.0/1.172.1 only moved Chromium

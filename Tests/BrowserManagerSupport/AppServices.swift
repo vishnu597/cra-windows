@@ -113,6 +113,7 @@ final class PictureInPictureChrome {
     static let shared = PictureInPictureChrome()
     var actions: PictureInPictureActions?
     var isPlaying = false
+    var address = ""
     func videoEntered() {}
     func videoLeft() {}
 }
