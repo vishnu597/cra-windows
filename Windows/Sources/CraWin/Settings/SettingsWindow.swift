@@ -31,6 +31,8 @@ final class SettingsWindow {
     /// Puts the shown pane's controls in step with the settings (changed elsewhere, or by them).
     private var syncPane: () -> Void = {}
     private var refreshQueued = false
+    /// Settings ▸ Tabs ▸ Air Traffic Control…, over the whole window.
+    private var airTrafficControl: AirTrafficControlSheet!
     /// Settings ▸ Profiles ▸ Create Profile…: Create a new Profile in the browser window that
     /// last opened Settings.
     var onNewProfile: () -> Void = {}
@@ -47,6 +49,7 @@ final class SettingsWindow {
         palette.style(appWindow.titleBar)
         WindowIcon.apply(to: UInt(appWindow.id.value))
         try xaml.initialize(appWindow.id)
+        airTrafficControl = AirTrafficControlSheet(store: store, palette: palette)
         xaml.content = makeLayout()
         appWindow.closing.addHandler { [weak self] _, args in
             args?.cancel = true
@@ -70,6 +73,7 @@ final class SettingsWindow {
     }
 
     func hide() {
+        airTrafficControl.hide()
         nav.isOpen = false
         try? appWindow.hide()
     }
@@ -124,6 +128,17 @@ final class SettingsWindow {
         try? Grid.setRow(scroll, 1)
         root.children.append(main)
         try? Grid.setColumn(main, 2)
+
+        root.children.append(airTrafficControl.root)
+        try? Grid.setColumnSpan(airTrafficControl.root, 3)
+        // Escape closes the sheet, wherever in it the keyboard is (a menu or a list that is open
+        // takes its own Escape first).
+        root.keyDown.addHandler { [weak self] _, args in
+            guard let self, let args, !args.handled, self.airTrafficControl.isShown,
+                  Int32(truncatingIfNeeded: args.key.rawValue) == 0x1B else { return }
+            args.handled = true
+            self.airTrafficControl.hide()
+        }
         return root
     }
 
@@ -234,7 +249,8 @@ final class SettingsWindow {
         shownPane = pane
         let built: SettingsPaneContent
         switch pane {
-        case .tabs: built = SettingsPanes.tabs(store: store, palette: palette)
+        case .tabs:
+            built = SettingsPanes.tabs(store: store, palette: palette) { [weak self] button in self?.airTrafficControl.show(from: button) }
         case .profiles: built = SettingsPanes.profiles(store: store, palette: palette) { [weak self] in self?.onNewProfile() }
         case .shortcuts:
             let view = ShortcutsPaneView(bindings: WinKeyBindings.shared, palette: palette)

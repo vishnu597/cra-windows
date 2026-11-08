@@ -539,6 +539,24 @@ final class BrowserWindow {
         _ = try? dispatcher.tryEnqueue { [weak self] in self?.presentCommandBar(mode) }
     }
 
+    /// cra://commandbar: the bar, with `query` typed into it. With the bar already open a new
+    /// query is the next keystroke, not a new session (AppDelegate.handleInternalURL).
+    func openCommandBar(_ mode: CommandBarMode, query: String?) {
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { return }
+            if !(self.commandBar.isOpen && query != nil) { self.presentCommandBar(mode) }
+            if let query { self.commandBar.setQuery(query) }
+        }
+    }
+
+    /// cra://dismiss: whatever transient UI is up closes (MainWindowController.dismissTransientUI).
+    func dismissTransientUI() {
+        guard !closing else { return }
+        commandBar.close()
+        hideFindBar()
+        hideSiteControlCenter()
+    }
+
     private func presentCommandBar(_ mode: CommandBarMode) {
         guard !closing, let commandWindow else { return }
         // An empty pane gets Arc's "Search or Enter URL…" bar; the result fills the pane.
@@ -629,7 +647,8 @@ final class BrowserWindow {
         return true
     }
 
-    private func loadInSelectedTab(_ url: String) {
+    /// `url` in the selected tab (cra://navigate, and the command bar's Edit URL).
+    func loadInSelectedTab(_ url: String) {
         guard let id = store.selectedTabID(window: windowID) else { return }
         if let page = pages[id] {
             page.loadURL(url)

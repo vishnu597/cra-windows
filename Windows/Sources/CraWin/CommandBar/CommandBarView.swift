@@ -107,6 +107,14 @@ final class CommandBarView {
         render()
     }
 
+    /// cra://commandbar?query=: `text` in the field as if typed, the caret after it.
+    func setQuery(_ text: String) {
+        guard isOpen else { return }
+        lastTyped = text
+        update(query: text, allowCompletion: false)
+        showText(text, selected: false)
+    }
+
     /// Gives the field the keyboard (after the window is in front).
     func focusField() {
         _ = try? field.focus(.programmatic)
