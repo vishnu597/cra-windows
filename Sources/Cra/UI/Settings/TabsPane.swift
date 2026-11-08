@@ -63,7 +63,7 @@ struct TabsPane: View {
                     Button("Air Traffic Control…") { showsAirTrafficControl = true }
                     Text(routesSummary).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
-                Text("Choose which space links from other apps open in.")
+                Text(AirTrafficControl.settingsNote)
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             SettingsFormRow(label: "Tab Cleanup:") {
@@ -107,11 +107,5 @@ struct TabsPane: View {
         return note + (s.tabSleepOnMemoryPressure ? " So do the 10 tabs you used last, unless the Mac is short of memory." : " So do the 10 tabs you used last.")
     }
 
-    private var routesSummary: String {
-        switch store.settings.linkRoutes.count {
-        case 0: return ""
-        case 1: return "1 route"
-        case let n: return "\(n) routes"
-        }
-    }
+    private var routesSummary: String { AirTrafficControl.summary(routes: store.settings.linkRoutes.count) }
 }

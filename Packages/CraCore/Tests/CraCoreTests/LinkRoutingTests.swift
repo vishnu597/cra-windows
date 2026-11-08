@@ -66,4 +66,32 @@ struct LinkRoutingTests {
     func noSiteOutsideTheWeb(url: String) {
         #expect(SiteKey.site(of: url) == nil)
     }
+
+    private func space(_ title: String, emoji: String) -> Space {
+        Space(id: UUID(), title: title, emoji: emoji, theme: SpaceTheme.presets[0], favoritesContainerID: UUID(),
+              pinnedContainerID: UUID(), todayContainerID: UUID(), createdAt: Date(), profileID: nil)
+    }
+
+    /// Arc's destination menu: Most Recent Space, the spaces in order, Little Window after a separator.
+    @Test func destinationMenu() {
+        let work = space("Work", emoji: "💼"), plain = space("Plain", emoji: "")
+        let choices = AirTrafficControl.choices(spaces: [work, plain])
+        #expect(choices.map(\.title) == ["Most Recent Space", "💼 Work", "Plain", "Little Window"])
+        #expect(choices.map(\.destination) == [.mostRecentSpace, .space(work.id), .space(plain.id), .littleWindow])
+        #expect(choices.map(\.afterSeparator) == [false, false, false, true])
+    }
+
+    /// A route to a space that was deleted opens in the most recent space, so the menu says so.
+    @Test func deletedSpaceShowsAsMostRecent() {
+        let work = space("Work", emoji: "💼")
+        #expect(AirTrafficControl.shown(.space(work.id), spaces: [work]) == .space(work.id))
+        #expect(AirTrafficControl.shown(.space(UUID()), spaces: [work]) == .mostRecentSpace)
+        #expect(AirTrafficControl.shown(.littleWindow, spaces: []) == .littleWindow)
+    }
+
+    @Test func routeSummary() {
+        #expect(AirTrafficControl.summary(routes: 0) == "")
+        #expect(AirTrafficControl.summary(routes: 1) == "1 route")
+        #expect(AirTrafficControl.summary(routes: 3) == "3 routes")
+    }
 }

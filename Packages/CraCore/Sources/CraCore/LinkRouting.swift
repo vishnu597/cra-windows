@@ -94,3 +94,44 @@ public enum SiteKey {
         return labels.suffix(keep).joined(separator: ".")
     }
 }
+
+/// Arc's Air Traffic Control sheet (Settings ▸ Tabs ▸ Links ▸ "Air Traffic Control…"): its words
+/// and its destination menu, which the Mac's AirTrafficControlView and Windows' sheet both show.
+public enum AirTrafficControl {
+    public static let title = "Air Traffic Control"
+    public static let emptyNote = "Add a route to open matching links from other apps in a chosen space."
+    public static let placeholder = "crabrowser.app"
+    public static let settingsNote = "Choose which space links from other apps open in."
+
+    /// Next to the Settings button: nothing, "1 route", "3 routes".
+    public static func summary(routes: Int) -> String {
+        switch routes {
+        case ...0: return ""
+        case 1: return "1 route"
+        default: return "\(routes) routes"
+        }
+    }
+
+    /// One entry of the destination menu.
+    public struct Choice: Equatable {
+        public let destination: LinkDestination
+        public let title: String
+        /// The first entry after Arc's separator (Little Window).
+        public let afterSeparator: Bool
+    }
+
+    /// Arc's menu: Most Recent Space and every space (under "Open in Space"), then Little Window
+    /// after a separator.
+    public static func choices(spaces: [Space]) -> [Choice] {
+        [Choice(destination: .mostRecentSpace, title: "Most Recent Space", afterSeparator: false)]
+            + spaces.map { Choice(destination: .space($0.id), title: $0.emoji.isEmpty ? $0.title : "\($0.emoji) \($0.title)", afterSeparator: false) }
+            + [Choice(destination: .littleWindow, title: "Little Window", afterSeparator: true)]
+    }
+
+    /// What the menu shows for `destination`: a route to a deleted space opens in the most recent
+    /// one, so it shows that way.
+    public static func shown(_ destination: LinkDestination, spaces: [Space]) -> LinkDestination {
+        if case .space(let id) = destination, !spaces.contains(where: { $0.id == id }) { return .mostRecentSpace }
+        return destination
+    }
+}
