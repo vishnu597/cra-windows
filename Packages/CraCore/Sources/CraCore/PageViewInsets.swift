@@ -1,6 +1,7 @@
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+import Foundation
 
 /// How far Chromium keeps a page's input view (WebContentsViewCocoa) inside its Chrome window
 /// from each edge. Usually zero: the page fills the window. A bar that Chromium's views draw above

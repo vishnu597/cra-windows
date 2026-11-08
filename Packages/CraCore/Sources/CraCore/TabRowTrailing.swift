@@ -1,6 +1,7 @@
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+import Foundation
 
 /// The trailing end of a tab's sidebar row: its controls (the capture dot, a peek badge, the unread
 /// dot, the close button on hover) laid out right to left from the fill's end, and the width that

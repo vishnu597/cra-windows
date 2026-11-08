@@ -19,7 +19,10 @@ public enum PictureInPictureLayout {
     /// (10 from 400 pt) around a 12 pt glyph: a button's centre is 26, 30 or 32 pt from the
     /// edges. The reporter measured 26 on a tiny window (#246).
     public static func buttonCentreInset(width: CGFloat) -> CGFloat {
-        width < 280 ? 12 + 8 + 6 : width < 400 ? 16 + 8 + 6 : 16 + 10 + 6
+        // Typed one by one: the literal sums in one ternary time out the type checker on Linux.
+        let tiny: CGFloat = 12 + 8 + 6, small: CGFloat = 16 + 8 + 6, normal: CGFloat = 16 + 10 + 6
+        if width < 280 { return tiny }
+        return width < 400 ? small : normal
     }
 
     /// Back to Tab grows its words from 400 pt wide; Minimize and Close stay glyphs.

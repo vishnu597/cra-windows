@@ -121,12 +121,27 @@ public enum CalendarPreview {
     private static let meetingHosts = ["meet.google.com", "zoom.us", "teams.microsoft.com", "teams.live.com", "whereby.com", "webex.com", "around.co"]
 
     static func meetingAddress(in text: String) -> String? {
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
-        for match in detector.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
-            guard let url = match.url, let host = url.host?.lowercased(), url.scheme?.hasPrefix("http") == true else { continue }
+        for url in links(in: text) {
+            guard let host = url.host?.lowercased(), url.scheme?.hasPrefix("http") == true else { continue }
             if meetingHosts.contains(where: { host == $0 || host.hasSuffix("." + $0) }) { return url.absoluteString }
         }
         return nil
+    }
+
+    /// The web links in `text`: NSDataDetector's on the Mac; elsewhere (Foundation on Windows and
+    /// Linux has none) each http(s) address up to a space, quote or angle bracket.
+    private static func links(in text: String) -> [URL] {
+        #if canImport(Darwin)
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return [] }
+        return detector.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap(\.url)
+        #else
+        let stops = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'<>()[]"))
+        return text.components(separatedBy: stops).compactMap { word in
+            let trimmed = word.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?"))
+            guard trimmed.lowercased().hasPrefix("http://") || trimmed.lowercased().hasPrefix("https://") else { return nil }
+            return URL(string: trimmed)
+        }
+        #endif
     }
 
     // MARK: The card

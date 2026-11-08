@@ -44,10 +44,15 @@ public enum MediaPreview {
 
     /// The header's age ("1 day ago", "5 minutes ago").
     public static func age(_ date: Date, now: Date, locale: Locale = Locale(identifier: "en_US")) -> String {
+        if now.timeIntervalSince(date) < 60 { return "Just now" }
+        #if canImport(Darwin)
         let f = RelativeDateTimeFormatter()
         f.locale = locale
         f.unitsStyle = .full
-        if now.timeIntervalSince(date) < 60 { return "Just now" }
         return f.localizedString(for: min(date, now), relativeTo: now)
+        #else
+        // Foundation on Windows and Linux has no RelativeDateTimeFormatter.
+        return RelativeTime.english(min(date, now).timeIntervalSince(now), style: .full)
+        #endif
     }
 }
