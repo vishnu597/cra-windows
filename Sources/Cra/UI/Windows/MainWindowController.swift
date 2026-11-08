@@ -21,6 +21,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private var spaceEditor: NSWindow?
     private var importWindow: ImportWindowController?
     private var scrollMonitor: Any?
+    private var pageTopDragMonitor: Any?
+    private var replayingPageClick = false
     private var childClickMonitor: Any?
     private var middleClickMonitor: Any?
     private enum SwipeAxis { case undecided, horizontal, vertical }
@@ -198,6 +200,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
         installSwipeMonitor()
         installChildClickMonitor()
+        installPageTopDragMonitor()
         installFloatingSidebar()
         observeStore()
         refresh()
@@ -415,7 +418,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     }
 
     func refresh() {
-        guard !isTornDown else { return }
+        guard !isTornDown, !isPutAway else { return }
         let space = focusedSpace
         let palette = space.theme.palette
         // Its extensions belong to the space's profile.
@@ -485,6 +488,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             browsers.show(live, focused: liveFocus, focus: !commandBar.isOpen)
         }
         shell.layoutContentChildren()
+        syncPeeks(onScreen: panes)
         syncRingPanel()
         syncSidebarUI()
         window?.title = selectedTab?.displayTitle ?? space.title
@@ -663,7 +667,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                                       cancelled: download.state == .cancelled, failed: download.state == .interrupted)
         updateRecentDownload(download)
         if download.state == .complete, !download.fullPath.isEmpty, finishedDownloads.insert(download.identifier).inserted {
-            DownloadHistory.shared.add(path: download.fullPath)
+            DownloadHistory.shared.add(path: download.fullPath, profile: browsers.downloadSourceTab.map(store.profileDirectoryName(item:)) ?? profileDirectoryName)
             // The address's scheme only, never the file: scenarios wait for this line.
             CraLog.note("Download finished from a \(URL(string: download.url)?.scheme ?? "unknown"): address")
             let id = download.identifier
@@ -1024,9 +1028,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             for v in views { target.addSubview(v) }
         }
         let bounds = shell.paneCards.first { $0.webArea === target }?.frozenWebBounds ?? target.bounds
-        for v in views where v.frame != bounds { v.frame = bounds }
+        EmbeddedPages.place(views, in: bounds)
         if embedFocusTab == id { focusEmbeddedPage(id) }
     }
+
+    /// `cra://debug?pageInsets=1`: where the focused page's input view sits against the compositor
+    /// that draws the page, after its card lays out again, and the insets Chromium gave it. While
+    /// the debugger bar shows, both say the bar's height at the top (#241).
+    func pageInsetsReadout() -> String {
+        guard let host = browsers.visibleRuntime?.hostWindow, let views = EmbeddedPages.pageViews(of: host),
+              let compositor = views.first, let page = views.last, let area = page.superview else { return "page view insets: no page" }
+        pageInsetsReadouts += 1
+        if let card = shell.paneCards.first(where: { $0.webArea === area }) {
+            card.needsLayout = true
+            card.layoutSubtreeIfNeeded()
+        }
+        let c = compositor.frame, p = page.frame
+        let top = area.isFlipped ? p.minY - c.minY : c.maxY - p.maxY
+        let bottom = area.isFlipped ? c.maxY - p.maxY : p.minY - c.minY
+        let chromium = EmbeddedPages.chromiumInsets(of: page).map { "top=\(Int($0.top)) left=\(Int($0.left)) bottom=\(Int($0.bottom)) right=\(Int($0.right))" } ?? "none"
+        // The compositor's area from the window's top left, where clickAt points go.
+        let inWindow = area.convert(c, to: nil)
+        let origin = "\(Int(inWindow.minX)),\(Int((window?.frame.height ?? 0) - inWindow.maxY))"
+        return "page view insets \(pageInsetsReadouts): top=\(Int(top)) left=\(Int(p.minX - c.minX)) bottom=\(Int(bottom)) right=\(Int(c.maxX - p.maxX)); Chromium's \(chromium); page area at \(origin) \(Int(c.width))x\(Int(c.height))"
+    }
+
+    private var pageInsetsReadouts = 0
 
     /// `cra://debug?embedDump=1`: where every page view is, for EmbeddedPages work.
     func embeddedPagesDump() -> String {
@@ -1280,6 +1307,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// over the placeholder it reports. Alloy pages keep the shell's own split with CEF's
     /// window on the right, for the focused tab only.
     func browserManagerDevToolsChanged() {
+        BoostEditorController.shared.devToolsChanged()
         guard let window else { return }
         let visible = browsers.visibleDevToolsWindow
         let shown = browsers.visibleDevToolsWindows
@@ -1520,11 +1548,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// window's edge, top to bottom; the whole window with the sidebar out of the way.
     private func peekAreaInWindow() -> NSRect {
         guard let window else { return .zero }
+        return PeekLayout.area(window: window.frame.size, contentMinX: peekContentMinX())
+    }
+
+    /// Where the sidebar ends (window coordinates), 0 with it hidden.
+    private func peekContentMinX() -> CGFloat {
         // Asked from windowDidResize, before the shell has laid out at the new size.
         shell.layoutSubtreeIfNeeded()
         let content = shell.convert(shell.contentContainer.frame, to: nil)
         let sidebarShown = store.window(windowID).sidebarVisible && content.minX > CraMetrics.contentInset
-        return PeekLayout.area(window: window.frame.size, contentMinX: sidebarShown ? content.minX : 0)
+        return sidebarShown ? content.minX : 0
+    }
+
+    /// Where a click closes a Peek (screen coordinates): the page area, not the sidebar, whose rows
+    /// still open their tabs (#242).
+    func peekDismissArea() -> NSRect {
+        guard let window else { return .zero }
+        return PeekLayout.dismissArea(covering: window.frame, contentMinX: peekContentMinX())
+    }
+
+    /// cra://debug?peekCatcher: whether the shown Peek's click catcher leaves the sidebar's rows to
+    /// the sidebar (#242).
+    func peekCatcherReadout() -> String {
+        guard let window, let dim = peeks.first(where: { !$0.isParked })?.dimFrame else { return "none" }
+        let sidebar = window.convertToScreen(shell.sidebarHost.convert(shell.sidebarHost.bounds, to: nil))
+        let covered = !store.window(windowID).sidebarVisible ? "hidden" : dim.intersects(sidebar.insetBy(dx: 0.5, dy: 0.5)) ? "covered" : "clear"
+        return "sidebar=\(covered)"
     }
 
     /// The whole area, where a Peek grows from and goes back to (screen coordinates).
@@ -1619,10 +1668,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// one whose close already fades it back doesn't snap that fade.
     private var peekVeil = PeekVeil()
 
-    /// `peek` is opening over this window.
-    func showPeekVeil(for peek: UUID) {
+    /// `peek` is opening over this window, or back with its tab (`animated` false, #242).
+    func showPeekVeil(for peek: UUID, animated: Bool = true) {
         guard peekVeil.show(for: peek) else { return }
-        applyPeekVeil(duration: PeekLayout.openVeilDuration, timing: PeekTransition.easeOutCubic)
+        if animated { applyPeekVeil(duration: PeekLayout.openVeilDuration, timing: PeekTransition.easeOutCubic) } else { applyPeekVeil(duration: 0) }
+    }
+
+    /// `peek` waits on its tab while another is on screen (#242): the page snaps back, and the
+    /// Peek can veil it again.
+    func parkPeekVeil(for peek: UUID) {
+        guard peekVeil.hide(for: peek) else { return }
+        applyPeekVeil(duration: 0)
     }
 
     /// `peek` is closing: the page comes back over Arc's 0.2 s while the card lands.
@@ -1680,6 +1736,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     private var peeks: [LittleWindowController] { app.littleWindows.filter { $0.peekParent === self } }
 
+    /// Arc keeps a Peek per tab (#242): each shows while its tab is on screen here, waits out of
+    /// sight while another is, and goes with its tab (PeekPresence).
+    private func syncPeeks(onScreen panes: [UUID]) {
+        for p in peeks {
+            switch PeekPresence.of(peekFrom: p.peekSourceTab, onScreen: panes, tabExists: p.peekSourceTab.map { store.item($0) != nil } ?? false) {
+            case .shown:
+                p.unparkPeek()
+                // The sidebar shown or hidden under it: the catcher follows the page area.
+                if let f = p.dimFrame, f != peekDismissArea() { p.repositionPeek() }
+            case .parked: p.parkPeek()
+            case .dropped: p.dropPeek()
+            }
+        }
+    }
+
+    /// `tab`'s page closed (a pinned tab's ⌘W keeps its row): its Peek goes with it (#242).
+    func dropPeeks(from tab: UUID) {
+        for p in peeks where p.peekSourceTab == tab { p.dropPeek() }
+    }
+
+    /// cra://debug?peeks: this window's Peeks, on screen or not, and their pages (#242).
+    func peeksShown() -> String {
+        let list = peeks.map { p in "\(p.window.map { $0.isVisible && $0.alphaValue > 0 } == true ? "shown" : "hidden") \(p.currentURL)" }
+        return list.isEmpty ? "none" : list.joined(separator: ", ")
+    }
+
     /// The Peek closed last over this window and the tab it came from: Arc's ⇧⌘T brings it back
     /// when nothing was archived after it.
     var closedPeek: (url: String, tabID: UUID?, at: Date)?
@@ -1719,7 +1801,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             let wasSelected = selectedTabID.map(panes.contains) ?? false
             for p in panes {
                 _ = store.resetPinnedTab(p)
-                for w in app.mainWindows { w.browsers.unload(p) }
+                for w in app.mainWindows { w.browsers.unload(p); w.dropPeeks(from: p) }
             }
             // Arc goes back to the tab shown before this one if its page is still loaded, and
             // otherwise shows nothing (CloseSuccessor). The panes were just unloaded, so they
@@ -2061,17 +2143,76 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             target.makeKey()
             return event
         }
+        // A mouse's back and forward buttons over the sidebar switch spaces, like Arc's
+        // SidebarView (issue #233); over a page they stay Chromium's history back and forward.
         // Middle-click on a sidebar tab closes it, like Arc and Chrome. Anywhere else, a page
         // included, the click goes on to whatever is under it. The row is found under the click
         // itself: a remembered hover outlived its row when the tab joined a split, and a middle
         // click inside a split pane closed that tab (GitHub #208).
         middleClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseUp) { [weak self] event in
-            guard let self, event.buttonNumber == 2, let window = self.window, let target = event.window,
+            guard let self else { return event }
+            if self.mouseButtonSwitchesSpace(event.buttonNumber, event) { return nil }
+            guard event.buttonNumber == 2, let window = self.window, let target = event.window,
                   target === window || target.parent === window,
                   let id = SpaceListView.tabID(under: event) else { return event }
             self.middleClickClose(id)
             return nil
         }
+    }
+
+    /// Arc's "Allow window dragging from the top of webpages" (PageTopDrag): with no bar above the
+    /// page, a plain click in its top 56 pt waits. Moved past the slop, the window moves with the
+    /// pointer; let go first, the page gets the click as it was, from the press on.
+    private func installPageTopDragMonitor() {
+        pageTopDragMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self, !self.replayingPageClick, let window = self.window, let target = event.window,
+                  !window.styleMask.contains(.fullScreen), let depth = self.depthIntoPage(event, in: target, of: window) else { return event }
+            let modifiers = !event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty
+            guard PageTopDrag.holds(enabled: self.store.settings.pageTopWindowDrag,
+                                    barAbovePage: self.store.settings.showToolbar || self.shell.panesShowBars,
+                                    depthIntoPage: depth, clickCount: event.clickCount, modifiers: modifiers) else { return event }
+            self.trackPageTopPress(event, page: target, owner: window)
+            return nil
+        }
+    }
+
+    /// How far below the top of the page under it a press is, or nil when it isn't on a page:
+    /// a Chrome-style page's own child window, or a page view inside this window.
+    private func depthIntoPage(_ event: NSEvent, in target: NSWindow, of window: NSWindow) -> Double? {
+        if target.parent === window {
+            return CraCEFRuntime.isPageWindow(target) ? target.frame.height - event.locationInWindow.y : nil
+        }
+        guard target === window, let content = window.contentView,
+              var view = content.hitTest(content.convert(event.locationInWindow, from: nil)) else { return nil }
+        // Chromium's page view, reparented into the pane card (Chrome-style hosting): its
+        // WebContentsViewCocoa is the page's frame.
+        while NSStringFromClass(type(of: view)) != "WebContentsViewCocoa" {
+            guard let up = view.superview else { return nil }
+            view = up
+        }
+        return view.convert(view.bounds, to: nil).maxY - event.locationInWindow.y
+    }
+
+    private func trackPageTopPress(_ down: NSEvent, page: NSWindow, owner: NSWindow) {
+        let start = NSEvent.mouseLocation
+        var last = start, dragging = false
+        var up: NSEvent?
+        page.trackEvents(matching: [.leftMouseDragged, .leftMouseUp], timeout: NSEvent.foreverDuration, mode: .eventTracking) { event, stop in
+            guard let event else { stop.pointee = true; return }
+            if event.type == .leftMouseUp { up = event; stop.pointee = true; return }
+            let now = NSEvent.mouseLocation
+            if !dragging, PageTopDrag.isDrag(dx: now.x - start.x, dy: now.y - start.y) { dragging = true }
+            if dragging { owner.setFrameOrigin(NSPoint(x: owner.frame.minX + now.x - last.x, y: owner.frame.minY + now.y - last.y)) }
+            last = now
+        }
+        CraLog.note("page-top press: \(dragging ? "moved the window" : "a click for the page")")
+        guard !dragging else { return }
+        // A click after all: the page gets the press and the release, in its own window.
+        replayingPageClick = true
+        if !page.isKeyWindow, page.canBecomeKey { page.makeKey() }
+        page.sendEvent(down)
+        if let up { page.sendEvent(up) }
+        replayingPageClick = false
     }
 
     /// What the row's hover button does: close every picked tab when this is one of them;
@@ -2339,14 +2480,29 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         return v as? NSScrollView
     }
 
+    /// A mouse's back or forward button released over the sidebar: the previous or next space,
+    /// wrapping as Spaces ▸ Previous/Next Space do (Arc's SidebarView, issue #233). Returns false
+    /// for any other button, or one released anywhere else.
+    func mouseButtonSwitchesSpace(_ button: Int, _ event: NSEvent) -> Bool {
+        guard let offset = MouseButtonSpaceSwitch.offset(buttonNumber: button), isOverSidebar(event) else { return false }
+        store.focusSpace(offset: offset, window: windowID)
+        return true
+    }
+
+    /// Whether `event` is over this window's sidebar, docked or floating, in a window that has
+    /// spaces to switch (not a Little Window).
+    private func isOverSidebar(_ event: NSEvent) -> Bool {
+        let host = shell.sidebarHost
+        return (shell.sidebarVisible || shell.floatingSidebar) && event.window != nil && event.window === host.window
+            && host.bounds.contains(host.convert(event.locationInWindow, from: nil)) && !isStandalone
+    }
+
     /// Shift + wheel, or a sideways wheel, over the sidebar: past a flick the next or previous
     /// space comes in on the space change's spring, and before the first space the Library
     /// slides in, as a swipe would bring it (Arc 1.171, WheelSpaceSwitch). Returns false for a
     /// wheel the sidebar doesn't take.
     private func wheelSwitchesSpace(_ event: NSEvent) -> Bool {
-        let host = shell.sidebarHost
-        guard shell.sidebarVisible || shell.floatingSidebar, event.window != nil, event.window === host.window,
-              host.bounds.contains(host.convert(event.locationInWindow, from: nil)), !isStandalone else { return false }
+        guard isOverSidebar(event) else { return false }
         let dx = event.scrollingDeltaX
         // On the Spaces page the cards scroll first; once they can't scroll that way the wheel pages,
         // which leaves the Library when it heads for the next space, and over the rail it leaves at
@@ -2716,6 +2872,125 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     }
 
     /// Arc's "Capture the full page": the whole document, beyond the viewport, as a PNG.
+    // MARK: Boosts
+
+    /// Arc's New Boost: the open site's boost (made if it has none) in the editor beside the page.
+    func openBoostEditor() {
+        guard let window, let url = selectedTabID.flatMap({ store.item($0)?.tab?.url }),
+              let boost = BoostStore.shared.boostForSite(of: url) else { showToast("Boosts Work on Websites"); return }
+        BoostEditorController.shared.open(boost, over: window, page: .init(
+            zap: { [weak self] on in self?.setZapping(on) },
+            pick: { [weak self] on in self?.setPicking(on) },
+            toggleDevTools: { [weak self] in self?.browsers.runDevTools(.toggle) },
+            devToolsOpen: { [weak self] in self?.browsers.visibleTabHasDevTools ?? false },
+            reload: { [weak self] in self?.currentBrowser?.reload() }))
+    }
+
+    /// The code panel's eyedropper (BoostPicker): the page outlines the element under the pointer
+    /// and the ones like it, and holds a click; Cra polls for it and offers Arc's menu there. The
+    /// poll puts the picker back after a navigation.
+    /// Testing without the pointer (cra://debug?boostPick=1|0|copyThis|copyRelated|zapRelated):
+    /// on (answering the menu with that action) or off.
+    func debugPick(_ value: String) {
+        pickAnswer = BoostPicker.Action(rawValue: value)
+        setPicking(value != "0")
+    }
+
+    private func setPicking(_ on: Bool) {
+        pickTimer?.invalidate()
+        pickTimer = nil
+        pickBrowser?.executeJavaScript(BoostPicker.stopExpression)
+        pickBrowser = nil
+        guard on, let b = currentBrowser else { return }
+        pickBrowser = b
+        b.executeJavaScript(BoostPicker.script)
+        let t = Timer(timeInterval: 0.15, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.pollPick() } }
+        RunLoop.main.add(t, forMode: .common)
+        pickTimer = t
+    }
+
+    private func pollPick() {
+        guard let b = pickBrowser else { return }
+        guard b === currentBrowser else { setPicking(false); BoostEditorController.shared.stopPicking(); return }
+        let expression = BoostPicker.script + ";" + BoostPicker.takeExpression
+        guard let data = try? JSONSerialization.data(withJSONObject: ["expression": expression, "returnByValue": true]),
+              let params = String(data: data, encoding: .utf8) else { return }
+        b.sendDevToolsMethod("Runtime.evaluate", params: params) { [weak self, weak b] result, _ in
+            MainActor.assumeIsolated {
+                let o = result.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                guard let self, let b, b === self.pickBrowser,
+                      let pick = BoostPicker.parse((o?["result"] as? [String: Any])?["value"] as? String ?? "") else { return }
+                self.offerPick(pick, on: b)
+            }
+        }
+    }
+
+    /// Arc's menu after a click with the picker: copy this element's selector, or the related
+    /// ones', or zap them all.
+    private func offerPick(_ pick: BoostPicker.Pick, on b: CraBrowser) {
+        CraLog.note("boost pick this=\(pick.this) related=\(pick.related) (\(pick.relatedCount))")
+        defer { b.executeJavaScript(BoostPicker.resumeExpression) }
+        if let answer = pickAnswer { runPick(answer, pick); return }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for action in BoostPicker.Action.allCases {
+            let item = BlockMenuItem(title: action.title) { [weak self] in self?.runPick(action, pick) }
+            item.isEnabled = action.isEnabled(for: pick)
+            menu.addItem(item)
+        }
+        let view = b.containerView
+        let p = pick.point(inViewWidth: view.bounds.width)
+        menu.popUp(positioning: nil, at: NSPoint(x: p.x, y: view.isFlipped ? p.y : view.bounds.height - p.y), in: view)
+    }
+
+    private func runPick(_ action: BoostPicker.Action, _ pick: BoostPicker.Pick) {
+        guard action.isEnabled(for: pick) else { return }
+        let selector = action.selector(for: pick)
+        switch action {
+        case .copyThis, .copyRelated:
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(selector, forType: .string)
+            CraLog.note("boost pick copied \(selector)")
+        case .zapRelated:
+            BoostEditorController.shared.addZapped([selector])
+        }
+    }
+
+    /// Zap: the page outlines what's under the pointer, and a click hides it and keeps a selector
+    /// for it; when Zap ends the selectors go into the boost.
+    /// Testing without the pointer (cra://debug?boostZap=1|0): Zap on or off, as its button does.
+    func debugZap(_ on: Bool) { setZapping(on) }
+
+    private func setZapping(_ on: Bool) {
+        guard let b = currentBrowser else { return }
+        if on { b.executeJavaScript(Self.zapScript); return }
+        b.sendDevToolsMethod("Runtime.evaluate", params: #"{"expression":"(()=>{const z=window.__craZap;if(!z)return '[]';z.stop();return JSON.stringify(z.hidden)})()","returnByValue":true}"#) { result, _ in
+            MainActor.assumeIsolated {
+                let o = result.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                let text = (o?["result"] as? [String: Any])?["value"] as? String ?? "[]"
+                let selectors = (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String]) ?? []
+                BoostEditorController.shared.addZapped(selectors)
+            }
+        }
+    }
+
+    private var pickTimer: Timer?
+    private weak var pickBrowser: CraBrowser?
+    private var pickAnswer: BoostPicker.Action?
+
+    static let zapScript = """
+    (()=>{if(window.__craZap)return;const hidden=[];let over=null;
+    const sel=e=>{if(e.id)return '#'+CSS.escape(e.id);const p=[];for(let n=e;n&&n.nodeType===1&&n!==document.body&&p.length<5;n=n.parentElement){
+    if(n.id){p.unshift('#'+CSS.escape(n.id));break}let i=1;for(let s=n.previousElementSibling;s;s=s.previousElementSibling)if(s.tagName===n.tagName)i++;
+    p.unshift(n.tagName.toLowerCase()+':nth-of-type('+i+')')}return (p[0]&&p[0][0]==='#'?'':'body > ')+p.join(' > ')};
+    const mark=e=>{if(over)over.style.outline=over.__craOutline||'';over=e;if(e){e.__craOutline=e.style.outline;e.style.outline='2px solid #ff3b30'}};
+    const page=t=>t===document.body||t===document.documentElement;
+    const move=ev=>mark(page(ev.target)?null:ev.target);
+    const click=ev=>{ev.preventDefault();ev.stopPropagation();const t=ev.target;if(page(t))return;mark(null);hidden.push(sel(t));t.style.display='none'};
+    document.addEventListener('mouseover',move,true);document.addEventListener('click',click,true);
+    window.__craZap={hidden,stop(){document.removeEventListener('mouseover',move,true);document.removeEventListener('click',click,true);mark(null);delete window.__craZap}}})()
+    """
+
     // MARK: Arc parity (docs/arc-parity.md)
 
     /// Arc's Window ▸ Stay On Top: the window floats over other apps' windows.
@@ -3422,6 +3697,50 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         app.mainWindowWillClose(self)
     }
 
+    override func showWindow(_ sender: Any?) {
+        app.browserWindowWillShow(self)
+        super.showWindow(sender)
+    }
+
+    /// ⌘Q put Cra in the menu bar (#231): the window is out of sight and its pages are closed, as
+    /// on a quit; the tabs stay. No page opens until `bringBack`.
+    private(set) var isPutAway = false
+
+    func putAway() {
+        guard !isPutAway else { return }
+        isPutAway = true
+        dismissTransientUI()
+        sidePanel.hide()
+        for p in peeks { p.closeWindow() }
+        browsers.closeAll()
+        guard let window else { return }
+        // Out of full screen first: a full-screen window ordered out leaves its Space behind.
+        if window.styleMask.contains(.fullScreen) {
+            fullScreenExit = NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window,
+                                                                    queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.orderOutPutAway() }
+            }
+            window.toggleFullScreen(nil)
+        } else {
+            window.orderOut(nil)
+        }
+    }
+
+    private var fullScreenExit: NSObjectProtocol?
+
+    private func orderOutPutAway() {
+        if let fullScreenExit { NotificationCenter.default.removeObserver(fullScreenExit) }
+        fullScreenExit = nil
+        if isPutAway { window?.orderOut(nil) }
+    }
+
+    /// Back from the menu bar: the open tab's page loads again, as after a launch.
+    func bringBack() {
+        guard isPutAway else { return }
+        isPutAway = false
+        refresh()
+    }
+
     /// The window closed while others stay open: its pages close (the tabs stay in
     /// the sidebar) and it lets go of everything that would keep it alive.
     func tearDown() {
@@ -3437,7 +3756,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             other.takePage(rt)
         }
         browsers.closeAll()
-        for monitor in [scrollMonitor, childClickMonitor, middleClickMonitor].compactMap({ $0 }) { NSEvent.removeMonitor(monitor) }
+        for monitor in [scrollMonitor, childClickMonitor, middleClickMonitor, pageTopDragMonitor].compactMap({ $0 }) { NSEvent.removeMonitor(monitor) }
+        pageTopDragMonitor = nil
         scrollMonitor = nil
         childClickMonitor = nil
         middleClickMonitor = nil

@@ -104,6 +104,7 @@ enum BrowserManagerLifecycleTests {
         await pressureSweepCase()
         await discardCase()
         await discardedPageLoadCase()
+        await discardedPageColoursCase()
         await sleepCountsCase()
         shortTimerCase()
         recentlyAudibleCase()
@@ -112,6 +113,7 @@ enum BrowserManagerLifecycleTests {
         extensionTabActivationCase()
         await beforeUnloadCase()
         nowPlayingCase()
+        await nowPlayingResumeWithinHoldCase()
         await nowPlayingPictureInPictureCase()
         nowPlayingSkipsPictureInPictureCase()
         await leaveVideoTabPictureInPictureCase()
@@ -365,6 +367,15 @@ enum BrowserManagerLifecycleTests {
         manager.browser(rt.browser, didChangeCommittedLoad: true)
         expect(themed() == before + 2 && rt.browser.lastIsolatedParams.contains("__craCookieBanners")
                && rt.browser.lastIsolatedParams.contains("#onetrust-banner-sdk"), "blocking cookie banners hides them on every committed page")
+        // Arc's Boosts: a committed page on a boosted site gets the boost's stylesheet and script.
+        BrowserManager.boostFor = { url in url.contains("example.test") ? (css: "h1 { color: red }", js: "window.boosted = 1") : nil }
+        store.settings.blockCookieBanners = false
+        rt.browser.navigate(to: "https://example.test/themed")
+        manager.browser(rt.browser, didChangeCommittedLoad: true)
+        expect(rt.browser.replies.contains { $0.method == isolatedProbe } && rt.browser.lastIsolatedParams.contains("__craBoost")
+               && rt.browser.lastIsolatedParams.contains("h1 { color: red }") && rt.browser.scripts.last == "window.boosted = 1",
+               "a boosted site's page gets the boost's CSS and runs its script")
+        BrowserManager.boostFor = nil
         manager.closeAll()
     }
 
@@ -520,7 +531,7 @@ enum BrowserManagerLifecycleTests {
         runtimes[5].hiddenAt = clock.now.addingTimeInterval(-4 * 60)
         runtimes[0].sleepProbeAfter = clock.now.addingTimeInterval(60)
         func probed() -> [Bool] { runtimes.map { rt in rt.browser.replies.contains { $0.method == isolatedProbe } } }
-        manager.sleepIdleTabs(.memoryPressure)
+        manager.sleepIdleTabs(.memoryPressure(.warning))
         expect(probed() == [false, true, true, true, false, false],
                "the 3 pages hidden longest are asked, past a refusing page, none of the 10 used last kept")
         for rt in runtimes[1...3] {
@@ -531,7 +542,7 @@ enum BrowserManagerLifecycleTests {
             await finishSleep(rt.browser)
         }
         expect(ids.map { asleep(manager, $0) } == [false, true, true, true, false, false], "the 3 pages are discarded")
-        manager.sleepIdleTabs(.memoryPressure)
+        manager.sleepIdleTabs(.memoryPressure(.warning))
         expect(probed()[4] && !probed()[5], "the next sweep takes the next page, not one left 4 minutes ago")
         manager.closeAll()
     }
@@ -610,6 +621,38 @@ enum BrowserManagerLifecycleTests {
         manager.browser(rt.browser, didFinishLoadingURL: url, title: "Woken", statusCode: 200)
         expect(store.visits == [url] && ExtensionStore.shared.webStoreProfiles.count == installs + 1,
                "the page loaded again on waking is a visit")
+        manager.closeAll()
+    }
+
+    // promise: #237
+    /// The blank document a discard leaves answers the load end's colour probes with white (#237:
+    /// every discarded YouTube or GitHub tab saved #FFFFFF, a 2 MB sidebar.json write each, and
+    /// woke with a white toolbar). The tab keeps the colours its page reported; woken, the page
+    /// reports again.
+    @MainActor
+    private static func discardedPageColoursCase() async {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        manager.protectedRecentTabs = 0
+        let id = store.createTab(url: "https://example.test/dark-site").id
+        let rt = manager.ensureRuntime(for: id)!
+        manager.browser(rt.browser, didReportThemeColor: "#212121")
+        manager.browser(rt.browser, didReportBackgroundColor: "#0F0F0F")
+        rt.hiddenAt = Date.distantPast
+        manager.sleepIdleTabs(TabSleepPolicy(hiddenFor: 60))
+        rt.browser.reply(to: isolatedProbe, with: idleReply)
+        await drainMainQueue()
+        rt.browser.reply(to: "Runtime.evaluate", with: idleReply)
+        await drainMainQueue()
+        await finishSleep(rt.browser)
+        expect(rt.discarded, "the page is discarded")
+        manager.browser(rt.browser, didReportThemeColor: "#FFFFFF")
+        manager.browser(rt.browser, didReportBackgroundColor: "#FFFFFF")
+        expect(store.item(id)?.tab?.themeColor == "#212121" && rt.themeColor == "#212121" && rt.backgroundColor == "#0F0F0F",
+               "a discarded page's blank document doesn't replace the tab's colours")
+        manager.show(id, focus: false)
+        manager.browser(rt.browser, didReportThemeColor: "#303030")
+        expect(store.item(id)?.tab?.themeColor == "#303030", "the page loaded again on waking reports its colour")
         manager.closeAll()
     }
 
@@ -712,7 +755,7 @@ enum BrowserManagerLifecycleTests {
         runtime.hiddenAt = Date.distantPast
         runtime.browser.isAudible = true
         manager.sleepIdleTabs(TabSleepPolicy(hiddenFor: 60))
-        manager.sleepIdleTabs(.memoryPressure)
+        manager.sleepIdleTabs(.memoryPressure(.warning))
         expect(!runtime.browser.replies.contains { $0.method == isolatedProbe } && !asleep(manager, id),
                "a page playing sound is never asked to sleep, on the timer or under memory pressure")
         manager.closeAll()
@@ -823,6 +866,38 @@ enum BrowserManagerLifecycleTests {
         expect(np.entries.map(\.id) == [b], "a playing page that navigates (a playlist) keeps its card")
         manager.unload(b)
         expect(np.entries.isEmpty, "closing the page removes its card")
+        manager.closeAll()
+    }
+
+    /// Paused from the sidebar's card, then played again on the page within the 2 s the engine
+    /// holds a quiet tab audible: the tab never went quiet, so only its sound starting tells the
+    /// card. Before, the card stayed on paused while the page played (Chromium and WebKit, 7 Nov 2026).
+    @MainActor
+    private static func nowPlayingResumeWithinHoldCase() async {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let np = NowPlaying()
+        manager.nowPlaying = np
+        let a = store.createTab(url: "https://music.example.test/").id, b = store.createTab(url: "https://example.test/other").id
+        let ra = manager.ensureRuntime(for: a)!, rb = manager.ensureRuntime(for: b)!
+        manager.show(b, focus: false)
+        ra.browser.isAudible = true
+        manager.browser(ra.browser, didChangeSoundPlaying: true)
+        manager.browser(ra.browser, didChangeAudible: true)
+        ra.browser.reply(to: "Cra.mediaSession", with: #"{"actions":["play","pause"],"pictureInPicture":false}"#)
+        await drainMainQueue()
+        ra.browser.replies.removeAll()
+        manager.performNowPlaying(a, .togglePlayback)
+        ra.browser.reply(to: "cra:Runtime.evaluate", with: #"{"result":{"type":"string","value":"playing"}}"#)
+        await drainMainQueue()
+        ra.browser.reply(to: "Cra.mediaSession", with: #"{"handled":true,"pictureInPicture":false}"#)
+        await drainMainQueue()
+        expect(np.entries.first?.playing == false, "paused from the card, the card shows paused")
+        manager.browser(ra.browser, didChangeSoundPlaying: false)
+        manager.browser(ra.browser, didChangeSoundPlaying: true)
+        expect(np.entries.first?.playing == true, "the page playing again within the hold shows on the card")
+        manager.browser(rb.browser, didChangeSoundPlaying: true)
+        expect(np.entries.map(\.id) == [a], "sound alone doesn't make a card: the held audible state does")
         manager.closeAll()
     }
 

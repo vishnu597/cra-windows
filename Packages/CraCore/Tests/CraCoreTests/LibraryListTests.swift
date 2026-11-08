@@ -60,7 +60,8 @@ struct LibraryListTests {
     @Test func emptyPagesSayWhyTheyAreEmpty() {
         #expect(LibraryList.empty(.archive, hasAny: false)
             == LibraryList.Empty(symbol: "archivebox", title: "Nothing here yet!", detail: "Tabs you close end up here."))
-        #expect(LibraryList.empty(.downloads, hasAny: false).detail == "Files you download show up here.")
+        #expect(LibraryList.empty(.downloads, hasAny: false).detail == "Come back after you’ve found some cool stuff to save.")
+        #expect(LibraryList.empty(.boosts, hasAny: false).title == "Nothing Boosted Yet!")
         #expect(LibraryList.empty(.downloads, hasAny: true) == LibraryList.Empty(symbol: "arrow.down.circle", title: "No matches", detail: nil))
         #expect(LibraryList.empty(.easels, hasAny: false)
             == LibraryList.Empty(symbol: "pencil.and.scribble", title: "Out of ideas!", detail: "Choose File ▸ New Easel to create a new Easel."))
@@ -81,9 +82,9 @@ struct LibraryListTests {
     }
 
     @Test func pagesKeepArcsRailOrderAndNames() {
-        #expect(LibraryPage.allCases.map(\.title) == ["Media", "Downloads", "Easels", "Spaces", "Archived Tabs"])
+        #expect(LibraryPage.allCases.map(\.title) == ["Media", "Downloads", "Easels", "Spaces", "Boosts", "Archived Tabs"])
         #expect(LibraryPage.allCases.map(\.searchPrompt)
-            == ["Search Media…", "Search Downloads…", "Search Easels…", "Search Archive…", "Search Archive…"])
+            == ["Search Media…", "Search Downloads…", "Search Easels…", "Search Archive…", "Search Boosts…", "Search Archive…"])
         #expect(LibraryPage.downloads.selectedSymbol == "arrow.down.circle.fill")
         #expect(LibraryPage.media.selectedSymbol == "photo.fill.on.rectangle.fill")
         #expect(LibraryPage.easels.selectedSymbol == "pencil.and.scribble")

@@ -11,17 +11,10 @@ import Observation
 @MainActor
 @Observable
 public final class DownloadHistory {
-    public struct Entry: Codable, Identifiable, Equatable, Sendable {
-        public let id: UUID
-        public var path: String
-        public var date: Date
-
-        public init(id: UUID = UUID(), path: String, date: Date) {
-            self.id = id
-            self.path = path
-            self.date = date
-        }
-    }
+    /// The rows' types are upstream's `DownloadList` (CraCore), which both lists read.
+    public typealias Entry = DownloadList.Entry
+    public typealias Live = DownloadList.Live
+    public typealias Listed = DownloadList.Listed
 
     /// Arc 1.170 listed every recent download it still had on disk (four, oldest at the
     /// top); how many it shows at most was not observed.
@@ -41,73 +34,24 @@ public final class DownloadHistory {
         entries = file?.load(or: { [] }) ?? []
     }
 
-    /// A download Chromium is still reporting on, or one that ended without a file.
-    public struct Live: Identifiable, Equatable, Sendable {
-        public let id: UInt32
-        public var name: String
-        public var path: String
-        public var started: Date
-        public var received: Int64
-        public var total: Int64
-        public var percent: Int
-        public var bytesPerSecond: Double?
-        /// The last point the speed was measured from.
-        public var sampleBytes: Int64 = 0
-        public var sampleAt = Date.distantPast
-        public var failed = false
-        public var cancelled = false
-        /// When Chromium last reported on it (see MainWindowController.checkStalledDownloads).
-        public var updated: Date
-
-        public var running: Bool { !failed && !cancelled }
-        public var row: DownloadRow.State {
-            failed ? .failed : cancelled ? .cancelled : .downloading(received: received, total: total, bytesPerSecond: bytesPerSecond)
-        }
-    }
-
     public private(set) var live: [Live] = []
-
-    /// A row in the hover list.
-    public enum Listed: Identifiable, Equatable, Sendable {
-        case finished(Entry)
-        case live(Live)
-
-        public var id: String {
-            switch self {
-            case .finished(let e): return e.id.uuidString
-            case .live(let l): return "live-\(l.id)"
-            }
-        }
-        public var date: Date {
-            switch self {
-            case .finished(let e): return e.date
-            case .live(let l): return l.started
-            }
-        }
-        /// The file's name as the list shows it.
-        public var name: String {
-            switch self {
-            case .finished(let e): return URL(fileURLWithPath: e.path).lastPathComponent
-            case .live(let l): return l.name
-            }
-        }
-        /// The line under the name (DownloadRow.subtitle).
-        public func subtitle(now: Date) -> String {
-            switch self {
-            case .finished(let e): return DownloadRow.subtitle(.finished(at: e.date), now: now)
-            case .live(let l): return DownloadRow.subtitle(l.row, now: now)
-            }
-        }
-    }
 
     /// The hover list: newest downloads, oldest first: files still on disk, and running, failed
     /// or cancelled ones. A path shows once, with its newest download: Chromium reuses a name
     /// once its file is gone, and older downloads.json files can hold both.
     public var recent: [Listed] {
+        DownloadList.tray(entries: newestPerPath, live: live, limit: Self.listLimit, fileExists: fileExists)
+    }
+
+    /// Library ▸ Downloads: every download, newest first, running ones included (#245).
+    public func library(query: String) -> [Listed] {
+        DownloadList.library(entries: newestPerPath, live: live, query: query, fileExists: fileExists)
+    }
+
+    /// The entries still on disk, each path once with its newest download.
+    private var newestPerPath: [Entry] {
         var seen = Set<String>()
-        let newestFirst = entries.reversed().filter { fileExists($0.path) && seen.insert($0.path).inserted }
-        let finished = newestFirst.reversed().map(Listed.finished)
-        return Array((finished + live.map(Listed.live)).sorted { $0.date < $1.date }.suffix(Self.listLimit))
+        return entries.reversed().filter { fileExists($0.path) && seen.insert($0.path).inserted }.reversed()
     }
 
     public var hasRunningDownloads: Bool { live.contains(where: \.running) }
@@ -166,8 +110,8 @@ public final class DownloadHistory {
     }
 
     @discardableResult
-    public func add(path: String, now: Date = Date()) -> Entry {
-        let entry = Entry(path: path, date: now)
+    public func add(path: String, profile: String? = nil, now: Date = Date()) -> Entry {
+        let entry = Entry(path: path, date: now, profile: profile)
         // A new file at a path replaces what was there.
         entries.removeAll { $0.path == path }
         entries.append(entry)
@@ -181,5 +125,22 @@ public final class DownloadHistory {
         guard let i = entries.lastIndex(where: { $0.path == old }) else { return }
         entries[i].path = new
         file?.save(entries)
+    }
+}
+
+extension DownloadList.Entry {
+    /// A new download's entry.
+    public init(path: String, date: Date, profile: String? = nil) {
+        self.init(id: UUID(), path: path, date: date, profile: profile)
+    }
+}
+
+extension DownloadList.Listed {
+    /// The line under the name (DownloadRow.subtitle).
+    public func subtitle(now: Date) -> String {
+        switch self {
+        case .finished(let e): return DownloadRow.subtitle(.finished(at: e.date), now: now)
+        case .live(let l): return DownloadRow.subtitle(l.row, now: now)
+        }
     }
 }

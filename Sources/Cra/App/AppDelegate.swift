@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         CraCEFRuntime.setDocumentStartScript(PageScript.mainWorld, isolatedScript: PageScript.isolatedWorld, world: PageScript.world)
         startContentBlocking()
         observeGlobalShortcut()
+        observeMenuBarMode()
         SoftwareUpdater.shared.start(app: self)
         buildMenus()
         store.hasPage = { [unowned self] in self.runtime(for: $0).map { !$0.discarded } ?? false }
@@ -74,6 +75,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             return nil
         }
+        // The Boost editor's All Boosts…: Library ▸ Boosts.
+        NotificationCenter.default.addObserver(forName: .craShowBoostsLibrary, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.main.showLibrary(.boosts) }
+        }
         NotificationCenter.default.addObserver(forName: .craKeyBindingsChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.buildMenus() }
         }
@@ -81,6 +86,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if !store.settings.restoreWindows { store.keepOnlyActiveWindow() }
         // Before any page is made: an easel's tab opens its canvas.
         EaselBrowser.register()
+        // Arc's Boosts: each page on a boosted site gets its boosts; an edit shows at once.
+        BrowserManager.boostFor = { [store] url in
+            guard store.settings.boostsEnabled else { return nil }
+            let boosts = Boost.applying(to: url, from: BoostStore.shared.boosts)
+            guard !boosts.isEmpty else { return nil }
+            return (boosts.map(\.stylesheet).joined(separator: "\n"), boosts.map(\.js).filter { !$0.isEmpty }.joined(separator: ";\n"))
+        }
+        BoostStore.changed = { [weak self] host in for m in self?.mainWindows ?? [] { m.browsers.reapplyBoosts(host: host) } }
         mainWindows = store.prefs.windows.map { MainWindowController(app: self, session: $0) }
         followKeyWindow()
         // First launch: the default browser step and the import are the onboarding and
@@ -231,8 +244,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard TabSleepPolicy.sweepsForPressure(pressure, enabled: store.settings.tabSleepOnMemoryPressure,
                                                lastSweep: lastPressureSweep, now: now) else { return }
         lastPressureSweep = now
-        CraLog.note("tab sleep: memory pressure \(pressure.rawValue), closing up to \(TabSleepPolicy.memoryPressure.limit ?? 0) pages per window")
-        for w in mainWindows { w.browsers.sleepIdleTabs(.memoryPressure) }
+        let policy = TabSleepPolicy.memoryPressure(pressure)
+        CraLog.note("tab sleep: memory pressure \(pressure.rawValue), closing up to \(policy.limit ?? 0) pages per window")
+        for w in mainWindows { w.browsers.sleepIdleTabs(policy) }
     }
 
     /// Settings > Privacy > "Always use secure connections", live like content blocking.
@@ -308,12 +322,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        leaveMenuBarForWindow()
         if main?.raiseImport() == true { return true }
         main?.showWindow(nil)
         return true
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if MenuBarMode.outcome(enabled: store.settings.keepInMenuBar, source: quitSource()) == .stayInMenuBar {
+            stayInMenuBar()
+            return .terminateCancel
+        }
         // Dia: Advanced ▸ "Warn before quitting". Engine relaunches skip it.
         if store.settings.warnBeforeQuitting, !isRelaunching, !confirmQuit() { return .terminateCancel }
         // Little Windows are not in the sidebar; keep their pages in the Library.
@@ -385,6 +404,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         main.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: Menu bar (#231)
+
+    /// Settings ▸ Advanced ▸ "Keep Cra in the menu bar": the item is there while the setting is
+    /// on. A test copy in the background leaves the menu bar to the installed Cra.
+    private func observeMenuBarMode() {
+        observeChanges(of: { [store] in store.settings.keepInMenuBar }) { [weak self] on in
+            guard let self else { return }
+            if on, menuBarItem == nil, !HitchMonitor.background {
+                menuBarItem = MenuBarItem { [weak self] menu in self?.buildMenuBarItemMenu(menu) }
+            } else if !on {
+                menuBarItem?.remove()
+                menuBarItem = nil
+                // Turned off from Settings opened in the menu bar: the windows come back, or
+                // nothing of Cra would be left to click.
+                if inMenuBar { main.showWindow(nil) }
+            }
+        }
+    }
+
+    private func buildMenuBarItemMenu(_ menu: NSMenu) {
+        for id in ["newWindow", "newIncognitoWindow", "newLittleWindow"] { menu.addItem(item(id)) }
+        menu.addItem(.separator())
+        menu.addItem(item("settings"))
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Quit Cra", action: #selector(quitFromMenuBar), keyEquivalent: "").target = self
+    }
+
+    /// The menu bar item's Quit, and `cra://debug?quit=1`: Cra quits for real.
+    @objc func quitFromMenuBar() {
+        quittingFromMenuBar = true
+        NSApp.terminate(nil)
+    }
+
+    private var menuBarItem: MenuBarItem?
+    private var quittingFromMenuBar = false
+    /// ⌘Q put Cra in the menu bar, and no browser window has been opened since.
+    private(set) var inMenuBar = false
+
+    private func quitSource() -> MenuBarMode.QuitSource {
+        if isRelaunching { return .relaunch }
+        if quittingFromMenuBar { return .menuBarItem }
+        if let e = NSAppleEventManager.shared().currentAppleEvent,
+           e.eventClass == AEEventClass(kCoreEventClass), e.eventID == AEEventID(kAEQuitApplication) { return .appleEvent }
+        return .appMenu
+    }
+
+    /// ⌘Q with the setting on: what a quit would close closes (Little Windows into the Library,
+    /// incognito windows with their session, every page), the browser windows a relaunch would
+    /// bring back are put away, and Cra leaves the Dock. Chromium keeps running, so ⌥⌘N and the
+    /// menu bar item open a window at once.
+    private func stayInMenuBar() {
+        CraLog.note("menu bar: quit keeps Cra in the menu bar")
+        closeLittleWindows()
+        settingsWindow?.close()
+        let plan = MenuBarMode.windowsOnQuit(mainWindows.map { .init(id: $0.windowID, kind: $0.isIncognito ? .incognito : $0.isBlank ? .blank : .normal) },
+                                            active: store.activeWindowID, restoreWindows: store.settings.restoreWindows)
+        for c in mainWindows where plan.close.contains(c.windowID) { c.window?.close() }
+        for c in mainWindows {
+            c.saveFrameNow()
+            c.putAway()
+        }
+        store.saveAll()
+        inMenuBar = true
+        settleDockIcon()
+    }
+
+    /// A browser window is about to show: the ones put away come back with it, as after a launch.
+    func browserWindowWillShow(_ c: MainWindowController) {
+        guard inMenuBar else { return c.bringBack() }
+        inMenuBar = false
+        leaveMenuBarForWindow()
+        CraLog.note("menu bar: browser windows back")
+        for w in mainWindows {
+            w.bringBack()
+            if w !== c { w.window?.orderFront(nil) }
+        }
+    }
+
+    /// Any window of Cra's about to show: the Dock icon and the app menu come back first, or the
+    /// window would come up in an app macOS treats as menu-bar-only.
+    private func leaveMenuBarForWindow() {
+        guard NSApp.activationPolicy() != .regular else { return }
+        NSApp.setActivationPolicy(.regular)
+        if NSApp.isHidden { NSApp.unhide(nil) }
+    }
+
+    /// In the menu bar with nothing open: no Dock icon, and the app in front before ⌘Q gets the keyboard.
+    private func settleDockIcon() {
+        let open = littleWindows.contains { $0.window?.isVisible == true } || settingsWindow?.isVisible == true
+            || mainWindows.contains { $0.window?.isVisible == true }
+        guard !MenuBarMode.showsInDock(inMenuBar: inMenuBar, windowsOpen: open), NSApp.activationPolicy() == .regular else { return }
+        NSApp.hide(nil)
+        NSApp.setActivationPolicy(.accessory)
     }
 
     // MARK: Browser windows
@@ -586,16 +700,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Chrome-style page window, which is a child).
     var keyLittleWindow: LittleWindowController? {
         if let key = NSApp.keyWindow {
-            return littleWindows.first { $0.window === key || $0.window === key.parent }
+            return littleWindows.first { !$0.isParked && ($0.window === key || $0.window === key.parent) }
         }
         // No key window while the app is inactive (e.g. during a cra:// handoff from a
         // second launch): the frontmost window stands in for it.
         guard let front = NSApp.orderedWindows.first(where: { $0.isVisible && !($0 is NSPanel) }) else { return nil }
-        return littleWindows.first { $0.window === front || $0.window === front.parent }
+        return littleWindows.first { !$0.isParked && ($0.window === front || $0.window === front.parent) }
     }
 
     /// Creates a little window without showing it (`url` nil = popup host).
     func makeLittleWindow(url: String?, opener: CraBrowser? = nil, space: UUID? = nil) -> LittleWindowController {
+        leaveMenuBarForWindow()
         let w = LittleWindowController(app: self, url: url, opener: opener, space: space)
         littleWindows.append(w)
         return w
@@ -609,18 +724,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// Arc's Peek: a Little Window over `parent` that closes when a click lands past it.
+    /// One per tab (#242): a Peek another tab left waiting stays.
     func openPeek(url: String, over parent: MainWindowController, fromTab tabID: UUID? = nil) {
-        for p in littleWindows where p.peekParent === parent { p.closeWindow() }
+        for p in littleWindows where p.peekParent === parent && (!p.isParked || p.peekSourceTab == tabID) { p.closeWindow() }
         let w = LittleWindowController(app: self, url: url, peekOver: parent, fromTab: tabID)
         littleWindows.append(w)
-        // Arc badges the tab the Peek came from with the peeked page's favicon (modalIcon).
-        parent.sidebarUI.peekBadge = tabID.map { .init(tabID: $0, iconKey: FaviconKey.key(for: url)) }
+        // Arc badges the tab the Peek came from with the peeked page's favicon (modalIcon), also
+        // while the Peek waits on it.
+        if let tabID { parent.sidebarUI.peekBadges[tabID] = .init(iconKey: FaviconKey.key(for: url)) }
         w.showAsPeek(fromTab: tabID)
     }
 
     func removeLittleWindow(_ w: LittleWindowController) {
         littleWindows.removeAll { $0 === w }
-        if let parent = w.peekParent, !littleWindows.contains(where: { $0.peekParent === parent }) { parent.sidebarUI.peekBadge = nil }
+        if inMenuBar { DispatchQueue.main.async { [weak self] in self?.settleDockIcon() } }
+        if let parent = w.peekParent, let tab = w.peekSourceTab,
+           !littleWindows.contains(where: { $0.peekParent === parent && $0.peekSourceTab == tab }) { parent.sidebarUI.peekBadges[tab] = nil }
     }
 
     private func archiveIdleLittleWindows() {
@@ -720,6 +839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             for item in comps?.queryItems ?? [] { if let v = item.value { dict[item.name] = v } }
             if let js = dict["devtoolsjs"] { main.debugRunInDevTools(js) }
             if dict["embedDump"] != nil { NSLog("%@", main.embeddedPagesDump()); return }
+            if dict["pageInsets"] != nil { CraLog.note(main.pageInsetsReadout()); return }
             // Tests that leave the pointer alone: scroll=dy,steps,x,y scrolls the scroll view at a
             // point of the main window (from its top left); swipe=dx,steps plays a space swipe.
             if let g = dict["scroll"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 4, let w = main.window {
@@ -734,10 +854,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             // clickAt=x,y: a click there through the event queue, as the pointer's would go (#195);
-            // target=little as for menuAt.
+            // target=little as for menuAt. button=back|forward: that mouse button released there,
+            // handed to what the window's otherMouseUp monitor runs (#233); AppKit can't make a
+            // window's event with button 3 or 4.
             if let g = dict["clickAt"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 2,
                let w = dict["target"] == "little" ? littleWindows.last?.window : main.window {
-                TestGesture.click(at: NSPoint(x: g[0], y: w.frame.height - g[1]), in: w)
+                let point = NSPoint(x: g[0], y: w.frame.height - g[1])
+                if let b = dict["button"], let button = ["back": MouseButtonSpaceSwitch.back, "forward": MouseButtonSpaceSwitch.forward][b] {
+                    let taken = TestGesture.otherMouseUp(at: point, in: w).map { main.mouseButtonSwitchesSpace(button, $0) } ?? false
+                    CraLog.note("mouse \(b) at \(Int(g[0])),\(Int(g[1])): \(taken ? "switched space" : "passed on")")
+                    return
+                }
+                TestGesture.click(at: point, in: w)
                 return
             }
             if let st = dict["status"] { main.browserManager(statusMessage: st); return }
@@ -757,6 +885,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // tidy: the divider's Tidy on the window's space, without hovering it; undoTidy: ⌘Z's.
             if dict["tidy"] != nil { TidyTabsService.shared.tidy(store.focusedSpace(window: main.windowID).id, store: store); return }
             if dict["undoTidy"] != nil { _ = store.undoTidy(); return }
+            // applescript=<source>: an AppleScript run inside Cra (raw «class …» codes address its own
+            // dictionary), its result or error logged; no other app, so no Automation prompt.
+            // Off the main thread, as a script from another app would be: commands that wait for a
+            // page (execute javascript) answer on the main thread.
+            if let source = dict["applescript"] {
+                Thread.detachNewThread {
+                    var error: NSDictionary?
+                    let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
+                    NSLog("Cra applescript → %@", result?.stringValue ?? result.map { "\($0)" } ?? "error \(error?[NSAppleScript.errorNumber] ?? "") \(error?[NSAppleScript.errorMessage] ?? "")")
+                }
+                return
+            }
+            // gmailPreview=<unread>: the Gmail favorite's preview card for a sample inbox.
+            if let n = dict["gmailPreview"].flatMap(Int.init), let w = main.window { FavoritePreviewCard.shared.demoGmail(unread: n, in: w); return }
+            // calendarPreview=1: the Calendar favorite's card for a sample day (a call in 90 s).
+            if dict["calendarPreview"] != nil, let w = main.window { FavoritePreviewCard.shared.demoCalendar(in: w); return }
+            // previewDismiss=1: the card goes, as when the pointer leaves it.
+            if dict["previewDismiss"] != nil { FavoritePreviewCard.shared.dismiss(animated: false); return }
+            // boostZap=1|0: Boost editor's Zap on or off for the open page.
+            if let z = dict["boostZap"] { main.debugZap(z == "1"); return }
+            // boostPick=1|0|copyThis|copyRelated|zapRelated: the code panel's eyedropper on (the
+            // menu answered with that action) or off.
+            if let p = dict["boostPick"] { main.debugPick(p); return }
             // captureToEasel=1: the page's screenshot, then the capture menu's New Easel.
             if let how = dict["captureToEasel"] { main.debugCaptureToEasel(send: how == "send"); return }
             // settingsPane=max: Settings opened on that pane.
@@ -784,12 +935,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 return
             }
+            // pinExtension=<id>: pinned to the toolbar on the Default profile, as the Extensions menu's pin does.
+            if let id = dict["pinExtension"] { ExtensionStore.shared.setPinned(id, true, inProfile: "Default"); return }
             if let id = dict["removeExtension"] {
                 if let e = ExtensionStore.shared.entries.first(where: { $0.extensionID == id }) { ExtensionStore.shared.remove(e) }
                 return
             }
             if let v = dict["fullscreen"], let w = main.window, (v == "1") != w.styleMask.contains(.fullScreen) { w.toggleFullScreen(nil); return }
             if let spec = dict["snapshot"], let out = dict["out"] { ViewSnapshot.write(spec, in: main.window, to: out); return }
+            // hover=TabRowView,1: that sidebar row hovered as if the pointer were on it (snapshots of
+            // hover-only controls, #243) until the pointer moves or the sidebar changes.
+            if let spec = dict["hover"] {
+                guard let row = ViewSnapshot.find(spec, in: main.window) as? SidebarRowView else {
+                    CraLog.note("hover: no visible \(spec)")
+                    return
+                }
+                row.list?.debugHover(row)
+                return
+            }
             if let size = dict["windowSize"]?.split(separator: "x").compactMap({ Double($0) }), size.count == 2, let w = main.window {
                 w.setFrame(NSRect(x: w.frame.minX, y: w.frame.maxY - size[1], width: size[0], height: size[1]), display: true)
                 return
@@ -820,8 +983,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 for m in mainWindows { NSLog("Cra peek shown %@: %@", label, m.peekBackdropShown()) }
                 return
             }
+            // peeks=<label>: each window's Peeks, on screen or waiting on their tab, and their pages (#242).
+            if let label = dict["peeks"] {
+                for m in mainWindows { NSLog("Cra peeks %@: %@", label, m.peeksShown()) }
+                return
+            }
+            // peekCatcher=<label>: whether the shown Peek's click catcher leaves the sidebar alone (#242).
+            if let label = dict["peekCatcher"] {
+                for m in mainWindows { NSLog("Cra peek catcher %@: %@", label, m.peekCatcherReadout()) }
+                return
+            }
             if dict["relaunch"] != nil { relaunch(); return }
-            if dict["quit"] != nil { NSApp.terminate(nil); return }
+            // quit=1 quits for real, as the menu bar item's Quit; quit=menu is ⌘Q (#231).
+            if let q = dict["quit"] { q == "menu" ? NSApp.terminate(nil) : quitFromMenuBar(); return }
             if let t = dict["selectTab"].flatMap(UUID.init(uuidString:)) { store.selectTab(t, window: main.windowID); return }
             // Tab freezing with a short threshold (seconds) from now on, so it can be tried without
             // waiting: the minute's pass would otherwise take the votes back.
@@ -1093,6 +1267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item.title = store.isPinnedCollapsed(main.focusedSpaceID) ? "Expand Pinned Tabs" : "Collapse Pinned Tabs"
             return !main.isStandalone
         case "stayOnTop": item.state = main.staysOnTop ? .on : .off
+        case "allowAppleEventsJavaScript": item.state = store.settings.allowAppleEventsJavaScript ? .on : .off
         case "appearanceAutomatic", "appearanceLight", "appearanceDark":
             item.state = "appearance" + store.settings.websiteAppearance.title == item.representedObject as? String ? .on : .off
         case "copyURLQuote", "savePageAs", "captureFullPage", "capturePortrait", "revealTab": return store.selectedTabID != nil
@@ -1117,6 +1292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "editSpace", "deleteSpace", "nextSpace", "previousSpace", "manageSpaces", "changeProfile": return !main.isStandalone
         // A Blank Window has no favorites or pinned section to put a tab in (Arc).
         case "favoriteTab", "newFolder", "newGitHubLiveFolder", "resetTab": return !main.isBlank
+        case "joinNextMeeting": return LiveCalendarClient.shared.nextCall()?.meetingURL != nil
         case "closeLittleWindows": return !littleWindows.isEmpty
         case let id? where id.hasPrefix("moveTabToSpace"):
             guard let n = Int(id.dropFirst(14)), n >= 1, n <= store.spaceOrder.count else { return false }
@@ -1256,6 +1432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             store.setExpanded(f.id, true)
             if isNew { LiveFolderManager.shared.refresh(f.id) }
         case "newSpace": main.showSpaceEditor(space: nil)
+        case "newBoost": main.openBoostEditor()
         case "newEasel":
             guard !main.isIncognito else { break }
             let easel = Easel()
@@ -1305,6 +1482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "showArchive": main.showLibrary(.archive)
         case "clearArchive": store.clearArchive()
         case "stayOnTop": main.toggleStayOnTop()
+        case "allowAppleEventsJavaScript": store.settings.allowAppleEventsJavaScript.toggle()
         case "appearanceAutomatic": store.settings.websiteAppearance = .automatic
         case "appearanceLight": store.settings.websiteAppearance = .light
         case "appearanceDark": store.settings.websiteAppearance = .dark
@@ -1346,11 +1524,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "viewDownloads": main.showLibrary(.downloads)
         case "viewMedia": main.showLibrary(.media)
         case "viewEasels": main.showLibrary(.easels)
+        case "viewBoosts": main.showLibrary(.boosts)
         case "goBack": main.currentBrowser?.goBack()
         case "goForward": main.currentBrowser?.goForward()
         case "pinTab": if let c = current, !main.isBlank { store.togglePinned(c) }
         case "favoriteTab":
             if let c = current, !main.isBlank { store.isFavorite(c) ? store.removeFromFavorites(c) : store.addToFavorites(c) }
+        case "joinNextMeeting":
+            if let url = LiveCalendarClient.shared.nextCall()?.meetingURL { main.sidebarActions.openURL(url) } else { NSSound.beep() }
         // A pane has no row of its own: its split's name is edited.
         case "renameTab": main.sidebarUI.renamingID = current.map { store.splitContaining($0)?.id ?? $0 }
         case "duplicateTab": if let c = current { store.duplicateTab(c) }
@@ -1466,7 +1647,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let c = SettingsWindowController(store: store, bindings: bindings, actions: actions)
             settingsController = c
             settingsWindow = c.window
+            // Settings opened from the menu bar item: closing it puts Cra back in the menu bar.
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: c.window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard self?.inMenuBar == true else { return }
+                    DispatchQueue.main.async { self?.settleDockIcon() }
+                }
+            }
         }
+        leaveMenuBarForWindow()
         settingsController?.didShow()
         settingsWindow?.makeKeyAndOrderFront(nil)
     }
@@ -1561,6 +1750,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         view.addItem(.separator())
         let dev = NSMenu(title: "Developer")
         for id in ["viewSource", "devTools", "inspectElement", "jsConsole"] { dev.addItem(item(id)) }
+        dev.addItem(item("allowAppleEventsJavaScript"))
         dev.addItem(.separator())
         dev.addItem(item("toggleDeveloperMode"))
         view.addItem(submenu: dev, title: "Developer")
@@ -1600,7 +1790,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.addItem(std("Minimize Window", #selector(NSWindow.performMiniaturize(_:)), "m"))
         window.addItem(std("Zoom", #selector(NSWindow.performZoom(_:))))
         window.addItem(.separator())
-        window.addItem(item("openLibrary")); window.addItem(item("viewDownloads")); window.addItem(item("viewEasels")); window.addItem(item("viewMedia"))
+        window.addItem(item("openLibrary")); window.addItem(item("viewDownloads")); window.addItem(item("viewEasels")); window.addItem(item("viewMedia")); window.addItem(item("viewBoosts"))
         window.addItem(.separator())
         window.addItem(item("promoteLittleWindow")); window.addItem(item("littleWindowOpenInMenu")); window.addItem(item("closeLittleWindows"))
         window.addItem(.separator())

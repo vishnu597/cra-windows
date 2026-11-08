@@ -137,7 +137,7 @@ final class LibraryView {
                 for item in section.items { addArchived(item) }
             }
             showEmpty(sections.isEmpty, LibraryList.empty(.archive, hasAny: !archive.isEmpty))
-        case .media, .easels, .spaces:
+        case .media, .easels, .spaces, .boosts:
             showEmpty(true, LibraryList.Empty(symbol: page.symbol, title: "Not on Windows yet", detail: nil))
         }
     }
@@ -325,7 +325,7 @@ final class LibraryView {
             let clear = UI.menuItem("Clear Archive") { [weak self] in self?.store.clearArchive() }
             clear.isEnabled = !store.archive.isEmpty
             pageMenu.items.append(clear)
-        case .media, .easels, .spaces:
+        case .media, .easels, .spaces, .boosts:
             break
         }
     }

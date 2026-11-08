@@ -3,7 +3,7 @@ import Foundation
 /// The Library's pages Cra has, in the order of Arc's rail (which also lists Boosts). The Mac's
 /// LibraryView and Windows' Library column draw them.
 public enum LibraryPage: String, CaseIterable, Sendable {
-    case media, downloads, easels, spaces, archive
+    case media, downloads, easels, spaces, boosts, archive
 
     public var title: String {
         switch self {
@@ -11,6 +11,7 @@ public enum LibraryPage: String, CaseIterable, Sendable {
         case .downloads: "Downloads"
         case .easels: "Easels"
         case .spaces: "Spaces"
+        case .boosts: "Boosts"
         case .archive: "Archived Tabs"
         }
     }
@@ -22,6 +23,7 @@ public enum LibraryPage: String, CaseIterable, Sendable {
         case .downloads: "arrow.down.circle"
         case .easels: "pencil.and.scribble"
         case .spaces: "square.on.square"
+        case .boosts: "paintbrush.pointed"
         case .archive: "archivebox"
         }
     }
@@ -30,6 +32,7 @@ public enum LibraryPage: String, CaseIterable, Sendable {
         switch self {
         case .media: "photo.fill.on.rectangle.fill"
         case .easels: symbol
+        case .boosts: "paintbrush.pointed.fill"
         default: symbol + ".fill"
         }
     }
@@ -39,6 +42,7 @@ public enum LibraryPage: String, CaseIterable, Sendable {
         case .media: "Search Media…"
         case .downloads: "Search Downloads…"
         case .easels: "Search Easels…"
+        case .boosts: "Search Boosts…"
         default: "Search Archive…"
         }
     }
@@ -133,10 +137,14 @@ public enum LibraryList {
             return Empty(symbol: page.symbol, title: "Nothing here yet!",
                          detail: "Screenshots, pictures and videos in the folders you show appear here.")
         case .downloads:
-            return Empty(symbol: page.symbol, title: "Nothing here yet!", detail: "Files you download show up here.")
+            // Arc's words.
+            return Empty(symbol: page.symbol, title: "Nothing here yet!", detail: "Come back after you’ve found some cool stuff to save.")
         case .easels:
             // Arc's empty Easels page.
             return Empty(symbol: page.symbol, title: "Out of ideas!", detail: "Choose File ▸ New Easel to create a new Easel.")
+        case .boosts:
+            // Arc's empty Boosts page.
+            return Empty(symbol: page.symbol, title: "Nothing Boosted Yet!", detail: "Type “New Boost” in the command bar on any site to make your own.")
         case .spaces, .archive:
             return Empty(symbol: page.symbol, title: "Nothing here yet!", detail: "Tabs you close end up here.")
         }
