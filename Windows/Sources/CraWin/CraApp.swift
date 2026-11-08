@@ -69,7 +69,41 @@ public final class CraApp: SwiftApplication {
             self.windows = windows
             windows.restore()
             observeGlobalShortcut(store: store, windows: windows)
+            openLinksFromOtherApps(windows: windows)
+            DefaultBrowser.updateRegistrationIfMoved()
         }
+    }
+
+    /// Links another app opened Cra with: on this launch's command line, and on later launches
+    /// that Chromium's process singleton hands to this one (`Cra.exe --single-argument <url>`,
+    /// as the default browser's registration runs it, see DefaultBrowser).
+    @MainActor
+    private func openLinksFromOtherApps(windows: WindowList) {
+        Self.relaunched = { [weak windows] arguments in
+            let links = ExternalLink.links(inArguments: arguments)
+            // Cra started again from the Start menu or the taskbar: its window comes forward.
+            if links.isEmpty { windows?.showLastWindow() }
+            for url in links { windows?.openExternal(url) }
+        }
+        cra_cef_set_relaunch_handler(nil) { _, arguments, count in
+            let list = (0..<count).compactMap { i in arguments?[i].map { String(cString: $0) } }
+            onMain { CraApp.relaunched?(list) }
+        }
+        for url in ExternalLink.links(inArguments: Self.launchArguments()) { windows.openExternal(url) }
+    }
+
+    @MainActor private static var relaunched: (([String]) -> Void)?
+
+    /// This launch's arguments after the program; with `--single-argument` (Chrome's switch for
+    /// a link from the shell), everything after it is one argument, spaces and quotes included,
+    /// so a link can't add switches or links of its own.
+    private static func launchArguments() -> [String] {
+        guard let line = GetCommandLineW() else { return Array(CommandLine.arguments.dropFirst()) }
+        let raw = String(decodingCString: line, as: UTF16.self)
+        if let r = raw.range(of: " --single-argument ") {
+            return [String(raw[r.upperBound...])]
+        }
+        return Array(CommandLine.arguments.dropFirst())
     }
 
     /// Arc's "Open Little Arc when I press ⌥⌘N" (#195), Ctrl+Alt+N here: New Little Window's key

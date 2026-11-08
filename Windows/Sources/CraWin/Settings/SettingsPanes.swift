@@ -1,6 +1,7 @@
 import CraCore
 import Foundation
 import UWP
+import WinAppSDK
 import WinUI
 
 /// A pane's XAML and how to put its controls in step with the settings again.
@@ -11,8 +12,7 @@ struct SettingsPaneContent {
 }
 
 /// The panes the Windows app has so far (SettingsPane.windowsPanes), with the Mac's wording.
-/// Rows wait for their feature: Tabs' Links group has no links from other apps yet, General no
-/// default browser until Cra can be one.
+/// Rows wait for their feature (Tabs' Links group has no Air Traffic Control yet).
 @MainActor
 enum SettingsPanes {
     // MARK: General
@@ -46,12 +46,68 @@ enum SettingsPanes {
             if error != nil { toggle.isOn = LaunchAtLogin.isEnabled }
         }
         try? AutomationProperties.setName(toggle, "Open Cra at login")
-        stack.children.append(card([cardRow("Open Cra at login", trailing: toggle, palette: palette)], palette: palette))
+
+        // "Default browser": Cra with a check, or the browser links open in now and the button.
+        let isCra = StackPanel()
+        isCra.orientation = .horizontal
+        isCra.spacing = 6
+        let check = FontIcon()
+        check.glyph = "\u{E930}"
+        check.fontSize = 14
+        check.foreground = palette.secondaryText
+        check.verticalAlignment = .center
+        isCra.children.append(check)
+        isCra.children.append(UI.text("Cra", color: palette.secondaryText))
+        let current = UI.text("", color: palette.secondaryText)
+        current.verticalAlignment = .center
+        let hint = note("Cra works best as your default browser.", palette: palette)
+        hint.margin = Thickness(left: Double(SettingsMetrics.cardRowInset), top: 6, right: 0, bottom: 0)
+        var setDefaultButton: Button?
+        func syncBrowser() -> Bool {
+            let isDefault = DefaultBrowser.isDefault
+            isCra.visibility = isDefault ? .visible : .collapsed
+            setDefaultButton?.visibility = isDefault ? .collapsed : .visible
+            current.text = isDefault ? "" : DefaultBrowser.currentName ?? ""
+            current.visibility = current.text.isEmpty ? .collapsed : .visible
+            hint.visibility = isDefault ? .collapsed : .visible
+            return isDefault
+        }
+        // Windows asks in its own Settings app: the row follows its answer for two minutes.
+        let clock = (try? WinAppSDK.DispatcherQueue.getForCurrentThread()).map { WinScheduler(queue: $0) }
+        var watch: ScheduledWork?
+        let setDefault = UI.button("Set Cra as Default") {
+            guard DefaultBrowser.makeDefault() else {
+                footnote.text = "Cra could not be registered as a browser."
+                footnote.visibility = .visible
+                return
+            }
+            footnote.visibility = .collapsed
+            watch?.cancel()
+            var ticks = 0
+            watch = clock?.every(2) {
+                ticks += 1
+                if syncBrowser() || ticks >= 60 { watch?.cancel() }
+            }
+        }
+        let browser = StackPanel()
+        browser.orientation = .horizontal
+        browser.spacing = 10
+        browser.children.append(isCra)
+        browser.children.append(current)
+        browser.children.append(setDefault)
+        setDefaultButton = setDefault
+        _ = syncBrowser()
+
+        stack.children.append(card([cardRow("Default browser", trailing: browser, palette: palette),
+                                    cardRow("Open Cra at login", trailing: toggle, palette: palette)], palette: palette))
+        stack.children.append(hint)
         stack.children.append(footnote)
-        // Task Manager can turn it off while the window is open.
+        // Task Manager can turn it off while the window is open, Windows' Settings change the
+        // default browser.
         return SettingsPaneContent(element: stack) {
             let on = LaunchAtLogin.isEnabled
             if toggle.isOn != on { toggle.isOn = on }
+            _ = syncBrowser()
         }
     }
 
@@ -114,14 +170,16 @@ enum SettingsPanes {
         }
         cleanup.children.append(duration)
         form.group("Tab Cleanup:", [cleanup])
-        // Arc's Links pane: "Open Little Arc when I press ⌥⌘N" (#195), New Little Window's key
-        // from any app, and Peek's. The Mac's other link settings come with links from other apps.
+        // Arc's Links pane: where links from other apps open, "Open Little Arc when I press ⌥⌘N"
+        // (#195), New Little Window's key from any app, and Peek's. Air Traffic Control's routes
+        // (the Mac's AirTrafficControlView) aren't editable on Windows yet; they still apply.
         let littleKey = WinKeyBindings.shared.action("newLittleWindow")?.primary?.windowsDisplay ?? "Ctrl+Alt+N"
         let everyTab = checkbox("In every tab, not only Favorites and Pinned tabs", \.peekInEveryTab)
         everyTab.margin = Thickness(left: 20, top: 0, right: 0, bottom: 0)
         everyTab.isEnabled = store.settings.peekLinksToOtherSites
         syncs.append { everyTab.isEnabled = store.settings.peekLinksToOtherSites }
         form.group("Links:", [
+            checkbox("Links from other apps open in a Little Window", \.openExternalLinksInLittleWindow),
             checkbox("Open a Little Window when I press \(littleKey) in any app", \.littleWindowShortcutEverywhere),
             checkbox("Open a Peek window when clicking on links to other sites", \.peekLinksToOtherSites),
             everyTab,

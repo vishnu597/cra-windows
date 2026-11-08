@@ -205,6 +205,34 @@ final class WindowList: BrowserWindowHost {
         target.activate()
     }
 
+    /// A link another app opened Cra with (Cra as the default browser, an .html file from
+    /// Explorer), where Air Traffic Control sends it (ExternalLink, AppDelegate.openExternalURL
+    /// on the Mac). Never in a private window, as in Chrome. Cra's own cra:// links aren't
+    /// handled on Windows yet.
+    func openExternal(_ url: String) {
+        switch ExternalLink.target(for: url, settings: store.settings, spaceExists: { [store] in store.space($0) != nil }) {
+        case .internalURL, .ignored:
+            print("Cra: \(url) from another app is not handled on Windows")
+        case .littleWindow:
+            openLittleWindow(url: url, opener: nil, activate: true)
+        case .space(let id):
+            guard let target = normalWindow(forSpace: id) else { return }
+            store.activeWindowID = target.windowID
+            store.createTab(url: url, in: id, select: true, window: target.windowID)
+            target.activate()
+        case .mostRecentSpace:
+            guard let target = lastNormalWindow() else { return }
+            store.activeWindowID = target.windowID
+            store.createTab(url: url, select: true, window: target.windowID)
+            target.activate()
+        }
+    }
+
+    /// The browser window used last, in front (reopened when only Little Windows were left).
+    func showLastWindow() {
+        lastNormalWindow()?.activate()
+    }
+
     /// An open tab picked in a Little Window's command bar: shown in the browser window used last.
     func showTab(_ id: UUID) {
         guard let target = lastNormalWindow() else { return }

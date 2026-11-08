@@ -33,6 +33,89 @@ foreach ($exe in 'Cra.exe', 'CraHelper.exe') {
         throw "$exe has no embedded manifest"
     }
 }
+# The icon and version information (Resources/Cra.rc), which Explorer, Task Manager and the
+# browser registration's icon read (a registration whose exe had neither was never listed in
+# Settings ▸ Default apps). rc.exe ships next to mt.exe; its .res is written into the
+# linked executables here because SwiftPM's link flags must stay as they are (see windows.yml).
+$rc = Join-Path (Split-Path $mt) 'rc.exe'
+if (-not (Test-Path $rc)) { $rc = (Get-Command rc.exe -ErrorAction SilentlyContinue).Source }
+if (-not $rc) { throw 'rc.exe (Windows SDK) not found' }
+Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+public static class CraResources {
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern IntPtr BeginUpdateResourceW(string file, bool deleteExisting);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool UpdateResourceW(IntPtr update, IntPtr type, IntPtr name, ushort language, byte[] data, uint size);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool EndUpdateResourceW(IntPtr update, bool discard);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern uint ExtractIconExW(string file, int index, IntPtr[] large, IntPtr[] small, uint count);
+
+    // A .res file is a run of entries: DataSize, HeaderSize, TYPE and NAME (each 0xFFFF and a
+    // number, or a string), DataVersion, MemoryFlags, LanguageId, Version, Characteristics, then
+    // the data, each entry DWORD-aligned. The first entry is an empty marker.
+    public static void Embed(string res, string exe) {
+        byte[] b = File.ReadAllBytes(res);
+        IntPtr update = BeginUpdateResourceW(exe, false);
+        if (update == IntPtr.Zero) throw new Exception("BeginUpdateResource failed: " + Marshal.GetLastWin32Error());
+        bool done = false;
+        try {
+            int at = 0;
+            while (at + 8 <= b.Length) {
+                int dataSize = BitConverter.ToInt32(b, at), headerSize = BitConverter.ToInt32(b, at + 4);
+                int p = at + 8;
+                IntPtr type = Id(b, ref p), name = Id(b, ref p);
+                p = (p + 3) & ~3;
+                ushort language = BitConverter.ToUInt16(b, p + 6);
+                if (dataSize > 0) {
+                    byte[] data = new byte[dataSize];
+                    Array.Copy(b, at + headerSize, data, 0, dataSize);
+                    if (!UpdateResourceW(update, type, name, language, data, (uint)dataSize))
+                        throw new Exception("UpdateResource failed: " + Marshal.GetLastWin32Error());
+                }
+                at = (at + headerSize + dataSize + 3) & ~3;
+            }
+            done = true;
+        } finally {
+            bool ended = EndUpdateResourceW(update, !done);
+            if (done && !ended) throw new Exception("EndUpdateResource failed: " + Marshal.GetLastWin32Error());
+        }
+    }
+
+    // A numbered resource, or a named one (the string is left allocated: a few per build).
+    static IntPtr Id(byte[] b, ref int p) {
+        if (BitConverter.ToUInt16(b, p) == 0xFFFF) { IntPtr id = (IntPtr)BitConverter.ToUInt16(b, p + 2); p += 4; return id; }
+        int start = p;
+        while (BitConverter.ToUInt16(b, p) != 0) p += 2;
+        string s = System.Text.Encoding.Unicode.GetString(b, start, p - start);
+        p += 2;
+        return Marshal.StringToHGlobalUni(s);
+    }
+
+    public static uint IconCount(string exe) { return ExtractIconExW(exe, -1, null, null, 0); }
+}
+'@
+Push-Location (Join-Path $root 'Resources')
+try {
+    foreach ($exe in 'Cra.exe', 'CraHelper.exe') {
+        $res = Join-Path $env:TEMP "cra-$exe.res"
+        $defines = if ($exe -eq 'CraHelper.exe') { @('/d', 'HELPER') } else { @() }
+        & $rc /nologo @defines /fo $res Cra.rc
+        if ($LASTEXITCODE) { throw "rc.exe could not compile Cra.rc for $exe" }
+        $target = Join-Path $out $exe
+        [CraResources]::Embed($res, $target)
+        $info = (Get-Item $target).VersionInfo
+        if ($info.ProductName -ne 'Cra' -or [CraResources]::IconCount($target) -lt 1) {
+            throw "$exe has no icon or version information"
+        }
+        Write-Host "$exe`: $($info.FileDescription) $($info.FileVersion), $([CraResources]::IconCount($target)) icon(s)"
+    }
+} finally {
+    Pop-Location
+}
 Get-ChildItem $bin -Directory -Filter '*.resources' | Copy-Item -Destination $out -Recurse
 # The Swift runtime (swiftCore, Foundation, Dispatch, ...) is installed with the toolchain, not
 # built by SwiftPM, so it is copied from wherever the toolchain put it on PATH.

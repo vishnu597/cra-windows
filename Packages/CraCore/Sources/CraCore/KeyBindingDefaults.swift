@@ -249,6 +249,8 @@ public enum KeyBindingDefaults {
             "openLibrary": [KeyChord("l", ctrlShift)],
             "viewArchive": [KeyChord("h", ctrl)],
             "viewDownloads": [KeyChord("j", ctrl)],
+            // Registers Cra and opens Windows' Default apps page for it (PR 9).
+            "setDefaultBrowser": [],
         ]
         for n in 1...9 {
             table["item\(n)"] = [KeyChord("\(n)", ctrl)]

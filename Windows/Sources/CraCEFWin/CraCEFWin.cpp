@@ -1182,17 +1182,14 @@ public:
     bool OnAlreadyRunningAppRelaunch(CefRefPtr<CefCommandLine> command_line,
                                      const CefString &current_directory) override {
         CEF_REQUIRE_UI_THREAD();
+        // Every argument (not switches): which are links is CraCore's call (ExternalLink), which
+        // also turns an .html file's path into a file:// URL.
         std::vector<CefString> args;
         command_line->GetArguments(args);
-        std::vector<std::string> urls;
-        for (const auto &a : args) {
-            std::string s = a.ToString();
-            if (s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0 || s.rfind("cra://", 0) == 0 ||
-                s.rfind("file://", 0) == 0)
-                urls.push_back(s);
-        }
+        std::vector<std::string> strings;
+        for (const auto &a : args) strings.push_back(a.ToString());
         std::vector<const char *> pointers;
-        for (const auto &u : urls) pointers.push_back(u.c_str());
+        for (const auto &u : strings) pointers.push_back(u.c_str());
         if (g_relaunchHandler) g_relaunchHandler(g_relaunchContext, pointers.data(), pointers.size());
         return true;
     }

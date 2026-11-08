@@ -118,7 +118,10 @@ final class HostWindow {
         }
         layout()
         hookWindowProcedure()
-        if !isCard { try appWindow.show() }
+        if !isCard {
+            WindowIcon.apply(to: hwnd)
+            try appWindow.show()
+        }
     }
 
     /// An owned card (init's `owner`).

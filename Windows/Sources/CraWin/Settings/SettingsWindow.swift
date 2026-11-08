@@ -45,6 +45,7 @@ final class SettingsWindow {
         appWindow = window
         appWindow.title = "Settings"
         palette.style(appWindow.titleBar)
+        WindowIcon.apply(to: UInt(appWindow.id.value))
         try xaml.initialize(appWindow.id)
         xaml.content = makeLayout()
         appWindow.closing.addHandler { [weak self] _, args in

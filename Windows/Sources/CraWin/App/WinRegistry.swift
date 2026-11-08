@@ -10,8 +10,12 @@ enum WinRegistry {
     private static let regSZ: DWORD = 1
     private static let notFound: LSTATUS = 2
 
-    static func string(_ key: String, _ name: String) -> String? {
-        guard let bytes = read(key, name, type: typeString), bytes.count >= 2 else { return nil }
+    /// HKEY_CLASSES_ROOT: the user's and the machine's Software\Classes together.
+    static let classesRoot = HKEY(bitPattern: Int(Int32(bitPattern: 0x8000_0000)))
+
+    /// A REG_SZ value; `name` "" is the key's default value.
+    static func string(_ key: String, _ name: String, root: HKEY? = nil) -> String? {
+        guard let bytes = read(key, name, type: typeString, root: root ?? currentUser), bytes.count >= 2 else { return nil }
         let units = stride(from: 0, to: bytes.count - 1, by: 2).map { UInt16(bytes[$0]) | UInt16(bytes[$0 + 1]) << 8 }
         return String(decoding: units.prefix { $0 != 0 }, as: UTF16.self)
     }
@@ -47,14 +51,23 @@ enum WinRegistry {
         }
     }
 
-    private static func read(_ key: String, _ name: String, type: DWORD) -> [UInt8]? {
+    /// Deletes a key with everything under it; true when it is gone, whether or not it was there.
+    static func deleteKey(_ key: String) -> Bool {
         key.withCString(encodedAs: UTF16.self) { k in
+            let status = RegDeleteTreeW(currentUser, k)
+            return status == 0 || status == notFound
+        }
+    }
+
+    private static func read(_ key: String, _ name: String, type: DWORD, root: HKEY? = nil) -> [UInt8]? {
+        let root = root ?? currentUser
+        return key.withCString(encodedAs: UTF16.self) { k in
             name.withCString(encodedAs: UTF16.self) { n -> [UInt8]? in
                 var size: DWORD = 0
-                guard RegGetValueW(currentUser, k, n, type, nil, nil, &size) == 0 else { return nil }
+                guard RegGetValueW(root, k, n, type, nil, nil, &size) == 0 else { return nil }
                 var bytes = [UInt8](repeating: 0, count: Int(size))
                 guard size > 0 else { return bytes }
-                let status = bytes.withUnsafeMutableBytes { RegGetValueW(currentUser, k, n, type, nil, $0.baseAddress, &size) }
+                let status = bytes.withUnsafeMutableBytes { RegGetValueW(root, k, n, type, nil, $0.baseAddress, &size) }
                 guard status == 0 else { return nil }
                 return Array(bytes.prefix(Int(size)))
             }
@@ -104,7 +117,7 @@ enum LaunchAtLogin {
     }
 
     /// Cra.exe's full path (the command line may hold a relative one).
-    private static var executablePath: String? {
+    static var executablePath: String? {
         var buffer = [WCHAR](repeating: 0, count: 32_768)
         let count = Int(GetModuleFileNameW(nil, &buffer, DWORD(buffer.count)))
         guard count > 0, count < buffer.count else { return nil }

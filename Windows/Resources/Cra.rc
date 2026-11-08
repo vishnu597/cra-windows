@@ -1,0 +1,48 @@
+// Cra.exe's icon and version information (CraHelper.exe's too, with HELPER defined). Windows
+// shows them in Explorer, Task Manager and Settings ▸ Default apps; the browser registration
+// (App/DefaultBrowser.swift) points at icon 0. scripts/build.ps1 compiles this with rc.exe and
+// writes the resources into the linked executables, as it does the manifest.
+// A release build can define CRA_VERSION ("1.2.3") and CRA_VERSION_COMMA (1,2,3,0).
+
+#ifndef CRA_VERSION
+#define CRA_VERSION "0.0.0"
+#define CRA_VERSION_COMMA 0,0,0,0
+#endif
+
+#ifdef HELPER
+#define CRA_DESCRIPTION "Cra Helper"
+#define CRA_FILE "CraHelper.exe"
+#else
+#define CRA_DESCRIPTION "Cra"
+#define CRA_FILE "Cra.exe"
+#endif
+
+1 ICON "Cra.ico"
+
+1 VERSIONINFO
+FILEVERSION CRA_VERSION_COMMA
+PRODUCTVERSION CRA_VERSION_COMMA
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "Cra"
+            VALUE "FileDescription", CRA_DESCRIPTION
+            VALUE "FileVersion", CRA_VERSION
+            VALUE "InternalName", CRA_FILE
+            VALUE "OriginalFilename", CRA_FILE
+            VALUE "ProductName", "Cra"
+            VALUE "ProductVersion", CRA_VERSION
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
