@@ -1,5 +1,4 @@
 import Foundation
-import CoreFoundation
 
 /// MCP's stdio JSON-RPC envelope and the tools exposed by the running browser.
 public enum MCPProtocol {
@@ -117,9 +116,9 @@ public enum MCPProtocol {
             } else if type == "array" {
                 guard let paths = value as? [String], (1...8).contains(paths.count), paths.allSatisfy({ $0.hasPrefix("/") && !$0.contains("\0") && $0.utf8.count <= 4096 }) else { return "paths must be 1–8 absolute file paths." }
             } else if type == "boolean" {
-                guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return "\(key) must be true or false." }
+                guard let number = value as? NSNumber, JSONNumber.isBoolean(number) else { return "\(key) must be true or false." }
             } else {
-                guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite,
+                guard let number = value as? NSNumber, !JSONNumber.isBoolean(number), number.doubleValue.isFinite,
                       type == "number" || number.doubleValue.rounded() == number.doubleValue else { return "\(key) must be a \(type == "number" ? "number" : "whole number")." }
                 if let minimum = (property["minimum"] as? NSNumber)?.doubleValue, number.doubleValue < minimum { return "\(key) must be at least \(Int(minimum))." }
                 if let maximum = (property["maximum"] as? NSNumber)?.doubleValue, number.doubleValue > maximum { return "\(key) must be at most \(Int(maximum))." }

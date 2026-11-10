@@ -1,5 +1,4 @@
 import Foundation
-import CoreFoundation
 
 /// One MCP connection's handshake and request validation, independent of browser I/O.
 @MainActor
@@ -43,7 +42,7 @@ public final class MCPSession {
             return
         }
         let validID = (id as? String).map { $0.utf8.count <= 256 }
-            ?? (id is NSNumber && CFGetTypeID(id as CFTypeRef) != CFBooleanGetTypeID())
+            ?? (id as? NSNumber).map { !JSONNumber.isBoolean($0) } ?? false
         guard validID else {
             send(MCPProtocol.error(id: NSNull(), code: -32600, message: "Invalid request ID"))
             return

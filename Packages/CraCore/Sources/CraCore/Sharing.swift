@@ -164,7 +164,7 @@ public struct UsageStats: Codable, Equatable, Sendable {
         var out: [String: String] = [:]
         for (key, value) in json {
             if let n = value as? NSNumber {
-                out[key] = CFGetTypeID(n) == CFBooleanGetTypeID() ? (n.boolValue ? "true" : "false") : n.stringValue
+                out[key] = JSONNumber.isBoolean(n) ? (n.boolValue ? "true" : "false") : n.stringValue
             } else if let s = value as? String, s.count <= 40, !s.contains("/"), !s.contains(".") {
                 out[key] = s
             }

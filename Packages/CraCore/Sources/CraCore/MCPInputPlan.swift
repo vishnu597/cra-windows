@@ -13,21 +13,27 @@ public enum MCPInputPlan {
     /// Short eased paths: pages that track the pointer (hover menus, drag thresholds) see real
     /// movement, without the second-long glides that made every click slow.
     public static func movement(from start: CGPoint, to end: CGPoint, variation: Double) -> [Move] {
-        let distance = hypot(end.x - start.x, end.y - start.y)
-        let duration = min(0.24, 0.06 + distance / 4000)
+        let distance: CGFloat = hypot(end.x - start.x, end.y - start.y)
+        let duration: Double = min(0.24, 0.06 + Double(distance) / 4000)
         let steps = max(4, Int(duration / 0.016))
-        let bend = (min(1, max(0, variation)) - 0.5) * min(40, distance * 0.1)
-        let length = max(1, distance)
+        let bend: CGFloat = CGFloat(min(1, max(0, variation)) - 0.5) * min(40, distance * 0.1)
+        let length: CGFloat = max(1, distance)
         let control = CGPoint(x: (start.x + end.x) / 2 - (end.y - start.y) / length * bend,
                               y: (start.y + end.y) / 2 + (end.x - start.x) / length * bend)
-        return (1...steps).map { index in
+        var moves: [Move] = []
+        moves.reserveCapacity(steps)
+        for index in 1...steps {
             let fraction = Double(index) / Double(steps)
             let t = fraction * fraction * (3 - 2 * fraction)
             let u = 1 - t
-            return Move(point: CGPoint(x: u * u * start.x + 2 * u * t * control.x + t * t * end.x,
-                                       y: u * u * start.y + 2 * u * t * control.y + t * t * end.y),
-                        delay: duration / Double(steps))
+            let startWeight = CGFloat(u * u)
+            let controlWeight = CGFloat(2 * u * t)
+            let endWeight = CGFloat(t * t)
+            let x = startWeight * start.x + controlWeight * control.x + endWeight * end.x
+            let y = startWeight * start.y + controlWeight * control.y + endWeight * end.y
+            moves.append(Move(point: CGPoint(x: x, y: y), delay: duration / Double(steps)))
         }
+        return moves
     }
 
     public static func keyHold(_ variation: Double) -> Double { 0.008 + bounded(variation) * 0.017 }
