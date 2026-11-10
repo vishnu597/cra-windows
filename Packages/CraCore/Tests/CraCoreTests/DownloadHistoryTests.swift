@@ -43,6 +43,38 @@ struct DownloadHistoryTests {
         #expect(h.recent.map { $0.subtitle(now: t0) } == ["Failed to Download", "Cancelled"])
     }
 
+    @Test func pausedDownloadsKeepProgressWithoutSettlingOrMeasuringSpeed() {
+        let h = history()
+        h.report(id: 1, name: "a.zip", path: "/d/a.zip", received: 20, total: 100, percent: 20,
+                 complete: false, cancelled: false, failed: false, paused: true, now: t0)
+        #expect(h.hasRunningDownloads && h.progress == 0.2)
+        #expect(h.live.first?.row == .paused && h.live.first?.bytesPerSecond == nil)
+        #expect(!h.isRunning(anyOf: [1]), "a stall checker should not keep polling a paused download")
+        #expect(h.settledStalled(among: [1], now: t0.addingTimeInterval(100), fileSize: { _ in nil },
+                                partialExists: { _ in false }).isEmpty)
+        h.report(id: 1, name: "a.zip", path: "/d/a.zip", received: 20, total: 100, percent: 20,
+                 complete: false, cancelled: false, failed: false, now: t0.addingTimeInterval(101))
+        #expect(h.isRunning(anyOf: [1]) && h.live.first?.bytesPerSecond == nil)
+    }
+
+    @Test func endedDownloadsTimestampTheBinAndHiddenRowsLeaveTheLists() {
+        let h = history()
+        h.report(id: 1, name: "a.zip", path: "/d/a.zip", received: 1, total: 2, percent: 50,
+                 complete: false, cancelled: false, failed: false, now: t0)
+        let ended = t0.addingTimeInterval(3)
+        h.report(id: 1, name: "a.zip", path: "/d/a.zip", received: 2, total: 2, percent: 100,
+                 complete: true, cancelled: false, failed: false, now: ended)
+        #expect(h.lastEnded == ended && h.progress == nil)
+        let entry = h.add(path: "/d/a.zip", now: ended)
+        h.hide(.finished(entry))
+        #expect(h.entries.isEmpty && h.recent.isEmpty)
+        h.report(id: 2, name: "b.zip", path: "", received: 0, total: 0, percent: -1,
+                 complete: false, cancelled: true, failed: false, now: ended)
+        #expect(h.lastEnded == ended)
+        if let live = h.live.first { h.hide(.live(live)) }
+        #expect(h.live.isEmpty && h.library(query: "").isEmpty)
+    }
+
     @Test func listsTheNewestFiveStillOnDiskOldestFirst() {
         let h = history(onDisk: ["/d/1", "/d/3", "/d/4", "/d/5", "/d/6", "/d/7"])
         for i in 1...7 { h.add(path: "/d/\(i)", now: t0.addingTimeInterval(Double(i))) }

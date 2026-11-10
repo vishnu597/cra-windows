@@ -24,9 +24,9 @@ public enum KeyBindingDefaults {
             KeyAction(id: "reopenClosedTab", name: "Restore Last Closed Tab", section: .file, shortcuts: [KeyChord("t", cmdShift)], triggers: ["reopen", "undo close", "restore"]),
             KeyAction(id: "editURL", name: "Open Command Bar", section: .file, shortcuts: [KeyChord("l", cmd)], triggers: ["url", "address", "command bar"]),
             KeyAction(id: "newFolder", name: "New Folder", section: .file, shortcuts: [], triggers: ["folder"]),
-            KeyAction(id: "newGitHubLiveFolder", name: "New GitHub Live Folder", section: .file, shortcuts: [],
-                      triggers: ["live folder", "pull requests", "github"]),
             KeyAction(id: "newSpace", name: "New Space…", section: .file, shortcuts: [], triggers: ["space"]),
+            // Arc: File ▸ New Profile, the dialog Set Profile ▸ New Profile… opens (#279).
+            KeyAction(id: "newProfile", name: "New Profile", section: .file, shortcuts: [], triggers: ["profile"]),
             // Arc's command bar: New Boost, the open site's boost.
             KeyAction(id: "newBoost", name: "New Boost", section: .none, shortcuts: [], triggers: ["boost", "restyle", "zap"],
                       symbol: "paintbrush.pointed"),
@@ -35,11 +35,13 @@ public enum KeyBindingDefaults {
                       triggers: ["easel", "whiteboard", "canvas", "draw"]),
             KeyAction(id: "closeWindow", name: "Close Window", section: .file, shortcuts: [KeyChord("w", cmdShift)], inCommandBar: false),
             KeyAction(id: "closeTab", name: "Close Tab", section: .file, shortcuts: [KeyChord("w", cmd)], triggers: ["close", "archive tab"]),
+            // Arc: File ▸ Share…, the system's share list for the page (#279).
+            KeyAction(id: "share", name: "Share…", section: .file, shortcuts: [], triggers: ["share", "airdrop"]),
             KeyAction(id: "capturePage", name: "Capture…", section: .file, shortcuts: [KeyChord("2", cmdShift)], triggers: ["capture", "screenshot"]),
             // Arc: File ▸ Capture Full Page, Save Page As ⇧⌘S.
             KeyAction(id: "captureFullPage", name: "Capture Full Page", section: .file, shortcuts: [], triggers: ["full page", "screenshot"]),
             KeyAction(id: "capturePortrait", name: "Capture in Portrait Mode", section: .file, shortcuts: [], triggers: ["portrait", "mobile screenshot"]),
-            KeyAction(id: "savePageAs", name: "Save Page As…", section: .file, shortcuts: [KeyChord("s", cmdShift)], triggers: ["save page", "download page"]),
+            KeyAction(id: "savePageAs", name: "Save Page As", section: .file, shortcuts: [KeyChord("s", cmdShift)], triggers: ["save page", "download page"]),
             KeyAction(id: "print", name: "Print", section: .file, shortcuts: [KeyChord("p", cmd)]),
             // Edit
             KeyAction(id: "copyURL", name: "Copy URL", section: .edit, shortcuts: [KeyChord("c", cmdShift)], triggers: ["copy link"]),
@@ -236,6 +238,8 @@ public enum KeyBindingDefaults {
             "nextSpace": [KeyChord(KeyChord.right, ctrlAlt)],
             "previousSpace": [KeyChord(KeyChord.left, ctrlAlt)],
             "changeProfile": [],
+            "newProfile": [],
+            "share": [],
             "pinTab": [KeyChord("d", ctrl)],
             "nextTab": [KeyChord(KeyChord.tab, ctrl)],
             "previousTab": [KeyChord(KeyChord.tab, ctrlShift)],
@@ -274,7 +278,8 @@ public enum KeyBindingDefaults {
 
 /// One-line descriptions for the Shortcuts pane's detail column (Dia: "Create a new tab.").
 public enum ShortcutDescriptions {
-    public static func text(for a: KeyAction) -> String {
+    public static func text(for a: KeyAction, custom: String? = nil) -> String {
+        if let custom { return custom }
         if let t = table[a.id] { return t }
         if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). tab in the sidebar." }
         if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return "Switch to the \(n). space." }
@@ -325,7 +330,8 @@ public enum ShortcutDescriptions {
         "reopenClosedTab": "Bring back the tab you closed last.",
         "editURL": "Open the command bar to search or enter a URL.",
         "newFolder": "Create a folder in the sidebar.",
-        "newGitHubLiveFolder": "Add a folder that fills itself with your open pull requests and review requests.",
+        "newProfile": "Create a browser profile with separate logins and site data.",
+        "share": "Open the system share list for the current page.",
         "newSpace": "Create a new space.",
         "closeWindow": "Close the current window.",
         "closeTab": "Close the current tab.",

@@ -23,6 +23,12 @@ gains a finding fails, one that loses one is reported so the baseline can come d
   importer-without-fixture
       An importer (enum …Importer) without a checked-in profile under Tests/Fixtures/<Name>:
       parsers are tested against files in the source browser's format, not dictionaries.
+  app-icon-without-png
+      An AppIconManager preset without resources/app-icons/<id>.png (scripts/make-app-icons.swift
+      writes them): the picker would show an empty tile and the Dock would keep the old icon.
+  app-icon-size
+      A resources/app-icons PNG that isn't 512×512 px. The generator once followed the display's
+      scale and wrote 256 px icons on a 1x screen, which the Dock would draw blurry.
   core-platform-import
       Packages/CraCore importing AppKit, Cocoa, SwiftUI, UIKit or CraCEF. The core is models and
       decisions that build and test without a window or Chromium (#51); what needs one stays in
@@ -30,6 +36,11 @@ gains a finding fails, one that loses one is reported so the baseline can come d
   perf-no-network
       Networking (URLSession, CFNetwork, Network.framework, sockets) under either Perf folder: the
       performance recorder never sends anything anywhere (#91); the export is the user's to share.
+  sidebar-responsive-scrolling
+      A plain NSScrollView() under UI/Sidebar. AppKit's responsive scrolling takes a gesture's
+      events off the window's scroll monitor once it starts over such a view, so a space or
+      Library swipe begun there never arrives, or loses its end and stays between two pages (the
+      Library's Downloads list, 9 Nov 2026). Use SidebarListScrollView, which opts out.
   perf-boundary
       The performance recorder stays removable (#91, docs/performance.md): outside its two folders
       only the files in PERF_CALLERS reach it, and inside Sources/Cra/Perf only PerfCEF.swift sees
@@ -110,9 +121,22 @@ def findings():
                     hit("perf-boundary", rel, i)
             elif rel not in PERF_CALLERS and PERF_NAME.search(line):
                 hit("perf-boundary", rel, i)
+            if rel.startswith("UI/Sidebar/") and re.search(r"\bNSScrollView\(\)", line):
+                hit("sidebar-responsive-scrolling", rel, i)
             for name in re.findall(r"\benum (\w+)Importer\b", line):
                 if not os.path.isdir(os.path.join(ROOT, "Tests", "Fixtures", name)):
                     hit("importer-without-fixture", f"{rel}:{name}", i)
+            if rel == "Services/AppIconManager.swift":
+                for icon in re.findall(r'\bOption\(id: "(\w+)"', line):
+                    if not os.path.isfile(os.path.join(ROOT, "resources", "app-icons", f"{icon}.png")):
+                        hit("app-icon-without-png", f"{rel}:{icon}", i)
+    icons = os.path.join(ROOT, "resources", "app-icons")
+    for n in sorted(os.listdir(icons)) if os.path.isdir(icons) else []:
+        if n.endswith(".png"):
+            with open(os.path.join(icons, n), "rb") as f:
+                head = f.read(24)  # PNG signature, IHDR length + type, then width and height
+            if head[12:16] != b"IHDR" or head[16:24] != (512).to_bytes(4, "big") * 2:
+                hit("app-icon-size", f"resources/app-icons/{n}", 1)
     for dirpath, _, names in os.walk(CORE):
         for n in sorted(names):
             if n.endswith(".swift"):
@@ -156,7 +180,7 @@ def main():
             rule, rel = key
             lines = ", ".join(map(str, where[key]))
             path = rel.split(":")[0]
-            print(f"{path if path.startswith('Packages/') else 'Sources/Cra/' + path}: {rule}: {n} (baseline {base.get(key, 0)}), lines {lines}")
+            print(f"{path if path.startswith(('Packages/', 'resources/')) else 'Sources/Cra/' + path}: {rule}: {n} (baseline {base.get(key, 0)}), lines {lines}")
     lower = [(k, base[k], found.get(k, 0)) for k in sorted(base) if found.get(k, 0) < base[k]]
     for (rule, rel), was, now in lower:
         print(f"note: {rel}: {rule} down from {was} to {now}; run scripts/lint.py --update-baseline")

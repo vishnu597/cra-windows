@@ -9,6 +9,8 @@ final class AppComposition {
     let clock: Scheduler
     let flags: FeatureFlags
     let store: SidebarStore
+    /// Settings ▸ General ▸ Sync, on the same clock as the store.
+    let sync: SettingsSyncService
     private var periodic: [ScheduledWork] = []
 
     init(clock: Scheduler? = nil, flags: FeatureFlags = .current) {
@@ -18,6 +20,7 @@ final class AppComposition {
         self.clock = clock ?? LiveScheduler.shared
         self.flags = flags
         store = SidebarStore(clock: self.clock)
+        sync = SettingsSyncService(store: store, clock: self.clock)
     }
 
     /// Arc archives on a 30-minute pass; tab freezing and sleeping look every minute. `sleepTabs` reaches

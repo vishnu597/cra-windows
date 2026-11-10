@@ -64,6 +64,9 @@ public struct TabData: Codable, Equatable {
     public var muted: Bool = false
     public var timeLastActiveAt: Date?
     public var activeTabBeforeCreationID: UUID?
+    /// The tab a link opened this one from (Arc: referrerID). Back with no page behind closes this
+    /// tab and shows that one (BackToReferrer, #273). Saved, as the page's history is (PageHistory).
+    public var referrerID: UUID?
     /// Favicon cache key: the host, then the page's own icon once it loads (FaviconKey, #211).
     public var faviconKey: String?
     /// Favicon cache key of an image the user picked; wins over the site's favicon.
@@ -174,6 +177,9 @@ public struct SidebarItem: Identifiable, Codable, Equatable {
     public var data: ItemData
     /// A folder's glyph colour; nil is Auto (it follows the theme).
     public var folderIcon: FolderIconStyle? = nil
+    /// The symbol picked with Change Icon… (Arc's folder icon picker). A key of its own, beside
+    /// `folderIcon`, so a Cra that predates symbols still reads the file.
+    public var folderSymbol: FolderSymbol? = nil
     /// Set on a folder that fills itself (Arc: list.automaticLiveFolderData).
     public var liveFolder: LiveFolderData? = nil
     /// A Today folder shown as a group header, as Tidy Tabs makes them (Arc: SidebarItemData.tabGroup,
@@ -181,7 +187,7 @@ public struct SidebarItem: Identifiable, Codable, Equatable {
     public var tabGroup: Bool? = nil
 
     public init(id: UUID, parentID: UUID?, title: String?, children: [UUID], isUnread: Bool, createdAt: Date, data: ItemData,
-                folderIcon: FolderIconStyle? = nil, liveFolder: LiveFolderData? = nil, tabGroup: Bool? = nil) {
+                folderIcon: FolderIconStyle? = nil, folderSymbol: FolderSymbol? = nil, liveFolder: LiveFolderData? = nil, tabGroup: Bool? = nil) {
         self.id = id
         self.parentID = parentID
         self.title = title
@@ -190,8 +196,47 @@ public struct SidebarItem: Identifiable, Codable, Equatable {
         self.createdAt = createdAt
         self.data = data
         self.folderIcon = folderIcon
+        self.folderSymbol = folderSymbol
         self.liveFolder = liveFolder
         self.tabGroup = tabGroup
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, parentID, title, children, isUnread, createdAt, data, folderIcon, folderSymbol, liveFolder, pluginFolder, tabGroup
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        parentID = try c.decodeIfPresent(UUID.self, forKey: .parentID)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        children = try c.decode([UUID].self, forKey: .children)
+        isUnread = try c.decode(Bool.self, forKey: .isUnread)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        data = try c.decode(ItemData.self, forKey: .data)
+        folderIcon = try c.decodeIfPresent(FolderIconStyle.self, forKey: .folderIcon)
+        folderSymbol = try c.decodeIfPresent(FolderSymbol.self, forKey: .folderSymbol)
+        liveFolder = try c.decodeIfPresent(LiveFolderData.self, forKey: .pluginFolder)
+            ?? c.decodeIfPresent(LiveFolderData.self, forKey: .liveFolder)
+        tabGroup = try c.decodeIfPresent(Bool.self, forKey: .tabGroup)
+    }
+
+    /// A folder from a plugin with no GitHub or GitLab source of its own (Jira, an installed plugin)
+    /// is saved under `pluginFolder`: Cra 0.1.37 and older fail the whole sidebar.json on a
+    /// `liveFolder` source they don't know, and read this key's folder as a plain one with its tabs.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(parentID, forKey: .parentID)
+        try c.encodeIfPresent(title, forKey: .title)
+        try c.encode(children, forKey: .children)
+        try c.encode(isUnread, forKey: .isUnread)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(data, forKey: .data)
+        try c.encodeIfPresent(folderIcon, forKey: .folderIcon)
+        try c.encodeIfPresent(folderSymbol, forKey: .folderSymbol)
+        try c.encodeIfPresent(liveFolder, forKey: liveFolder?.source == .plugin ? .pluginFolder : .liveFolder)
+        try c.encodeIfPresent(tabGroup, forKey: .tabGroup)
     }
 
     public var tab: TabData? {
@@ -270,6 +315,9 @@ public struct Space: Identifiable, Codable, Equatable {
     /// The Blank Window this space belongs to (Arc: a `standalone` sidebar container keyed by its
     /// window). Such a space is in no window's space list and goes when its window closes (BlankWindow).
     public var standaloneWindowID: UUID? = nil
+    /// GitHub #306, not in Arc (one engine per profile there): the Chromium keyword of the engine
+    /// the command bar searches in this space; nil searches the profile's default.
+    public var searchEngine: String? = nil
 
     public init(id: UUID, title: String, emoji: String, theme: SpaceTheme, favoritesContainerID: UUID, pinnedContainerID: UUID,
                 todayContainerID: UUID, createdAt: Date, profileID: UUID? = nil, symbol: String? = nil, standaloneWindowID: UUID? = nil) {
@@ -382,8 +430,9 @@ public struct ArchivedItem: Codable, Identifiable, Equatable {
     }
 }
 
+/// Arc offers 12 hours to 30 days; 90 and 180 days are Cra's (#278).
 public enum AutoArchiveThreshold: String, Codable, CaseIterable, Identifiable {
-    case twelveHours, twentyFourHours, sevenDays, thirtyDays
+    case twelveHours, twentyFourHours, sevenDays, thirtyDays, ninetyDays, oneHundredEightyDays
     public var id: String { rawValue }
     public var seconds: TimeInterval {
         switch self {
@@ -391,6 +440,8 @@ public enum AutoArchiveThreshold: String, Codable, CaseIterable, Identifiable {
         case .twentyFourHours: return 24 * 3600
         case .sevenDays: return 7 * 86400
         case .thirtyDays: return 30 * 86400
+        case .ninetyDays: return 90 * 86400
+        case .oneHundredEightyDays: return 180 * 86400
         }
     }
     public var label: String {
@@ -399,7 +450,31 @@ public enum AutoArchiveThreshold: String, Codable, CaseIterable, Identifiable {
         case .twentyFourHours: return "24 hours"
         case .sevenDays: return "7 days"
         case .thirtyDays: return "30 days"
+        case .ninetyDays: return "90 days"
+        case .oneHundredEightyDays: return "180 days"
         }
+    }
+
+    /// Cra 0.1.36 and older know Arc's four and set the whole settings.json aside as corrupt on
+    /// any other value, so a longer one is saved as 30 days with `AppSettings.autoArchiveDays`
+    /// beside it, which they ignore. A value from a newer Cra loads as the longest one this Cra
+    /// knows: a threshold only ever archives later than asked, never sooner.
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = Self(rawValue: raw) ?? Self.allCases.last!
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(longerThanArc ? Self.thirtyDays.rawValue : rawValue)
+    }
+
+    var longerThanArc: Bool { seconds > Self.thirtyDays.seconds }
+    var days: Int { Int(seconds / 86400) }
+
+    /// The shortest threshold that archives no sooner than `days`.
+    init(days: Int) {
+        self = Self.allCases.first { $0.seconds >= TimeInterval(days) * 86400 } ?? Self.allCases.last!
     }
 }
 
@@ -437,7 +512,11 @@ public enum SearchEngine: String, Codable, CaseIterable, Identifiable {
 }
 
 public struct AppSettings: Codable, Equatable {
-    public var autoArchive: AutoArchiveThreshold = .twelveHours
+    public var autoArchive: AutoArchiveThreshold = .twelveHours {
+        didSet { autoArchiveDays = autoArchive.longerThanArc ? autoArchive.days : nil }
+    }
+    /// 90 or 180 when `autoArchive` is longer than Arc's 30 days, which settings.json then holds.
+    public private(set) var autoArchiveDays: Int?
     public var searchEngine: SearchEngine = .google
     public var newTabsAtTop: Bool = true
     /// Tabs ▸ "Show the New Tab button above tabs": the + New Tab row leads Today
@@ -469,7 +548,7 @@ public struct AppSettings: Codable, Equatable {
     /// Air Traffic Control's "Default": where links from other apps open when no route
     /// matches. Arc's "Links from other apps open in Little Arc" switch is this set to
     /// Little Arc (on) or the most recent space (off).
-    public var defaultLinkDestination: LinkDestination = .littleWindow
+    public var defaultLinkDestination: LinkDestination = .littleWindowInUse
     /// Air Traffic Control routes, checked in order (LinkRouting.swift). Starts with Arc's
     /// Google Meet route.
     public var linkRoutes: [LinkRoute] = [.googleMeet]
@@ -485,14 +564,19 @@ public struct AppSettings: Codable, Equatable {
     /// Arc's "Open Little Arc when I press ⌥⌘N" (globalLittleBrowserHotkeyEnabled, on by default):
     /// New Little Window's shortcut works from every app, full-screen ones too (GitHub #195).
     public var littleWindowShortcutEverywhere: Bool = true
-    /// GitHub #183, not in Arc (Chrome's way): a page's "Open Link in New Tab" leaves the page in
-    /// front and the new tab loading behind it (LinkMenu). Off like Arc, which switches to it.
-    public var openLinksInBackground: Bool = false
+    /// A page's "Open Link in New Tab" switches to the tab it opens (LinkMenu). Off as in Arc, whose
+    /// item leaves the page in front and the tab loading behind it (GitHub #276). A new key: #183's
+    /// openLinksInBackground was off (switch) in every settings.json that never turned it on.
+    public var openLinksInForeground: Bool = false
     /// Arc's Previews ▸ Folders (folderPreviewEnabled): resting the pointer on a closed folder
     /// lists its tabs, most recent first, with a search field.
     public var folderPreviews: Bool = true
-    /// Arc: "Enable Picture in Picture when you leave a video tab".
+    /// Arc: "Enable Picture in Picture when you leave a video tab". The default for every site
+    /// without a choice of its own in `autoPictureInPictureSites`.
     public var autoPictureInPicture: Bool = true
+    /// The Site Control Center's Automatic Picture-In-Picture switch, per site like Arc's (#326):
+    /// a site's own choice, which outlasts a change to `autoPictureInPicture`.
+    public var autoPictureInPictureSites: [String: Bool] = [:]
     /// Dia's onboarding privacy choice "Block third-party ads and trackers": requests
     /// to listed ad and tracker domains are cancelled unless they are first-party.
     public var blockAdsAndTrackers: Bool = true
@@ -529,6 +613,9 @@ public struct AppSettings: Codable, Equatable {
     public var littleWindowArchiveAfter: LittleWindowArchive = .sixHours
     /// Arc's Settings ▸ Advanced "When opening Arc, restore windows from previous session", on by default.
     public var restoreWindows: Bool = true
+    /// Settings ▸ Advanced "When opening Cra, start on a new tab" (X DM 7 Nov 2026, not in Arc): off,
+    /// Cra opens on the tab in use last, as Arc does (LaunchStart).
+    public var startOnNewTab: Bool = false
     /// Arc's Settings ▸ Advanced "Allow websites to get your theme data" (ArcThemeData), on by default.
     public var shareThemeWithWebsites: Bool = true
     /// Arc's Settings ▸ General "Block Cookie Banners" (CookieBanners), off by default as in Arc.
@@ -541,6 +628,9 @@ public struct AppSettings: Codable, Equatable {
     public var boostsEnabled: Bool = true
     /// Arc's Settings ▸ General ▸ Previews: hovering a Gmail favorite shows its unread mail.
     public var favoritePreviews: Bool = true
+    /// Cra's addition (PR #267, Dia-like): the open favorite's rim takes its logo's colours.
+    /// Off keeps Arc's neutral 2 pt rim.
+    public var favoriteLogoOutline: Bool = false
     /// Arc's Live Calendar on a Google Calendar favorite (the favorite's menu ▸ Live Calendar), on
     /// until "Disable Live Calendar".
     public var liveCalendar: Bool = true
@@ -553,6 +643,9 @@ public struct AppSettings: Codable, Equatable {
     /// Arc's searchSuggestEnabled: the command bar asks the search engine for suggestions
     /// as you type and fills its rows with them.
     public var searchSuggestions: Bool = true
+    /// GitHub #307, not in Arc: ⌘T searches and lists only the open tabs of the window's space
+    /// (`TabSearchScope.commandBarTabs`). Off is Arc's bar, which finds a tab in any space.
+    public var commandBarCurrentSpaceOnly: Bool = false
     /// Arc's showSpaceHeaderOnSingleUnnamedSpaces: with only one space, its header (and the
     /// dock's lone space icon) can be hidden, for people who don't use spaces.
     public var showSpaceHeaderOnSingleSpace: Bool = true
@@ -581,6 +674,15 @@ public struct AppSettings: Codable, Equatable {
     /// Arc's per-profile Download location (#190), by DownloadLocation.key(profileID:). A profile
     /// that isn't here saves to the Downloads folder without asking.
     public var downloadLocations: [String: DownloadLocation] = [:]
+    /// Settings ▸ Privacy ▸ "Share anonymous usage stats" and onboarding's Privacy step (Dia's
+    /// "Help improve Dia" row): a daily UsageStats report. Off unless the user turns it on.
+    public var shareUsageStats: Bool = false
+    /// Settings ▸ Privacy ▸ Crash reports: after a crash Cra asks before sending the report
+    /// (CrashReports.reduce), sends it without asking, or never.
+    public var crashReports: CrashReportChoice = .ask
+    /// The sidebar's "Help improve Cra" card was answered (Share, its ✕) or onboarding's Privacy
+    /// step was passed: the card doesn't come back (SharingPrompt).
+    public var askedToShare: Bool = false
 
     public func downloadLocation(profileID: UUID?) -> DownloadLocation {
         downloadLocations[DownloadLocation.key(profileID: profileID)] ?? DownloadLocation()
@@ -598,8 +700,11 @@ public struct AppSettings: Codable, Equatable {
     /// Arc's "Links from other apps open in Little Arc" (URLs handed over by other apps
     /// open in a small disposable window instead of a sidebar tab).
     public var openExternalLinksInLittleWindow: Bool {
-        get { defaultLinkDestination == .littleWindow }
-        set { defaultLinkDestination = newValue ? .littleWindow : .mostRecentSpace }
+        get { defaultLinkDestination.isLittleWindow }
+        set {
+            guard newValue != openExternalLinksInLittleWindow else { return }
+            defaultLinkDestination = newValue ? .littleWindowInUse : .mostRecentSpace
+        }
     }
     /// Hosts Arc puts in Developer Mode by itself, on any port: localhost, 127.0.0.1 and any
     /// *.localhost, not [::1] (Arc 1.172, checked live 8 Nov 2026).
@@ -624,6 +729,17 @@ public struct AppSettings: Codable, Equatable {
             developerHosts.remove(k)
             if on { disabledDefaultDeveloperHosts.insert(k) } else { disabledDefaultDeveloperHosts.remove(k) }
         } else if on { developerHosts.remove(k) } else { developerHosts.insert(k) }
+    }
+    /// Whether leaving a video tab on this page's site opens Picture in Picture.
+    public func allowsAutoPictureInPicture(url: String) -> Bool {
+        AppSettings.siteKey(for: url).flatMap { autoPictureInPictureSites[$0] } ?? autoPictureInPicture
+    }
+    /// The Site Control Center's switch: flips this site only. A site switched back to the setting
+    /// for every site follows that setting again.
+    public mutating func toggleAutoPictureInPicture(url: String) {
+        guard let k = AppSettings.siteKey(for: url) else { return }
+        let on = !allowsAutoPictureInPicture(url: url)
+        autoPictureInPictureSites[k] = on == autoPictureInPicture ? nil : on
     }
     /// Settings saved without `toolbarDefaultMigrated` take the toolbar from Arc's View ▸
     /// Show Toolbar (nil without Arc: off), once. Arc's preference is read only then.
@@ -663,6 +779,9 @@ public struct WindowPrefs: Codable, Equatable {
     /// Arc's topAppsEmptyStateDismissedForProfiles: favorites containers whose empty-state card
     /// ("Drag to add Favorites") was closed with its ×. It stays closed.
     public var favoritesEmptyStateDismissed: Set<UUID> = []
+    /// Arc's commandBarSearchSuggestionsPrivacyHasBeenExplicitlyDismissed: Dismiss on the command bar's
+    /// "We talk to your search engine…" banner. The (i) that opens it stays gone (SearchSuggestionsNotice).
+    public var searchSuggestionsNoticeDismissed: Bool = false
     /// Closed folders that keep tabs in sight (FolderPeek): folder → its peeked tabs.
     public var peekedFolders: [UUID: [UUID]] = [:]
     /// Open browser windows, restored at launch. Never empty.
@@ -727,8 +846,14 @@ extension AppSettings {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        autoArchive = try c.decodeIfPresent(AutoArchiveThreshold.self, forKey: .autoArchive) ?? .twelveHours
-        searchEngine = try c.decodeIfPresent(SearchEngine.self, forKey: .searchEngine) ?? .google
+        if let days = try? c.decodeIfPresent(Int.self, forKey: .autoArchiveDays) {
+            autoArchive = AutoArchiveThreshold(days: days)
+        } else {
+            autoArchive = (try? c.decodeIfPresent(AutoArchiveThreshold.self, forKey: .autoArchive)) ?? .twelveHours
+        }
+        // An initializer doesn't run didSet.
+        autoArchiveDays = autoArchive.longerThanArc ? autoArchive.days : nil
+        searchEngine = (try? c.decodeIfPresent(SearchEngine.self, forKey: .searchEngine)) ?? .google
         newTabsAtTop = try c.decodeIfPresent(Bool.self, forKey: .newTabsAtTop) ?? true
         if try c.decodeIfPresent(Bool.self, forKey: .newTabButtonDefaultMigrated) == true {
             newTabButtonAtTop = try c.decodeIfPresent(Bool.self, forKey: .newTabButtonAtTop) ?? true
@@ -745,6 +870,7 @@ extension AppSettings {
         disabledDefaultDeveloperHosts = try c.decodeIfPresent(Set<String>.self, forKey: .disabledDefaultDeveloperHosts) ?? []
         chromeEngine = try c.decodeIfPresent(Bool.self, forKey: .chromeEngine) ?? true
         autoPictureInPicture = try c.decodeIfPresent(Bool.self, forKey: .autoPictureInPicture) ?? true
+        autoPictureInPictureSites = (try? c.decodeIfPresent([String: Bool].self, forKey: .autoPictureInPictureSites)) ?? [:]
         blockAdsAndTrackers = try c.decodeIfPresent(Bool.self, forKey: .blockAdsAndTrackers) ?? true
         if let d = try? c.decodeIfPresent(LinkDestination.self, forKey: .defaultLinkDestination) {
             defaultLinkDestination = d
@@ -758,7 +884,7 @@ extension AppSettings {
         peekInEveryTab = try c.decodeIfPresent(Bool.self, forKey: .peekInEveryTab) ?? false
         peekOnShiftClick = try c.decodeIfPresent(Bool.self, forKey: .peekOnShiftClick) ?? true
         littleWindowShortcutEverywhere = try c.decodeIfPresent(Bool.self, forKey: .littleWindowShortcutEverywhere) ?? true
-        openLinksInBackground = try c.decodeIfPresent(Bool.self, forKey: .openLinksInBackground) ?? false
+        openLinksInForeground = try c.decodeIfPresent(Bool.self, forKey: .openLinksInForeground) ?? false
         folderPreviews = try c.decodeIfPresent(Bool.self, forKey: .folderPreviews) ?? true
         hapticFeedbackOnReorder = try c.decodeIfPresent(Bool.self, forKey: .hapticFeedbackOnReorder) ?? true
         warnBeforeQuitting = try c.decodeIfPresent(Bool.self, forKey: .warnBeforeQuitting) ?? false
@@ -775,17 +901,20 @@ extension AppSettings {
         mediaHidden = (try? c.decodeIfPresent([String].self, forKey: .mediaHidden)) ?? []
         littleWindowArchiveAfter = (try? c.decodeIfPresent(LittleWindowArchive.self, forKey: .littleWindowArchiveAfter)) ?? .sixHours
         restoreWindows = try c.decodeIfPresent(Bool.self, forKey: .restoreWindows) ?? true
+        startOnNewTab = try c.decodeIfPresent(Bool.self, forKey: .startOnNewTab) ?? false
         shareThemeWithWebsites = try c.decodeIfPresent(Bool.self, forKey: .shareThemeWithWebsites) ?? true
         blockCookieBanners = try c.decodeIfPresent(Bool.self, forKey: .blockCookieBanners) ?? false
         allowAppleEventsJavaScript = try c.decodeIfPresent(Bool.self, forKey: .allowAppleEventsJavaScript) ?? false
         pageTopWindowDrag = try c.decodeIfPresent(Bool.self, forKey: .pageTopWindowDrag) ?? true
         boostsEnabled = try c.decodeIfPresent(Bool.self, forKey: .boostsEnabled) ?? true
         favoritePreviews = try c.decodeIfPresent(Bool.self, forKey: .favoritePreviews) ?? true
+        favoriteLogoOutline = try c.decodeIfPresent(Bool.self, forKey: .favoriteLogoOutline) ?? false
         liveCalendar = try c.decodeIfPresent(Bool.self, forKey: .liveCalendar) ?? true
         calendarHoverPreview = try c.decodeIfPresent(Bool.self, forKey: .calendarHoverPreview) ?? true
         calendarTimeToNextMeeting = try c.decodeIfPresent(Bool.self, forKey: .calendarTimeToNextMeeting) ?? true
         calendarMeetingLink = (try? c.decodeIfPresent(CalendarPreview.LinkTiming.self, forKey: .calendarMeetingLink)) ?? .twoMinutes
         searchSuggestions = try c.decodeIfPresent(Bool.self, forKey: .searchSuggestions) ?? true
+        commandBarCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .commandBarCurrentSpaceOnly) ?? false
         showSpaceHeaderOnSingleSpace = try c.decodeIfPresent(Bool.self, forKey: .showSpaceHeaderOnSingleSpace) ?? true
         sharedFavorites = try c.decodeIfPresent(Bool.self, forKey: .sharedFavorites) ?? false
         edgeToEdgeContent = try c.decodeIfPresent(Bool.self, forKey: .edgeToEdgeContent) ?? false
@@ -795,6 +924,9 @@ extension AppSettings {
         tidyTabTitles = try c.decodeIfPresent(Bool.self, forKey: .tidyTabTitles) ?? false
         tidyDownloads = try c.decodeIfPresent(Bool.self, forKey: .tidyDownloads) ?? false
         downloadLocations = (try? c.decodeIfPresent([String: DownloadLocation].self, forKey: .downloadLocations)) ?? [:]
+        shareUsageStats = try c.decodeIfPresent(Bool.self, forKey: .shareUsageStats) ?? false
+        crashReports = (try? c.decodeIfPresent(CrashReportChoice.self, forKey: .crashReports)) ?? .ask
+        askedToShare = try c.decodeIfPresent(Bool.self, forKey: .askedToShare) ?? false
     }
 }
 
@@ -808,6 +940,7 @@ extension WindowPrefs {
         expandedFolders = try c.decodeIfPresent(Set<UUID>.self, forKey: .expandedFolders) ?? []
         collapsedPinnedSpaces = try c.decodeIfPresent(Set<UUID>.self, forKey: .collapsedPinnedSpaces) ?? []
         favoritesEmptyStateDismissed = try c.decodeIfPresent(Set<UUID>.self, forKey: .favoritesEmptyStateDismissed) ?? []
+        searchSuggestionsNoticeDismissed = try c.decodeIfPresent(Bool.self, forKey: .searchSuggestionsNoticeDismissed) ?? false
         peekedFolders = (try? c.decodeIfPresent([UUID: [UUID]].self, forKey: .peekedFolders)) ?? [:]
         if let saved = try? c.decodeIfPresent([WindowSession].self, forKey: .windows), !saved.isEmpty {
             windows = saved
@@ -848,6 +981,7 @@ extension Space {
         profileID = try c.decodeIfPresent(UUID.self, forKey: .profileID)
         symbol = try c.decodeIfPresent(String.self, forKey: .symbol)
         standaloneWindowID = try c.decodeIfPresent(UUID.self, forKey: .standaloneWindowID)
+        searchEngine = try c.decodeIfPresent(String.self, forKey: .searchEngine)
         // Edit Space… → Save in 0.1.31 and older wrote 🌱 beside a space's symbol, and the sidebar
         // drew both stacked (#205). The symbol was the space's icon, so the emoji beside it goes.
         if symbol?.isEmpty == false { emoji = "" }
@@ -863,6 +997,7 @@ extension TabData {
         muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? false
         timeLastActiveAt = try c.decodeIfPresent(Date.self, forKey: .timeLastActiveAt)
         activeTabBeforeCreationID = try c.decodeIfPresent(UUID.self, forKey: .activeTabBeforeCreationID)
+        referrerID = try c.decodeIfPresent(UUID.self, forKey: .referrerID)
         faviconKey = try c.decodeIfPresent(String.self, forKey: .faviconKey) ?? URL(string: url)?.host
         customIconKey = try c.decodeIfPresent(String.self, forKey: .customIconKey)
         tileColor = try c.decodeIfPresent(String.self, forKey: .tileColor)

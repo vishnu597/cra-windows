@@ -13,11 +13,28 @@ typedef NS_ENUM(NSInteger, CraDownloadState) {
     CraDownloadStateInterrupted = 3,
 };
 
+/// What a download's menu asks of it (GitHub #272).
+typedef NS_ENUM(NSInteger, CraDownloadControl) {
+    CraDownloadControlPause = 0,
+    CraDownloadControlResume = 1,
+    CraDownloadControlCancel = 2,
+};
+
 /// Where a page's context menu opens a link that isn't for a tab.
 typedef NS_ENUM(NSInteger, CraLinkWindow) {
     CraLinkWindowNew = 0,
     CraLinkWindowIncognito = 1,
     CraLinkWindowLittle = 2,
+};
+
+/// Chromium's own strings that Cra's page menus use (GitHub #276).
+typedef NS_ENUM(NSInteger, CraChromiumString) {
+    /// "Open Link in New &Tab"
+    CraChromiumStringOpenLinkInNewTab = 0,
+    /// Google Lens's "Search Image with $1"
+    CraChromiumStringSearchLensForImage = 1,
+    /// Chrome's own "&Search $1 for Image"
+    CraChromiumStringSearchWebForImage = 2,
 };
 
 @interface CraDownloadInfo : NSObject
@@ -29,6 +46,8 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 @property (nonatomic) int64_t totalBytes;
 @property (nonatomic) NSInteger percent;
 @property (nonatomic) CraDownloadState state;
+/// In progress but paused (Chromium's IsPaused); `state` stays in progress.
+@property (nonatomic) BOOL paused;
 @end
 
 /// The connection of the page on screen (Chromium's SSL status of the visible navigation entry).
@@ -90,6 +109,16 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 @optional
 /// The page's context menu: Open Link in New Window, Little Window or Incognito Window.
 - (void)browser:(CraBrowser *)browser requestsWindowWithURL:(NSString *)url kind:(CraLinkWindow)kind;
+/// The page's context menu: Open Link in Split View, a pane beside this page (#257). Without it
+/// the menu has no such item (a Little Window's page).
+- (void)browser:(CraBrowser *)browser requestsSplitPaneWithURL:(NSString *)url;
+/// Chromium wants to download `url` for this page. `clickModifiers` (AppKit's flags) and
+/// `clickAge` (seconds since) are the page's last click, or Return in it; `clickAge` is negative
+/// when there was none. Return YES when that was an Option-click on a link, which Chromium makes
+/// a download and Arc opens in Split View (#298): the download doesn't start, and the delegate
+/// opens the pane once Chromium's call has returned.
+- (BOOL)browser:(CraBrowser *)browser opensSplitForDownloadURL:(NSString *)url
+  clickModifiers:(NSUInteger)clickModifiers clickAge:(NSTimeInterval)clickAge;
 /// The page's context menu on an image: Capture Image… at `point` (page points from the top
 /// left). Without it the menu has no such item.
 - (void)browser:(CraBrowser *)browser requestsCaptureOfImageAt:(NSPoint)point;
@@ -108,6 +137,12 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 - (void)browser:(CraBrowser *)browser didFindMatches:(NSInteger)count activeMatch:(NSInteger)activeMatch;
 /// The page started or stopped using the camera or microphone.
 - (void)browser:(CraBrowser *)browser didChangeMediaCapture:(BOOL)capturing;
+/// Chromium dropped the page's permission request before Cra answered it (the page navigated or
+/// closed, or a newer request replaced it): its sheet should go, and its completion does nothing.
+- (void)browserWithdrewPermissionRequest:(CraBrowser *)browser;
+/// A page made with a saved history (-initWithFrame:…history:): `count` entries went in, or
+/// `error` says why none did and the page loaded its address instead.
+- (void)browser:(CraBrowser *)browser didRestoreHistoryEntries:(NSInteger)count error:(nullable NSString *)error;
 /// The page started or stopped playing sound (see `isAudible`).
 - (void)browser:(CraBrowser *)browser didChangeAudible:(BOOL)audible;
 /// The page's sound started or stopped as it happened, before the 2 s that `isAudible` and
@@ -122,6 +157,10 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 /// active: true; scripts/cef-patches/extension-tab-activate.patch), or with byPage the page
 /// did (window.focus(), or clients.focus() from a notification click; page-activate.patch).
 - (void)browserRequestsActivation:(CraBrowser *)browser byPage:(BOOL)byPage;
+/// The page's translate state changed, as JSON (CraCore's PageTranslation; GitHub #310,
+/// scripts/cef-patches/translate-ui.patch). Chromium shows no translate bubble of its own for
+/// Cra's pages: Cra draws Arc's button, popover and toasts from this.
+- (void)browser:(CraBrowser *)browser didChangeTranslateState:(NSString *)state;
 /// Arc's Peek: a link the user clicked (`shiftClick` NO: before it navigates the page or
 /// opens as a target=_blank tab) or Shift-clicked (YES, instead of a new window). Return
 /// YES to show it in a Peek; the page then stays where it is.
@@ -151,6 +190,11 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 /// NO from the start of a main-frame navigation until it commits (the server answered and the
 /// new page began to load), YES after.
 @property (nonatomic, readonly) BOOL hasCommittedLoad;
+/// The address the main frame is navigating to, redirects followed (OnBeforeBrowse); what a
+/// page still waiting for its answer is waiting for (GitHub #256). nil before the first.
+@property (nonatomic, readonly, copy, nullable) NSString *navigatingURL;
+/// Main-frame navigations started (not redirects): another one restarts a wait.
+@property (nonatomic, readonly) NSInteger navigationStarts;
 @property (nonatomic, readonly) BOOL canGoBack;
 @property (nonatomic, readonly) BOOL canGoForward;
 @property (nonatomic, readonly) BOOL isCreated;
@@ -162,6 +206,21 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 @property (nonatomic, strong, nullable) id userInfo;
 /// Runs in the shared off-the-record profile (+[CraCEFRuntime endIncognitoSession]).
 @property (nonatomic, readonly) BOOL isIncognito;
+/// Windowless agent page. Shares a normal profile, never creates an AppKit window.
+@property (nonatomic, readonly) BOOL isAgent;
+- (instancetype)initAgentWithURL:(NSString *)url profilePath:(nullable NSString *)profilePath NS_SWIFT_NAME(init(agentURL:profilePath:));
+/// Last native HTML drag payload from DevTools interception. Cleared by each MCP drag.
+@property (nonatomic, copy, nullable) NSString *interceptedDragData;
+/// DevTools protocol events of this browser's own session (method, params JSON), on the main
+/// thread. Set while an MCP client works in the page; nil otherwise, so nothing is encoded.
+@property (nonatomic, copy, nullable) void (^devToolsEventHandler)(NSString *method, NSString *params);
+/// While set, a context menu the page asks for is cancelled instead of shown: an MCP client's
+/// right-click reaches the page (contextmenu event) without a native menu over the user's screen.
+@property (nonatomic) BOOL suppressesContextMenu;
+/// Explicit download in an agent tab. Site-initiated downloads are blocked in agent tabs.
+- (BOOL)startAgentDownload:(NSString *)url path:(NSString *)path update:(void (^)(CraDownloadInfo *))update;
+- (void)cancelAgentDownload;
+@property (nonatomic, readonly) BOOL agentDownloadReady;
 /// The profile folder this page's cookies, logins and storage live in (a space's own
 /// profile, under the cache root), or nil for the Default profile.
 @property (nonatomic, readonly, copy, nullable) NSString *profilePath;
@@ -173,6 +232,19 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
                     incognito:(BOOL)incognito;
 - (instancetype)initWithFrame:(NSRect)frame url:(nullable NSString *)url delegate:(nullable id<CraBrowserDelegate>)delegate
                     incognito:(BOOL)incognito profilePath:(nullable NSString *)profilePath;
+/// An extension's side panel page (`url`). Chromium counts every page Cra hosts as a tab; this
+/// one is marked as a side panel (Cra.extensionSidePanel, scripts/cef-patches) before it loads,
+/// so that, as in Chrome, it has no tab: no `sender.tab` on its messages, `tabs.getCurrent()`
+/// gives undefined, and `runtime.getContexts()` lists it as SIDE_PANEL (GitHub #265).
+- (instancetype)initWithFrame:(NSRect)frame extensionSidePanelURL:(NSString *)url
+                     delegate:(nullable id<CraBrowserDelegate>)delegate profilePath:(nullable NSString *)profilePath;
+/// A page that opens with a saved back and forward list (GitHub #273): `history` is what
+/// Cra.getHistory returned ({"history": base64, "index": n}). The page is made without an
+/// address, the list goes in before anything loads, and the current entry loads; if the list
+/// can't go in (an older engine, a damaged file) `url` loads instead.
+- (instancetype)initWithFrame:(NSRect)frame url:(NSString *)url delegate:(nullable id<CraBrowserDelegate>)delegate
+                    incognito:(BOOL)incognito profilePath:(nullable NSString *)profilePath
+                      history:(nullable NSDictionary<NSString *, id> *)history;
 
 - (void)loadURL:(NSString *)url;
 - (void)goBack;
@@ -257,9 +329,15 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 /// DevTools) instead of embedded Alloy views. Set before any browser exists.
 + (void)setChromeHosting:(BOOL)enabled;
 + (BOOL)chromeHosting;
-/// The two "open link" items at the top of a page's context menu, in order: their titles and
-/// whether each opens its tab in the background. Exactly two; read when a menu opens.
-+ (void)setLinkMenuTitles:(NSArray<NSString *> *)titles opensInBackground:(NSArray<NSNumber *> *)background;
+/// The "Open Link in New Tab" item at the top of a page's context menu: its title and whether it
+/// opens its tab in the background. Read when a menu opens.
++ (void)setLinkMenuTitle:(NSString *)title opensInBackground:(BOOL)background;
+/// One of Chromium's strings in the language Chromium runs in, as its resource bundle has it
+/// (`$1` where a name goes, `&` before a mnemonic); nil before CEF is up.
++ (nullable NSString *)chromiumString:(CraChromiumString)string;
+/// Gets the Google Lens item's title when an image's menu opens (main thread) and gives the title
+/// of the image search item that replaces it, or nil to keep Chromium's item.
++ (void)setImageSearchTitle:(NSString *_Nullable (^)(NSString *lensTitle))block;
 /// Run in every frame of every page browser before the page's own scripts (and once in the
 /// document already loaded): `script` in the page's world, `isolatedScript` in the isolated
 /// world named `world` (invisible to the page). Set before browsers are created.
@@ -327,8 +405,16 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 + (BOOL)anotherInstanceWasNotified;
 /// Called in the running instance when another launch is handed over.
 + (void)setRelaunchHandler:(void (^)(NSArray<NSString *> *urls))handler;
-/// Pages Chromium opens on its own (an extension's chrome.tabs.create or
-/// windows.create, welcome pages after an extension loads). The handler gets
+/// An extension's chrome.tabs.create (scripts/cef-patches/extension-tabs-create.patch): the
+/// handler gets the URL, the Chromium profile folder the extension runs in, whether the tab
+/// opens behind, and the page Chromium offers it through (the extension's current window).
+/// It returns the popup host (a CraBrowser made with a nil url) of the tab it opened, whose
+/// page is then the tab Chromium made and the extension holds (GitHub #292), or nil to leave
+/// the page to Chrome's own window and so to the stray page handler.
++ (void)setExtensionTabHandler:(CraBrowser * _Nullable (^)(NSString *url, NSString * _Nullable profile, BOOL background,
+                                                          CraBrowser * _Nullable opener))handler;
+/// Pages Chromium opens on its own (an extension's chrome.tabs.create when the extension tab
+/// handler declines, windows.create, welcome pages after an extension loads). The handler gets
 /// the URL to open as a Cra tab and the Chromium profile folder it came from
 /// ("Default", "Profile <id>"; nil off the record); Chrome's own window for it is closed.
 /// Popup-type windows (windows.create({type: "popup"})) stay Chrome's windows.
@@ -344,6 +430,9 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 /// the user closed). Without a handler downloads go to ~/Downloads.
 + (void)setDownloadDestinationHandler:(void (^)(NSString * _Nullable profilePath, NSString *suggestedName,
                                                 void (^completion)(NSString * _Nullable path)))handler;
+/// Pauses, resumes or cancels a download still in progress, from its row's menu (GitHub #272); NO
+/// when Chromium has no download in progress by that id. Its next update reports the change.
++ (BOOL)controlDownload:(uint32_t)identifier action:(CraDownloadControl)action;
 /// Renderer trouble and failed loads, for Cra's performance recorder (GitHub #91): `kind` is
 /// terminated, unresponsive, responsive or loadError; `detail` how it ended or the net error
 /// code; `site` the host (nil for incognito, Cra's own pages or a closed tab). Never a URL.
@@ -370,6 +459,9 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 + (void)fetchURL:(NSString *)url headers:(nullable NSDictionary<NSString *, NSString *> *)headers
      profilePath:(nullable NSString *)profilePath
       completion:(void (^)(NSInteger status, NSString *finalURL, NSString *mimeType, NSString *body))completion;
++ (void)fetchPluginURL:(NSString *)url headers:(nullable NSDictionary<NSString *, NSString *> *)headers
+          profilePath:(nullable NSString *)profilePath
+           completion:(void (^)(NSInteger status, NSString *finalURL, NSString *mimeType, NSString *body))completion;
 /// Same, inside an attached target's session (Target.attachToTarget with flatten).
 + (void)sendBrowserDevToolsMethod:(NSString *)method params:(NSString *)params sessionID:(nullable NSString *)sessionID
                        completion:(void (^)(NSString * _Nullable result, NSString * _Nullable error))completion;
@@ -394,6 +486,9 @@ typedef NS_ENUM(NSInteger, CraLinkWindow) {
 /// NSApplication subclass CEF requires (CefAppProtocol). Set as
 /// NSPrincipalClass and created with +sharedApplication before anything else.
 @interface CraApplication : NSApplication
+/// How many requests to bring Cra to the front, made while it was in the background, went
+/// through (a background test copy counts them, then refuses them all).
+@property (class, readonly) NSInteger backgroundActivations;
 @end
 
 NS_ASSUME_NONNULL_END

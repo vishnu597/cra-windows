@@ -168,6 +168,21 @@ Ctrl+W closes it; Ctrl+O and Expand move the page into a tab; Add To Split joins
 (`SidebarStore.peekSplitTabs`); Ctrl+Shift+T brings back a Peek closed after the last archived
 tab. The card growing out of the link (#204) is still the Mac's alone.
 
+Links from other apps use CraCore's `ExternalLink` and `LinkRouting` decisions. Settings ▸ Tabs ▸
+Air Traffic Control edits the routes and Default immediately. A Little Window destination has
+a second space menu: its page uses that space's profile and its Open in action returns there.
+Deleted spaces fall back to the most recent space. Both apps read the menu choices and labels
+from `AirTrafficControl` in CraCore.
+
+Cra registers `cra://` for the current user on launch. Command-bar, dismiss and HTTP(S) open
+links work from other apps; actions and navigation require `CRA_SCRIPTING_URLS=1` when Cra
+starts. An already running Cra does not activate its browser window for a background tab open.
+New Profile and Share commands use the existing Windows profile dialog and system share UI.
+
+Upstream's JavaScript live-folder plugins, Agents server, settings sync, translation and opt-in
+sharing services do not yet have Windows shells. Portable models and validation build in
+CraCore; plugin execution and extraction remain explicit unsupported operations on Windows.
+
 [`Windows/PARITY.md`](../Windows/PARITY.md) lists every Mac feature, what Windows has of it and the
 CraCore code both apps share; `Windows/scripts/parity.py` keeps it in step with the Mac app and
 upstream (see "Keeping up with upstream").

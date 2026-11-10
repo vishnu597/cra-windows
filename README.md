@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/VictorKildahl/cra/releases/latest/download/Cra.dmg"><b>Download for macOS</b></a> ·
+  <a href="https://github.com/VictorKildahl/cra/releases/latest/download/Cra-Intel.dmg">Intel Mac</a> ·
   <a href="https://crabrowser.app">crabrowser.app</a> ·
   <a href="https://crabrowser.app/release-notes">What's new</a> ·
   <a href="https://crabrowser.app/help">Help</a>
@@ -18,7 +19,7 @@
 
 <p align="center">
   <a href="https://github.com/VictorKildahl/cra/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/VictorKildahl/cra?label=release"></a>
-  <img alt="macOS 14+, Apple silicon" src="https://img.shields.io/badge/macOS-14%2B%20·%20Apple%20silicon-lightgrey">
+  <img alt="macOS 14+, Apple silicon and Intel" src="https://img.shields.io/badge/macOS-14%2B%20·%20Apple%20silicon%20%26%20Intel-lightgrey">
   <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/github/license/VictorKildahl/cra"></a>
 </p>
 
@@ -42,7 +43,8 @@ Embedded Framework, so sites and Chrome extensions work as they do in Chrome.
 
 <p align="center">
   Open the DMG and drag Cra to Applications.<br>
-  It's signed and notarized by Apple, and keeps itself up to date. Needs Apple silicon.
+  It's signed and notarized by Apple, and keeps itself up to date.<br>
+  On an Intel Mac, download <a href="https://github.com/VictorKildahl/cra/releases/latest/download/Cra-Intel.dmg">Cra-Intel.dmg</a> instead.
 </p>
 
 ## Coming from Arc
@@ -120,8 +122,10 @@ Google Docs works. The [full list](https://crabrowser.app/shortcuts) is on the s
 
 ## Privacy and security
 
-Cra has no account and no server, and the app collects no analytics. Spaces, tabs and the
-archive are plain JSON in `~/Library/Application Support/Cra`. A built-in blocker stops
+Cra has no account, and it shares nothing about how you use it unless you turn that on:
+anonymous daily usage stats and crash reports, never the sites you visit
+([what they hold](docs/sharing.md)). Spaces, tabs and the archive are plain JSON in
+`~/Library/Application Support/Cra`. A built-in blocker stops
 requests to more than 22,000 ad and tracker domains.
 
 Pages run in Chromium's sandbox with site isolation, passwords and cookies are encrypted

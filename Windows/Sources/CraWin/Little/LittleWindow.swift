@@ -409,6 +409,8 @@ final class LittleWindow {
         case "resetZoom": page?.zoomLevel = 0
         case "copyURL": copyURL(markdown: false)
         case "copyURLMarkdown": copyURL(markdown: true)
+        case "share":
+            if hasPage { WinShell.share(url: currentURL, title: title, owner: window.hwnd) }
         case "viewSource": page?.viewSource()
         case "print": page?.printPage()
         case "devTools": page?.runDevTools(.toggle)

@@ -267,6 +267,8 @@ final class SettingsWindow {
         switch pane {
         case .general: return "\u{E713}"  // Settings
         case .tabs: return "\u{E8A9}"  // ViewAll
+        case .links: return "\u{E71B}"  // Link
+        case .plugins: return "\u{EA86}"  // Puzzle
         case .max: return "\u{E945}"  // LightningBolt (the Mac: Apple Intelligence)
         case .privacy: return "\u{E72E}"  // Lock
         case .profiles: return "\u{E77B}"  // Contact

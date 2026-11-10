@@ -170,7 +170,7 @@ final class AirTrafficControlSheet {
         label.width = 104
         label.verticalAlignment = .center
         defaultRow.children.append(label)
-        defaultRow.children.append(destinationButton(store.settings.defaultLinkDestination, name: "Default destination") { [store] destination in
+        defaultRow.children.append(destinationPicker(store.settings.defaultLinkDestination, name: "Default destination") { [store] destination in
             store.settings.defaultLinkDestination = destination
         })
     }
@@ -232,7 +232,7 @@ final class AirTrafficControlSheet {
         let openIn = label("Open in", glyph: "\u{E7A6}")  // Redo: an arrow turning right
         openIn.width = 70
         second.children.append(openIn)
-        second.children.append(destinationButton(route.destination, name: "Open in") { [weak self] destination in
+        second.children.append(destinationPicker(route.destination, name: "Open in") { [weak self] destination in
             self?.update(id) { $0.destination = destination }
         })
         row.children.append(second)
@@ -241,13 +241,33 @@ final class AirTrafficControlSheet {
         return row
     }
 
-    /// Arc's destination menu: "Open in Space" over Most Recent Space and every space, then
-    /// Little Window after a separator, the current one checked.
-    private func destinationButton(_ current: LinkDestination, name: String,
-                                   _ choose: @escaping @MainActor (LinkDestination) -> Void) -> Button {
+    /// A Little Window can keep a particular space's profile and "Open in" destination (#258).
+    /// CraCore supplies both menus and preserves that space when Little Window is reselected.
+    private func destinationPicker(_ current: LinkDestination, name: String,
+                                   _ choose: @escaping @MainActor (LinkDestination) -> Void) -> StackPanel {
         let spaces = store.orderedSpaces
-        let choices = AirTrafficControl.choices(spaces: spaces)
-        let shown = AirTrafficControl.shown(current, spaces: spaces)
+        let picker = StackPanel()
+        picker.orientation = .vertical
+        picker.spacing = 4
+        picker.children.append(destinationButton(name: name, heading: AirTrafficControl.openInSpaceTitle, choices: AirTrafficControl.choices(spaces: spaces),
+                                                shown: AirTrafficControl.shown(current, spaces: spaces)) { [weak self] destination in
+            choose(AirTrafficControl.selecting(destination, current: current))
+            self?.rebuild()
+        })
+        if current.isLittleWindow {
+            let shown = LinkDestination.littleWindow(space: AirTrafficControl.littleWindowSpace(current, spaces: spaces))
+            picker.children.append(destinationButton(name: "Little Window space", heading: AirTrafficControl.littleWindowInTitle, choices: AirTrafficControl.littleWindowChoices(spaces: spaces),
+                                                    shown: shown) { [weak self] destination in
+                choose(destination)
+                self?.rebuild()
+            })
+        }
+        return picker
+    }
+
+    /// Both apps read their menu labels, destinations and deleted-space fallbacks from CraCore.
+    private func destinationButton(name: String, heading: String, choices: [AirTrafficControl.Choice], shown: LinkDestination,
+                                   _ choose: @escaping @MainActor (LinkDestination) -> Void) -> Button {
 
         let title = UI.text(choices.first { $0.destination == shown }?.title ?? "", color: palette.text)
         title.verticalAlignment = .center
@@ -272,10 +292,10 @@ final class AirTrafficControlSheet {
 
         let menu = MenuFlyout()
         let checks = MenuChecks()
-        let heading = MenuFlyoutItem()
-        heading.text = "Open in Space"
-        heading.isEnabled = false
-        menu.items.append(heading)
+        let titleItem = MenuFlyoutItem()
+        titleItem.text = heading
+        titleItem.isEnabled = false
+        menu.items.append(titleItem)
         for choice in choices {
             if choice.afterSeparator { menu.items.append(MenuFlyoutSeparator()) }
             let item = ToggleMenuFlyoutItem()

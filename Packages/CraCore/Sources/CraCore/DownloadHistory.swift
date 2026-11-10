@@ -35,6 +35,8 @@ public final class DownloadHistory {
     }
 
     public private(set) var live: [Live] = []
+    /// When a download last finished, failed or was cancelled, for the Library button.
+    @ObservationIgnored public private(set) var lastEnded: Date?
 
     /// The hover list: newest downloads, oldest first: files still on disk, and running, failed
     /// or cancelled ones. A path shows once, with its newest download: Chromium reuses a name
@@ -56,14 +58,19 @@ public final class DownloadHistory {
 
     public var hasRunningDownloads: Bool { live.contains(where: \.running) }
 
+    /// The running downloads' combined progress, including paused downloads.
+    public var progress: Double? { DownloadList.progress(live) }
+
     /// Chromium's report on a download: running ones update their row, a finished one leaves for
     /// `add(path:)`, a failed or cancelled one stays listed for this session.
     public func report(id: UInt32, name: String, path: String, received: Int64, total: Int64, percent: Int,
-                       complete: Bool, cancelled: Bool, failed: Bool, now: Date = Date()) {
+                       complete: Bool, cancelled: Bool, failed: Bool, paused: Bool = false, now: Date = Date()) {
         if complete {
+            if live.contains(where: { $0.id == id }) { lastEnded = now }
             live.removeAll { $0.id == id }
             return
         }
+        if (failed || cancelled), live.first(where: { $0.id == id })?.running ?? true { lastEnded = now }
         var l = live.first { $0.id == id } ?? Live(id: id, name: name, path: path, started: now, received: received, total: total,
                                                     percent: percent, updated: now)
         if l.sampleAt == .distantPast {
@@ -80,7 +87,21 @@ public final class DownloadHistory {
         l.percent = percent
         l.failed = failed
         l.cancelled = cancelled
+        l.paused = paused && !failed && !cancelled
+        // A paused download restarts its speed measurement when it resumes.
+        if l.paused { (l.bytesPerSecond, l.sampleAt) = (nil, .distantPast) }
         if let i = live.firstIndex(where: { $0.id == id }) { live[i] = l } else { live.append(l) }
+    }
+
+    /// Hide from Cra removes the row while leaving the downloaded file in place.
+    public func hide(_ row: Listed) {
+        switch row {
+        case .finished(let entry):
+            entries.removeAll { $0.id == entry.id }
+            file?.save(entries)
+        case .live(let download):
+            live.removeAll { $0.id == download.id }
+        }
     }
 
     /// How a download Chromium went quiet about ended, read from the disk.
@@ -97,7 +118,7 @@ public final class DownloadHistory {
     public func settledStalled(among ids: Set<UInt32>, now: Date, fileSize: (String) -> Int64?,
                                partialExists: (String) -> Bool) -> [(live: Live, settled: Settled)] {
         live.compactMap { t in
-            guard t.running, ids.contains(t.id), !t.path.isEmpty, now.timeIntervalSince(t.updated) > 5,
+            guard t.running, !t.paused, ids.contains(t.id), !t.path.isEmpty, now.timeIntervalSince(t.updated) > 5,
                   !partialExists(t.path) else { return nil }
             guard let size = fileSize(t.path) else { return (t, .cancelled) }
             return t.total > 0 && size >= t.total ? (t, .complete(size: size)) : nil
@@ -106,7 +127,7 @@ public final class DownloadHistory {
 
     /// Whether any of `ids` is still running (the app's stall check keeps going while one is).
     public func isRunning(anyOf ids: Set<UInt32>) -> Bool {
-        live.contains { $0.running && ids.contains($0.id) }
+        live.contains { $0.running && !$0.paused && ids.contains($0.id) }
     }
 
     @discardableResult

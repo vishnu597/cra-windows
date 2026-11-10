@@ -14,7 +14,7 @@ extension SidebarStore {
             parent = p
             index = (self.item(p)?.children.firstIndex(of: source) ?? -1) + 1
         }
-        return createTab(url: url, in: space, select: !background, parent: parent, index: index, window: window)
+        return createTab(url: url, in: space, select: !background, parent: parent, index: index, window: window, referrer: source)
     }
 
     /// A split under `source` can take another pane (Arc stops at four).

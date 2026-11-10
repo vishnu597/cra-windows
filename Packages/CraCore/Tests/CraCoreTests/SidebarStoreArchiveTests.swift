@@ -285,5 +285,8 @@ struct SidebarStoreArchiveTests {
         #expect(GitHubLink.pullPath("/acme/app/pull/7")?.number == 7)
         #expect(GitHubLink.pullPath("https://github.com/acme/app/issues/7") == nil)
         #expect(GitHubLink.pullPath("https://github.com/acme/app/pull/99999999999999999999") == nil)
+        #expect(GitHubLink.isSamePullRequest("https://github.com/ACME/App/pull/7/files", as: "https://github.com/acme/app/pull/7"))
+        #expect(!GitHubLink.isSamePullRequest("https://evil.test/github.com/ACME/App/pull/7", as: "https://github.com/acme/app/pull/7"))
+        #expect(!GitHubLink.isSamePullRequest("https://github.com/acme/app/pull/8", as: "https://github.com/acme/app/pull/7"))
     }
 }

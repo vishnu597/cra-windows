@@ -32,12 +32,56 @@ struct LinkRoutingTests {
         var settings = AppSettings()
         settings.linkRoutes = [
             LinkRoute(match: .contains, text: "example.com", destination: .space(work)),
-            LinkRoute(match: .contains, text: "example.com/call", destination: .littleWindow),
+            LinkRoute(match: .contains, text: "example.com/call", destination: .littleWindowInUse),
             .googleMeet,
         ]
         #expect(settings.destination(forExternalURL: "https://example.com/call") == .space(work))
         #expect(settings.destination(forExternalURL: "https://meet.google.com/abc") == .mostRecentSpace)
-        #expect(settings.destination(forExternalURL: "https://other.test/") == .littleWindow, "no match: the default")
+        #expect(settings.destination(forExternalURL: "https://other.test/") == .littleWindowInUse, "no match: the default")
+    }
+
+    /// A Little Window route can name a space (#258): the route hands it on, the Little Window
+    /// switch leaves it alone while it stays on.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/258"))
+    func littleWindowRouteNamesItsSpace() {
+        let work = UUID()
+        var settings = AppSettings()
+        settings.linkRoutes = [LinkRoute(match: .contains, text: "work.example", destination: .littleWindow(space: work))]
+        settings.defaultLinkDestination = .littleWindow(space: work)
+        #expect(settings.destination(forExternalURL: "https://work.example/doc") == .littleWindow(space: work))
+        #expect(settings.destination(forExternalURL: "https://other.test/") == .littleWindow(space: work))
+        #expect(settings.openExternalLinksInLittleWindow)
+        settings.openExternalLinksInLittleWindow = true
+        #expect(settings.defaultLinkDestination == .littleWindow(space: work), "turning the switch on again keeps the space")
+        settings.openExternalLinksInLittleWindow = false
+        #expect(settings.defaultLinkDestination == .mostRecentSpace)
+    }
+
+    /// settings.json: a Little Window without a space is saved as before #258, so files don't change
+    /// on update, and one with a space still reads as a Little Window in Cra from before #258
+    /// instead of failing and taking every route with it.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/258"))
+    func littleWindowSpaceFormat() throws {
+        let work = try #require(UUID(uuidString: "A0000000-0000-0000-0000-000000000002"))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        func json(_ d: LinkDestination) throws -> String { String(decoding: try encoder.encode(d), as: UTF8.self) }
+        #expect(try json(.littleWindowInUse) == #"{"littleWindow":{}}"#)
+        #expect(try json(.littleWindow(space: work)) == #"{"littleWindow":{"space":"A0000000-0000-0000-0000-000000000002"}}"#)
+
+        let decoder = JSONDecoder()
+        #expect(try decoder.decode(LinkDestination.self, from: Data(#"{"littleWindow":{}}"#.utf8)) == .littleWindowInUse)
+        #expect(try decoder.decode(LinkDestination.self, from: encoder.encode(LinkDestination.littleWindow(space: work))) == .littleWindow(space: work))
+
+        let saved = try encoder.encode([LinkRoute(text: "a", destination: .littleWindow(space: work)), LinkRoute(text: "b", destination: .space(work))])
+        let older = try decoder.decode([RouteBefore258].self, from: saved)
+        #expect(older.map(\.destination) == [.littleWindow, .space(work)])
+    }
+
+    /// LinkRoute and LinkDestination as Cra 0.1.36 declared them.
+    private struct RouteBefore258: Decodable {
+        enum Destination: Decodable, Equatable { case mostRecentSpace, space(UUID), littleWindow }
+        var destination: Destination
     }
 
     @Test func styles() {
@@ -77,7 +121,7 @@ struct LinkRoutingTests {
         let work = space("Work", emoji: "💼"), plain = space("Plain", emoji: "")
         let choices = AirTrafficControl.choices(spaces: [work, plain])
         #expect(choices.map(\.title) == ["Most Recent Space", "💼 Work", "Plain", "Little Window"])
-        #expect(choices.map(\.destination) == [.mostRecentSpace, .space(work.id), .space(plain.id), .littleWindow])
+        #expect(choices.map(\.destination) == [.mostRecentSpace, .space(work.id), .space(plain.id), .littleWindowInUse])
         #expect(choices.map(\.afterSeparator) == [false, false, false, true])
     }
 
@@ -86,12 +130,31 @@ struct LinkRoutingTests {
         let work = space("Work", emoji: "💼")
         #expect(AirTrafficControl.shown(.space(work.id), spaces: [work]) == .space(work.id))
         #expect(AirTrafficControl.shown(.space(UUID()), spaces: [work]) == .mostRecentSpace)
-        #expect(AirTrafficControl.shown(.littleWindow, spaces: []) == .littleWindow)
+        #expect(AirTrafficControl.shown(.littleWindowInUse, spaces: []) == .littleWindowInUse)
     }
 
     @Test func routeSummary() {
         #expect(AirTrafficControl.summary(routes: 0) == "")
         #expect(AirTrafficControl.summary(routes: 1) == "1 route")
         #expect(AirTrafficControl.summary(routes: 3) == "3 routes")
+        #expect(AirTrafficControl.routesDetail(routes: 0) == "Send links from other apps to the space you choose, by what their address contains.")
+        #expect(AirTrafficControl.routesDetail(routes: 1).hasSuffix(" 1 route set."))
+        #expect(AirTrafficControl.routesDetail(routes: 3).hasSuffix(" 3 routes set."))
+    }
+
+    @Test func littleWindowHasASeparateSpaceSelection() {
+        let work = space("Work", emoji: "💼"), gone = UUID()
+        let named = LinkDestination.littleWindow(space: work.id)
+        let choices = AirTrafficControl.littleWindowChoices(spaces: [work])
+        #expect(choices.map(\.title) == ["Most Recent Space", "💼 Work"])
+        #expect(choices.map(\.destination) == [.littleWindowInUse, named])
+        #expect(choices.allSatisfy { !$0.afterSeparator })
+        #expect(AirTrafficControl.shown(named, spaces: [work]) == .littleWindowInUse)
+        #expect(AirTrafficControl.littleWindowSpace(named, spaces: [work]) == work.id)
+        #expect(AirTrafficControl.littleWindowSpace(.littleWindow(space: gone), spaces: [work]) == nil)
+        #expect(AirTrafficControl.littleWindowSpace(.space(work.id), spaces: [work]) == nil)
+        #expect(AirTrafficControl.selecting(.littleWindowInUse, current: named) == named)
+        #expect(AirTrafficControl.selecting(.space(work.id), current: named) == .space(work.id))
+        #expect(AirTrafficControl.selecting(.littleWindowInUse, current: .mostRecentSpace) == .littleWindowInUse)
     }
 }

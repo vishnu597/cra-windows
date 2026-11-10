@@ -675,6 +675,11 @@ final class BrowserWindow {
         case "closeLittleWindows": host?.closeLittleWindows()
         case "closeWindow": requestClose()
         case "changeProfile": if !isIncognito { showChangeProfile(forSpace: store.focusedSpaceID(window: windowID)) }
+        case "newProfile": if !isIncognito { showNewProfile(ticked: []) }
+        case "share":
+            if let tab = store.selectedTab(window: windowID), let url = tab.tab?.url, !url.isEmpty {
+                WinShell.share(url: url, title: tab.displayTitle, owner: hwnd)
+            }
         case "newTab": beginNewTab()
         case "editURL": openCommandBar(.editURL)
         case "reopenClosedTab": reopenClosedTab()
