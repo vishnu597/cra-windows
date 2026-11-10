@@ -36,6 +36,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The plugin archive fixtures create ZIPs, and the portable Unix extractor uses unzip.
+      - name: Install ZIP utilities
+        run: apt-get update && apt-get install -y --no-install-recommends zip unzip
+
       - name: Build and test CraCore
         run: swift test --package-path Packages/CraCore --enable-code-coverage
 
