@@ -71,6 +71,7 @@ public final class CraApp: SwiftApplication {
             observeGlobalShortcut(store: store, windows: windows)
             openLinksFromOtherApps(windows: windows)
             DefaultBrowser.updateRegistrationIfMoved()
+            DefaultBrowser.registerScheme()
         }
     }
 

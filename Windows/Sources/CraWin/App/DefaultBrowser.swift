@@ -47,6 +47,24 @@ enum DefaultBrowser {
         register()
     }
 
+    private static let scheme = #"Software\Classes\cra"#
+
+    /// Cra's own cra:// links (cra://commandbar, cra://open?url=…), which the Mac's Info.plist
+    /// claims: registered for this user on every launch that finds them missing or pointing at
+    /// another Cra.exe, as installing the Mac app does. A link runs `Cra.exe --single-argument
+    /// <link>`, like a web link; WindowList.openExternal decides which ones another app may use.
+    static func registerScheme() {
+        guard let exe = LaunchAtLogin.executablePath,
+              WinRegistry.string(scheme + #"\shell\open\command"#, "") != openCommand(exe) else { return }
+        let values: [(String, String, String)] = [
+            (scheme, "", "URL:Cra"),
+            (scheme, "URL Protocol", ""),
+            (scheme + #"\DefaultIcon"#, "", "\"\(exe)\",0"),
+            (scheme + #"\shell\open\command"#, "", openCommand(exe)),
+        ]
+        if !values.allSatisfy({ WinRegistry.setString($0.0, $0.1, $0.2) }) { print("Cra: cra:// links could not be registered") }
+    }
+
     @discardableResult
     private static func register() -> Bool {
         guard let exe = LaunchAtLogin.executablePath else { return false }

@@ -108,12 +108,13 @@ final class WindowList: BrowserWindowHost {
     }
 
     /// A Little Window on `url` ("" asks for an address; nil hosts `opener`'s window.open),
-    /// cascaded off the ones already open (AppDelegate.openLittleWindow on the Mac).
+    /// cascaded off the ones already open (AppDelegate.openLittleWindow on the Mac). `space`: the
+    /// space a cra://open named, which its "Open in" names.
     @discardableResult
-    func openLittleWindow(url: String?, opener: WebPage?, activate: Bool) -> LittleWindow? {
+    func openLittleWindow(url: String?, opener: WebPage?, activate: Bool, space: UUID? = nil) -> LittleWindow? {
         do {
             let w = try LittleWindow(store: store, url: url, opener: opener, index: littleWindows.count, scale: scaleUnderPointer(),
-                                     dispatcher: dispatcher, list: self)
+                                     dispatcher: dispatcher, list: self, space: space)
             littleWindows.append(w)
             if activate { w.activate() }
             return w
@@ -207,12 +208,16 @@ final class WindowList: BrowserWindowHost {
 
     /// A link another app opened Cra with (Cra as the default browser, an .html file from
     /// Explorer), where Air Traffic Control sends it (ExternalLink, AppDelegate.openExternalURL
-    /// on the Mac). Never in a private window, as in Chrome. Cra's own cra:// links aren't
-    /// handled on Windows yet.
+    /// on the Mac). Never in a private window, as in Chrome. Of Cra's own cra:// links, other apps
+    /// reach only ExternalLink.isUserFacing's, unless Cra started with CRA_SCRIPTING_URLS=1 (the
+    /// Mac's scriptingURLs default).
     func openExternal(_ url: String) {
-        switch ExternalLink.target(for: url, settings: store.settings, spaceExists: { [store] in store.space($0) != nil }) {
-        case .internalURL, .ignored:
-            print("Cra: \(url) from another app is not handled on Windows")
+        switch ExternalLink.target(for: url, settings: store.settings, allowsScripting: Self.allowsScripting,
+                                   spaceExists: { [store] in store.space($0) != nil }) {
+        case .internalURL:
+            if let link = CraLink(url) { openCraLink(link) }
+        case .ignored:
+            print("Cra: ignored \(url) from another app (CRA_SCRIPTING_URLS=1 allows it)")
         case .littleWindow:
             openLittleWindow(url: url, opener: nil, activate: true)
         case .space(let id):
@@ -225,6 +230,47 @@ final class WindowList: BrowserWindowHost {
             store.activeWindowID = target.windowID
             store.createTab(url: url, select: true, window: target.windowID)
             target.activate()
+        }
+    }
+
+    /// Scripting and tests: every cra:// link, from any app.
+    private static let allowsScripting = ProcessInfo.processInfo.environment["CRA_SCRIPTING_URLS"] == "1"
+
+    /// A cra:// link (AppDelegate.handleInternalURL on the Mac). Everything but a Little Window
+    /// brings the browser window used last forward and acts there (the link comes from another
+    /// app, which is in front, so there is no Cra window in use to keep).
+    func openCraLink(_ link: CraLink) {
+        switch link {
+        case .commandBar(let query, let editURL):
+            guard let target = lastNormalWindow() else { return }
+            target.activate()
+            target.openCommandBar(editURL ? .editURL : .newTab, query: query)
+        case .dismiss:
+            for w in windows { w.dismissTransientUI() }
+            lastNormalWindow()?.activate()
+        case .open(let url, let requested, let background, let little):
+            // Web pages only from other apps (ExternalLink.isUserFacing); a space that is gone or
+            // a private window's opens in the space in use, as on the Mac (#168).
+            let space = requested.flatMap { store.space($0) != nil && !store.isIncognito(space: $0) ? $0 : nil }
+            if little {
+                openLittleWindow(url: url, opener: nil, activate: true, space: space)
+                return
+            }
+            guard let target = space.flatMap(normalWindow(forSpace:)) ?? lastNormalWindow() else { return }
+            store.activeWindowID = target.windowID
+            // background=1: unread in the sidebar, the page in front staying.
+            store.createTab(url: url, in: space, select: !background, window: target.windowID)
+            target.activate()
+        case .action(let id):
+            guard let target = lastNormalWindow() else { return }
+            target.activate()
+            if !target.perform(id) { print("Cra: cra://action/\(id) is not performed on Windows yet") }
+        case .navigate(let url):
+            guard let target = lastNormalWindow() else { return }
+            target.activate()
+            target.loadInSelectedTab(url)
+        case .other(let host):
+            print("Cra: cra://\(host) is not handled on Windows")
         }
     }
 

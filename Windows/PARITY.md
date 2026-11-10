@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: f547bd8 -->
+<!-- upstream-reviewed: 9161e2d -->
 Upstream reviewed through **3e2757b** (VictorKildahl/cra main, 7 Nov 2026). Fork main has
 merged upstream through 3e2757b (#28).
 
@@ -25,7 +25,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Sidebar | 5 | 5 | 0 | 15 | 0 |
 | Command bar and shortcuts | 3 | 1 | 0 | 2 | 0 |
 | Split view | 1 | 1 | 0 | 1 | 0 |
-| Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
+| Little Windows, Peek and the Library | 3 | 3 | 0 | 4 | 0 |
 | Tabs and memory | 1 | 1 | 0 | 3 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
 | Profiles, privacy and site data | 3 | 1 | 0 | 8 | 0 |
@@ -34,8 +34,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Settings | 4 | 1 | 0 | 4 | 0 |
 | Import and onboarding | 0 | 0 | 0 | 5 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 3 |
-| System integration and release | 3 | 0 | 1 | 8 | 3 |
-| **All** | 30 | 19 | 1 | 71 | 9 |
+| System integration and release | 3 | 1 | 1 | 7 | 3 |
+| **All** | 31 | 19 | 1 | 70 | 9 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -121,7 +121,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Little Windows (`newLittleWindow`, `promoteLittleWindow`, `closeLittleWindows`), profile chip, ⌥⌘N from any app | ✅ [#23] | `LittleWindowController.swift`, `GlobalHotkey.swift` | `LittleWindowLayout`, `SpaceWindow`, `GlobalShortcut` | Windows: Ctrl+Alt+N (also from any app, RegisterHotKey, skipped where AltGr+N types a letter), Ctrl+O; the strip, Open in Space and its menu, the profile chip, the command bar, size and cascade, archive on close. The live page moves into the browser window (`cra_browser_set_parent`). Windows keeps its own title bar in the strip's navy. Left: Arc's searchable spaces popup (a menu here), the grow-from-the-pointer animation, "Don't ask again" on the profile change, Show Little Window "Open In" Menu (`littleWindowOpenInMenu`, upstream e8675b2), archiving Little Windows after 1, 6 or 12 hours (`LittleWindowArchive`, upstream d4e9705). |
 | Peek: card over the page with its own bar, Close, Expand, Add To Split | ✅ [#24] | `PeekChrome.swift`, `PeekDimPanel.swift`, `ChromiumChildFocus.swift`, `LittleWindowController.swift` | `PeekLayout`, `PeekBarColors`, `PeekTrigger`, `PeekVeil`, `PinnedNavigation`, `PeekTabs` (`openLinkTab`, `peekSplitTabs`, `joinSplit`) | Windows: the card is an owned HostWindow with the page-coloured bar (`Peek/PeekBarView.swift`); the veil, click catcher and round buttons are owned layered windows (`CraOverlay.cpp`, `Peek/PeekOverlays.swift`). Settings ▸ Tabs ▸ Links, Shift-click, Escape (from the page or the bar), Ctrl+O, Ctrl+Shift+T reopening it, the card keeping the keyboard while it is up (#26), links leaving it for a tab, the badge on the tab it came from. Left: the card growing out of the link and back (#204, `PeekTransition`); the veil only fades. Since #24 the Mac shrinks the page behind a Peek a little unless pages fill the window edge to edge (#221, `PeekVeil`, `PeekLayout.backdrop`) and keeps the browser window's shadow (#222, `ChromiumChildFocus.swift`); Windows' browser window already stays active under the card, and its page doesn't shrink yet. Since upstream 5e777bf and 3a85ee6 (#242) a Peek waits on its tab and comes back with it, and a click on another tab's row opens that tab while the Peek waits (`PeekPresence`); Windows closes the Peek instead. |
-| Air Traffic Control: route links from other apps to a space or Little Window | 🟡 [#29] | `AirTrafficControlView.swift`, `AppDelegate.swift` | `LinkRouting`, `ExternalLink` | Windows sends each link from another app where the routes and Settings ▸ Tabs ▸ "Links from other apps open in a Little Window" say (`WindowList.openExternal`, the same `ExternalLink.target` the Mac's `openExternalURL` asks). Left: the routes editor, so routes come only from a `settings.json` the Mac wrote. |
+| Air Traffic Control: route links from other apps to a space or Little Window | ✅ [#29] [#31] | `AirTrafficControlView.swift`, `AppDelegate.swift` | `LinkRouting`, `AirTrafficControl`, `ExternalLink` | Windows sends each link from another app where the routes and Settings ▸ Tabs ▸ "Links from other apps open in a Little Window" say (`WindowList.openExternal`, the same `ExternalLink.target` the Mac's `openExternalURL` asks). Since #31 Settings ▸ Tabs ▸ "Air Traffic Control…" opens Arc's sheet over the Settings window (`Settings/AirTrafficControlSheet.swift`): New Route, Is equal to or Contains, the URL, Remove, Open in (Arc's menu from `AirTrafficControl.choices`, a deleted space shown as Most Recent Space) and Default; the Mac's sheet reads the same words. Windows closes it with Escape, ✕ or a click beside the card. |
 | Library in the sidebar (`openLibrary`), swipe or button slides it in | 🟡 [#27] | `LibraryView.swift` | `LibraryPage`, `LibraryLayout`, `LibraryList`, `LibrarySwipe` | Windows (`Sidebar/LibraryView.swift`): the sidebar widens 70 DIPs for the rail (Downloads, Archived Tabs), the page's search and ⋯ menu, rows by day; Ctrl+Shift+L, the downloads button (Arc's Library button: hover lists downloads, a click opens the Library), Escape and the back arrow leave it, and it opens again on the page last shown. Left: the slide in and out, the two-finger swipe (`LibrarySwipe`), the Spaces page (Manage Spaces row), the Media and Easels pages (their rows), dragging a download out. Upstream since #27: Arc's Filter by profile (`LibraryFilter`, `LibraryFilterPanel.swift`), Library ▸ Downloads listing running downloads with their progress (#245, `DownloadList`; Windows' page lists finished files), archived-row buttons and theme accents (bf6648e). |
 | History and archive view (`viewArchive`), Archive ▸ View Archive… (`showArchive`) and Clear Archive (`clearArchive`) | 🟡 [#27] | `LibraryView.swift` | `SidebarStore`, `LibraryList` | Ctrl+H (Chrome's History key) opens the Library's Archived Tabs: search by title or address, a click restores the tab where it was closed from; Restore, Copy Link, Remove from Archive, and Clear Archive in the ⋯ menu. Upstream d110dc6 made View Archive… and Clear Archive commands of their own: not in Windows' command bar yet. |
 | Library ▸ Media (`viewMedia`): screenshots, pictures and videos from the folders shown, after Arc's opt-in card | ❌ | `LibraryMedia.swift`, `LibraryView.swift`, `MediaPreviewWindow.swift` | `MediaLibrary`, `LibraryPage` | Upstream 2294e13. Windows needs the folder scan (Pictures, Screenshots, Videos) and the grid. Since a8fde87, bf6648e and f547bd8: Arc's media preview (`MediaPreview`), grid and menu. |
@@ -191,7 +191,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Settings window, back and forward, panes listed by `SettingsPane.windowsPanes` | ✅ [#14] | `SettingsWindowController.swift`, `SettingsKit.swift` | `SettingsNavigation`, `SettingsMetrics` | Panes not on Windows yet: `max`, `privacy`, `extensions`, `performance`, `advanced`. |
 | General | 🟡 [#14] [#29] | `GeneralPane.swift`, `AppIconPicker.swift` | | Windows has the default browser and Open at login. Cra.exe and its windows carry the Mac app icon (#29). Missing: the app icon picker (a taskbar icon on Windows). |
-| Tabs | ✅ [#14] | `TabsPane.swift` | `SidebarModel` | New Tab placement, single-space header, tab cleanup, Peek, links from other apps (#29). Missing rows arrive with their features (Air Traffic Control…, sleeping, shared favorites, background tabs, Little Window archive time). |
+| Tabs | ✅ [#14] | `TabsPane.swift` | `SidebarModel` | New Tab placement, single-space header, tab cleanup, Peek, links from other apps (#29), Air Traffic Control… with its route count (#31). Missing rows arrive with their features (sleeping, shared favorites, background tabs, Little Window archive time). |
 | Shortcuts | ✅ [#15] | `ShortcutsPane.swift` | `KeyBindings` | |
 | Profiles | ✅ [#19] | `ProfilesPane.swift` | `SpaceProfiles` | |
 | Privacy | ❌ | `PrivacyPane.swift` | `SecureDNS` | With the blocker and HTTPS-only. |
@@ -223,10 +223,10 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
 | Open at login | ✅ [#14] | `SystemIntegration.swift` | | Windows: the Run key. |
-| Default browser (`setDefaultBrowser`), opening links from other apps | 🔜 [#29] | `SystemIntegration.swift`, `AppDelegate.swift` | `ExternalLink` | Windows (`App/DefaultBrowser.swift`): "Set Cra as Default" in Settings ▸ General and the command register Cra under HKEY_CURRENT_USER (`CraHTML` for http, https and HTML files, `StartMenuInternet\Cra`, RegisteredApplications) and open its page in Windows' Default apps, where the user picks it; Windows doesn't let an app make itself the default. A link runs `Cra.exe --single-argument <url>`; a second launch reaches the running Cra through Chromium's process singleton (`OnAlreadyRunningAppRelaunch`), and `ExternalLink.links` picks the links (an .html path becomes a file:// URL). Started again with no link, Cra brings its window forward. `cra://` links from other apps aren't handled on Windows yet. Left: Windows 11 (25H2) doesn't list Cra in Default apps yet, so the button lands on the general list (tried on the PC: run from a normal folder, Start menu shortcut, AUMID, Uninstall entry, icon and version info; next: sign-out, signing, the installer's own registration); Dock's counterpart (pin to taskbar). |
+| Default browser (`setDefaultBrowser`), opening links from other apps | 🔜 [#29] | `SystemIntegration.swift`, `AppDelegate.swift` | `ExternalLink` | Windows (`App/DefaultBrowser.swift`): "Set Cra as Default" in Settings ▸ General and the command register Cra under HKEY_CURRENT_USER (`CraHTML` for http, https and HTML files, `StartMenuInternet\Cra`, RegisteredApplications) and open its page in Windows' Default apps, where the user picks it; Windows doesn't let an app make itself the default. A link runs `Cra.exe --single-argument <url>`; a second launch reaches the running Cra through Chromium's process singleton (`OnAlreadyRunningAppRelaunch`), and `ExternalLink.links` picks the links (an .html path becomes a file:// URL). Started again with no link, Cra brings its window forward. `cra://` links from other apps: their own row. Left: Windows 11 (25H2) doesn't list Cra in Default apps yet, so the button lands on the general list (tried on the PC: run from a normal folder, Start menu shortcut, AUMID, Uninstall entry, icon and version info; next: sign-out, signing, the installer's own registration); Dock's counterpart (pin to taskbar). |
 | Another app's link (zoommtg:, slack:) in a new tab or window opens the app after asking, not a blank tab (#207) | ❌ | `AppLinkPrompt.swift`, `CraCEF.mm` | `AppLinks` | Upstream d1ad2af. Windows: CEF's external-protocol callback and a prompt in the page's place. |
 | Links Cra opens to crabrowser.app (release notes, help) name the button they came from | ❌ | `AppDelegate.swift`, `SoftwareUpdater.swift` | `SiteLinks` | Upstream 94c1fc3. Comes with Windows' help links and the updater. |
-| `cra://` scheme for scripting (`cra://open?space=`) | ❌ | `AppDelegate.swift`, `TestGesture.swift` | | |
+| `cra://` scheme for scripting (`cra://open?space=`) | 🟡 [#31] | `AppDelegate.swift`, `TestGesture.swift` | `CraLink`, `ExternalLink` | Windows registers `cra://` for the user on launch (HKCU `Software\Classes\cra`, `DefaultBrowser.registerScheme`), so a link runs `Cra.exe --single-argument <link>` and reaches the running Cra like a web link. `CraLink` reads it; `WindowList.openCraLink` does commandbar (query, mode=edit), dismiss, open (space, background, little), and with `CRA_SCRIPTING_URLS=1` (the Mac's `scriptingURLs` default) action and navigate; other apps reach only `ExternalLink.isUserFacing`'s. Left: key, import and debug (the Mac's test hooks, `TestGesture.swift`), and the Mac's `CRA_COMMAND_FILE`. The Mac's `handleInternalURL` still reads its links itself (moving it onto `CraLink` is in the list below). |
 | Auto-update (`checkForUpdates`), update banner | ❌ | `SoftwareUpdater.swift`, `UpdateBanner.swift`, `UpdaterWindow.swift` | | WinSparkle reads the same appcast. Phase 3. |
 | Signed installer | ❌ | | | Authenticode and MSIX or Inno Setup. Phase 3. |
 | Custom app icon | ❌ | `AppIconManager.swift` | | |
@@ -251,7 +251,9 @@ the next Windows PRs need:
 3. `GitHubLiveClient.swift`, `PageScript.swift`, `CraLog.swift`, `NativeMessagingHosts.swift`,
    `ExtensionProtocolReply.swift`, `SearchSuggestLoader.swift`: Foundation only today.
 4. `EmojiCatalog+Data.swift`: data with no imports, for the space icon picker.
-5. The bookmarks writer in `SidebarExport.swift` and the domain list behind `CraContentBlocker.h`
+5. `AppDelegate.handleInternalURL`'s reading of cra:// links: `CraLink` (#31) reads them the
+   same way; the Mac can switch over to it.
+6. The bookmarks writer in `SidebarExport.swift` and the domain list behind `CraContentBlocker.h`
    (a header both C++ bridges can include).
 
 Windows code that repeats Mac logic instead of calling CraCore is a bug to fix the same way.
@@ -344,3 +346,4 @@ The 40 commits the eighth sync merged (de695e2 to f547bd8):
 [#24]: https://github.com/vishnu597/cra-windows/pull/24
 [#27]: https://github.com/vishnu597/cra-windows/pull/27
 [#29]: https://github.com/vishnu597/cra-windows/pull/29
+[#31]: https://github.com/vishnu597/cra-windows/pull/31

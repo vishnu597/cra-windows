@@ -12,7 +12,7 @@ struct SettingsPaneContent {
 }
 
 /// The panes the Windows app has so far (SettingsPane.windowsPanes), with the Mac's wording.
-/// Rows wait for their feature (Tabs' Links group has no Air Traffic Control yet).
+/// Rows wait for their feature.
 @MainActor
 enum SettingsPanes {
     // MARK: General
@@ -114,7 +114,9 @@ enum SettingsPanes {
     // MARK: Tabs
 
     /// Dia's two-column form (TabsPane on the Mac): a label per group, checkboxes beside it.
-    static func tabs(store: SidebarStore, palette: SettingsPalette) -> SettingsPaneContent {
+    /// `airTrafficControl` opens the routes sheet from its button.
+    static func tabs(store: SidebarStore, palette: SettingsPalette,
+                     airTrafficControl: @escaping @MainActor (Button) -> Void) -> SettingsPaneContent {
         var syncs: [() -> Void] = []
         func checkbox(_ title: String, _ key: WritableKeyPath<AppSettings, Bool>) -> CheckBox {
             let box = CheckBox()
@@ -171,8 +173,28 @@ enum SettingsPanes {
         cleanup.children.append(duration)
         form.group("Tab Cleanup:", [cleanup])
         // Arc's Links pane: where links from other apps open, "Open Little Arc when I press ⌥⌘N"
-        // (#195), New Little Window's key from any app, and Peek's. Air Traffic Control's routes
-        // (the Mac's AirTrafficControlView) aren't editable on Windows yet; they still apply.
+        // (#195), New Little Window's key from any app, Peek's, and "Air Traffic Control…" with
+        // how many routes there are.
+        let routesRow = StackPanel()
+        routesRow.orientation = .horizontal
+        routesRow.spacing = 8
+        routesRow.margin = Thickness(left: 0, top: 6, right: 0, bottom: 2)
+        let routesButton = Button()
+        routesButton.content = UI.text("Air Traffic Control…", trimmed: false)
+        routesButton.click.addHandler { [weak routesButton] _, _ in
+            if let routesButton { airTrafficControl(routesButton) }
+        }
+        routesRow.children.append(routesButton)
+        let summary = UI.text(AirTrafficControl.summary(routes: store.settings.linkRoutes.count), size: 11, color: palette.secondaryText)
+        summary.verticalAlignment = .center
+        routesRow.children.append(summary)
+        // Also keeps the button's wrapper while the pane shows, for its handler's weak capture.
+        syncs.append { [routesButton] in
+            _ = routesButton
+            summary.text = AirTrafficControl.summary(routes: store.settings.linkRoutes.count)
+        }
+        let routesNote = UI.text(AirTrafficControl.settingsNote, size: 11, color: palette.secondaryText, trimmed: false)
+        routesNote.textWrapping = .wrap
         let littleKey = WinKeyBindings.shared.action("newLittleWindow")?.primary?.windowsDisplay ?? "Ctrl+Alt+N"
         let everyTab = checkbox("In every tab, not only Favorites and Pinned tabs", \.peekInEveryTab)
         everyTab.margin = Thickness(left: 20, top: 0, right: 0, bottom: 0)
@@ -184,6 +206,8 @@ enum SettingsPanes {
             checkbox("Open a Peek window when clicking on links to other sites", \.peekLinksToOtherSites),
             everyTab,
             checkbox("Open a Peek window when clicking on links with Shift held", \.peekOnShiftClick),
+            routesRow,
+            routesNote,
         ])
 
         return SettingsPaneContent(element: form.grid) { for sync in syncs { sync() } }

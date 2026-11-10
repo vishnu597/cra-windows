@@ -38,7 +38,7 @@ final class LittleWindow {
     private var title = ""
     /// The space "Open in" names.
     private var targetSpaceID: UUID
-    /// The space a link asked for (links from other apps, a later PR): "Open in" stays on it
+    /// The space a link asked for (cra://open?little=1&space=…, #168): "Open in" stays on it
     /// until the user switches spaces from this window's command bar.
     private var requestedSpaceID: UUID?
     /// The page's profile; nil is Default.
@@ -81,9 +81,11 @@ final class LittleWindow {
     /// `url` nil makes a popup host for `opener`'s window.open; "" an empty window that asks for an
     /// address. `index`: Little Windows already open, for the cascade. `scale`: the DIP scale to
     /// place it with (the window corrects it once it knows its monitor's). `peekOver`: a Peek over
-    /// that browser window, from its tab `fromTab`; `showPeek()` puts it on screen.
+    /// that browser window, from its tab `fromTab`; `showPeek()` puts it on screen. `space`: the
+    /// space a link named, which "Open in" then names.
     init(store: SidebarStore, url: String?, opener: WebPage?, index: Int, scale: Double,
-         dispatcher: WinAppSDK.DispatcherQueue, list: WindowList, peekOver parent: BrowserWindow? = nil, fromTab: UUID? = nil) throws {
+         dispatcher: WinAppSDK.DispatcherQueue, list: WindowList, peekOver parent: BrowserWindow? = nil, fromTab: UUID? = nil,
+         space: UUID? = nil) throws {
         self.store = store
         self.list = list
         self.dispatcher = dispatcher
@@ -92,7 +94,8 @@ final class LittleWindow {
         peekParent = parent
         peekSourceTab = parent == nil ? nil : fromTab
         // A Peek names the space of the window it covers.
-        targetSpaceID = parent.map { store.focusedSpaceID(window: $0.windowID) } ?? store.littleWindowTarget(requested: nil)
+        targetSpaceID = parent.map { store.focusedSpaceID(window: $0.windowID) } ?? store.littleWindowTarget(requested: space)
+        requestedSpaceID = parent == nil ? space : nil
         // The page's sign-ins (#172): a link or popup from a Little Window stays in its page's
         // profile (Chromium hosts a popup in its opener's); a Peek takes its tab's, so a shared
         // favorite peeks in its list's profile; otherwise the target space's.

@@ -13,7 +13,7 @@ struct AirTrafficControlView: View {
         @Bindable var store = store
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                Text("Air Traffic Control").font(.system(size: 13, weight: .bold))
+                Text(AirTrafficControl.title).font(.system(size: 13, weight: .bold))
                 Spacer(minLength: 8)
                 Button { addRoute() } label: { Text("New Route").frame(width: 94) }
                     .controlSize(.large)
@@ -62,7 +62,7 @@ struct AirTrafficControlView: View {
             }
             .overlay {
                 if store.settings.linkRoutes.isEmpty {
-                    Text("Add a route to open matching links from other apps in a chosen space.")
+                    Text(AirTrafficControl.emptyNote)
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 300)
@@ -88,7 +88,7 @@ struct AirTrafficControlView: View {
                 }
                 .labelsHidden()
                 .frame(width: 110)
-                TextField("URL", text: binding(id, \.text), prompt: Text("crabrowser.app"))
+                TextField("URL", text: binding(id, \.text), prompt: Text(AirTrafficControl.placeholder))
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedRoute, equals: id)
                     .frame(width: 210)
@@ -116,10 +116,7 @@ struct AirTrafficControlView: View {
         let spaces = store.orderedSpaces
         // A route to a deleted space opens in the most recent one; show it that way.
         let shown = Binding<LinkDestination>(
-            get: {
-                if case .space(let sid) = selection.wrappedValue, !spaces.contains(where: { $0.id == sid }) { return .mostRecentSpace }
-                return selection.wrappedValue
-            },
+            get: { AirTrafficControl.shown(selection.wrappedValue, spaces: spaces) },
             set: { selection.wrappedValue = $0 })
         return Picker("Open in", selection: shown) {
             Section("Open in Space") {
