@@ -25,13 +25,14 @@ enum KeyBindingsTests {
             expect(Array(ids[(folder + 1)...(folder + 2)]) == [github.id, jira.id], "right after New Folder, in the plugins' order")
         } else { expect(false, "New Folder is a built-in action") }
 
-        let chord = Shortcut("j", [.command, .option])
+        let commandOption: NSEvent.ModifierFlags = [.command, .option]
+        let chord = Shortcut("j", commandOption)
         registry.setShortcuts([chord], for: jira.id)
         expect(registry.action(jira.id)?.shortcuts == [chord], "a plugin command takes a shortcut")
 
         // keybindings.json written by another Mac (settings sync): the plugins' commands stay, with
         // the shortcuts that file gives them.
-        let synced = Shortcut("k", [.command, .option])
+        let synced = Shortcut("k", commandOption)
         let file = URL(fileURLWithPath: ProcessInfo.processInfo.environment["CRA_DATA_DIR"]!).appendingPathComponent("keybindings.json")
         try! JSONEncoder().encode([jira.id: [synced]]).write(to: file)
         registry.reloadOverrides()
@@ -58,7 +59,7 @@ enum KeyBindingsTests {
             (22, "^", "6"), (26, "&", "7"), (28, "*", "8"), (25, "(", "9"), (29, ")", "0"),
             (19, "\"", "2"), (21, "¤", "4"),
         ]
-        let cases = digits.map { ($0.0, $0.1, shifted, Optional($0.2)) } + [
+        let cases: [(UInt16, String, NSEvent.ModifierFlags, String?)] = digits.map { ($0.0, $0.1, shifted, Optional($0.2)) } + [
             (19, "2", .command, "2"), (0, "A", shifted, "a"),
             (33, "{", shifted, "["), (24, "+", shifted, "="),
             (48, "\u{19}", .shift, Shortcut.tab), (0, "a", [], nil),
