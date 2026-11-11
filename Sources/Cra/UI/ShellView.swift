@@ -19,7 +19,7 @@ final class ShellView: NSView {
     /// so NSVisualEffectView, and with it Arc's sidebar, swaps its capture for the desktop
     /// tint (CAChameleonLayer). We do the same (GitHub #83).
     private var desktopTintLayer: CALayer?
-    var windowFullscreen = false { didSet { if windowFullscreen != oldValue { refreshLift() } } }
+    var windowFullscreen = false { didSet { if windowFullscreen != oldValue { refreshLift(); needsLayout = true } } }
     /// AppKit's answer to whether the window draws its active look (MainWindowController.materialActiveNow).
     let activeAppearance = ActiveAppearanceProbe()
     private var loggedBackdrop: String?
@@ -123,6 +123,19 @@ final class ShellView: NSView {
     var contentFullscreen = false { didSet { needsLayout = true } }
     /// Settings ▸ "Pages fill the window edge to edge" (GitHub #24): no margin, square cards.
     var edgeToEdge = false { didSet { needsLayout = true } }
+    /// The card fills the window: edge to edge, or full screen with the sidebar hidden, as in Arc
+    /// (CraCore CardFill, #315), or a page in full screen.
+    var fillsWindow: Bool { contentFullscreen || fills(sidebarVisible: sidebarVisible) }
+    private func fills(sidebarVisible: Bool) -> Bool {
+        CardFill.fillsWindow(edgeToEdge: edgeToEdge, fullScreen: windowFullscreen, sidebarShown: sidebarVisible)
+    }
+    /// For `cra://debug?windowState`: how far the card sits from the window's left, bottom, right and
+    /// top edges, its corner radius and whether it fills the window, e.g. `0,0,0,0 r0 fills=1`.
+    var cardReadout: String {
+        let f = contentContainer.frame
+        return String(format: "%.0f,%.0f,%.0f,%.0f r%.0f fills=%d", f.minX, f.minY, bounds.maxX - f.maxX, bounds.maxY - f.maxY,
+                      cardCornerRadius, fillsWindow ? 1 : 0)
+    }
     /// Whether a lone page has a bar: the toolbar, or the developer bar on a Developer Mode site
     /// (AppSettings.showsBar(above:), #185).
     var showToolbar = true { didSet { needsLayout = true } }
@@ -591,11 +604,11 @@ final class ShellView: NSView {
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
         let p = convert(event.locationInWindow, from: nil)
-        guard !sidebarVisible, !contentFullscreen else { return }
-        if !floatingSidebar, FloatingSidebarGeometry.shouldReveal(at: p, in: bounds, edgeToEdge: edgeToEdge) {
+        guard FloatingSidebarGeometry.mayReveal(sidebarShown: sidebarVisible, pageFullscreen: contentFullscreen) else { return }
+        if !floatingSidebar, FloatingSidebarGeometry.shouldReveal(at: p, in: bounds, edgeToEdge: fillsWindow) {
             onEdgeHover?(true)
         } else if floatingSidebar, FloatingSidebarGeometry.shouldHide(at: p, in: bounds, sidebarWidth: sidebarWidth,
-                                                                     pressedMouseButtons: NSEvent.pressedMouseButtons, edgeToEdge: edgeToEdge) {
+                                                                     pressedMouseButtons: NSEvent.pressedMouseButtons, edgeToEdge: fillsWindow) {
             onEdgeHover?(false)
         }
     }
@@ -628,9 +641,10 @@ final class ShellView: NSView {
                           handle: .zero, content: b, cornerRadius: 0, sidebarCorner: 0)
         }
         // Edge to edge the card fills what the sidebar leaves, square; the window's own
-        // corners round it where they meet.
-        let inset = edgeToEdge ? 0 : CraMetrics.contentInset
-        let radius = edgeToEdge ? 0 : CraMetrics.contentCornerRadius
+        // corners round it where they meet. Full screen with the sidebar hidden too (Arc, #315).
+        let fill = fills(sidebarVisible: sidebarVisible)
+        let inset = fill ? 0 : CraMetrics.contentInset
+        let radius = fill ? 0 : CraMetrics.contentCornerRadius
         if sidebarVisible {
             let content = NSRect(x: width, y: inset, width: max(0, b.width - width - inset), height: max(0, b.height - 2 * inset))
             return Frames(sidebar: NSRect(x: 0, y: 0, width: width, height: b.height),
@@ -670,8 +684,10 @@ final class ShellView: NSView {
 
     func apply(_ f: Frames) {
         if !sidebarDetached { sidebarHost.frame = f.sidebar }
-        resizeHandle.frame = f.handle
-        resizeHandle.isHidden = f.handle.isEmpty || !sidebarResizable
+        if !resizeHandle.dragging {
+            resizeHandle.frame = f.handle
+            resizeHandle.isHidden = f.handle.isEmpty || !sidebarResizable
+        }
         contentContainer.frame = f.content
         placeLoadingIndicator(over: f.content)
         cardCornerRadius = f.cornerRadius
@@ -715,10 +731,10 @@ final class ShellView: NSView {
         for c in paneCards {
             c.showToolbar = toolbarVisible
             // Arc's cards cast a soft shadow on the window; edge to edge there is no margin for it.
-            c.castsShadow = !edgeToEdge && !contentFullscreen
+            c.castsShadow = !fillsWindow && !contentFullscreen
             // Several panes: every card is rounded; a single card follows the window state (square in fullscreen).
             // Edge to edge every card is square.
-            c.cornerRadius = paneCards.count > 1 && !edgeToEdge ? CraMetrics.contentCornerRadius : cardCornerRadius
+            c.cornerRadius = paneCards.count > 1 && !fillsWindow ? CraMetrics.contentCornerRadius : cardCornerRadius
             if !animatingPanes, let f = layout.frames[c.tabID] {
                 if animated { c.animator().frame = f } else if c.frame != f { c.frame = f }
             }
@@ -749,7 +765,7 @@ final class ShellView: NSView {
         if let focus, showDev {
             for v in [devToolsHost, devToolsDivider, devToolsHandle] where v.superview !== focus { v.removeFromSuperview(); focus.addSubview(v) }
             focus.webArea.frame = NSRect(x: 0, y: 0, width: fb.width - devW, height: bodyH)
-            EmbeddedPages.place(focus.webArea.subviews, in: focus.frozenWebBounds ?? focus.webArea.bounds)
+            EmbeddedPages.place(focus.webArea.subviews, in: focus.pageBounds)
         }
         // A frontend-docked DevTools paints its own split; the shell's dock chrome stays hidden.
         devToolsHost.isHidden = !showDev || selfDock
@@ -790,8 +806,8 @@ final class ShellView: NSView {
         let gap = SplitPaneLayout.Constants.gap
         let f = NSRect(x: cb.maxX - w, y: cb.minY, width: w, height: cb.height)
         if sidePanel.frame != f { sidePanel.frame = f }
-        sidePanel.cornerRadius = edgeToEdge ? 0 : CraMetrics.contentCornerRadius
-        sidePanel.castsShadow = !edgeToEdge
+        sidePanel.cornerRadius = fillsWindow ? 0 : CraMetrics.contentCornerRadius
+        sidePanel.castsShadow = !fillsWindow
         sidePanel.layoutSubtreeIfNeeded()
         // The handle covers the gap and reaches a little into the cards on both sides.
         sidePanelHandle.frame = NSRect(x: f.minX - gap - 3, y: cb.minY, width: gap + 6, height: cb.height)
@@ -838,44 +854,120 @@ final class ShellView: NSView {
             var w = f.width
             if c.tabID == focusedPaneID, devToolsVisible, !devToolsFrontendDocked, f.width > 640 { w -= min(max(320, devToolsWidth), f.width * 0.7) }
             let toolbarH: CGFloat = barsShown(panes: paneCards.count, fullscreen: fullscreen) ? c.toolbarHeight : 0
-            c.frozenWebBounds = NSRect(x: 0, y: 0, width: w, height: max(0, f.height - toolbarH))
-            webTargets[c.tabID] = convert(NSRect(x: target.content.minX + f.minX, y: target.content.minY + f.minY, width: w, height: max(0, f.height - toolbarH)), to: nil)
+            let page = convert(NSRect(x: target.content.minX + f.minX, y: target.content.minY + f.minY, width: w, height: max(0, f.height - toolbarH)), to: nil)
+            webTargets[c.tabID] = page
+            c.frozenWebBounds = NSRect(x: 0, y: 0, width: w, height: page.height)
+            c.frozenPageInWindow = page
         }
+        cardCornerRadius = target.cornerRadius
+        if paneCards.count == 1, let c = paneCards.first { c.cornerRadius = target.cornerRadius }
         layoutContentChildren()
+        startSlideReadout()
         animatingFrames = true
         // Arc 1.172.1's ⌘S at 60 fps (CraCore SidebarMotion): about 43 / 72 / 89 / 97 % of the travel
         // after frames 1–4.
         let c = SidebarMotion.curve
         let timing = CAMediaTimingFunction(controlPoints: Float(c.0), Float(c.1), Float(c.2), Float(c.3))
         onAnimatePaneFrames?(webTargets, duration, timing)
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = duration
-            ctx.timingFunction = timing
-            ctx.allowsImplicitAnimation = true
-            if !sidebarDetached { sidebarHost.animator().frame = target.sidebar }
-            contentContainer.animator().frame = target.content
-            loadingIndicator.animator().frame = loadingIndicatorFrame(over: target.content)
-            cardCornerRadius = target.cornerRadius
-            if paneCards.count == 1, let c = paneCards.first { c.cornerRadius = target.cornerRadius }
-        } completionHandler: { [weak self] in
-            guard let self else { return }
-            self.animatingFrames = false
-            for c in self.paneCards { c.frozenWebBounds = nil }
-            self.sidebarVisible = visible
-            self.floatingSidebar = floating
-            self.contentFullscreen = fullscreen
-            self.needsLayout = true
-            self.layoutSubtreeIfNeeded()
+        // Real frames each display frame: a layer animation left the toolbar and page at their final size.
+        sidebarSlide = SidebarSlide(fromSidebar: sidebarHost.frame, toSidebar: target.sidebar, fromContent: contentContainer.frame,
+                                    toContent: target.content, start: CACurrentMediaTime(), duration: duration,
+                                    visible: visible, floating: floating, fullscreen: fullscreen)
+        guard duration > 0, window != nil else { return finishSidebarSlide() }
+        if sidebarSlideLink == nil {
+            let link = displayLink(target: self, selector: #selector(stepSidebarSlide))
+            link.add(to: .main, forMode: .common)
+            sidebarSlideLink = link
         }
+        // A display link stops when the window leaves the screen; the slide still ends.
+        let id = sidebarSlide!.start
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.25) { [weak self] in
+            if self?.sidebarSlide?.start == id { self?.finishSidebarSlide() }
+        }
+    }
+
+    private struct SidebarSlide {
+        let fromSidebar: NSRect, toSidebar: NSRect, fromContent: NSRect, toContent: NSRect
+        let start: CFTimeInterval, duration: TimeInterval
+        let visible: Bool, floating: Bool, fullscreen: Bool
+    }
+
+    private var sidebarSlide: SidebarSlide?
+    private var sidebarSlideLink: CADisplayLink?
+
+    @objc private func stepSidebarSlide(_ link: CADisplayLink) {
+        guard let s = sidebarSlide else { return finishSidebarSlide() }
+        let t = link.targetTimestamp - s.start
+        guard t < s.duration else { return finishSidebarSlide() }
+        let p = SidebarMotion.progress(at: t, duration: s.duration)
+        let content = SidebarSlidePage.frame(from: s.fromContent, to: s.toContent, progress: p)
+        if !sidebarDetached { sidebarHost.frame = SidebarSlidePage.frame(from: s.fromSidebar, to: s.toSidebar, progress: p) }
+        contentContainer.frame = content
+        loadingIndicator.frame = loadingIndicatorFrame(over: content)
+        layoutContentChildren()
+    }
+
+    private func finishSidebarSlide() {
+        sidebarSlideLink?.invalidate()
+        sidebarSlideLink = nil
+        guard let s = sidebarSlide else { return }
+        sidebarSlide = nil
+        animatingFrames = false
+        for c in paneCards { c.frozenWebBounds = nil }
+        sidebarVisible = s.visible
+        floatingSidebar = s.floating
+        contentFullscreen = s.fullscreen
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        endSlideReadout()
+    }
+
+    /// Logged as "sidebar slide: page moved N pt" for the sidebar-slide scenario.
+    private var slidingPage: SidebarSlidePage?
+    private var slideSampler: Timer?
+
+    private func startSlideReadout() {
+        slideSampler?.invalidate()
+        slidingPage = SidebarSlidePage()
+        let timer = Timer(timeInterval: 1.0 / 240, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sampleSlidingPage() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        slideSampler = timer
+    }
+
+    private func sampleSlidingPage() {
+        guard let layer = focusedCard?.webArea.subviews.first?.layer else { return }
+        let drawn = layer.presentation() ?? layer
+        slidingPage?.record(drawn.convert(drawn.bounds, to: nil), drawn: drawn.frame == layer.frame)
+    }
+
+    private func endSlideReadout() {
+        sampleSlidingPage()
+        slideSampler?.invalidate()
+        slideSampler = nil
+        if let slide = slidingPage, !slide.isEmpty { CraLog.note("sidebar slide: page moved \(Int(slide.drift.rounded())) pt over \(slide.samples) frames") }
+        slidingPage = nil
     }
 }
 
 /// Thin vertical strip between sidebar and content that drags the width.
 final class ResizeHandleView: NSView {
     var onDrag: ((CGFloat) -> Void)?
+    /// A press on the strip; `onResize` then gets the whole drag.
+    var onBegin: (() -> Void)?
+    /// Points from where the press began (+ wider) and the pointer's speed in points a second;
+    /// called instead of `onDrag` when set (the sidebar, #287: Arc keeps the edge under the
+    /// pointer, snaps at slow speeds and hides the sidebar when dragged far enough).
+    var onResize: ((_ translation: CGFloat, _ speed: CGFloat) -> Void)?
     var onEnd: (() -> Void)?
     private var lastX: CGFloat = 0
-    private var dragging = false
+    private var startX: CGFloat = 0
+    private var lastTime: TimeInterval = 0
+    private var speed: CGFloat = 0
+    /// A press on the strip is in progress. The shell keeps the strip in place meanwhile, even
+    /// when the drag hides the sidebar: a hidden view gets no more of the drag (#287).
+    private(set) var dragging = false
     private var tracking: NSTrackingArea?
 
     /// The window is movable by its background; this strip must own its drags.
@@ -897,16 +989,28 @@ final class ResizeHandleView: NSView {
     override func mouseEntered(with event: NSEvent) { NSCursor.resizeLeftRight.set() }
     override func mouseExited(with event: NSEvent) { if !dragging { NSCursor.arrow.set() } }
 
-    override func mouseDown(with event: NSEvent) { lastX = event.locationInWindow.x; dragging = true }
+    override func mouseDown(with event: NSEvent) {
+        lastX = event.locationInWindow.x
+        startX = lastX
+        lastTime = event.timestamp
+        speed = 0
+        dragging = true
+        onBegin?()
+    }
     override func mouseDragged(with event: NSEvent) {
         let x = event.locationInWindow.x
-        onDrag?(x - lastX)
+        let dt = event.timestamp - lastTime
+        // Smoothed like a pan recognizer's velocity, so one quick event doesn't read as a fling.
+        if dt > 0 { speed = speed * 0.5 + (x - lastX) / CGFloat(dt) * 0.5 }
+        if let onResize { onResize(x - startX, speed) } else { onDrag?(x - lastX) }
         lastX = x
+        lastTime = event.timestamp
         NSCursor.resizeLeftRight.set()
     }
     override func mouseUp(with event: NSEvent) {
         dragging = false
         onEnd?()
+        superview?.needsLayout = true
         if !bounds.contains(convert(event.locationInWindow, from: nil)) { NSCursor.arrow.set() }
     }
 }

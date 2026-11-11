@@ -22,13 +22,21 @@ if [ "${1:-}" != core ]; then
   suite "Extension popup candidate" scripts/test-extension-popup-candidate.sh
   suite "Extension popup window" scripts/test-extension-popup-window.sh
   suite "Peek dismiss panel" scripts/test-peek-dim-panel.sh
+  suite "Capture overlay" scripts/test-capture-overlay.sh
   suite "Dialogs" scripts/test-dialogs.sh
+  suite "Sidebar creation menu" scripts/test-sidebar-creation-menu.sh
+  suite "Easel canvas" scripts/test-easel-canvas.sh
   suite "Extension state" scripts/test-extension-state.sh
   suite "Extension store migration" scripts/test-extension-store-migration.sh
   suite "Store and importers" scripts/test-store.sh
   suite "Policies" scripts/test-policies.sh
   suite "Folder glyph" scripts/test-folder-glyph.sh
+  suite "Music notes pixels" scripts/test-music-notes.sh
+  suite "Live folder plugins" scripts/test-live-folder-plugins.sh
+  suite "Key bindings" scripts/test-key-bindings.sh
   suite "Perf recorder" scripts/test-perf.sh
+  suite "MCP transport" scripts/test-mcp-transport.sh
+  suite "CEF download" python3 Tests/test_cef_download.py
   suite "Lint" scripts/lint.py
 fi
 

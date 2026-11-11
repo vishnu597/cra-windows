@@ -23,14 +23,14 @@ struct ExternalLinkTests {
     @Test func routesPickLittleWindowOrSpace() {
         var settings = AppSettings()
         let work = UUID(), gone = UUID()
-        settings.defaultLinkDestination = .littleWindow
+        settings.defaultLinkDestination = .littleWindowInUse
         settings.linkRoutes = [
             LinkRoute(match: .contains, text: "github.com", destination: .space(work)),
             LinkRoute(match: .contains, text: "old.example", destination: .space(gone)),
             .googleMeet,
         ]
         let exists: (UUID) -> Bool = { $0 == work }
-        #expect(ExternalLink.target(for: "https://example.com", settings: settings, spaceExists: exists) == .littleWindow)
+        #expect(ExternalLink.target(for: "https://example.com", settings: settings, spaceExists: exists) == .littleWindow(space: nil))
         #expect(ExternalLink.target(for: "https://github.com/vishnu597", settings: settings, spaceExists: exists) == .space(work))
         // A route to a deleted space opens in the most recent one.
         #expect(ExternalLink.target(for: "https://old.example/x", settings: settings, spaceExists: exists) == .mostRecentSpace)
@@ -48,5 +48,18 @@ struct ExternalLinkTests {
         #expect(target("cra://open?url=file%3A%2F%2F%2Fetc%2Fpasswd", false) == .ignored)
         #expect(target("CRA://open?space=Work", false) == .ignored)
         #expect(target("cra://open?space=Work", true) == .internalURL)
+    }
+
+    @Test func littleWindowRoutesKeepOnlyExistingNamedSpaces() {
+        var settings = AppSettings()
+        let work = UUID(), gone = UUID()
+        settings.linkRoutes = []
+        settings.defaultLinkDestination = .littleWindow(space: work)
+        let exists: (UUID) -> Bool = { $0 == work }
+        #expect(ExternalLink.target(for: "https://example.com", settings: settings, spaceExists: exists) == .littleWindow(space: work))
+        settings.defaultLinkDestination = .littleWindow(space: gone)
+        #expect(ExternalLink.target(for: "https://example.com", settings: settings, spaceExists: exists) == .littleWindow(space: nil))
+        settings.defaultLinkDestination = .littleWindowInUse
+        #expect(ExternalLink.target(for: "https://example.com", settings: settings, spaceExists: exists) == .littleWindow(space: nil))
     }
 }

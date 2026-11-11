@@ -38,9 +38,13 @@ final class PictureInPictureChrome {
     static let cornerRadius: CGFloat = 6
     static let edgeMargin = PictureInPictureLayout.edgeMargin
     private static let frameKey = "CraPictureInPictureFrame"
+    /// The display the frame was left on and that display's frame then (#316).
+    private static let displayKey = "CraPictureInPictureDisplay"
+    private static let displayFrameKey = "CraPictureInPictureDisplayFrame"
 
     private var overlays: [ObjectIdentifier: PictureInPictureOverlay] = [:]
-    private var observers: [NSObjectProtocol] = []
+    private var observers: [ObjectIdentifier: [NSObjectProtocol]] = [:]
+    private var appObservers: [NSObjectProtocol] = []
 
     private init() {}
 
@@ -64,16 +68,122 @@ final class PictureInPictureChrome {
         overlay.controls.address = address
         window.addChildWindow(overlay, ordered: .above)
         overlay.orderFront(nil)
-        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.prune() }
-        })
-        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak overlay, weak window] _ in
-            Task { @MainActor in
-                guard let overlay, let window else { return }
-                overlay.setFrame(window.frame, display: false)
-                PictureInPictureChrome.shared.remember(window.frame)
+        let center = NotificationCenter.default
+        let id = ObjectIdentifier(window)
+        observers[id].map { $0.forEach(center.removeObserver) }   // Chromium shows the same window again for the next video
+        observers[id] = [
+            center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.prune() }
+            },
+            center.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak overlay, weak window] _ in
+                Task { @MainActor in
+                    guard let overlay, let window else { return }
+                    overlay.setFrame(window.frame, display: false)
+                    PictureInPictureChrome.keepFromKey(window)
+                    PictureInPictureChrome.shared.remember(window.frame)
+                }
+            },
+            center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak window] _ in
+                Task { @MainActor in if let window { PictureInPictureChrome.shared.tookKey(window) } }
+            },
+        ]
+        watchApp()
+    }
+
+    /// Only the overlay takes the pointer, and Chromium's window is never key: a key PiP window
+    /// shows Chrome's own controls (title, ±10 s, scrubber) on every mouse move, under Arc's (#262).
+    /// Chromium's window keeps a 4 pt resize band outside its frame that the overlay doesn't cover;
+    /// a drag there resized it natively and made it key. `preventKeyWindow` is Chromium's own
+    /// switch (NativeWidgetMacNSWindow), and Chromium writes it too: a window it orders in on
+    /// another Space gets NO back once the Space changes (`orderFrontKeepWindowKeyState`). So this
+    /// runs again whenever that can have happened, not once.
+    static func keepFromKey(_ window: NSWindow) {
+        window.ignoresMouseEvents = true
+        if window.responds(to: NSSelectorFromString("setPreventKeyWindow:")) {
+            window.setValue(true, forKey: "preventKeyWindow")
+        }
+    }
+
+    private static func preventsKey(_ window: NSWindow) -> Bool {
+        window.responds(to: NSSelectorFromString("preventKeyWindow")) && (window.value(forKey: "preventKeyWindow") as? Bool) == true
+    }
+
+    /// The moments Chromium's window can have been given the key back: Cra coming forward (AppKit
+    /// picks a key window then) and a Space change (Chromium clears `preventKeyWindow` in its own
+    /// observer of it, queued on the main queue like this one, so this goes after it).
+    private func watchApp() {
+        guard appObservers.isEmpty else { return }
+        let reassert: @Sendable (Notification) -> Void = { _ in
+            Task { @MainActor in PictureInPictureChrome.shared.reassert() }
+        }
+        let center = NotificationCenter.default
+        appObservers = [
+            center.addObserver(forName: NSApplication.willBecomeActiveNotification, object: nil, queue: .main, using: reassert),
+            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: reassert),
+            // The task is queued behind Chromium's observer, which was queued when the post came.
+            NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main, using: reassert),
+        ]
+    }
+
+    private func reassert() {
+        for o in overlays.values { if let w = o.parent { Self.keepFromKey(w) } }
+    }
+
+    /// Chromium's window became key anyway: its controls are fading in. Say how, so a report can
+    /// tell, and give the key to a Cra window (or to the app before Cra) so they go again.
+    private func tookKey(_ window: NSWindow) {
+        let prevented = Self.preventsKey(window)
+        Self.keepFromKey(window)
+        let other = NSApp.orderedWindows.first { $0 !== window && !($0 is PictureInPictureOverlay) && $0.isVisible && $0.canBecomeKey }
+        CraLog.note("pip: Chromium's window became key (preventKeyWindow \(prevented ? 1 : 0), Cra \(NSApp.isActive ? "active" : "inactive")); key to \(other.map { NSStringFromClass(type(of: $0)) } ?? "the app before Cra")")
+        if let other { other.makeKey() } else if NSApp.isActive { NSApp.deactivate() }
+    }
+
+    /// `cra://debug?pip=<label>`: Chromium's PiP window as Cra keeps it, and the centre controls'
+    /// size for its width (#262).
+    func readout() -> String {
+        let shown = overlays.values.compactMap { o in o.parent.map { (o, $0) } }
+        guard !shown.isEmpty else { return "windows=0" }
+        return "windows=\(shown.count) " + shown.map { o, w in
+            "key=\(w.isKeyWindow ? 1 : 0) appKey=\(NSApp.keyWindow === w ? 1 : 0) mouse=\(w.ignoresMouseEvents ? 0 : 1) preventKey=\(Self.preventsKey(w) ? 1 : 0) width=\(Int(w.frame.width)) \(o.controls.readout) frame=\(Int(w.frame.minX)),\(Int(w.frame.minY)),\(Int(w.frame.width)),\(Int(w.frame.height)) onScreen=\(PictureInPictureLayout.landing(afterDropping: w.frame, displays: NSScreen.screens.map(Self.display)) == nil ? 1 : 0)"
+        }.joined(separator: " | ")
+    }
+
+    /// `cra://debug?pipDrop=left|right|top|bottom`: the window moved half past that edge of its
+    /// display and let go there, as a mouse drag does (#332).
+    func debugDrop(_ edge: String) {
+        for o in overlays.values {
+            guard let w = o.parent, let screen = w.screen?.frame, let view = o.contentView as? PictureInPictureOverlayView else { continue }
+            var origin = w.frame.origin
+            switch edge {
+            case "left": origin.x = screen.minX - w.frame.width / 2
+            case "top": origin.y = screen.maxY - w.frame.height / 2
+            case "bottom": origin.y = screen.minY - w.frame.height / 2
+            default: origin.x = screen.maxX - w.frame.width / 2
             }
-        })
+            w.setFrameOrigin(origin)
+            view.dropped()
+        }
+    }
+
+    /// `cra://debug?pipKey=space|force`: Chromium's window asked to become key the ways Chromium's
+    /// own code can leave it open to that. `space`: `preventKeyWindow` back to NO by a Space change,
+    /// as NativeWidgetMacNSWindow does after `orderFrontKeepWindowKeyState`; `force`: cleared and
+    /// made key at once, standing in for a path not known yet.
+    func debugTakeKey(_ how: String) {
+        for o in overlays.values {
+            guard let w = o.parent else { continue }
+            w.setValue(false, forKey: "preventKeyWindow")
+            if how == "space" {
+                NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.activeSpaceDidChangeNotification, object: NSWorkspace.shared)
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(200))
+                    w.makeKeyAndOrderFront(nil)
+                }
+            } else {
+                w.makeKeyAndOrderFront(nil)
+            }
+        }
     }
 
     /// Chromium's PiP widget: a floating NativeWidgetMac window titled
@@ -91,15 +201,7 @@ final class PictureInPictureChrome {
         window.backgroundColor = .clear
         window.hasShadow = true
         window.titleVisibility = .hidden
-        // Only the overlay takes the pointer. Chrome's window keeps a 4 pt resize band outside
-        // its frame (NativeWidgetMacNSWindow) that the overlay doesn't cover: a drag there
-        // resized it natively and made it key, and a key PiP window shows Chrome's own controls
-        // (±10 s) on every mouse move, under Arc's. It also must not become key when a click
-        // on the overlay activates Cra.
-        window.ignoresMouseEvents = true
-        if window.responds(to: NSSelectorFromString("setPreventKeyWindow:")) {
-            window.setValue(true, forKey: "preventKeyWindow")
-        }
+        Self.keepFromKey(window)
         // Over another app's full-screen Space too, like Arc's (#206). The overlay copies this below.
         CraCEFRuntime.floatOverFullScreenSpaces(window)
         if let cv = window.contentView {
@@ -116,17 +218,48 @@ final class PictureInPictureChrome {
         // #246); without that it stayed until a click reached this window, which never happens.
     }
 
-    /// Last frame the user left the window at, else Arc's default (PictureInPictureLayout).
+    /// Last frame the user left the window at, on the display it was left on (#316), else Arc's
+    /// default on `screen` (PictureInPictureLayout).
     func initialFrame(aspect: CGFloat, screen: NSScreen?) -> NSRect {
-        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1728, height: 1084)
-        let remembered = UserDefaults.standard.string(forKey: Self.frameKey).map(NSRectFromString)
-        let frame = PictureInPictureLayout.initialFrame(aspect: aspect, screen: screen?.frame ?? visible, visible: visible, remembered: remembered)
-        CraLog.note("pip: opens at \(Int(frame.width))×\(Int(frame.height))\(remembered == nil ? "" : " (remembered)")")
+        let current = screen.map(Self.display) ?? .init(id: nil, frame: NSRect(x: 0, y: 0, width: 1728, height: 1117),
+                                                         visible: NSRect(x: 0, y: 0, width: 1728, height: 1084))
+        let defaults = UserDefaults.standard
+        let remembered = defaults.string(forKey: Self.frameKey).map(NSRectFromString).map {
+            PictureInPictureLayout.Placement(frame: $0, display: defaults.string(forKey: Self.displayKey),
+                                             displayFrame: defaults.string(forKey: Self.displayFrameKey).map(NSRectFromString))
+        }
+        let displays = NSScreen.screens.map(Self.display)
+        let frame = PictureInPictureLayout.initialFrame(aspect: aspect, displays: displays, current: current, remembered: remembered)
+        let on = displays.firstIndex { $0.frame.intersects(frame) }.map { "display \($0 + 1)/\(displays.count)" } ?? "no display"
+        CraLog.note("pip: opens at \(Int(frame.width))×\(Int(frame.height)) on \(on)\(remembered == nil ? "" : " (remembered)")")
         return frame
     }
 
     func remember(_ frame: NSRect) {
-        UserDefaults.standard.set(NSStringFromRect(frame), forKey: Self.frameKey)
+        let defaults = UserDefaults.standard
+        defaults.set(NSStringFromRect(frame), forKey: Self.frameKey)
+        // The display most of the window is on, as AppKit's `screen` picks it.
+        let screen = NSScreen.screens.max { PictureInPictureChrome.overlap($0.frame, frame) < PictureInPictureChrome.overlap($1.frame, frame) }
+        if let screen, let id = Self.display(screen).id {
+            defaults.set(id, forKey: Self.displayKey)
+            defaults.set(NSStringFromRect(screen.frame), forKey: Self.displayFrameKey)
+        } else {
+            defaults.removeObject(forKey: Self.displayKey)
+            defaults.removeObject(forKey: Self.displayFrameKey)
+        }
+    }
+
+    private static func overlap(_ a: NSRect, _ b: NSRect) -> CGFloat {
+        let i = a.intersection(b)
+        return i.isNull ? 0 : i.width * i.height
+    }
+
+    /// A display by its UUID, which stays the same across launches, reconnects and rearranging.
+    static func display(_ screen: NSScreen) -> PictureInPictureLayout.Display {
+        let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+        let id = number.flatMap { CGDisplayCreateUUIDFromDisplayID($0)?.takeRetainedValue() }
+            .flatMap { CFUUIDCreateString(nil, $0) as String? }
+        return .init(id: id, frame: screen.frame, visible: screen.visibleFrame)
     }
 
     private func prune() {
@@ -134,6 +267,7 @@ final class PictureInPictureChrome {
             overlay.parent?.removeChildWindow(overlay)
             overlay.orderOut(nil)
             overlays[id] = nil
+            observers.removeValue(forKey: id)?.forEach(NotificationCenter.default.removeObserver)
         }
     }
 }
@@ -295,8 +429,23 @@ final class PictureInPictureOverlayView: NSView {
             let asked = requested.map { $0.size == target.frame.size ? "" : " (asked \(Self.size($0)))" } ?? ""
             CraLog.note("pip: resized \(g.edge) \(Self.size(g.startFrame)) → \(Self.size(target.frame))\(asked)")
             requested = nil
+            PictureInPictureChrome.shared.remember(target.frame)
+        } else {
+            dropped()
         }
-        PictureInPictureChrome.shared.remember(target.frame)
+    }
+
+    /// The mouse let the moved window go. Partly past the screen's edge, it flies into the
+    /// nearest corner on the swipe's spring, as Arc's does, and that corner is kept for the next
+    /// video when it lands (#332); otherwise the spot it was let go at is.
+    func dropped() {
+        guard let target else { return }
+        guard let landing = PictureInPictureLayout.landing(afterDropping: target.frame, displays: NSScreen.screens.map(PictureInPictureChrome.display)) else {
+            return PictureInPictureChrome.shared.remember(target.frame)
+        }
+        CraLog.note("pip: dropped past the edge, to \(landing.corner.rawValue)")
+        flight = PictureInPictureFlight(from: target.frame.origin, velocity: .zero, to: landing.frame.origin)
+        startLink()
     }
 
     /// Where on the screen the event happened. The window moves and resizes under the pointer, so

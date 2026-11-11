@@ -113,7 +113,7 @@ struct ShortcutsPane: View {
                     }
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                 }
-                Text(ShortcutDescriptions.text(for: a))
+                Text(ShortcutDescriptions.text(for: a, custom: LiveFolderPluginStore.shared.entry(forCommand: a.id)?.package.manifest.command?.description))
                     .font(.system(size: 15)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 ShortcutRecorder(action: a)

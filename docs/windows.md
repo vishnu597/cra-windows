@@ -59,6 +59,16 @@ Chromium's own crash recovery is off: after a run that didn't quit cleanly it wo
 the last session in a stock Chromium window, so `CrashRecovery` clears it from the profiles
 before Chromium starts (`ChromiumCrashState` in CraCore, as the Mac bridge does).
 
+The bridge canonicalizes the cache root and named profile paths with Windows' `_wfullpath`,
+matching Chromium's user-data directory. Foundation URL paths use forward slashes, while CEF's
+Chrome runtime compares a profile's parent path literally. Passing those paths through unchanged
+can log "Cannot create profile at path" and silently use temporary storage: spaces stay isolated
+during the session, but their cookies and local storage vanish after restart. Chrome also starts
+with `--profile-directory=Default`, as on the Mac (#81): the global context used by Default
+spaces must stay on Default, even when Local State's `profile.last_used` names another profile.
+The real CEF restart check is in
+[release-checklist.md](release-checklist.md#profiles-privacy-media-and-the-engine).
+
 The window is not a WinUI `Window`. A Window's XAML bridge covers its whole client area, and
 while it covers a page no real click or wheel reaches the page, whatever the z-order.
 `HostWindow` is an AppWindow with a `DesktopWindowXamlSource` whose bridge it keeps to the
@@ -167,6 +177,21 @@ Expand and Add To Split drawn with GDI+. A click past the card, Escape the page 
 Ctrl+W closes it; Ctrl+O and Expand move the page into a tab; Add To Split joins the tab under it
 (`SidebarStore.peekSplitTabs`); Ctrl+Shift+T brings back a Peek closed after the last archived
 tab. The card growing out of the link (#204) is still the Mac's alone.
+
+Links from other apps use CraCore's `ExternalLink` and `LinkRouting` decisions. Settings ▸ Tabs ▸
+Air Traffic Control edits the routes and Default immediately. A Little Window destination has
+a second space menu: its page uses that space's profile and its Open in action returns there.
+Deleted spaces fall back to the most recent space. Both apps read the menu choices and labels
+from `AirTrafficControl` in CraCore.
+
+Cra registers `cra://` for the current user on launch. Command-bar, dismiss and HTTP(S) open
+links work from other apps; actions and navigation require `CRA_SCRIPTING_URLS=1` when Cra
+starts. An already running Cra does not activate its browser window for a background tab open.
+New Profile and Share commands use the existing Windows profile dialog and system share UI.
+
+Upstream's JavaScript live-folder plugins, Agents server, settings sync, translation and opt-in
+sharing services do not yet have Windows shells. Portable models and validation build in
+CraCore; plugin execution and extraction remain explicit unsupported operations on Windows.
 
 [`Windows/PARITY.md`](../Windows/PARITY.md) lists every Mac feature, what Windows has of it and the
 CraCore code both apps share; `Windows/scripts/parity.py` keeps it in step with the Mac app and

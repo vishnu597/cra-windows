@@ -35,6 +35,8 @@ struct SiteControlCenterTests {
         #expect(s.isDeveloperMode(url: "https://www.github.com/other"))
         #expect(!s.isDeveloperMode(url: "https://example.com/"))
         #expect(SiteControlCenter.settingRows(s, url: url, available: [.autoPictureInPicture]).map(\.subtitle) == ["Disabled"])
+        #expect(s.autoPictureInPicture, "the site's switch leaves the global default alone")
+        #expect(SiteControlCenter.settingRows(s, url: "https://example.com", available: [.autoPictureInPicture]).map(\.subtitle) == ["Allowed"])
     }
 
     /// A platform without the features shows no Settings section.

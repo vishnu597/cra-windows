@@ -16,6 +16,7 @@
 #include <windows.foundation.h>
 
 #include <climits>
+#include <cstdio>
 #include <cstring>
 #include <set>
 #include <string>
@@ -118,6 +119,11 @@ std::wstring g_shareURL, g_shareTitle;
 /// Windows whose DataTransferManager already has our handler.
 std::set<HWND> g_shareWindows;
 
+int ShareFailed(const char *stage, HRESULT result, bool may_retry = false) {
+    fprintf(stderr, "CraCEFWin: Share %s failed (HRESULT 0x%08lX)\n", stage, static_cast<unsigned long>(result));
+    return may_retry && result == RPC_E_SERVERCALL_RETRYLATER ? 2 : 0;
+}
+
 HRESULT FillShare(DataTransfer::IDataRequestedEventArgs *args) {
     ComPtr<DataTransfer::IDataRequest> request;
     ComPtr<DataTransfer::IDataPackage> package;
@@ -167,14 +173,19 @@ extern "C" int cra_clipboard_set_png(const uint8_t *png, size_t length) {
 }
 
 extern "C" int cra_share_link(uintptr_t owner, const char *url, const char *title) {
+    return cra_share_link_attempt(owner, url, title) == 1 ? 1 : 0;
+}
+
+extern "C" int cra_share_link_attempt(uintptr_t owner, const char *url, const char *title) {
     HWND window = reinterpret_cast<HWND>(owner);
-    if (!window || !url || !*url) return 0;
+    if (!window || !url || !*url) return ShareFailed("arguments", E_INVALIDARG);
     ComPtr<IDataTransferManagerInterop> interop;
     ComPtr<DataTransfer::IDataTransferManager> manager;
-    if (FAILED(RoGetActivationFactory(HStringReference(RuntimeClass_Windows_ApplicationModel_DataTransfer_DataTransferManager).Get(),
-                                      IID_PPV_ARGS(&interop))) ||
-        FAILED(interop->GetForWindow(window, IID_PPV_ARGS(&manager))))
-        return 0;
+    HRESULT result = RoGetActivationFactory(HStringReference(RuntimeClass_Windows_ApplicationModel_DataTransfer_DataTransferManager).Get(),
+                                           IID_PPV_ARGS(&interop));
+    if (FAILED(result)) return ShareFailed("activation", result);
+    result = interop->GetForWindow(window, IID_PPV_ARGS(&manager));
+    if (FAILED(result)) return ShareFailed("GetForWindow", result);
     g_shareURL = Wide(url);
     g_shareTitle = Wide(title);
     if (!g_shareWindows.count(window)) {
@@ -183,10 +194,13 @@ extern "C" int cra_share_link(uintptr_t owner, const char *url, const char *titl
             return FillShare(args);
         });
         EventRegistrationToken token;
-        if (!handler || FAILED(manager->add_DataRequested(handler.Get(), &token))) return 0;
+        if (!handler) return ShareFailed("handler allocation", E_OUTOFMEMORY);
+        result = manager->add_DataRequested(handler.Get(), &token);
+        if (FAILED(result)) return ShareFailed("DataRequested registration", result);
         g_shareWindows.insert(window);
     }
-    return SUCCEEDED(interop->ShowShareUIForWindow(window)) ? 1 : 0;
+    result = interop->ShowShareUIForWindow(window);
+    return FAILED(result) ? ShareFailed("ShowShareUIForWindow", result, true) : 1;
 }
 
 extern "C" int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count) {

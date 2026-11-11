@@ -1,4 +1,5 @@
 import AppKit
+import CraCEF
 import Observation
 import QuickLookThumbnailing
 
@@ -9,6 +10,23 @@ extension DownloadHistory {
     var thumbnails: [String: NSImage] { DownloadThumbnails.shared.images }
 
     func thumbnail(for path: String) -> NSImage? { DownloadThumbnails.shared.thumbnail(for: path) }
+
+    /// Pauses, resumes or cancels a download still in progress; Chromium's next report shows it.
+    func control(_ id: UInt32, _ action: CraDownloadControl) {
+        guard CraCEFRuntime.controlDownload(id, action: action) else {
+            CraLog.note("download control: no download in progress by that id")
+            return
+        }
+        CraLog.note("download control: \(["pause", "resume", "cancel"][action.rawValue])")
+    }
+
+    /// Arc's Move to Trash: the file goes to the Bin, the row with it.
+    func moveToTrash(_ entry: Entry) {
+        NSWorkspace.shared.recycle([URL(fileURLWithPath: entry.path)]) { [weak self] _, error in
+            guard error == nil else { return }
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.hide(.finished(entry)) } }
+        }
+    }
 }
 
 /// The downloads list's Quick Look thumbnails, by path.

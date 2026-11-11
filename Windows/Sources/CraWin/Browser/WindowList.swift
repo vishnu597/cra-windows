@@ -218,8 +218,8 @@ final class WindowList: BrowserWindowHost {
             if let link = CraLink(url) { openCraLink(link) }
         case .ignored:
             print("Cra: ignored \(url) from another app (CRA_SCRIPTING_URLS=1 allows it)")
-        case .littleWindow:
-            openLittleWindow(url: url, opener: nil, activate: true)
+        case .littleWindow(let space):
+            openLittleWindow(url: url, opener: nil, activate: true, space: space)
         case .space(let id):
             guard let target = normalWindow(forSpace: id) else { return }
             store.activeWindowID = target.windowID
@@ -236,9 +236,8 @@ final class WindowList: BrowserWindowHost {
     /// Scripting and tests: every cra:// link, from any app.
     private static let allowsScripting = ProcessInfo.processInfo.environment["CRA_SCRIPTING_URLS"] == "1"
 
-    /// A cra:// link (AppDelegate.handleInternalURL on the Mac). Everything but a Little Window
-    /// brings the browser window used last forward and acts there (the link comes from another
-    /// app, which is in front, so there is no Cra window in use to keep).
+    /// A cra:// link (AppDelegate.handleInternalURL on the Mac). Background opens leave the
+    /// app in use in front; other links bring the browser window used last forward.
     func openCraLink(_ link: CraLink) {
         switch link {
         case .commandBar(let query, let editURL):
@@ -260,7 +259,9 @@ final class WindowList: BrowserWindowHost {
             store.activeWindowID = target.windowID
             // background=1: unread in the sidebar, the page in front staying.
             store.createTab(url: url, in: space, select: !background, window: target.windowID)
-            target.activate()
+            if InternalURLRaise.raises(host: "open", little: little, background: background, littleWindowIsKey: false) {
+                target.activate()
+            }
         case .action(let id):
             guard let target = lastNormalWindow() else { return }
             target.activate()

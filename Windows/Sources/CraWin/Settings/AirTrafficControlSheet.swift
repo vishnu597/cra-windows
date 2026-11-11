@@ -1,6 +1,7 @@
 import CraCore
 import Foundation
 import UWP
+import WinAppSDK
 import WinUI
 
 /// Arc's Air Traffic Control sheet (AirTrafficControlView on the Mac), over the Settings window:
@@ -24,6 +25,10 @@ final class AirTrafficControlSheet {
     private var kept: [AnyObject] = []
     /// Each route's URL field, so New Route can hand the new one the keyboard.
     private var fields: [UUID: TextBox] = [:]
+    private enum DestinationPickerID: Hashable { case route(UUID), defaultDestination }
+    /// Stable identities let a structural change restore the replacement picker, not the pane behind.
+    private var destinationButtons: [DestinationPickerID: Button] = [:]
+    private var pendingDestinationRebuild: DestinationPickerID?
 
     var isShown: Bool { root.visibility == .visible }
 
@@ -103,6 +108,7 @@ final class AirTrafficControlSheet {
     /// Arc opens the sheet with nothing chosen; the keyboard starts on New Route.
     func show(from opener: Button?) {
         self.opener = opener
+        pendingDestinationRebuild = nil
         rebuild()
         root.visibility = .visible
         _ = try? newRoute.focus(.programmatic)
@@ -115,6 +121,8 @@ final class AirTrafficControlSheet {
         defaultRow.children.clear()
         kept.removeAll()
         fields.removeAll()
+        destinationButtons.removeAll()
+        pendingDestinationRebuild = nil
         _ = try? opener?.focus(.programmatic)
     }
 
@@ -163,6 +171,7 @@ final class AirTrafficControlSheet {
         defaultRow.children.clear()
         kept.removeAll()
         fields.removeAll()
+        destinationButtons.removeAll()
         for route in store.settings.linkRoutes { routes.children.append(routeRow(route)) }
         emptyNote.visibility = store.settings.linkRoutes.isEmpty ? .visible : .collapsed
 
@@ -170,7 +179,7 @@ final class AirTrafficControlSheet {
         label.width = 104
         label.verticalAlignment = .center
         defaultRow.children.append(label)
-        defaultRow.children.append(destinationButton(store.settings.defaultLinkDestination, name: "Default destination") { [store] destination in
+        defaultRow.children.append(destinationPicker(store.settings.defaultLinkDestination, id: .defaultDestination, name: "Default destination") { [store] destination in
             store.settings.defaultLinkDestination = destination
         })
     }
@@ -232,7 +241,7 @@ final class AirTrafficControlSheet {
         let openIn = label("Open in", glyph: "\u{E7A6}")  // Redo: an arrow turning right
         openIn.width = 70
         second.children.append(openIn)
-        second.children.append(destinationButton(route.destination, name: "Open in") { [weak self] destination in
+        second.children.append(destinationPicker(route.destination, id: .route(id), name: "Open in") { [weak self] destination in
             self?.update(id) { $0.destination = destination }
         })
         row.children.append(second)
@@ -241,13 +250,60 @@ final class AirTrafficControlSheet {
         return row
     }
 
-    /// Arc's destination menu: "Open in Space" over Most Recent Space and every space, then
-    /// Little Window after a separator, the current one checked.
-    private func destinationButton(_ current: LinkDestination, name: String,
-                                   _ choose: @escaping @MainActor (LinkDestination) -> Void) -> Button {
+    /// A Little Window can keep a particular space's profile and "Open in" destination (#258).
+    /// CraCore supplies both menus and preserves that space when Little Window is reselected.
+    private func destinationPicker(_ current: LinkDestination, id: DestinationPickerID, name: String,
+                                   _ choose: @escaping @MainActor (LinkDestination) -> Void) -> StackPanel {
         let spaces = store.orderedSpaces
-        let choices = AirTrafficControl.choices(spaces: spaces)
-        let shown = AirTrafficControl.shown(current, spaces: spaces)
+        let selection = DestinationSelection(current)
+        let picker = StackPanel()
+        picker.orientation = .vertical
+        picker.spacing = 4
+        let primary = destinationButton(name: name, heading: AirTrafficControl.openInSpaceTitle, choices: AirTrafficControl.choices(spaces: spaces),
+                                        shown: AirTrafficControl.shown(current, spaces: spaces), closed: { [weak self] in
+            self?.finishDestinationChange(id)
+        }) { [weak self] destination in
+            let next = AirTrafficControl.selecting(destination, current: selection.value)
+            let changesLayout = next.isLittleWindow != selection.value.isLittleWindow
+            selection.value = next
+            choose(next)
+            // Ordinary choices already update their button in place. Only adding or removing
+            // the secondary space picker needs a rebuild, after this menu has closed.
+            if changesLayout { self?.pendingDestinationRebuild = id }
+        }
+        destinationButtons[id] = primary
+        picker.children.append(primary)
+        if current.isLittleWindow {
+            let shown = LinkDestination.littleWindow(space: AirTrafficControl.littleWindowSpace(current, spaces: spaces))
+            picker.children.append(destinationButton(name: "Little Window space", heading: AirTrafficControl.littleWindowInTitle, choices: AirTrafficControl.littleWindowChoices(spaces: spaces),
+                                                    shown: shown) { destination in
+                selection.value = destination
+                choose(destination)
+            })
+        }
+        return picker
+    }
+
+    private func finishDestinationChange(_ id: DestinationPickerID) {
+        guard pendingDestinationRebuild == id else { return }
+        pendingDestinationRebuild = nil
+        // Closed means the flyout is hidden. Leave its focus-restoration callback before
+        // replacing controls, then give the corresponding new button the keyboard.
+        _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { [weak self] in
+            guard let self, self.isShown else { return }
+            self.rebuild()
+            if let button = self.destinationButtons[id] {
+                _ = try? button.focus(.programmatic)
+            } else {
+                _ = try? self.newRoute.focus(.programmatic)
+            }
+        }
+    }
+
+    /// Both apps read their menu labels, destinations and deleted-space fallbacks from CraCore.
+    private func destinationButton(name: String, heading: String, choices: [AirTrafficControl.Choice], shown: LinkDestination,
+                                   closed: (@MainActor () -> Void)? = nil,
+                                   _ choose: @escaping @MainActor (LinkDestination) -> Void) -> Button {
 
         let title = UI.text(choices.first { $0.destination == shown }?.title ?? "", color: palette.text)
         title.verticalAlignment = .center
@@ -271,11 +327,12 @@ final class AirTrafficControlSheet {
         try? AutomationProperties.setName(button, name)
 
         let menu = MenuFlyout()
+        menu.closed.addHandler { _, _ in closed?() }
         let checks = MenuChecks()
-        let heading = MenuFlyoutItem()
-        heading.text = "Open in Space"
-        heading.isEnabled = false
-        menu.items.append(heading)
+        let titleItem = MenuFlyoutItem()
+        titleItem.text = heading
+        titleItem.isEnabled = false
+        menu.items.append(titleItem)
         for choice in choices {
             if choice.afterSeparator { menu.items.append(MenuFlyoutSeparator()) }
             let item = ToggleMenuFlyoutItem()
@@ -337,6 +394,12 @@ final class AirTrafficControlSheet {
         rebuild()
         _ = try? newRoute.focus(.programmatic)
     }
+}
+
+/// Both menus share the live selection without retaining any WinUI control in a handler cycle.
+private final class DestinationSelection {
+    var value: LinkDestination
+    init(_ value: LinkDestination) { self.value = value }
 }
 
 /// A destination menu's items, checked to follow the choice.

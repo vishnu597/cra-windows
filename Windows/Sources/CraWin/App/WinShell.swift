@@ -1,10 +1,36 @@
 import CraCEFWin
+import CraCore
 import Foundation
+import WinAppSDK
+import WindowsFoundation
 
 /// The clipboard, Windows' Share window and the Save dialog (CraCEFWin.h, MARK: Shell): what
 /// NSPasteboard, NSSharingServicePicker and NSSavePanel do on the Mac.
 @MainActor
 enum WinShell {
+    @MainActor
+    private final class ShareRequest {
+        let url: String
+        let title: String
+        let owner: UInt
+        let dispatcher: WinAppSDK.DispatcherQueue
+        let isValid: @MainActor () -> Bool
+        let onFailure: @MainActor () -> Void
+        var attempts = 0
+        var timer: DispatcherQueueTimer?
+
+        init(url: String, title: String, owner: UInt, dispatcher: WinAppSDK.DispatcherQueue,
+             isValid: @escaping @MainActor () -> Bool, onFailure: @escaping @MainActor () -> Void) {
+            self.url = url
+            self.title = title
+            self.owner = owner
+            self.dispatcher = dispatcher
+            self.isValid = isValid
+            self.onFailure = onFailure
+        }
+    }
+    private static var pendingShare: ShareRequest?
+
     @discardableResult
     static func copy(_ text: String) -> Bool {
         text.withCString { cra_clipboard_set_text($0) } != 0
@@ -19,10 +45,66 @@ enum WinShell {
         }
     }
 
-    /// Windows' Share window for a link, over the window `owner`.
-    @discardableResult
-    static func share(url: String, title: String, owner: UInt) -> Bool {
-        url.withCString { u in title.withCString { t in cra_share_link(owner, u, t) } } != 0
+    /// Leave the caller's input callback before opening Share. A newer request supersedes
+    /// an older busy one; its callbacks cannot reopen Share or report a stale failure.
+    static func share(url: String, title: String, owner: UInt, dispatcher: WinAppSDK.DispatcherQueue,
+                      isValid: @escaping @MainActor () -> Bool, onFailure: @escaping @MainActor () -> Void) {
+        if let pendingShare { finishShare(pendingShare, failed: false) }
+        let request = ShareRequest(url: url, title: title, owner: owner, dispatcher: dispatcher,
+                                   isValid: isValid, onFailure: onFailure)
+        pendingShare = request
+        let queued = try? dispatcher.tryEnqueue { [weak request] in
+            if let request { attemptShare(request) }
+        }
+        if queued != true { finishShare(request, failed: true) }
+    }
+
+    private static func attemptShare(_ request: ShareRequest) {
+        guard pendingShare === request else { return }
+        guard request.isValid() else { return finishShare(request, failed: false) }
+        try? request.timer?.stop()
+        request.timer = nil
+        request.attempts += 1
+        let result = request.url.withCString { u in
+            request.title.withCString { t in cra_share_link_attempt(request.owner, u, t) }
+        }
+        // COM can pump messages: a newer request or a closed owner wins even if it happened
+        // while this native call was returning.
+        guard pendingShare === request else { return }
+        guard request.isValid() else { return finishShare(request, failed: false) }
+        let outcome: ShareRetry.Result
+        switch result {
+        case 1: outcome = .opened
+        case 2: outcome = .busy
+        default: outcome = .failed
+        }
+        switch ShareRetry.action(after: outcome, attempt: request.attempts) {
+        case .opened: finishShare(request, failed: false)
+        case .failed: finishShare(request, failed: true)
+        case .retry(let delay):
+            guard let timer = try? request.dispatcher.createTimer() else {
+                return finishShare(request, failed: true)
+            }
+            do {
+                request.timer = timer
+                timer.interval = TimeSpan(duration: Int64(delay * 10_000_000))
+                timer.isRepeating = false
+                timer.tick.addHandler { [weak request] _, _ in
+                    if let request { attemptShare(request) }
+                }
+                try timer.start()
+            } catch {
+                finishShare(request, failed: true)
+            }
+        }
+    }
+
+    private static func finishShare(_ request: ShareRequest, failed: Bool) {
+        guard pendingShare === request else { return }
+        try? request.timer?.stop()
+        request.timer = nil
+        pendingShare = nil
+        if failed, request.isValid() { request.onFailure() }
     }
 
     /// A native menu at the pointer: `items` with nil for a separator. The chosen one's index.

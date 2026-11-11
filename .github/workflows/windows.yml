@@ -32,9 +32,20 @@ jobs:
   core-linux:
     name: CraCore on Linux
     runs-on: ubuntu-24.04
-    container: swift:6.1.2-noble
+    container:
+      image: swift:6.1.2-noble
+      # Both use Ubuntu 24.04. Swift includes unzip and its libraries, but not zip;
+      # use the runner's ZIP tool without depending on Ubuntu's package mirrors.
+      volumes:
+        - /usr/bin/zip:/usr/bin/zip:ro
     steps:
       - uses: actions/checkout@v4
+
+      # The plugin archive fixtures create ZIPs, and the portable Unix extractor uses unzip.
+      - name: Check ZIP utilities
+        run: |
+          /usr/bin/zip -v
+          /usr/bin/unzip -v
 
       - name: Build and test CraCore
         run: swift test --package-path Packages/CraCore --enable-code-coverage

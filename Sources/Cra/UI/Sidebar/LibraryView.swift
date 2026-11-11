@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// Arc's Library: not a window but a mode of the sidebar (WindowState+Library, HomeButton/*),
 /// so it never ends up behind the browser. Measured on Arc 1.170 (window captures + AX tree,
 /// 1728×1084 window, 27 Oct 2026):
-/// - The sidebar widens from 347 to 417 pt: a 113 pt rail (a faint white wash brightening
+/// - The sidebar becomes 417 pt whatever the tab sidebar's width (LibraryWidth): a 113 pt rail (a faint white wash brightening
 ///   toward its right edge, ending in a 1 pt hairline) and the page's list.
 /// - Rail buttons 97×80 at x 8, 100 pt apart, the group centred vertically: an 18 pt glyph
 ///   22 pt from the top, the 12 pt semibold label under it (white 60 %). The page shown gets
@@ -19,9 +19,7 @@ import UniformTypeIdentifiers
 /// - Opening takes 2–3 frames (the Library slides in from a little to the left); closing slides
 ///   it left over ~0.1 s while the tab list fades back in.
 enum LibraryMetrics {
-    static let rail: CGFloat = 113
-    /// Arc's Library sidebar was 70 pt wider than the 347 pt tab sidebar.
-    static let extraWidth: CGFloat = 70
+    static let rail = CGFloat(LibraryWidth.rail)
 }
 
 /// The Library column: the page rail on the left, the page's search and list on the right.
@@ -298,7 +296,7 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
     private let menuButton = NSView()
     private let menuGlyph = NSImageView()
     private let filterLabel = NSTextField.sidebarLabel(size: 14, weight: .medium)
-    private let scroll = NSScrollView()
+    private let scroll = SidebarListScrollView()
     private let table = LibraryTable()
     private let empty = LibraryEmptyView()
     private var mediaCard: NSHostingView<MediaOptInCard>?
@@ -757,19 +755,17 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
 
     /// Library ▸ Easels ▸ Delete: asked first (its drawing and pictures go), its tabs close.
     private func deleteEasel(_ e: EaselEntry) {
-        let alert = NSAlert()
-        alert.messageText = "Delete “\(e.title.isEmpty ? "Untitled Easel" : e.title)”?"
-        alert.informativeText = "The Easel and its pictures will be deleted. This can’t be undone."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let url = Easel(id: e.id).url
-        EaselFiles.deleted.insert(e.id)
-        for tab in store.allTabs() where tab.tab?.url == url { actions.closeTab(tab.id) }
-        EaselFiles.delete(e.id)
-        CraLog.note("easel deleted")
-        reload()
+        guard let window = window ?? AppDialog.parentWindow else { return }
+        let dialog = AppDialog.easelDeletion()
+        dialog.present(over: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else { return }
+            let url = Easel(id: e.id).url
+            EaselFiles.deleted.insert(e.id)
+            for tab in self.store.allTabs() where tab.tab?.url == url { self.actions.closeTab(tab.id) }
+            EaselFiles.delete(e.id)
+            CraLog.note("easel deleted")
+            self.reload()
+        }
     }
 
     /// The boost's site icon: the site's own, else that of a tab on it (icons are kept per page).
@@ -808,17 +804,9 @@ extension LibraryListView: NSMenuDelegate {
             }
             menu.addItem(.separator())
             MenuItems.add(menu, "Remove from Archive") { store.removeFromArchive(e.id) }
-        case .download(.live):
-            break
-        case .download(.finished(let e)):
-            let url = URL(fileURLWithPath: e.path)
-            MenuItems.add(menu, "Open") { NSWorkspace.shared.open(url) }
-            MenuItems.add(menu, "Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-            menu.addItem(.separator())
-            MenuItems.add(menu, "Copy") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([url as NSURL])
-            }
+        case .download(let d):
+            // Arc's Download Context Menu, the tray's too (#272).
+            DownloadRowMenu.fill(menu, for: d)
         }
     }
 }

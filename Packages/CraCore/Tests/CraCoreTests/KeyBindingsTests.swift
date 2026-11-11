@@ -34,10 +34,8 @@ struct KeyBindingsTests {
         #expect(mac["moveTabToSpace9"]?.shortcuts == [Self.chord("9", [.command, .control])])
         #expect(mac["clearBrowsingData"]?.symbol == "trash")
         #expect(mac["newWindow"]?.inCommandBar == false)
-        // 104 commands (Language Settings came with #209, Blank Window with #220, upstream's Arc
-        // parity sweep added 28, then Boosts, Join Meeting and Apple Events JavaScript 4), Switch
-        // to Split View 1–4 and 27 numbered ones.
-        #expect(KeyBindingDefaults.mac.count == 104 + 4 + 27)
+        // 105 built-in commands, four split-pane actions and 27 numbered tab/space actions.
+        #expect(KeyBindingDefaults.mac.count == 105 + 4 + 27)
     }
 
     /// Windows' table names only actions the Mac has, in the Mac's order, and its keys don't
@@ -71,6 +69,7 @@ struct KeyBindingsTests {
         #expect(win["viewArchive"]?.primary?.windowsDisplay == "Ctrl+H")
         #expect(win["viewDownloads"]?.primary?.windowsDisplay == "Ctrl+J")
         #expect(win["inspectElement"]?.shortcuts == [])
+        #expect(win["newProfile"]?.shortcuts == [] && win["share"]?.shortcuts == [])
     }
 
     @Test func everyActionHasADescription() {
@@ -78,6 +77,7 @@ struct KeyBindingsTests {
             #expect(ShortcutDescriptions.text(for: a) != a.name + ".", "\(a.id)")
         }
         let mac = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.mac.map { ($0.id, $0) })
+        #expect(ShortcutDescriptions.text(for: mac["newFolder"]!, custom: "Add a folder from this plugin.") == "Add a folder from this plugin.")
         #expect(ShortcutDescriptions.text(for: mac["item2"]!) == "Switch to the 2. tab in the sidebar.")
         #expect(ShortcutDescriptions.text(for: mac["space4"]!) == "Switch to the 4. space.")
         #expect(ShortcutDescriptions.text(for: mac["moveTabToSpace5"]!).hasPrefix("Move the current tab"))

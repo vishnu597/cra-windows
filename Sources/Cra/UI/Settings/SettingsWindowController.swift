@@ -18,11 +18,13 @@ extension SettingsPane {
         switch self {
         case .general: return "gearshape"
         case .tabs: return "square.on.square"
+        case .links: return "link"
         // macOS 15.1 added Apple's mark; before it, sparkles.
         case .max: return NSImage(systemSymbolName: "apple.intelligence", accessibilityDescription: nil) != nil ? "apple.intelligence" : "sparkles"
         case .privacy: return "hand.raised"
         case .profiles: return "person"
         case .extensions: return "puzzlepiece.extension"
+        case .plugins: return "folder.badge.gearshape"
         case .shortcuts: return "keyboard"
         case .performance: return "gauge.with.dots.needle.67percent"
         case .advanced: return "gearshape.2"
@@ -41,9 +43,10 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
     private let nav = SettingsNavigation()
 
     func show(_ pane: SettingsPane) { nav.show(pane) }
+    var debugPane: String { nav.pane.rawValue }
     func didShow() { nav.didShow() }
 
-    init(store: SidebarStore, bindings: KeyBindingRegistry, actions: SettingsActions) {
+    init(store: SidebarStore, bindings: KeyBindingRegistry, sync: SettingsSyncService, actions: SettingsActions) {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: SettingsMetrics.windowSize),
                               styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         super.init(window: window)
@@ -63,7 +66,7 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         sidebar.maximumThickness = SettingsMetrics.sidebarWidth - 8
         sidebar.canCollapse = false
         let content = NSHostingController(rootView: SettingsContent(nav: nav, actions: actions)
-            .environment(store).environment(bindings))
+            .environment(store).environment(bindings).environment(sync))
         let contentItem = NSSplitViewItem(viewController: content)
         split.addSplitViewItem(sidebar)
         split.addSplitViewItem(contentItem)
@@ -78,7 +81,7 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         window.toolbar = toolbar
         // Size last: the toolbar and full-size content change how the frame is derived.
         window.setFrame(NSRect(origin: .zero, size: SettingsMetrics.windowSize), display: false)
-        window.center()
+        window.centerOnTestScreen()
         // On screen: shown and not entirely covered (the window needn't be key).
         for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.willCloseNotification] {
             NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [nav] note in
@@ -147,9 +150,10 @@ struct SettingsToolbarRow: View {
     }
 }
 
-/// Dia's source list: 28 pt rows inset 8, 20 pt glyph 20 in, label 49 in. The selected row
-/// is accent-filled with white text while the window is key, otherwise a grey fill with
-/// accent-coloured text.
+/// Dia's source list: 28 pt rows, the selection 10 pt inside the sidebar's edges with a 7 pt
+/// corner, the 20 pt glyph 10 pt into it (20 in) and the label 49 in (Dia 1.55.1, AX + 2x capture,
+/// 9 Nov 2026). The selected row is accent-filled with white text while the window is key,
+/// otherwise a grey fill with accent-coloured text.
 struct SettingsSidebar: View {
     let nav: SettingsNavigation
     @Environment(\.controlActiveState) private var activeState
@@ -159,6 +163,7 @@ struct SettingsSidebar: View {
             ForEach(SettingsPane.allCases) { row($0) }
             Spacer(minLength: 0)
         }
+        .padding(.horizontal, 10)
         .padding(.top, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -177,9 +182,9 @@ struct SettingsSidebar: View {
                     .foregroundStyle(selected ? (key ? Color.white : Color.accentColor) : Color.primary)
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 20)
+            .padding(.leading, 10)
             .frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(selected ? (key ? Color.accentColor : Color.primary.opacity(0.1)) : Color.clear))
             .contentShape(Rectangle())
         }
@@ -198,16 +203,21 @@ struct SettingsContent: View {
                 switch nav.pane {
                 case .general: GeneralPane()
                 case .tabs: TabsPane()
+                case .links: LinksPane()
                 case .max: MaxPane()
                 case .privacy: PrivacyPane(actions: actions)
                 case .profiles: ProfilesPane(nav: nav, actions: actions)
                 case .extensions: ExtensionsPane(actions: actions)
+                case .plugins: PluginsPane()
                 case .shortcuts: ShortcutsPane()
                 case .performance: PerformancePane(nav: nav, actions: actions)
                 case .advanced: AdvancedPane(actions: actions)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // Scroll views can draw into the ignored titlebar safe area. Keep every
+            // pane inside its viewport below the fixed navigation row.
+            .clipped()
         }
         .ignoresSafeArea(.container, edges: .top)
     }

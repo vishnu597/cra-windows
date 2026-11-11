@@ -521,6 +521,8 @@ private final class SiteSettingRow: SiteHoverView {
         s.textColor = colors.secondary
         s.frame = NSRect(x: 40 - SidebarText.inset, y: 17, width: 160 + 2 * SidebarText.inset, height: 16)
         addSubview(s)
+        // One button for VoiceOver, which an NSView isn't unless it says so.
+        setAccessibilityElement(true)
         setAccessibilityLabel("\(title), \(subtitle)")
         setAccessibilityRole(.button)
     }

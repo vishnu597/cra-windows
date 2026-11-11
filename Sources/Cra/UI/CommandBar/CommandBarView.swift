@@ -7,9 +7,9 @@ import SwiftUI
 /// so a keystroke costs the search and a few labels, not a SwiftUI pass over the bar.
 @MainActor
 final class CommandBarView: NSView {
-    static let rowHeight: CGFloat = 50
-    static let fieldHeight: CGFloat = 60
-    static func height(forRows n: Int) -> CGFloat { fieldHeight + (n == 0 ? 0 : CGFloat(n) * rowHeight + CGFloat(n - 1) * 2 + 20) }
+    static let rowHeight: CGFloat = 46
+    static let fieldHeight: CGFloat = 64
+    static func height(forRows n: Int) -> CGFloat { fieldHeight + (n == 0 ? 0 : CGFloat(n) * rowHeight + CGFloat(n - 1) * 4 + 18) }
 
     private let controller: CommandBarController
     private let favicons: FaviconCache
@@ -19,7 +19,10 @@ final class CommandBarView: NSView {
     private let shape = CAShapeLayer()
     private let leadingIcon = NSImageView()
     private let text: CommandTextField
-    private let info = NSImageView()
+    /// Arc's (i) at the field's end: it opens the search-suggestions notice (#314).
+    private let info = CommandBarBadge()
+    /// Arc's SearchSuggestionsPrivacyView, in the bottom row's place.
+    private let notice = SearchSuggestionsBannerView()
     /// Scoped search: the scope's pill before the field, and "Search YouTube  Tab" at the end of
     /// the row while the typed text would enter it (Arc 1.170, measured at 2x).
     private let pill = NSView()
@@ -47,13 +50,19 @@ final class CommandBarView: NSView {
         tint.wantsLayer = true
         layer?.mask = shape
         border.fillColor = nil
-        border.lineWidth = 2
+        border.lineWidth = 1
         leadingIcon.imageScaling = .scaleProportionallyUpOrDown
         leadingIcon.wantsLayer = true
         leadingIcon.layer?.cornerCurve = .continuous
-        info.image = SidebarSymbols.image("info.circle", size: 16)
+        info.image = SidebarSymbols.image("info.circle", size: 15, weight: .medium)
+        info.wantsLayer = true
+        info.layer?.cornerRadius = 12
         info.imageScaling = .scaleNone
         info.contentTintColor = .secondaryLabelColor
+        info.onPress = { [weak controller] in controller?.showNotice() }
+        notice.onSettings = { [weak controller] in controller?.openNoticeSettings() }
+        notice.onDismiss = { [weak controller] in controller?.dismissNotice() }
+        notice.onLearnMore = { [weak controller] in controller?.openNoticeLearnMore() }
         divider.wantsLayer = true
         pill.wantsLayer = true
         pill.layer?.cornerCurve = .continuous
@@ -67,13 +76,31 @@ final class CommandBarView: NSView {
         keycap.layer?.cornerCurve = .continuous
         keycapLabel.stringValue = "Tab"
         keycap.addSubview(keycapLabel)
-        for v in [material, tint, leadingIcon, text.field, info, pill, hint, keycap, divider] as [NSView] { addSubview(v) }
+        for v in [material, tint, leadingIcon, text.field, info, pill, hint, keycap, divider, notice] as [NSView] { addSubview(v) }
         layer?.addSublayer(border)
         border.zPosition = 10
         sync()
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    private var shownTones: (SpaceTheme?, Bool, CommandBarTones)?
+
+    /// The space's palette in the bar's own appearance (CraCore CommandBarTones), worked out once per
+    /// theme and appearance rather than on every keystroke.
+    private func tones(dark: Bool) -> CommandBarTones {
+        if let t = shownTones, t.0 == controller.theme, t.1 == dark { return t.2 }
+        let tones = CommandBarTones(theme: controller.theme ?? SpaceTheme(colors: ["#010220"], intensity: 1, noise: 0, appearance: "dark"), dark: dark)
+        shownTones = (controller.theme, dark, tones)
+        return tones
+    }
+
+    static func ink(_ c: RGB, _ alpha: Double = 1) -> NSColor { NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: alpha) }
+
+    var debugBadgeShown: Bool { !info.isHidden }
+    var debugNoticeShown: Bool { !notice.isHidden }
+    func debugPressBadge() -> Bool { info.accessibilityPerformPress() }
+    func debugPressNotice(_ button: String) -> Bool { notice.debugPress(button) }
 
     override var isFlipped: Bool { true }
 
@@ -109,10 +136,14 @@ final class CommandBarView: NSView {
         let dark = self.dark
         text.update()
         attached = c.attached
-        // Closest AppKit materials to SwiftUI's .ultraThinMaterial under the bar's tint (dark: compared
-        // pixel for pixel over the same page).
+        // Arc 1.172.1 live: a neutral dark panel, (48,48,48)–(51,50,50) over light pages; Cra's hudWindow
+        // material under this tint (white ≈ 0.5 through 3 %) comes to ≈ (48,47,47).
         material.material = dark ? .hudWindow : .popover
-        tint.layer?.backgroundColor = (dark ? NSColor.black.withAlphaComponent(0.74) : NSColor.white.withAlphaComponent(0.7)).cgColor
+        tint.layer?.backgroundColor = (dark ? NSColor(srgbRed: 46 / 255, green: 45 / 255, blue: 45 / 255, alpha: 0.97) : NSColor.white.withAlphaComponent(0.94)).cgColor
+        // Arc 1.172.1 live: the badge is the space's backgroundExtra, its glyph (148,146,140) on a gold space.
+        let tones = self.tones(dark: dark)
+        info.layer?.backgroundColor = Self.ink(tones.badge).cgColor
+        info.contentTintColor = dark ? NSColor.white.withAlphaComponent(0.55) : NSColor.labelColor.withAlphaComponent(0.55)
         border.strokeColor = NSColor.labelColor.withAlphaComponent(dark ? 0.12 : 0.08).cgColor
         divider.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
         let scope = c.scope
@@ -122,11 +153,10 @@ final class CommandBarView: NSView {
         }
         shownScope = c.isOpen ? scope : nil
         // A site's brand colour; the tabs scope and Chromium's other keywords take the space's, the
-        // colour of its rows.
+        // colour of its rows (Arc's rows take theirs from the theme's palette, CommandBar.SuggestionsView).
         let highlight: NSColor
-        if case .site(let site) = scope, let hex = site.color { highlight = NSColor(hex: hex) } else { highlight = NSColor(c.highlight) }
-        info.isHidden = !c.query.isEmpty || scope != nil
-        divider.isHidden = items.isEmpty
+        if case .site(let site) = scope, let hex = site.color { highlight = NSColor(hex: hex) } else { highlight = Self.ink(tones.selection.rgb, tones.selection.alpha) }
+        divider.isHidden = items.isEmpty && !c.showsNoticeBanner
         pill.isHidden = scope == nil
         if let scope {
             let color = highlight.withAlphaComponent(1)
@@ -137,6 +167,11 @@ final class CommandBarView: NSView {
         // Arc shows no hint for the actions Tab offers on the empty field.
         let offered = scope == nil && c.previewText == nil && c.result.scope != .actions ? c.result.scope : nil
         hint.isHidden = offered == nil
+        // Arc keeps the badge while typing ("alpha", "golf"); a site's "Search …  Tab" takes its place,
+        // and so does the banner it opens (CraCore SearchSuggestionsNotice).
+        info.isHidden = !c.showsNoticeBadge
+        notice.isHidden = !c.showsNoticeBanner
+        if !notice.isHidden { notice.apply(tones: tones) }
         keycap.isHidden = offered == nil
         if let offered {
             hint.stringValue = "Search \(offered.name)"
@@ -163,8 +198,8 @@ final class CommandBarView: NSView {
             leadingIcon.frame.size = NSSize(width: 20, height: 20)
         } else {
             leadingIcon.imageScaling = .scaleNone
-            if case .symbol(let name) = glyph { leadingIcon.image = SidebarSymbols.image(name, size: 17, weight: .medium) }
-            leadingIcon.contentTintColor = .secondaryLabelColor
+            if case .symbol(let name) = glyph { leadingIcon.image = SidebarSymbols.image(name, size: 12, weight: .medium) }
+            leadingIcon.contentTintColor = NSColor.labelColor.withAlphaComponent(0.85)
             leadingIcon.layer?.masksToBounds = false
             leadingIcon.frame.size = NSSize(width: 22, height: 22)
         }
@@ -188,7 +223,7 @@ final class CommandBarView: NSView {
             let s = items[i]
             r.show(s, icon: s.faviconKey.flatMap { favicons.image(forKey: $0) }, selected: i == c.selectedIndex, highlight: highlight,
                    otherSpace: s.spaceID.flatMap { $0 != c.focusedSpaceID && s.tabID != nil ? c.spaceName($0) : nil },
-                   queryEmpty: c.query.isEmpty, dark: dark)
+                   dark: dark)
         }
         needsLayout = true
     }
@@ -201,20 +236,21 @@ final class CommandBarView: NSView {
         if let splash, let window { splash.setFrame(window.frame.insetBy(dx: -Self.splashMargin, dy: -Self.splashMargin), display: false) }
         material.frame = b
         tint.frame = b
-        let top: CGFloat = attached ? 10 : 14
-        let path = Self.path(b, top: top, bottom: 14)
+        let top: CGFloat = attached ? 10 : 12
+        let path = Self.path(b, top: top, bottom: 12)
         shape.frame = b
         shape.path = path
         border.frame = b
         border.path = path
-        // Input row: 22 pt in, icon 22, 14 apart, the field 30 tall, the info glyph at the end.
+        // The magnifier and row favicons share a centre; input and result titles align.
         let fh = Self.fieldHeight
         let icon = leadingIcon.frame.size
-        leadingIcon.frame = NSRect(x: 22 + (22 - icon.width) / 2, y: (fh - icon.height) / 2, width: icon.width, height: icon.height)
+        leadingIcon.frame = NSRect(x: 21 + (22 - icon.width) / 2, y: (fh - icon.height) / 2, width: icon.width, height: icon.height)
         var right = b.width - 22
         if !info.isHidden {
-            info.frame = NSRect(x: right - 18, y: (fh - 18) / 2, width: 18, height: 18)
-            right -= 18 + 14
+            // Arc: a 24 pt circle 21 pt from the edge.
+            info.frame = NSRect(x: b.width - 21 - 24, y: (fh - 24) / 2, width: 24, height: 24)
+            right = info.frame.minX - 14
         }
         if !keycap.isHidden {
             // Key cap 23 tall, 4 pt around "Tab", 10 pt after the hint.
@@ -226,7 +262,7 @@ final class CommandBarView: NSView {
             hint.frame = NSRect(x: right - hw - SidebarText.inset, y: (fh - hh) / 2, width: hw + 2 * SidebarText.inset, height: hh)
             right -= hw + 14
         }
-        var x: CGFloat = 22 + 22 + 14
+        var x: CGFloat = 10 + 10 + 24 + 8
         if !pill.isHidden {
             // 23 tall, fully round, 10.5 pt around the name; the field starts 11 pt after it.
             let lw = ceil(pillLabel.attributedStringValue.size().width), lh = pillLabel.intrinsicContentSize.height
@@ -235,13 +271,16 @@ final class CommandBarView: NSView {
             pillLabel.frame = NSRect(x: 10.5 - SidebarText.inset, y: (23 - lh) / 2, width: lw + 2 * SidebarText.inset, height: lh)
             x = pill.frame.maxX + 11
         }
-        text.field.frame = NSRect(x: x - 1.5, y: (fh - 30) / 2 + 2, width: max(0, right - x), height: 30)
+        text.field.frame = NSRect(x: x - 1.5, y: (fh - 30) / 2 + 3, width: max(0, right - x), height: 30)
         divider.frame = NSRect(x: 16, y: fh, width: max(0, b.width - 32), height: 1)
-        var y: CGFloat = fh + 10
+        var y: CGFloat = fh + 6
         for r in rows where !r.isHidden {
             r.frame = NSRect(x: 10, y: y, width: b.width - 20, height: Self.rowHeight)
-            y += Self.rowHeight + 2
+            y += Self.rowHeight + 4
         }
+        // Arc: 60 pt at the bottom, edge to edge under the outline, in the last row's place.
+        let nh = CGFloat(SearchSuggestionsNotice.bannerHeight)
+        notice.frame = NSRect(x: 0, y: b.height - nh, width: b.width, height: nh)
     }
 
     // MARK: Entering a scope (Arc's CommandBarContainer, 1.171)
@@ -386,27 +425,27 @@ final class CommandBarRowView: NSView {
     private let iconBox = NSView()
     private let icon = NSImageView()
     private let emoji = NSTextField.sidebarLabel(size: 16)
-    private let label = NSTextField.sidebarLabel(size: 15)
-    private let trailing = NSTextField.sidebarLabel(size: 14, weight: .medium)
+    private let label = NSTextField.sidebarLabel(size: 14)
+    private let trailing = NSTextField.sidebarLabel(size: 14, weight: .semibold)
     private let arrowBox = NSView()
     private let arrow = NSImageView()
-    private var shown: (Suggestion, NSImage?, Bool, NSColor, String?, Bool, Bool)?
+    private var shown: (Suggestion, NSImage?, Bool, NSColor, String?, Bool)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = 10
+        layer?.cornerRadius = 6
         layer?.cornerCurve = .continuous
         iconBox.wantsLayer = true
-        iconBox.layer?.cornerRadius = 6
+        iconBox.layer?.cornerRadius = 4
         iconBox.layer?.cornerCurve = .continuous
         icon.imageScaling = .scaleProportionallyUpOrDown
         arrowBox.wantsLayer = true
-        arrowBox.layer?.cornerRadius = 6
+        arrowBox.layer?.cornerRadius = 4
         arrowBox.layer?.cornerCurve = .continuous
-        arrow.image = SidebarSymbols.image("arrow.right", size: 12, weight: .bold)
+        arrow.image = SidebarSymbols.image("arrow.right", size: 17, weight: .medium)
         arrow.imageScaling = .scaleNone
-        label.lineBreakMode = .byTruncatingMiddle
+        label.lineBreakMode = .byTruncatingTail
         trailing.textColor = .secondaryLabelColor
         for v in [iconBox, icon, emoji, label, trailing, arrowBox, arrow] as [NSView] { addSubview(v) }
     }
@@ -415,48 +454,57 @@ final class CommandBarRowView: NSView {
 
     override var isFlipped: Bool { true }
 
-    func show(_ s: Suggestion, icon image: NSImage?, selected: Bool, highlight: NSColor, otherSpace: String?, queryEmpty: Bool, dark: Bool) {
-        if let o = shown, o.0 == s, o.1 === image, o.2 == selected, o.3 == highlight, o.4 == otherSpace, o.5 == queryEmpty, o.6 == dark { return }
-        let sameContent = shown.map { $0.0 == s && $0.1 === image && $0.4 == otherSpace && $0.5 == queryEmpty && $0.6 == dark } ?? false
-        shown = (s, image, selected, highlight, otherSpace, queryEmpty, dark)
+    func show(_ s: Suggestion, icon image: NSImage?, selected: Bool, highlight: NSColor, otherSpace: String?, dark: Bool) {
+        if let o = shown, o.0 == s, o.1 === image, o.2 == selected, o.3 == highlight, o.4 == otherSpace, o.5 == dark { return }
+        shown = (s, image, selected, highlight, otherSpace, dark)
         layer?.backgroundColor = (selected ? highlight : .clear).cgColor
-        guard !sameContent else { return }
+        // Selection changes all foregrounds too, including when reusable rows keep their content.
+        // Arc 1.172.1 live (dark): titles (214,214,214), "Switch to Tab" and URLs (117,117,117), white when selected.
+        let ink: NSColor = selected ? .white : (dark ? NSColor(white: 0.84, alpha: 1) : NSColor.black.withAlphaComponent(0.85))
+        let secondaryInk = selected ? NSColor.white.withAlphaComponent(0.85) : (dark ? NSColor(white: 0.46, alpha: 1) : NSColor.black.withAlphaComponent(0.40))
         if let image {
             icon.isHidden = false
             emoji.isHidden = true
-            iconBox.isHidden = false
+            iconBox.isHidden = !selected
             icon.image = image
             icon.imageScaling = .scaleProportionallyUpOrDown
             icon.contentTintColor = nil
-            iconBox.layer?.backgroundColor = (dark ? NSColor.white.withAlphaComponent(0.14) : NSColor.black.withAlphaComponent(0.06)).cgColor
+            iconBox.layer?.backgroundColor = NSColor.white.cgColor
         } else if case .switchSpace = s.kind, let t = s.trailing {
             icon.isHidden = true
             iconBox.isHidden = true
             emoji.isHidden = false
             emoji.stringValue = t
         } else {
-            iconBox.isHidden = true
+            if case .command = s.kind {
+                iconBox.isHidden = false
+                iconBox.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor
+            } else {
+                iconBox.isHidden = true
+            }
             emoji.isHidden = true
             icon.isHidden = false
-            icon.image = SidebarSymbols.image(s.symbol ?? "globe", size: 15, weight: .medium)
+            icon.image = SidebarSymbols.image(s.symbol ?? "globe", size: 14, weight: .medium)
             icon.imageScaling = .scaleNone
-            icon.contentTintColor = .secondaryLabelColor
+            icon.contentTintColor = selected ? .white : ink
         }
-        let t = NSMutableAttributedString(string: s.title, attributes: [.font: NSFont.systemFont(ofSize: 15, weight: .semibold), .foregroundColor: NSColor.labelColor])
-        t.append(NSAttributedString(string: Self.detail(s), attributes: [.font: NSFont.systemFont(ofSize: 15), .foregroundColor: NSColor.secondaryLabelColor]))
+        let t = NSMutableAttributedString(string: s.title, attributes: [.font: NSFont.systemFont(ofSize: 14, weight: .semibold), .foregroundColor: ink])
+        t.append(NSAttributedString(string: Self.detail(s), attributes: [.font: NSFont.systemFont(ofSize: 14), .foregroundColor: secondaryInk]))
         label.attributedStringValue = t
         let isTab = s.tabID != nil
         if isTab {
-            trailing.font = .systemFont(ofSize: 14, weight: .medium)
-            trailing.stringValue = otherSpace ?? (queryEmpty ? "" : "Switch to Tab")
+            trailing.font = .systemFont(ofSize: 14, weight: .semibold)
+            trailing.stringValue = otherSpace ?? "Switch to Tab"
         } else {
             trailing.font = .systemFont(ofSize: 13, weight: .medium)
             trailing.stringValue = s.trailing ?? ""
         }
         arrowBox.isHidden = !isTab
         arrow.isHidden = !isTab
-        arrow.contentTintColor = NSColor.labelColor.withAlphaComponent(0.8)
-        arrowBox.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.1).cgColor
+        trailing.textColor = selected ? .white : secondaryInk
+        // Arc: the arrow (189,189,189) on a white-5 % tile; selected, the row's colour on a white tile.
+        arrow.contentTintColor = selected ? highlight.withAlphaComponent(1) : (dark ? NSColor.white.withAlphaComponent(0.72) : NSColor.labelColor.withAlphaComponent(0.65))
+        arrowBox.layer?.backgroundColor = (selected ? NSColor.white : NSColor.labelColor.withAlphaComponent(0.05)).cgColor
         needsLayout = true
     }
 
@@ -474,20 +522,16 @@ final class CommandBarRowView: NSView {
     override func layout() {
         super.layout()
         let h = bounds.height
-        // padding 14, icon 26, 14 apart, the title, Spacer(min 8), trailing text, 14, arrow box 22.
-        iconBox.frame = NSRect(x: 14, y: (h - 26) / 2, width: 26, height: 26)
-        if iconBox.isHidden {
-            icon.frame = iconBox.frame
-        } else {
-            icon.frame = iconBox.frame.insetBy(dx: 4, dy: 4)
-        }
+        // 10 pt padding, a 24 pt favicon tile, 8 pt to the title, and a 24 pt arrow tile.
+        iconBox.frame = NSRect(x: 10, y: (h - 24) / 2, width: 24, height: 24)
+        icon.frame = iconBox.frame.insetBy(dx: 4, dy: 4)
         let es = emoji.intrinsicContentSize
-        emoji.frame = NSRect(x: 14 + (26 - es.width) / 2, y: (h - es.height) / 2, width: es.width, height: es.height)
-        var right = bounds.width - 14
+        emoji.frame = NSRect(x: 10 + (24 - es.width) / 2, y: (h - es.height) / 2, width: es.width, height: es.height)
+        var right = bounds.width - 12
         if !arrowBox.isHidden {
-            arrowBox.frame = NSRect(x: right - 22, y: (h - 22) / 2, width: 22, height: 22)
+            arrowBox.frame = NSRect(x: right - 24, y: (h - 24) / 2, width: 24, height: 24)
             arrow.frame = arrowBox.frame
-            right -= 22 + 14
+            right -= 24 + 10
         }
         if !trailing.stringValue.isEmpty {
             let tw = ceil(trailing.attributedStringValue.size().width)
@@ -498,7 +542,7 @@ final class CommandBarRowView: NSView {
             // The empty label still takes its spacing in the HStack.
             right -= 14
         }
-        let x: CGFloat = 14 + 26 + 14
+        let x: CGFloat = 10 + 24 + 8
         let ls = label.intrinsicContentSize
         label.frame = NSRect(x: x - SidebarText.inset, y: (h - ls.height) / 2, width: max(0, right - 8 - x) + 2 * SidebarText.inset, height: ls.height)
     }
@@ -514,5 +558,162 @@ final class CommandBarRowView: NSView {
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick() }
+    }
+}
+
+/// The info badge: a click (or an accessibility press) runs `onPress`, as the bar's rows do.
+private final class CommandBarBadge: NSImageView {
+    var onPress: () -> Void = {}
+
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { onPress() }
+    }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { "About search suggestions" }
+    override func accessibilityPerformPress() -> Bool {
+        onPress()
+        return true
+    }
+}
+
+/// Arc's search-suggestions banner (CommandBar.SearchSuggestionsPrivacyView, Arc 1.172.1 at 2x, #314): black,
+/// a 13 pt (i) centred 24 pt in, "We talk to your search engine to help us suggest results." in 13 pt bold
+/// from 46.5 pt with "Learn more about your data on … here." under it in 12 pt grey, and Search Settings…
+/// (130.5 pt) and Dismiss (71 pt), 37 pt tall, 10 pt apart and 10 pt from the edge.
+private final class SearchSuggestionsBannerView: NSView {
+    var onSettings: () -> Void = {}
+    var onDismiss: () -> Void = {}
+    var onLearnMore: () -> Void = {}
+
+    private let icon = NSImageView()
+    private let title = NSTextField.sidebarLabel(size: 13, weight: .bold)
+    private let subtitle = NSTextField.sidebarLabel(size: 12, weight: .regular)
+    private let link = NoticeLinkLabel()
+    private let settings = NoticeButton(title: "Search Settings…")
+    private let dismiss = NoticeButton(title: "Dismiss")
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        icon.image = SidebarSymbols.image("info.circle", size: 13, weight: .regular)
+        icon.imageScaling = .scaleNone
+        icon.contentTintColor = NSColor(white: 115 / 255, alpha: 1)
+        title.stringValue = "We talk to your search engine to help us suggest results."
+        title.textColor = NSColor(white: 237 / 255, alpha: 1)
+        let ink = NSColor(white: 126 / 255, alpha: 1), font = NSFont.systemFont(ofSize: 12)
+        let text = NSMutableAttributedString(string: Self.lead, attributes: [.font: font, .foregroundColor: ink])
+        text.append(NSAttributedString(string: "here", attributes: [.font: font, .foregroundColor: ink, .underlineStyle: NSUnderlineStyle.single.rawValue]))
+        text.append(NSAttributedString(string: ".", attributes: [.font: font, .foregroundColor: ink]))
+        subtitle.attributedStringValue = text
+        link.onClick = { [weak self] in self?.onLearnMore() }
+        settings.onClick = { [weak self] in self?.onSettings() }
+        dismiss.onClick = { [weak self] in self?.onDismiss() }
+        for v in [icon, title, subtitle, link, settings, dismiss] as [NSView] { addSubview(v) }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(title.stringValue)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+
+    func apply(tones: CommandBarTones) {
+        for b in [settings, dismiss] { b.set(fill: CommandBarView.ink(tones.noticeButtonFill), outline: CommandBarView.ink(tones.noticeButtonOutline)) }
+    }
+
+    private static let lead = "Learn more about your data on Cra "
+
+    func debugPress(_ name: String) -> Bool {
+        switch name {
+        case "settings": return settings.accessibilityPerformPress()
+        case "dismiss": return dismiss.accessibilityPerformPress()
+        case "learnMore": return link.accessibilityPerformPress()
+        default: return false
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let h = bounds.height
+        icon.frame = NSRect(x: 24 - 8, y: (h - 16) / 2, width: 16, height: 16)
+        let dw: CGFloat = 71, sw: CGFloat = 130.5, bh: CGFloat = 37
+        dismiss.frame = NSRect(x: bounds.width - 10 - dw, y: (h - bh) / 2, width: dw, height: bh)
+        settings.frame = NSRect(x: dismiss.frame.minX - 10 - sw, y: (h - bh) / 2, width: sw, height: bh)
+        let x: CGFloat = 46.5 - SidebarText.inset
+        let maxW = max(0, settings.frame.minX - 12 - x)
+        let th = title.intrinsicContentSize.height, sh = subtitle.intrinsicContentSize.height
+        let top = (h - th - sh - 1) / 2
+        title.frame = NSRect(x: x, y: top, width: maxW, height: th)
+        subtitle.frame = NSRect(x: x, y: top + th + 1, width: maxW, height: sh)
+        // The click target over "here".
+        let font = NSFont.systemFont(ofSize: 12)
+        let lead = ceil((Self.lead as NSString).size(withAttributes: [.font: font]).width)
+        let here = ceil(("here" as NSString).size(withAttributes: [.font: font]).width)
+        link.frame = NSRect(x: x + SidebarText.inset + lead - 1, y: subtitle.frame.minY, width: here + 2, height: sh)
+    }
+}
+
+/// The click target over the subtitle's "here": it opens Cra's privacy page.
+private final class NoticeLinkLabel: NSView {
+    var onClick: () -> Void = {}
+
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick() }
+    }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .link }
+    override func accessibilityLabel() -> String? { "here" }
+    override func accessibilityPerformPress() -> Bool {
+        onClick()
+        return true
+    }
+}
+
+/// The banner's buttons: the space's focus colour over black, a 1 pt outline, 5 pt corners, 13 pt white.
+private final class NoticeButton: NSView {
+    var onClick: () -> Void = {}
+    private let label = NSTextField.sidebarLabel(size: 13, weight: .medium)
+
+    init(title: String) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 5
+        layer?.cornerCurve = .continuous
+        layer?.borderWidth = 1
+        label.stringValue = title
+        label.textColor = NSColor(srgbRed: 235 / 255, green: 235 / 255, blue: 239 / 255, alpha: 1)
+        label.alignment = .center
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func set(fill: NSColor, outline: NSColor) {
+        layer?.backgroundColor = fill.cgColor
+        layer?.borderColor = outline.cgColor
+    }
+
+    override func layout() {
+        super.layout()
+        let h = label.intrinsicContentSize.height
+        label.frame = NSRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width, height: h)
+    }
+
+    override var isFlipped: Bool { true }
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick() }
+    }
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { label.stringValue }
+    override func accessibilityPerformPress() -> Bool {
+        onClick()
+        return true
     }
 }

@@ -106,19 +106,19 @@ public enum SiteControlCenter {
                 let on = settings.blockAdsAndTrackers
                 return SettingRow(setting: s, title: "Block Ads & Trackers", subtitle: on ? "On" : "Off", isOn: on, symbol: "shield.fill")
             case .autoPictureInPicture:
-                let on = settings.autoPictureInPicture
+                let on = settings.allowsAutoPictureInPicture(url: url)
                 return SettingRow(setting: s, title: "Automatic Picture-In-Picture", subtitle: on ? "Allowed" : "Disabled", isOn: on,
                                   symbol: "gearshape.fill")
             }
         }
     }
 
-    /// A row's click. Developer Mode is per site; the other two are app-wide.
+    /// A row's click. Developer Mode and automatic Picture-in-Picture are per site.
     public static func toggle(_ setting: Setting, in settings: inout AppSettings, url: String) {
         switch setting {
         case .developerMode: settings.toggleDeveloperMode(url: url)
         case .blockAdsAndTrackers: settings.blockAdsAndTrackers.toggle()
-        case .autoPictureInPicture: settings.autoPictureInPicture.toggle()
+        case .autoPictureInPicture: settings.toggleAutoPictureInPicture(url: url)
         }
     }
 

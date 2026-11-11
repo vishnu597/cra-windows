@@ -49,6 +49,7 @@ extension Notification.Name {
 public final class KeyBindingRegistry {
     public private(set) var actions: [KeyAction]
     @ObservationIgnored private let defaults: [KeyAction]
+    @ObservationIgnored private var pluginActions: [KeyAction] = []
     @ObservationIgnored private let overridesFile: JSONStore<[String: [KeyChord]]>
     /// Every override the file holds, also for actions this table lacks (the Mac's file read on
     /// Windows, an action a later version drops): saving keeps them.
@@ -64,11 +65,29 @@ public final class KeyBindingRegistry {
     }
 
     private func apply() {
-        actions = defaults.map { a in
+        var table = defaults
+        let insertion = table.firstIndex(where: { $0.id == "newFolder" }).map { $0 + 1 } ?? table.count
+        table.insert(contentsOf: pluginActions, at: insertion)
+        actions = table.map { a in
             var a = a
             if let o = overrides[a.id] { a.shortcuts = o }
             return a
         }
+    }
+
+    /// Commands supplied by installed live-folder plugins, immediately after New Folder.
+    public func setPluginActions(_ actions: [KeyAction]) {
+        guard pluginActions != actions else { return }
+        pluginActions = actions
+        apply()
+        NotificationCenter.default.post(name: .craKeyBindingsChanged, object: nil)
+    }
+
+    /// A sync document changed the shortcut overrides on disk.
+    public func reloadOverrides() {
+        overrides = overridesFile.load(or: { [:] })
+        apply()
+        NotificationCenter.default.post(name: .craKeyBindingsChanged, object: nil)
     }
 
     public func action(_ id: String) -> KeyAction? { actions.first { $0.id == id } }

@@ -10,7 +10,7 @@ public enum ExternalLink {
         /// A cra:// link that drives Cra (scripting), which other apps may not use unless the
         /// user allowed it.
         case ignored
-        case littleWindow
+        case littleWindow(space: UUID?)
         /// A new foreground tab in this space's Today list.
         case space(UUID)
         /// A new foreground tab in the space of the normal window used last.
@@ -25,7 +25,7 @@ public enum ExternalLink {
             return isUserFacing(u) || allowsScripting ? .internalURL : .ignored
         }
         switch settings.destination(forExternalURL: url) {
-        case .littleWindow: return .littleWindow
+        case .littleWindow(let id): return .littleWindow(space: id.flatMap { spaceExists($0) ? $0 : nil })
         case .space(let id) where spaceExists(id): return .space(id)
         case .space, .mostRecentSpace: return .mostRecentSpace
         }

@@ -13,6 +13,7 @@
 
 #include <climits>
 #include <cstdio>
+#include <cstdlib>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -54,6 +55,20 @@ std::wstring Wide(const char *utf8) {
     std::wstring out(n > 0 ? n - 1 : 0, L'\0');
     if (n > 1) MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out.data(), n);
     return out;
+}
+
+/// Chromium canonicalizes its user_data_dir with _wfullpath, but CEF compares a request
+/// context's cache path literally against it. Foundation URLs use forward slashes: without
+/// the same spelling here, a named profile silently becomes off-the-record and loses storage
+/// on restart. Keep the root and every named profile on that same Windows path spelling.
+std::wstring CachePath(const char *utf8) {
+    std::wstring path = Wide(utf8);
+    if (path.empty()) return path;
+    wchar_t *absolute = _wfullpath(nullptr, path.c_str(), MAX_PATH);
+    if (!absolute) return path;
+    path = absolute;
+    std::free(absolute);
+    return path;
 }
 
 /// "rgb(r, g, b)" or "rgba(r, g, b, a)" as "#RRGGBB"; "" for a transparent or unknown colour.
@@ -1163,6 +1178,10 @@ public:
         command_line->AppendSwitch("disable-session-crashed-bubble");
         command_line->AppendSwitch("hide-crash-restore-bubble");
         command_line->AppendSwitch("no-first-run");
+        // The global request context, which Default spaces use, is Chrome's startup profile.
+        // Otherwise Local State's profile.last_used can select a named profile after relaunch,
+        // so Default pages load in that profile instead (#81, as in CraCEF.mm).
+        command_line->AppendSwitchWithValue("profile-directory", "Default");
         command_line->AppendSwitchWithValue("autoplay-policy", "document-user-activation-required");
     }
 
@@ -1322,8 +1341,9 @@ extern "C" int cra_cef_initialize(const CraCEFSettings *s) {
     settings.external_message_pump = true;
     settings.persist_session_cookies = true;
     CefString(&settings.browser_subprocess_path) = Wide(s->helper_path);
-    CefString(&settings.root_cache_path) = Wide(s->cache_root);
-    CefString(&settings.cache_path) = Wide(s->cache_root) + L"\\Default";
+    const std::wstring cache_root = CachePath(s->cache_root);
+    CefString(&settings.root_cache_path) = cache_root;
+    CefString(&settings.cache_path) = cache_root + L"\\Default";
     if (s->log_path) CefString(&settings.log_file) = Wide(s->log_path);
     settings.log_severity = LOGSEVERITY_WARNING;
     if (s->user_agent_product) CefString(&settings.user_agent_product) = Wide(s->user_agent_product);
@@ -1396,7 +1416,7 @@ extern "C" CraBrowser *cra_browser_create_in(uintptr_t parent, int x, int y, int
                                              int incognito, const char *profile_path, CraBrowserCallbacks callbacks) {
     auto *b = new CraBrowser;
     b->incognito = incognito != 0;
-    if (!b->incognito) b->profile_path = Wide(profile_path);
+    if (!b->incognito) b->profile_path = CachePath(profile_path);
     b->client = new CraClient(b);
     b->callbacks = callbacks;
     b->parent = reinterpret_cast<HWND>(parent);

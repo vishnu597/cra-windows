@@ -14,14 +14,27 @@ public enum LinkMatchStyle: String, Codable, CaseIterable, Identifiable {
 
 /// Arc's LinkDestination is `space(ProfileDestination)` or `littleArc(ProfileDestination)`
 /// with ProfileDestination `mostRecent | space(id) | profile(…)`. Its editor only offers
-/// space(mostRecent), space(id) and littleArc(mostRecent); a Little Arc given a space still
-/// opened with "Open in <most recent space>", so Cra has no profiles and no space here.
+/// space(mostRecent), space(id) and littleArc(mostRecent); a hand-written littleArc(space)
+/// only picked the page's profile and still said "Open in <most recent space>".
 /// A space destination opens a new foreground tab in that space's Today list (also when
 /// the URL is already open) and switches the window to the space.
+/// A Little Window may name a space (#258, past Arc): the page loads in that space's
+/// profile and "Open in" / ⌘O sends it there; nil is the space in use, as in Arc.
 public enum LinkDestination: Codable, Hashable {
     case mostRecentSpace
     case space(UUID)
-    case littleWindow
+    /// Saved as `{"littleWindow": {}}` without a space, as before #258, and
+    /// `{"littleWindow": {"space": "<id>"}}` with one, which older Cra reads as a plain
+    /// Little Window rather than dropping the routes.
+    case littleWindow(space: UUID?)
+
+    /// A Little Window in the space in use.
+    public static let littleWindowInUse = LinkDestination.littleWindow(space: nil)
+
+    public var isLittleWindow: Bool {
+        if case .littleWindow = self { return true }
+        return false
+    }
 }
 
 public struct LinkRoute: Codable, Identifiable, Equatable {
@@ -99,6 +112,8 @@ public enum SiteKey {
 /// and its destination menu, which the Mac's AirTrafficControlView and Windows' sheet both show.
 public enum AirTrafficControl {
     public static let title = "Air Traffic Control"
+    public static let openInSpaceTitle = "Open in Space"
+    public static let littleWindowInTitle = "Little Window in"
     public static let emptyNote = "Add a route to open matching links from other apps in a chosen space."
     public static let placeholder = "crabrowser.app"
     public static let settingsNote = "Choose which space links from other apps open in."
@@ -110,6 +125,13 @@ public enum AirTrafficControl {
         case 1: return "1 route"
         default: return "\(routes) routes"
         }
+    }
+
+    /// The description under the Links pane's Air Traffic Control row.
+    public static func routesDetail(routes: Int) -> String {
+        let lead = "Send links from other apps to the space you choose, by what their address contains."
+        guard routes > 0 else { return lead }
+        return lead + " \(routes) \(routes == 1 ? "route" : "routes") set."
     }
 
     /// One entry of the destination menu.
@@ -125,12 +147,38 @@ public enum AirTrafficControl {
     public static func choices(spaces: [Space]) -> [Choice] {
         [Choice(destination: .mostRecentSpace, title: "Most Recent Space", afterSeparator: false)]
             + spaces.map { Choice(destination: .space($0.id), title: $0.emoji.isEmpty ? $0.title : "\($0.emoji) \($0.title)", afterSeparator: false) }
-            + [Choice(destination: .littleWindow, title: "Little Window", afterSeparator: true)]
+            + [Choice(destination: .littleWindowInUse, title: "Little Window", afterSeparator: true)]
+    }
+
+    /// The secondary space menu for a Little Window: the space in use or a named space.
+    public static func littleWindowChoices(spaces: [Space]) -> [Choice] {
+        choices(spaces: spaces).compactMap { choice in
+            switch choice.destination {
+            case .mostRecentSpace:
+                return Choice(destination: .littleWindowInUse, title: choice.title, afterSeparator: false)
+            case .space(let id):
+                return Choice(destination: .littleWindow(space: id), title: choice.title, afterSeparator: false)
+            case .littleWindow:
+                return nil
+            }
+        }
+    }
+
+    /// The named space a Little Window uses, nil for the space in use or one deleted since.
+    public static func littleWindowSpace(_ destination: LinkDestination, spaces: [Space]) -> UUID? {
+        guard case .littleWindow(let id) = destination else { return nil }
+        return id.flatMap { id in spaces.contains(where: { $0.id == id }) ? id : nil }
+    }
+
+    /// Re-selecting the primary Little Window entry keeps its secondary space selection.
+    public static func selecting(_ destination: LinkDestination, current: LinkDestination) -> LinkDestination {
+        destination.isLittleWindow && current.isLittleWindow ? current : destination
     }
 
     /// What the menu shows for `destination`: a route to a deleted space opens in the most recent
     /// one, so it shows that way.
     public static func shown(_ destination: LinkDestination, spaces: [Space]) -> LinkDestination {
+        if destination.isLittleWindow { return .littleWindowInUse }
         if case .space(let id) = destination, !spaces.contains(where: { $0.id == id }) { return .mostRecentSpace }
         return destination
     }

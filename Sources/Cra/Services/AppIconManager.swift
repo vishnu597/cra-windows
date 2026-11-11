@@ -24,6 +24,7 @@ final class AppIconManager {
         Option(id: defaultID, name: "Segments"),
         Option(id: "midnight", name: "Midnight"),
         Option(id: "mono", name: "Mono"),
+        Option(id: "violet", name: "Violet"),
     ]
 
     // Shared with Sources/CraDockTile.
@@ -52,6 +53,14 @@ final class AppIconManager {
     /// At start-up, before the Dock first draws the running app's tile.
     func applyAtLaunch() {
         if selectedID != Self.defaultID { NSApp.applicationIconImage = image(for: selectedID) }
+    }
+
+    /// Cra just came back to the Dock (Keep Cra in the menu bar, #231). macOS registers the app
+    /// anew with the bundle's icon, so the ⌘-Tab switcher shows Segments until the icon is set
+    /// again (GitHub #319).
+    func applyAfterReturningToDock() {
+        NSApp.applicationIconImage = selectedID == Self.defaultID ? nil : image(for: selectedID)
+        CraLog.note("app icon: \(selectedID) set again, back in the Dock")
     }
 
     func image(for id: String) -> NSImage? {

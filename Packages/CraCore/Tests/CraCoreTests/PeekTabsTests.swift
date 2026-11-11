@@ -14,6 +14,8 @@ struct PeekTabsTests {
         let order = f.today()
         let link = f.store.openLinkTab("https://c.example", from: order.last!, inBackground: false)
         #expect(f.today() == order + [link.id], "below the last tab")
+        #expect(link.tab?.referrerID == order.last)
+        #expect(f.store.backStep(link.id, canGoBack: false) == .close(returnTo: order.last!))
         let first = f.store.openLinkTab("https://d.example", from: order.first!, inBackground: false)
         #expect(f.today().firstIndex(of: first.id) == 1, "right below the first one")
         #expect(f.store.selectedTabID == first.id)

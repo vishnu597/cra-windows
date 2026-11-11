@@ -409,6 +409,8 @@ final class LittleWindow {
         case "resetZoom": page?.zoomLevel = 0
         case "copyURL": copyURL(markdown: false)
         case "copyURLMarkdown": copyURL(markdown: true)
+        case "share":
+            if hasPage { share(url: currentURL, title: title) }
         case "viewSource": page?.viewSource()
         case "print": page?.printPage()
         case "devTools": page?.runDevTools(.toggle)
@@ -441,6 +443,15 @@ final class LittleWindow {
         return handle(action: action.id) || (list?.perform(action.id) ?? false)
     }
 
+    private func share(url: String, title: String) {
+        WinShell.share(url: url, title: title, owner: window.hwnd, dispatcher: dispatcher,
+                       isValid: { [weak self] in self?.closing == false }, onFailure: { [weak self] in
+            guard let self, !self.closing else { return }
+            let theme = (self.store.space(self.targetSpaceID) ?? self.store.focusedSpace(window: self.store.lastNormalWindowID)).theme
+            self.toast.show(ShareRetry.failureMessage, theme: theme)
+        })
+    }
+
     /// Ctrl+Shift+C and the link button: the address, and Arc's toast at the page's top right.
     private func copyURL(markdown: Bool) {
         guard hasPage else { return }
@@ -451,8 +462,7 @@ final class LittleWindow {
             toast.show("Copied URL as Markdown", theme: theme)
         } else {
             toast.show("Copied Current URL", action: ToastView.Action(title: "Share") { [weak self] in
-                guard let self else { return }
-                WinShell.share(url: url, title: title, owner: self.window.hwnd)
+                self?.share(url: url, title: title)
             }, theme: theme)
         }
     }
