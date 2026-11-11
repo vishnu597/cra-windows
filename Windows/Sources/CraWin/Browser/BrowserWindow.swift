@@ -678,12 +678,7 @@ final class BrowserWindow {
         case "newProfile": if !isIncognito { showNewProfile(ticked: []) }
         case "share":
             if let tab = store.selectedTab(window: windowID), let url = tab.tab?.url, !url.isEmpty {
-                let title = tab.displayTitle
-                // Leave CEF's pre-key callback before opening the native Share UI.
-                _ = try? dispatcher.tryEnqueue { [weak self] in
-                    guard let self, !self.closing else { return }
-                    WinShell.share(url: url, title: title, owner: self.hwnd)
-                }
+                share(url: url, title: tab.displayTitle)
             }
         case "newTab": beginNewTab()
         case "editURL": openCommandBar(.editURL)
@@ -1281,7 +1276,7 @@ final class BrowserWindow {
         switch action {
         case .share:
             guard let tab = store.selectedTab(window: windowID), let url = tab.tab?.url, !url.isEmpty else { return }
-            WinShell.share(url: url, title: tab.displayTitle, owner: hwnd)
+            share(url: url, title: tab.displayTitle)
         case .copyURL: copyURL(markdown: false)
         case .capture: capture(fullPage: false)
         case .captureFullPage: capture(fullPage: true)
@@ -1301,6 +1296,12 @@ final class BrowserWindow {
 
     // MARK: Copy and capture
 
+    private func share(url: String, title: String) {
+        WinShell.share(url: url, title: title, owner: hwnd, dispatcher: dispatcher,
+                       isValid: { [weak self] in self?.closing == false },
+                       onFailure: { [weak self] in self?.showToast(ShareRetry.failureMessage) })
+    }
+
     /// Ctrl+Shift+C (Arc's ⇧⌘C): the page's address; with Alt, as a Markdown link.
     private func copyURL(markdown: Bool) {
         guard let tab = store.selectedTab(window: windowID), let url = tab.tab?.url, !url.isEmpty else { return }
@@ -1310,8 +1311,7 @@ final class BrowserWindow {
         } else {
             let title = tab.displayTitle
             showToast("Copied Current URL", action: ToastView.Action(title: "Share") { [weak self] in
-                guard let self else { return }
-                WinShell.share(url: url, title: title, owner: self.hwnd)
+                self?.share(url: url, title: title)
             })
         }
     }

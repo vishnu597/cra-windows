@@ -71,6 +71,9 @@ int cra_clipboard_set_text(const char *text);
 int cra_clipboard_set_png(const uint8_t *png, size_t length);
 /// Windows' Share window for a link (`title` may be NULL), over `owner` (an HWND). 1 when it opened.
 int cra_share_link(uintptr_t owner, const char *url, const char *title);
+/// One Share attempt: 1 opened, 2 Share's server is temporarily busy, 0 another failure.
+/// The legacy cra_share_link entry still returns only 0 or 1.
+int cra_share_link_attempt(uintptr_t owner, const char *url, const char *title);
 /// A native menu at the pointer, owned by `owner` (an HWND): `titles[i]` is item i, and NULL or
 /// "" a separator. Returns the chosen item's index plus one, 0 when none was chosen. Modal.
 int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count);

@@ -119,9 +119,9 @@ std::wstring g_shareURL, g_shareTitle;
 /// Windows whose DataTransferManager already has our handler.
 std::set<HWND> g_shareWindows;
 
-int ShareFailed(const char *stage, HRESULT result) {
+int ShareFailed(const char *stage, HRESULT result, bool may_retry = false) {
     fprintf(stderr, "CraCEFWin: Share %s failed (HRESULT 0x%08lX)\n", stage, static_cast<unsigned long>(result));
-    return 0;
+    return may_retry && result == RPC_E_SERVERCALL_RETRYLATER ? 2 : 0;
 }
 
 HRESULT FillShare(DataTransfer::IDataRequestedEventArgs *args) {
@@ -173,6 +173,10 @@ extern "C" int cra_clipboard_set_png(const uint8_t *png, size_t length) {
 }
 
 extern "C" int cra_share_link(uintptr_t owner, const char *url, const char *title) {
+    return cra_share_link_attempt(owner, url, title) == 1 ? 1 : 0;
+}
+
+extern "C" int cra_share_link_attempt(uintptr_t owner, const char *url, const char *title) {
     HWND window = reinterpret_cast<HWND>(owner);
     if (!window || !url || !*url) return ShareFailed("arguments", E_INVALIDARG);
     ComPtr<IDataTransferManagerInterop> interop;
@@ -196,7 +200,7 @@ extern "C" int cra_share_link(uintptr_t owner, const char *url, const char *titl
         g_shareWindows.insert(window);
     }
     result = interop->ShowShareUIForWindow(window);
-    return FAILED(result) ? ShareFailed("ShowShareUIForWindow", result) : 1;
+    return FAILED(result) ? ShareFailed("ShowShareUIForWindow", result, true) : 1;
 }
 
 extern "C" int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count) {

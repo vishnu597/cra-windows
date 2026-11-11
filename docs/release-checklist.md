@@ -158,6 +158,10 @@ built release app with a test profile. Note anything that fails in the release's
   from the command bar and check the same panel opens. Close it using its own X again:
   the Cra window responds normally. Finally close the test Little Window and check that
   the remaining Cra windows still respond.
+  If Windows reports its Share server busy, Cra stays responsive during the short retries,
+  then shows one "Couldn't open Windows Share" toast if it still cannot open. Invoke Share
+  again while it retries, or close that window: an older request never opens later or shows
+  a toast over another window.
 
 ### Extensions and developer mode
 
