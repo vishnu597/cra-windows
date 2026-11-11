@@ -36,6 +36,12 @@ built release app with a test profile. Note anything that fails in the release's
 - **PR #269:** in Settings, the selected source-list row is inset 10 pt from both sidebar edges
   (glyph 20 pt and label 49 pt from the edge, as in Dia 1.55.1), and scrolling Performance or Advanced
   never draws under the back/forward pill or the pane title.
+- **Windows Air Traffic Control:** with two test spaces, open Settings ▸ Tabs ▸ Air Traffic
+  Control. For both a route and Default, choose a space, Little Window, a named Little Window
+  space, and Most Recent Space. After each choice, Tab and Shift+Tab stay inside the sheet;
+  Settings' Back/Forward buttons and sidebar never receive focus. When the extra space menu
+  appears or disappears, focus returns to the corresponding destination button. Re-selecting
+  Little Window keeps its named space. Escape closes the sheet and focuses its opener.
 
 ### Sidebar, tabs and the command bar
 
