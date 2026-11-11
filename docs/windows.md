@@ -59,6 +59,13 @@ Chromium's own crash recovery is off: after a run that didn't quit cleanly it wo
 the last session in a stock Chromium window, so `CrashRecovery` clears it from the profiles
 before Chromium starts (`ChromiumCrashState` in CraCore, as the Mac bridge does).
 
+The bridge canonicalizes the cache root and named profile paths with Windows' `_wfullpath`,
+matching Chromium's user-data directory. Foundation URL paths use forward slashes, while CEF's
+Chrome runtime compares a profile's parent path literally. Passing those paths through unchanged
+can log "Cannot create profile at path" and silently use temporary storage: spaces stay isolated
+during the session, but their cookies and local storage vanish after restart. The real CEF
+restart check is in [release-checklist.md](release-checklist.md#profiles-privacy-media-and-the-engine).
+
 The window is not a WinUI `Window`. A Window's XAML bridge covers its whole client area, and
 while it covers a page no real click or wheel reaches the page, whatever the z-order.
 `HostWindow` is an AppWindow with a `DesktopWindowXamlSource` whose bridge it keeps to the

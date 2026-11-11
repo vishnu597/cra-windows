@@ -678,7 +678,12 @@ final class BrowserWindow {
         case "newProfile": if !isIncognito { showNewProfile(ticked: []) }
         case "share":
             if let tab = store.selectedTab(window: windowID), let url = tab.tab?.url, !url.isEmpty {
-                WinShell.share(url: url, title: tab.displayTitle, owner: hwnd)
+                let title = tab.displayTitle
+                // Leave CEF's pre-key callback before opening the native Share UI.
+                _ = try? dispatcher.tryEnqueue { [weak self] in
+                    guard let self, !self.closing else { return }
+                    WinShell.share(url: url, title: title, owner: self.hwnd)
+                }
             }
         case "newTab": beginNewTab()
         case "editURL": openCommandBar(.editURL)

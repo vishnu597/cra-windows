@@ -152,6 +152,12 @@ built release app with a test profile. Note anything that fails in the release's
   Full-page capture shows "Capture in Progress" first. Share keeps the control center open. On
   an https page with a certificate error the lock reads "Not Secure" and opens the certificate
   sheet.
+- **Windows Share:** with an isolated test profile, assign Share a shortcut in Settings. In
+  both a browser tab and a Little Window with the page focused, use that shortcut: Windows'
+  Share panel opens for that page. Close the panel using its own Close X, then invoke Share
+  from the command bar and check the same panel opens. Close it using its own X again:
+  the Cra window responds normally. Finally close the test Little Window and check that
+  the remaining Cra windows still respond.
 
 ### Extensions and developer mode
 
@@ -181,6 +187,16 @@ built release app with a test profile. Note anything that fails in the release's
 
 ### Profiles, privacy, media and the engine
 
+- **Windows profile persistence:** with an isolated `CRA_DATA_DIR`, load a synthetic page
+  on a loopback origin (or a synthetic HTTPS fixture) that saves and displays a `localStorage`
+  marker through an in-page control. Open the same origin in Default and a named profile and
+  save different markers. A second space on the named profile reads that profile's marker.
+  Quit Cra cleanly, wait for Cra and CraHelper to exit, then restart with the same data folder:
+  both markers remain separate and keep their values. Repeat with forward slashes in
+  `CRA_DATA_DIR`.
+  The named profile has `Preferences` and `Local Storage` on disk, and `chromium.log` has no
+  "Cannot create profile at path" error. Do this with the real CEF app; an isolated in-memory
+  context can appear to work until restart.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.

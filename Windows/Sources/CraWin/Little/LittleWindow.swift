@@ -410,7 +410,14 @@ final class LittleWindow {
         case "copyURL": copyURL(markdown: false)
         case "copyURLMarkdown": copyURL(markdown: true)
         case "share":
-            if hasPage { WinShell.share(url: currentURL, title: title, owner: window.hwnd) }
+            if hasPage {
+                let url = currentURL, title = self.title
+                // Leave CEF's pre-key callback before opening the native Share UI.
+                _ = try? dispatcher.tryEnqueue { [weak self] in
+                    guard let self, !self.closing else { return }
+                    WinShell.share(url: url, title: title, owner: self.window.hwnd)
+                }
+            }
         case "viewSource": page?.viewSource()
         case "print": page?.printPage()
         case "devTools": page?.runDevTools(.toggle)
