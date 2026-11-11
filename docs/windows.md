@@ -63,8 +63,11 @@ The bridge canonicalizes the cache root and named profile paths with Windows' `_
 matching Chromium's user-data directory. Foundation URL paths use forward slashes, while CEF's
 Chrome runtime compares a profile's parent path literally. Passing those paths through unchanged
 can log "Cannot create profile at path" and silently use temporary storage: spaces stay isolated
-during the session, but their cookies and local storage vanish after restart. The real CEF
-restart check is in [release-checklist.md](release-checklist.md#profiles-privacy-media-and-the-engine).
+during the session, but their cookies and local storage vanish after restart. Chrome also starts
+with `--profile-directory=Default`, as on the Mac (#81): the global context used by Default
+spaces must stay on Default, even when Local State's `profile.last_used` names another profile.
+The real CEF restart check is in
+[release-checklist.md](release-checklist.md#profiles-privacy-media-and-the-engine).
 
 The window is not a WinUI `Window`. A Window's XAML bridge covers its whole client area, and
 while it covers a page no real click or wheel reaches the page, whatever the z-order.

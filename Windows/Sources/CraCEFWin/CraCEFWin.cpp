@@ -1178,6 +1178,10 @@ public:
         command_line->AppendSwitch("disable-session-crashed-bubble");
         command_line->AppendSwitch("hide-crash-restore-bubble");
         command_line->AppendSwitch("no-first-run");
+        // The global request context, which Default spaces use, is Chrome's startup profile.
+        // Otherwise Local State's profile.last_used can select a named profile after relaunch,
+        // so Default pages load in that profile instead (#81, as in CraCEF.mm).
+        command_line->AppendSwitchWithValue("profile-directory", "Default");
         command_line->AppendSwitchWithValue("autoplay-policy", "document-user-activation-required");
     }
 

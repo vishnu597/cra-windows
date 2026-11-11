@@ -187,12 +187,13 @@ built release app with a test profile. Note anything that fails in the release's
 
 ### Profiles, privacy, media and the engine
 
-- **Windows profile persistence:** with an isolated `CRA_DATA_DIR`, load a synthetic page
+- **Windows profile persistence (#81):** with an isolated `CRA_DATA_DIR`, load a synthetic page
   on a loopback origin (or a synthetic HTTPS fixture) that saves and displays a `localStorage`
   marker through an in-page control. Open the same origin in Default and a named profile and
   save different markers. A second space on the named profile reads that profile's marker.
-  Quit Cra cleanly, wait for Cra and CraHelper to exit, then restart with the same data folder:
-  both markers remain separate and keep their values. Repeat with forward slashes in
+  Leave the named profile focused, quit Cra cleanly, wait for Cra and CraHelper to exit, then
+  restart with the same data folder. Check Default first, then the named profile: both markers
+  remain separate and keep their values. Repeat with forward slashes in
   `CRA_DATA_DIR`.
   The named profile has `Preferences` and `Local Storage` on disk, and `chromium.log` has no
   "Cannot create profile at path" error. Do this with the real CEF app; an isolated in-memory
