@@ -54,13 +54,13 @@ struct ShareRetryTests {
         #expect(verdicts([sheet, (front: true, enabled: true, hidden: false)]) == [.wait, .done], "closed as it should")
     }
 
-    /// PR #37's PC test: the sheet took the front but drew nothing (alpha 0), and the browser
-    /// window stayed disabled under it with nothing to close.
+    /// PR #37's PC test: a dead sheet held the front drawing nothing, and the browser window
+    /// stayed disabled under it with nothing to close.
     @Test func aWindowUnderASheetThatDrawsNothingIsEnabledAgain() {
         let hidden = (front: false, enabled: false, hidden: true)
         let shown = (front: false, enabled: false, hidden: false)
         #expect(verdicts(Array(repeating: hidden, count: ShareRetry.hiddenLimit)).last == .enable)
-        #expect(!verdicts(Array(repeating: hidden, count: ShareRetry.hiddenLimit - 1)).contains(.enable), "its fade-in")
+        #expect(!verdicts(Array(repeating: hidden, count: ShareRetry.hiddenLimit - 1)).contains(.enable), "an opening animation")
         #expect(!verdicts([hidden, hidden, shown] + Array(repeating: shown, count: 20)).contains(.enable), "a sheet that draws stays")
     }
 

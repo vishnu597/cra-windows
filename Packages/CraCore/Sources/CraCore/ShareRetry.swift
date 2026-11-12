@@ -17,16 +17,16 @@ public enum ShareRetry {
 
     /// Windows' Share sheet disables the window it opens over and enables it again when it closes.
     /// It can go wrong three ways (PR #36's and #37's PC tests): it lost the front to Cra and left
-    /// the window disabled; it took the front but drew nothing (a layered window at alpha 0) with
-    /// the window disabled under it; or it reported success and never showed. After a Share
+    /// the window disabled; it held the front drawing nothing (cloaked) with the window disabled
+    /// under it; or it reported success and never showed. After a Share
     /// opens, Cra looks every `ownerCheckInterval` seconds, for `ownerCheckLimit` looks.
     public static let ownerCheckInterval = 0.5
     public static let ownerCheckLimit = 1_200
     /// Looks before a Share that never disabled its window, with Cra still in front, counts as
     /// not shown: 4 seconds.
     public static let shownDeadline = 8
-    /// Looks a sheet in front may draw nothing before its window is enabled again: 3 seconds
-    /// (its opening fade takes well under one).
+    /// Looks a sheet in front may draw nothing (cloaked) before its window is enabled again:
+    /// 3 seconds, well past any opening animation.
     public static let hiddenLimit = 6
 
     public struct OwnerWatch: Equatable {
@@ -50,7 +50,7 @@ public enum ShareRetry {
         public init() {}
 
         /// One look. `ownerInFront`: the window is the foreground window; `enabled`: it takes
-        /// input; `sheetHidden`: the foreground window is a sheet that draws nothing.
+        /// input; `sheetHidden`: the foreground window draws nothing (DWM cloaks it).
         public mutating func next(ownerInFront: Bool, enabled: Bool, sheetHidden: Bool) -> Verdict {
             look += 1
             if !enabled { sheetSeen = true }
