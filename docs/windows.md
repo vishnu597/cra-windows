@@ -16,7 +16,9 @@ toolchain for Windows (6.1+) and the Windows App Runtime 1.7:
 
 `Windows/scripts/fetch-deps.ps1` reads the Chromium version from `scripts/fetch-cef.sh`, so
 both apps run the same Chromium. It uses Spotify's stock CEF build for now (no H.264/AAC,
-none of `scripts/cef-patches`).
+none of `scripts/cef-patches`). When the Mac pins a CEF that upstream builds itself, which
+Spotify doesn't publish, `$stockPin` in that script holds Windows on the newest stock build:
+156.0.26 (Chromium 156.0.8078.88) while the Mac runs 156.0.27 on Chromium 156.0.8078.96.
 
 ## Rules
 
