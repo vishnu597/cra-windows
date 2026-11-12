@@ -131,6 +131,9 @@ public final class CraApp: SwiftApplication {
         CrashRecovery.prepare(cache: WinPaths.chromiumCache)
         // Deleted profiles' folders, while Chromium has none of them open.
         DeletedProfiles(directory: WinPaths.supportDir, chromiumCache: WinPaths.chromiumCache).run()
+        // Passwords and sign-ins an import staged go in while no Chromium has the profile open
+        // (another Cra holding it keeps them waiting).
+        CredentialImport.applyPending(root: WinPaths.chromiumCache)
         let cache = WinPaths.chromiumCache.path
         let log = WinPaths.log.path
         return helper.withCString { h in

@@ -6,14 +6,16 @@ import WinUI
 
 /// Import from Another Browser (the Mac's Import from Arc or Dia…, whose sources are
 /// WindowsImportSource here): one row per browser with data on this PC; picking one imports its
-/// spaces, bookmarks and open tabs (Arc's sidebar, archive and Air Traffic Control) and closes
-/// the card. On the profile dialogs' navy card, in a window of its own over the page; Escape is
-/// Cancel.
+/// spaces, bookmarks and open tabs (Arc's sidebar, archive and Air Traffic Control), and with the
+/// box ticked its passwords and sign-ins (the Mac's Passwords and Sign-ins tiles). When those
+/// come along the card then says what came and what stayed; otherwise it closes. On the profile
+/// dialogs' navy card, in a window of its own over the page; Escape is Cancel (or Done).
 @MainActor
 final class ImportDialogView {
     static let width = 450.0
 
-    var onImport: (WindowsImportSource) -> Void = { _ in }
+    /// The browser, and whether its passwords and sign-ins come too.
+    var onImport: (WindowsImportSource, Bool) -> Void = { _, _ in }
     var onCancel: () -> Void = {}
 
     let root = Grid()
@@ -22,6 +24,7 @@ final class ImportDialogView {
     /// Swift is only a wrapper, gone once nothing in Swift holds it).
     private var rows: [Button] = []
     private var cancel: Button?
+    private let credentials = CheckBox()
 
     private static let card = UI.brush("#161C2F")
     private static let row = UI.brush("#222A43")
@@ -35,6 +38,11 @@ final class ImportDialogView {
         root.padding = Thickness(left: 37, top: 30, right: 37, bottom: 24)
         content.orientation = .vertical
         root.children.append(content)
+        let label = UI.text("Passwords and sign-ins", size: 14, color: Self.white, trimmed: false)
+        credentials.content = label
+        credentials.isChecked = true
+        credentials.margin = Thickness(left: 0, top: 14, right: 0, bottom: 0)
+        try? AutomationProperties.setName(credentials, "Bring passwords and sign-ins too")
         root.previewKeyDown.addHandler { [weak self] _, args in
             guard let self, let args, Int32(truncatingIfNeeded: args.key.rawValue) == 0x1B else { return }  // Escape
             self.onCancel()
@@ -48,9 +56,10 @@ final class ImportDialogView {
         rows = []
         content.children.append(title("Import from Another Browser"))
         if sources.isEmpty {
-            content.children.append(paragraph("Cra didn’t find Arc, Chrome, Edge, Brave, Opera, Vivaldi or Chromium data on this PC."))
+            content.children.append(paragraph("Cra didn’t find Arc, Chrome, Edge, Brave, Opera, Opera GX, Vivaldi or Chromium data on this PC."))
         } else {
             content.children.append(paragraph("Each profile comes over as a Space, with its bookmarks bar pinned and its open tabs in Today. Arc’s Spaces, folders, favorites, archive and Air Traffic Control come over as they are."))
+            content.children.append(credentials)
             let list = StackPanel()
             list.orientation = .vertical
             list.spacing = 6
@@ -66,6 +75,21 @@ final class ImportDialogView {
             content.children.append(scroll)
         }
         content.children.append(footer(sources.isEmpty ? "Close" : "Cancel"))
+        return measuredHeight()
+    }
+
+    /// After an import that brought passwords or sign-ins: what came over and what stayed, with
+    /// Done. Returns the card's height.
+    func showResult(title text: String, lines: [String]) -> Double {
+        content.children.clear()
+        rows = []
+        content.children.append(title(text))
+        for line in lines { content.children.append(paragraph(line)) }
+        content.children.append(footer("Done"))
+        return measuredHeight()
+    }
+
+    private func measuredHeight() -> Double {
         try? root.measure(WindowsFoundation.Size(width: Float(Self.width), height: .infinity))
         return Double(root.desiredSize.height).rounded(.up)
     }
@@ -96,7 +120,10 @@ final class ImportDialogView {
         button.background = Self.row
         button.clickMode = .release
         try? AutomationProperties.setName(button, "Import from \(source.name)")
-        button.click.addHandler { [weak self] _, _ in self?.onImport(source) }
+        button.click.addHandler { [weak self] _, _ in
+            guard let self else { return }
+            self.onImport(source, self.credentials.isChecked == true)
+        }
         return button
     }
 

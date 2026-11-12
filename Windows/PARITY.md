@@ -33,10 +33,10 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 0 | 0 | 5 | 0 |
 | Settings | 2 | 4 | 0 | 5 | 0 |
-| Import and onboarding | 0 | 2 | 0 | 3 | 1 |
+| Import and onboarding | 0 | 3 | 0 | 2 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 3 |
 | System integration and release | 3 | 2 | 0 | 9 | 5 |
-| **All** | 22 | 33 | 0 | 81 | 11 |
+| **All** | 22 | 34 | 0 | 80 | 11 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -219,7 +219,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Import from Arc and Dia: spaces, pinned, folders, favorites, archive, profiles (`importData`) | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `Importers.swift`, `DiaSidebar.swift`, `BrowserSources.swift` | `ImportPlan`, `ArcImporter`, `SidebarStore+Import` (`apply`), `WindowsImportSource`, `MD5`, `ArcThemeImport`, `ExtensionProfiles` | Windows: Import from Another Browser… (command bar, Settings ▸ General ▸ Your data) reads Arc for Windows' package folder (`%LOCALAPPDATA%\Packages\TheBrowserCompany.Arc_*\LocalCache\Local\Arc`): spaces, profiles, pinned, favorites, archive, Air Traffic Control. Arc for Windows' own preferences (toolbar, auto-archive) aren't read. No Dia on Windows. Next: the onboarding flow (item 11). |
 | Import from Chrome, Edge, Brave, Opera, Vivaldi, Helium: tabs, bookmarks, history, extensions | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `ChromiumImporter.swift`, `ExtensionImporter.swift` | `ChromiumImporter` (profiles, bookmarks, sessions), `TopSite`, `ChromiumTime` | Bookmarks and the last session's tabs, one space per profile, from Chrome, Brave, Edge, Opera, Opera GX, Vivaldi and Chromium. Left: history-based top sites and favicons (need SQLite on Windows), extensions, Helium (its Windows folder is unconfirmed). |
-| Passwords and sign-ins | ❌ | `CredentialImport.swift` | | Windows decrypts with DPAPI and AES-GCM (BCrypt) instead of the Keychain. |
+| Passwords and sign-ins | 🟡 [#36](https://github.com/vishnu597/cra-windows/pull/36) | `CredentialImport.swift` | `ImportedCredentials` (`ImportedLogin`, `ImportedCookie`), `PendingCredentials`, `CredentialImportReport`, `ChromiumOSCrypt`, `ChromiumCredentialRows`, `AESGCM`, `SHA256Hash` | Windows: the import card's "Passwords and sign-ins" box reads each profile's Login Data and Cookies with the browser's Local State key (DPAPI, then AES-GCM in CraCore), seals them with Cra's key and stages them in the Mac's `pending-credentials.json`; they go into Cra's profile at the next launch (`CraData.cpp`: DPAPI and winsqlite3). Chrome 127+ seals cookies to itself (app-bound "v20"): those stay, and the card says so. A running browser holds its Cookies shut: the card asks to quit it. Left: a Restart button, Firefox. The Mac still keeps its own copy of the staging code. |
 | Firefox and Zen | ❌ | `FirefoxImporter.swift`, `ZenImporter.swift` | | Same move. |
 | Safari | ➖ | `SafariImporter.swift` | | No Safari on Windows. |
 | Onboarding: import, theme colour, address bar placement | ❌ | `ImportFlow.swift`, `ImportFlowArt.swift`, `ImportFlowViews.swift`, `OnboardingSteps.swift` | | Phase 2 item 11, after import. |
@@ -272,7 +272,9 @@ the next Windows PRs need:
    Foundation only. (`DevToolsToggle` moved in #20.)
 2. The rest of `Services/Import/` (Firefox, Zen, Dia, extensions, credentials): replace `NSImage`
    with PNG `Data` and SQLite with a reader each app passes in. Arc's and Chromium's readers and
-   `apply` moved in #35, tested on the Mac's fixtures by CraCore's `ImportTests`.
+   `apply` moved in #35, tested on the Mac's fixtures by CraCore's `ImportTests`. The credential
+   rows, the staged file's format and Windows' os_crypt moved in #36; the Mac's `CredentialImport`
+   can switch to `PendingCredentials` and `ChromiumCredentialRows`.
 3. `PageScript.swift`, `CraLog.swift`, `NativeMessagingHosts.swift`,
    `ExtensionProtocolReply.swift`, `SearchSuggestLoader.swift`: Foundation only today.
 4. `EmojiCatalog+Data.swift`: data with no imports, for the space icon picker.

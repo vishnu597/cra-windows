@@ -129,6 +129,48 @@ int cra_image_decode(const uint8_t *bytes, size_t length, int side, CraImage *ou
 int cra_shell_file_image(const char *path, int side, CraImage *out);
 void cra_image_free(CraImage *image);
 
+// MARK: - Stored data
+
+/// Another browser's and Cra's own Chromium data, for importing passwords and sign-ins
+/// (CraData.cpp). Plain Win32 and Windows' own SQLite (winsqlite3); nothing here touches CEF.
+/// Any thread, one database handle at a time.
+
+/// Unwraps `data` with DPAPI for the signed-in user (CryptUnprotectData): the key a Chromium
+/// browser keeps in Local State, or a value from before Chrome 80. A buffer to free with
+/// cra_data_free and its length, or NULL.
+uint8_t *cra_dpapi_unprotect(const uint8_t *data, size_t length, size_t *out_length);
+void cra_data_free(void *buffer);
+
+typedef struct CraSQLite CraSQLite;
+typedef struct CraSQLiteStatement CraSQLiteStatement;
+
+/// Opens a database read-write (`create` also makes it); NULL when it can't. A busy database
+/// waits up to 500 ms.
+CraSQLite *cra_sqlite_open(const char *path, int create);
+void cra_sqlite_close(CraSQLite *db);
+/// Runs statements that return no rows. 1 on success.
+int cra_sqlite_exec(CraSQLite *db, const char *sql);
+/// NULL when the SQL doesn't compile.
+CraSQLiteStatement *cra_sqlite_prepare(CraSQLite *db, const char *sql);
+/// 1 for a row, 0 when done, -1 on an error.
+int cra_sqlite_step(CraSQLiteStatement *statement);
+void cra_sqlite_finalize(CraSQLiteStatement *statement);
+int cra_sqlite_column_count(CraSQLiteStatement *statement);
+const char *cra_sqlite_column_name(CraSQLiteStatement *statement, int column);
+/// SQLite's type codes: 1 integer, 2 float, 3 text, 4 blob, 5 null.
+int cra_sqlite_column_type(CraSQLiteStatement *statement, int column);
+int64_t cra_sqlite_column_int64(CraSQLiteStatement *statement, int column);
+double cra_sqlite_column_double(CraSQLiteStatement *statement, int column);
+const char *cra_sqlite_column_text(CraSQLiteStatement *statement, int column);
+const void *cra_sqlite_column_blob(CraSQLiteStatement *statement, int column);
+int cra_sqlite_column_bytes(CraSQLiteStatement *statement, int column);
+/// Parameters count from 1; text and blobs are copied. 1 on success.
+int cra_sqlite_bind_int64(CraSQLiteStatement *statement, int index, int64_t value);
+int cra_sqlite_bind_double(CraSQLiteStatement *statement, int index, double value);
+int cra_sqlite_bind_text(CraSQLiteStatement *statement, int index, const char *value);
+int cra_sqlite_bind_blob(CraSQLiteStatement *statement, int index, const void *value, int length);
+int cra_sqlite_bind_null(CraSQLiteStatement *statement, int index);
+
 // MARK: - Browser callbacks
 
 typedef enum CraDownloadState {

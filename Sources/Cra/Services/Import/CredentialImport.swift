@@ -9,61 +9,8 @@ import SQLite3
 // rows are re-encrypted for Cra's Chromium profile and staged in a file, then
 // written into Cookies / Login Data on the next launch before Chromium opens
 // them (Chromium keeps both databases locked while it runs). Rows from an Arc
-// profile go to the Cra profile its spaces were put on (GitHub #131).
-
-struct ImportedCookie: Codable {
-    var host: String            // host_key: ".example.com" for domain cookies
-    var name: String
-    var value: String
-    var path: String
-    /// Chromium time (µs since 1601); 0 for a session cookie.
-    var expires: Int64
-    var created: Int64
-    var lastAccess: Int64
-    var secure: Bool
-    var httpOnly: Bool
-    /// Chromium CookieSameSite: -1 unspecified, 0 none, 1 lax, 2 strict.
-    var sameSite: Int
-    /// The source browser's profile folder it was read from.
-    var sourceProfile: String?
-}
-
-struct ImportedLogin: Codable {
-    var originURL: String
-    var actionURL: String = ""
-    var usernameElement: String = ""
-    var username: String
-    var passwordElement: String = ""
-    var password: String
-    var signonRealm: String
-    var created: Int64
-    /// The source browser's profile folder it was read from.
-    var sourceProfile: String?
-
-    /// A login from a CSV or Firefox: the realm is the page's origin.
-    init?(url: String, username: String, password: String, created: Int64 = ChromiumTime.now) {
-        guard let u = URL(string: url), let scheme = u.scheme, let host = u.host, !password.isEmpty else { return nil }
-        let origin = "\(scheme)://\(host)\(u.port.map { ":\($0)" } ?? "")"
-        originURL = origin + "/"
-        signonRealm = origin + "/"
-        self.username = username
-        self.password = password
-        self.created = created
-    }
-
-    init(originURL: String, actionURL: String, usernameElement: String, username: String, passwordElement: String,
-         password: String, signonRealm: String, created: Int64) {
-        self.originURL = originURL; self.actionURL = actionURL; self.usernameElement = usernameElement
-        self.username = username; self.passwordElement = passwordElement; self.password = password
-        self.signonRealm = signonRealm; self.created = created
-    }
-}
-
-struct ImportedCredentials {
-    var cookies: [ImportedCookie] = []
-    var logins: [ImportedLogin] = []
-    var isEmpty: Bool { cookies.isEmpty && logins.isEmpty }
-}
+// profile go to the Cra profile its spaces were put on (GitHub #131). The rows themselves
+// (ImportedCookie, ImportedLogin) are in CraCore, which Windows' import reads too.
 
 enum CredentialImportError: LocalizedError {
     case keychainDenied(String)
