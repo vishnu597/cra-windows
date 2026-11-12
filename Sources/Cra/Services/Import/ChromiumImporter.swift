@@ -8,15 +8,15 @@ extension ChromiumImporter {
 
     /// Most visited sites, one per host, for Dia's pinned-tabs step (rankedTopSitesTask).
     static func topSites(userData: URL, limit: Int) -> [TopSite] {
-        var visits: [String: TopSite] = [:]
+        var rows: [(url: String, title: String, visits: Int)] = []
         for p in profiles(userData: userData) {
             guard let db = SQLiteSnapshot(copying: p.dir.appendingPathComponent("History")) else { continue }
-            for r in db.rows("SELECT url, title, visit_count FROM urls WHERE hidden = 0 ORDER BY visit_count DESC LIMIT 400") {
-                guard let u = r["url"] as? String, let site = TopSite(url: u, title: r["title"] as? String ?? "", visits: Int(r["visit_count"] as? Int64 ?? 0)) else { continue }
-                visits[site.host, default: TopSite(host: site.host, url: site.url, title: site.title, visits: 0)].visits += site.visits
+            for r in db.rows(TopSite.historyQuery) {
+                guard let u = r["url"] as? String else { continue }
+                rows.append((url: u, title: r["title"] as? String ?? "", visits: Int(r["visit_count"] as? Int64 ?? 0)))
             }
         }
-        return Array(visits.values.sorted { $0.visits > $1.visits }.prefix(limit))
+        return TopSite.ranked(rows, limit: limit)
     }
 
     /// The largest cached icon for each host, from the profiles' Favicons
@@ -26,12 +26,7 @@ extension ChromiumImporter {
         for p in profiles(userData: userData) {
             guard let db = SQLiteSnapshot(copying: p.dir.appendingPathComponent("Favicons")) else { continue }
             for host in hosts where out[host] == nil {
-                let h = host.replacingOccurrences(of: "'", with: "")
-                let rows = db.rows("""
-                    SELECT fb.image_data FROM favicon_bitmaps fb JOIN icon_mapping im ON fb.icon_id = im.icon_id
-                    WHERE im.page_url LIKE 'https://\(h)/%' OR im.page_url LIKE 'https://www.\(h)/%'
-                    ORDER BY fb.width DESC LIMIT 1
-                    """)
+                let rows = db.rows(TopSite.faviconQuery(host: host))
                 if let data = rows.first?["image_data"] as? Data, let img = NSImage(data: data) { out[host] = img }
             }
         }

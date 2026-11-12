@@ -207,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private(set) var isOnboarding = false
 
     var needsOnboarding: Bool {
-        !store.settings.hasSeenImportPrompt && store.allTabs().count <= 2
+        Onboarding.isNeeded(hasSeenImportPrompt: store.settings.hasSeenImportPrompt, tabCount: store.allTabs().count)
     }
 
     /// End of the import flow. Onboarding counts as done only here, so quitting halfway

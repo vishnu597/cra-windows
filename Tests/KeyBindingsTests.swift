@@ -57,14 +57,15 @@ enum KeyBindingsTests {
     /// saved on the action's chords in keybindings.json, kept through a synced reload, gone on Reset.
     @MainActor
     static func priorities(_ registry: KeyBindingRegistry, file: URL) {
+        let command: NSEvent.ModifierFlags = .command
         expect(registry.priority(of: "closeTab") == .preferCra && registry.priority(of: "find") == .preferWebsites,
                "reserved shortcuts prefer Cra, the rest websites")
         registry.setPriority(.preferWebsites, for: "closeTab")
         expect(registry.priority(of: "closeTab") == .preferWebsites, "a pick takes")
         expect(registry.isOverridden("closeTab"), "a picked priority can be reset")
-        expect(registry.action("closeTab")?.shortcuts == [Shortcut("w", .command)], "picking keeps the keys")
+        expect(registry.action("closeTab")?.shortcuts == [Shortcut("w", command)], "picking keeps the keys")
         registry.resetOverrides()
-        try! JSONEncoder().encode(KeyBindingOverrides(shortcuts: ["find": [Shortcut("f", .command)]], priorities: ["find": .useBoth]))
+        try! JSONEncoder().encode(KeyBindingOverrides(shortcuts: ["find": [Shortcut("f", command)]], priorities: ["find": .useBoth]))
             .write(to: file)
         registry.reloadOverrides()
         expect(registry.priority(of: "find") == .useBoth, "a synced keybindings.json brings its priorities")

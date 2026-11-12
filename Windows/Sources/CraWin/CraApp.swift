@@ -71,6 +71,11 @@ public final class CraApp: SwiftApplication {
             let windows = WindowList(store: store, dispatcher: dispatcher)
             self.windows = windows
             windows.restore()
+            // A fresh install: the onboarding on a card over the first window (the Mac shows its
+            // own window first). Seen once it ends, so quitting halfway brings it back.
+            if Onboarding.isNeeded(hasSeenImportPrompt: store.settings.hasSeenImportPrompt, tabCount: store.allTabs().count) {
+                windows.windows.first?.showOnboarding()
+            }
             observeGlobalShortcut(store: store, windows: windows)
             openLinksFromOtherApps(windows: windows)
             DefaultBrowser.updateRegistrationIfMoved()
