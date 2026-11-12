@@ -40,7 +40,7 @@ struct KeyBindingsTests {
 
     /// Windows' table names only actions the Mac has, in the Mac's order, and its keys don't
     /// collide or use the Windows key.
-    @Test func windowsTableFollowsTheMacs() {
+    @Test func windowsTableFollowsTheMacs() throws {
         let macIDs = KeyBindingDefaults.mac.map(\.id)
         #expect(Set(KeyBindingDefaults.windowsShortcuts.keys).isSubset(of: Set(macIDs)))
         #expect(KeyBindingDefaults.windows.count == KeyBindingDefaults.windowsShortcuts.count)
@@ -54,6 +54,10 @@ struct KeyBindingsTests {
         #expect(win["reload"]?.shortcuts.map(\.windowsDisplay) == ["Ctrl+R", "F5"])
         #expect(win["item9"]?.primary?.windowsDisplay == "Ctrl+9")
         #expect(win["space3"]?.primary?.windowsDisplay == "Alt+3")
+        #expect(win["importData"]?.name == "Import from Another Browser…" && win["importData"]?.shortcuts == [])
+        #expect(ShortcutDescriptions.text(for: try #require(win["importData"])).contains("Chrome"))
+        #expect(ShortcutDescriptions.text(for: try #require(KeyBindingDefaults.mac.first { $0.id == "importData" })).contains("Dia"),
+                "the Mac's command keeps its own name and description")
         #expect(win["nextSpace"]?.primary?.windowsDisplay == "Ctrl+Alt+Right")
         #expect(win["copyURL"]?.primary?.windowsDisplay == "Ctrl+Shift+C")
         #expect(win["copyURLMarkdown"]?.primary?.windowsDisplay == "Ctrl+Alt+Shift+C")

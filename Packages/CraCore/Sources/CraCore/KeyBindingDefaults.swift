@@ -210,10 +210,21 @@ public enum KeyBindingDefaults {
     public static let windows: [KeyAction] = mac.compactMap { action in
         windowsShortcuts[action.id].map { keys in
             var a = action
+            if let text = windowsText[action.id] {
+                a = KeyAction(id: action.id, name: text.name, section: action.section, shortcuts: [], triggers: text.triggers,
+                              inCommandBar: action.inCommandBar, symbol: action.symbol)
+            }
             a.shortcuts = keys
             return a
         }
     }
+
+    /// Commands that do more or less on Windows than on the Mac, named for what they do there.
+    public static let windowsText: [String: (name: String, description: String, triggers: [String])] = [
+        // No Dia on Windows; the Chromium browsers come over too.
+        "importData": ("Import from Another Browser…", "Bring spaces, bookmarks and open tabs over from Arc, Chrome, Edge or another browser.",
+                       ["import", "arc", "chrome", "edge"]),
+    ]
 
     /// Action id to Windows' default shortcuts. An action joins when the Windows app performs it.
     public static let windowsShortcuts: [String: [KeyChord]] = {
@@ -275,6 +286,8 @@ public enum KeyBindingDefaults {
             "viewDownloads": [KeyChord("j", ctrl)],
             // Registers Cra and opens Windows' Default apps page for it (PR 9).
             "setDefaultBrowser": [],
+            // The Import dialog: Arc's and Chromium browsers' spaces, bookmarks and tabs (PR 10).
+            "importData": [],
         ]
         for n in 1...9 {
             table["item\(n)"] = [KeyChord("\(n)", ctrl)]
@@ -288,6 +301,7 @@ public enum KeyBindingDefaults {
 public enum ShortcutDescriptions {
     public static func text(for a: KeyAction, custom: String? = nil) -> String {
         if let custom { return custom }
+        if let windows = KeyBindingDefaults.windowsText[a.id], windows.name == a.name { return windows.description }
         if let t = table[a.id] { return t }
         if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). tab in the sidebar." }
         if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return "Switch to the \(n). space." }

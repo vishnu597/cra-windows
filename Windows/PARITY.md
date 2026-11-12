@@ -33,10 +33,10 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 0 | 0 | 5 | 0 |
 | Settings | 2 | 4 | 0 | 5 | 0 |
-| Import and onboarding | 0 | 0 | 0 | 5 | 1 |
+| Import and onboarding | 0 | 2 | 0 | 3 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 3 |
 | System integration and release | 3 | 2 | 0 | 9 | 4 |
-| **All** | 22 | 31 | 0 | 83 | 10 |
+| **All** | 22 | 33 | 0 | 81 | 10 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -217,8 +217,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Import from Arc and Dia: spaces, pinned, folders, favorites, archive, profiles (`importData`) | ❌ | `Importers.swift`, `DiaSidebar.swift`, `BrowserSources.swift` | `ArcThemeImport`, `ExtensionProfiles` | Phase 2 item 10. CLAUDE.md lists `Services/Import/` as a known exception: the parsers move to CraCore with this PR; only paths (`%LOCALAPPDATA%`) and icons stay per platform. |
-| Import from Chrome, Edge, Brave, Opera, Vivaldi, Helium: tabs, bookmarks, history, extensions | ❌ | `ChromiumImporter.swift`, `ExtensionImporter.swift` | | Same move. |
+| Import from Arc and Dia: spaces, pinned, folders, favorites, archive, profiles (`importData`) | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `Importers.swift`, `DiaSidebar.swift`, `BrowserSources.swift` | `ImportPlan`, `ArcImporter`, `SidebarStore+Import` (`apply`), `WindowsImportSource`, `MD5`, `ArcThemeImport`, `ExtensionProfiles` | Windows: Import from Another Browser… (command bar, Settings ▸ General ▸ Your data) reads Arc for Windows' package folder (`%LOCALAPPDATA%\Packages\TheBrowserCompany.Arc_*\LocalCache\Local\Arc`): spaces, profiles, pinned, favorites, archive, Air Traffic Control. Arc for Windows' own preferences (toolbar, auto-archive) aren't read. No Dia on Windows. Next: the onboarding flow (item 11). |
+| Import from Chrome, Edge, Brave, Opera, Vivaldi, Helium: tabs, bookmarks, history, extensions | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `ChromiumImporter.swift`, `ExtensionImporter.swift` | `ChromiumImporter` (profiles, bookmarks, sessions), `TopSite`, `ChromiumTime` | Bookmarks and the last session's tabs, one space per profile, from Chrome, Brave, Edge, Opera, Opera GX, Vivaldi and Chromium. Left: history-based top sites and favicons (need SQLite on Windows), extensions, Helium (its Windows folder is unconfirmed). |
 | Passwords and sign-ins | ❌ | `CredentialImport.swift` | | Windows decrypts with DPAPI and AES-GCM (BCrypt) instead of the Keychain. |
 | Firefox and Zen | ❌ | `FirefoxImporter.swift`, `ZenImporter.swift` | | Same move. |
 | Safari | ➖ | `SafariImporter.swift` | | No Safari on Windows. |
@@ -269,8 +269,9 @@ the next Windows PRs need:
 
 1. `FloatingSidebarGeometry.swift` (hidden sidebar): a CLAUDE.md known exception, already
    Foundation only. (`DevToolsToggle` moved in #20.)
-2. `Services/Import/` parsers (Import PR): replace `NSImage` with PNG `Data` and the
-   `~/Library` paths with a passed-in root, keep the Mac's fixture tests.
+2. The rest of `Services/Import/` (Firefox, Zen, Dia, extensions, credentials): replace `NSImage`
+   with PNG `Data` and SQLite with a reader each app passes in. Arc's and Chromium's readers and
+   `apply` moved in #35, tested on the Mac's fixtures by CraCore's `ImportTests`.
 3. `PageScript.swift`, `CraLog.swift`, `NativeMessagingHosts.swift`,
    `ExtensionProtocolReply.swift`, `SearchSuggestLoader.swift`: Foundation only today.
 4. `EmojiCatalog+Data.swift`: data with no imports, for the space icon picker.
