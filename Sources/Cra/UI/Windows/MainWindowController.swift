@@ -612,15 +612,42 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         else { CraLog.note("picked menu \(label): no row"); return }
         sidebarUI.multiSelection = Set(listed.prefix(count))
         guard let menu = row.contextMenu(at: .zero) else { CraLog.note("picked menu \(label): no menu"); return }
-        let drawn = menu.items.map { item -> String in
-            if item.isSeparatorItem { return "──" }
-            return item.title + (item.submenu != nil ? " ▸" : "") + (item.isEnabled ? "" : " (off)")
-        }
-        CraLog.note("picked menu \(label): \(drawn.joined(separator: "|"))")
+        CraLog.note("picked menu \(label): \(Self.menuReadout(menu))")
         let rows = menu.items + menu.items.flatMap { $0.submenu?.items ?? [] }
         guard let run, let item = rows.first(where: { $0.title == run || $0.title == run + "…" }), let owner = item.menu else { return }
         let copied = Self.probeClipboard { owner.performActionForItem(at: owner.index(of: item)) }
         CraLog.note("picked menu \(label) ran \(run): \(copied) picks=\(sidebarUI.multiSelection.count)")
+    }
+
+    /// For test hooks: a menu's rows, "|" between rows, "──" for a separator, "▸" after a submenu,
+    /// " (off)" after a dimmed row.
+    static func menuReadout(_ menu: NSMenu) -> String {
+        menu.items.map { item -> String in
+            if item.isSeparatorItem { return "──" }
+            return item.title + (item.submenu != nil ? " ▸" : "") + (item.isEnabled ? "" : " (off)")
+        }.joined(separator: "|")
+    }
+
+    /// `cra://debug?favoriteMenu=<n>`: logs the menu a right-click on the n-th favorite tile opens
+    /// (grid order, rows as menuReadout writes them). `run` picks the row with that title and logs
+    /// the tile's tab after it: muted as saved and as Chromium has the page (#387).
+    func testFavoriteMenu(tile n: Int, label: String, run: String?) {
+        var tiles: [FavoriteTileView] = []
+        func collect(_ v: NSView) {
+            if let t = v as? FavoriteTileView, !t.isHiddenOrHasHiddenAncestor { tiles.append(t) }
+            v.subviews.forEach(collect)
+        }
+        window?.contentView.map(collect)
+        tiles.sort { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
+        guard tiles.indices.contains(n - 1), let menu = tiles[n - 1].contextMenu() else {
+            CraLog.note("favorite menu \(label): no tile \(n)"); return
+        }
+        CraLog.note("favorite menu \(label): \(Self.menuReadout(menu))")
+        guard let run, let index = menu.items.firstIndex(where: { $0.title == run }) else { return }
+        menu.performActionForItem(at: index)
+        let id = tiles[n - 1].itemID
+        let page = app.runtime(for: id).map { $0.browser.isAudioMuted() ? "muted" : "unmuted" } ?? "not loaded"
+        CraLog.note("favorite menu \(label) ran \(run): saved=\(store.item(id)?.tab?.muted == true ? "muted" : "unmuted") page=\(page)")
     }
 
     /// For test hooks: runs `action` and returns what it put on the clipboard ("-" for nothing, line
@@ -2267,7 +2294,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// The space's open tabs, the latest first. A pinned tab that was closed (unloaded) isn't
     /// open: ⌃Tab doesn't list it.
     private func openRecentTabs(limit: Int) -> [UUID] {
-        Array(store.recentTabs(in: focusedSpaceID, limit: .max)
+        Array(store.recentTabs(in: focusedSpaceID, limit: .max, window: windowID)
             .filter { $0 == selectedTabID || !store.isPinned($0) || app.runtime(for: $0) != nil }
             .prefix(limit))
     }
@@ -2869,13 +2896,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         return v as? NSScrollView
     }
 
-    /// A mouse's back or forward button released over the sidebar: the previous or next space,
-    /// wrapping as Spaces ▸ Previous/Next Space do (Arc's SidebarView, issue #233). Returns false
-    /// for any other button, or one released anywhere else.
+    /// A mouse's back or forward button released over the sidebar (Arc's SidebarView, issue #233).
+    /// Returns false for any other button, or one released anywhere else.
     func mouseButtonSwitchesSpace(_ button: Int, _ event: NSEvent) -> Bool {
         guard let offset = MouseButtonSpaceSwitch.offset(buttonNumber: button), isOverSidebar(event) else { return false }
-        store.focusSpace(offset: offset, window: windowID)
+        stepSidebarPage(offset)
         return true
+    }
+
+    /// The sidebar's previous or next page, as the wheel turns it: the Library is the page before
+    /// the first space, and the ends don't wrap (Arc).
+    func stepSidebarPage(_ step: Int) {
+        let order = store.spaceOrder
+        // Where the Library is headed, if it is sliding.
+        let inLibrary = librarySettleSpring.map { $0.target >= 1 } ?? (sidebarUI.libraryPage != nil)
+        switch WheelSpaceSwitch.target(step: step, index: order.firstIndex(of: focusedSpaceID) ?? 0, count: order.count,
+                                       inLibrary: inLibrary, libraryAllowed: !shell.floatingSidebar && shell.sidebarVisible) {
+        case .space(let i): store.focusSpace(order[i], window: windowID)
+        case .openLibrary, .closeLibrary: toggleLibrary()
+        case nil: break
+        }
     }
 
     /// Whether `event` is over this window's sidebar, docked or floating, in a window that has
@@ -2909,15 +2949,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         if sidebarUI.libraryPage == .spaces, spacesStripCanScroll(event, dx: dx) { return false }
         let step = wheelSpaceSwitch.step(dx: dx, inverted: event.isDirectionInvertedFromDevice, at: event.timestamp)
         guard step != 0 else { return true }
-        let order = store.spaceOrder
-        // Where the Library is headed, if it is sliding.
-        let inLibrary = librarySettleSpring.map { $0.target >= 1 } ?? (sidebarUI.libraryPage != nil)
-        switch WheelSpaceSwitch.target(step: step, index: order.firstIndex(of: focusedSpaceID) ?? 0, count: order.count,
-                                       inLibrary: inLibrary, libraryAllowed: !shell.floatingSidebar && shell.sidebarVisible) {
-        case .space(let i): store.focusSpace(order[i], window: windowID)
-        case .openLibrary, .closeLibrary: toggleLibrary()
-        case nil: break
-        }
+        stepSidebarPage(step)
         return true
     }
 

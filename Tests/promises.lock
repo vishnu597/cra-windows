@@ -374,6 +374,7 @@
 #233   Packages/CraCore/Tests/CraCoreTests/MouseButtonSpaceSwitchTests.swift::optionLeftIsBackAndOptionRightIsForward  33a7f5c03930
 #233   Packages/CraCore/Tests/CraCoreTests/MouseButtonSpaceSwitchTests.swift::otherButtonsDoNotSwitch  07b725a8e6f5
 #233   Packages/CraCore/Tests/CraCoreTests/MouseButtonSpaceSwitchTests.swift::otherChordsAreNotTheMouseKey  378a3da1934b
+#233   Tests/Scenarios/mouse-buttons-library.scenario  af55f1cc8516
 #233   Tests/Scenarios/mouse-buttons-switch-spaces.scenario  79148e8b3ebb
 #237   Packages/CraCore/Tests/CraCoreTests/TabSleepPolicyTests.swift::criticalClosesMore  4c4b7c2f8168
 #237   Packages/CraCore/Tests/CraCoreTests/TabSleepPolicyTests.swift::emptySweepSaysWhy  39babb07a0ec
@@ -728,3 +729,14 @@
 #385   Packages/CraCore/Tests/CraCoreTests/PeekControlLookTests.swift::hoverLiftsTheButtonAndDeepensItsShadow  be3fe61a69bf
 #385   Packages/CraCore/Tests/CraCoreTests/PeekControlLookTests.swift::shortcutsPressTheirButtons  b2c01bed9702
 #385   Packages/CraCore/Tests/CraCoreTests/PeekControlLookTests.swift::springsAreArcsInCoreAnimationTerms  5be9f378ea04
+#386   Tests/Scenarios/picked-tabs-split.scenario  cd33102969a4
+#387   Tests/Scenarios/favorite-mute.scenario  7b04a5025ba3
+#387   Tests/Scenarios/muted-tab-restores.scenario  84b90b5d2da8
+#391   Tests/DockedWindowAccessibilityTests.swift::movesFindsTheBrowserWindow  b7cbb5a23a9d
+#391   Tests/DockedWindowAccessibilityTests.swift::movingADockedWindowMovesTheBrowser  2138e64da85d
+#392   Packages/CraCore/Tests/CraCoreTests/ArcThemeImportTests.swift::darkColoursKeepTheirOwnTone  180984317a3e
+#392   Packages/CraCore/Tests/CraCoreTests/ArcThemeImportTests.swift::darkGradientFollowsTheSlider  7bf63af75ca2
+#392   Packages/CraCore/Tests/CraCoreTests/ArcThemeImportTests.swift::greysStayNeutralInTheDark  49ffec8286fa
+#399   Tests/EmojiLabelTests.swift::wholeEmojiWhenClipped  bec18dc87181
+#401   Packages/CraCore/Tests/CraCoreTests/SwitcherWindowsTests.swift::switchersListWindowsWithButtonsOrAStandardSubrole  9f9f67f53678
+#401   Tests/Scenarios/switcher-windows.scenario  a600d5a96203

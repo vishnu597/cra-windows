@@ -289,7 +289,8 @@ final class SpaceHeaderView: NSView, NSTextFieldDelegate {
         let h = bounds.height, w = bounds.width
         let es = emoji.intrinsicContentSize
         let ew = emoji.attributedStringValue.size().width
-        emoji.frame = NSRect(x: 18.25 - ew / 2 - SidebarText.inset, y: (h - es.height) / 2 - 1.25, width: ew + 2 * SidebarText.inset, height: es.height)
+        emoji.frame = emoji.frameHoldingInk(NSRect(x: 18.25 - ew / 2 - SidebarText.inset, y: (h - es.height) / 2 - 1.25,
+                                                   width: ew + 2 * SidebarText.inset, height: es.height))
         symbol.frame = iconRect
         // Turned right, Arc's chevron sits a little higher than chevron.down turned about its centre.
         let (cx, cy): (CGFloat, CGFloat) = collapsed ? (18.5, h / 2 - 0.25) : (18.25, h / 2 + 0.5)
@@ -1725,7 +1726,10 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
 
     // MARK: Menu
 
-    override func menu(for event: NSEvent) -> NSMenu? {
+    override func menu(for event: NSEvent) -> NSMenu? { contextMenu() }
+
+    /// The tile's right-click menu, also read by `cra://debug?favoriteMenu=` (#387).
+    func contextMenu() -> NSMenu? {
         guard let grid, let item = grid.store.item(itemID) else { return nil }
         let store = grid.store, ui = grid.ui, actions = grid.actions, favicons = grid.favicons
         let id = itemID
@@ -1745,6 +1749,13 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
         }
         MenuItems.add(m, action: "favoriteTab", title: Self.removeTitle(id, store)) { store.removeFromFavorites(id) }
         MenuItems.add(m, action: "renameTab", title: "Rename…") { ui.renamingID = id }
+        // Arc's favorite menu has Mute after Rename… (Unmute on a muted tab), as a tab's menu does (#387).
+        if let t = item.tab {
+            MenuItems.add(m, action: "muteTab", title: t.muted ? "Unmute" : "Mute") {
+                store.setMuted(id, !t.muted)
+                actions.performAction("muteTab:\(id)")
+            }
+        }
         if let t = item.tab, t.liveItemURL == nil {
             SidebarMenus.pinnedURLItems(m, id, navigatedAway: t.url != t.savedURL, store: store, actions: actions)
         }
