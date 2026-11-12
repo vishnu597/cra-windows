@@ -25,6 +25,7 @@ enum KeyBindingsTests {
             expect(Array(ids[(folder + 1)...(folder + 2)]) == [github.id, jira.id], "right after New Folder, in the plugins' order")
         } else { expect(false, "New Folder is a built-in action") }
 
+        let command: NSEvent.ModifierFlags = .command
         let commandOption: NSEvent.ModifierFlags = [.command, .option]
         let chord = Shortcut("j", commandOption)
         registry.setShortcuts([chord], for: jira.id)
@@ -62,9 +63,9 @@ enum KeyBindingsTests {
         registry.setPriority(.preferWebsites, for: "closeTab")
         expect(registry.priority(of: "closeTab") == .preferWebsites, "a pick takes")
         expect(registry.isOverridden("closeTab"), "a picked priority can be reset")
-        expect(registry.action("closeTab")?.shortcuts == [Shortcut("w", .command)], "picking keeps the keys")
+        expect(registry.action("closeTab")?.shortcuts == [Shortcut("w", command)], "picking keeps the keys")
         registry.resetOverrides()
-        try! JSONEncoder().encode(KeyBindingOverrides(shortcuts: ["find": [Shortcut("f", .command)]], priorities: ["find": .useBoth]))
+        try! JSONEncoder().encode(KeyBindingOverrides(shortcuts: ["find": [Shortcut("f", command)]], priorities: ["find": .useBoth]))
             .write(to: file)
         registry.reloadOverrides()
         expect(registry.priority(of: "find") == .useBoth, "a synced keybindings.json brings its priorities")
