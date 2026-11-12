@@ -101,6 +101,9 @@ final class BrowserWindow {
     private let profileDialog = ProfileDialogView()
     private var profileWindow: FloatingWindow?
     private var profileDialogHeight = 400.0
+    private let importDialog = ImportDialogView()
+    private var importWindow: FloatingWindow?
+    private var importDialogHeight = 300.0
     /// The sliders button at the end of the address pill, and the Site Control Center it opens.
     private var sliders: Button!
     private let slidersGlyph = FontIcon()
@@ -190,6 +193,7 @@ final class BrowserWindow {
         makeDeveloperBar()
         makePermissionPrompt()
         makeProfileDialog()
+        makeImportDialog()
         makeSiteControlCenter()
         toast = ToastView(owner: window) { [weak self] in self?.pageOnScreen() }
         // Chromium closes its pages before their parent window goes (CEF's DoClose order).
@@ -669,6 +673,7 @@ final class BrowserWindow {
         case "findPrevious": findNext(forward: false)
         case "settings": openSettings()
         case "setDefaultBrowser": DefaultBrowser.makeDefault()
+        case "importData": if !isIncognito { showImportDialog() }
         case "newWindow": host?.openNewWindow(incognito: false)
         case "newIncognitoWindow": host?.openNewWindow(incognito: true)
         case "newLittleWindow": host?.newLittleWindow()
@@ -888,6 +893,7 @@ final class BrowserWindow {
             }
         }
         Self.settingsWindow?.onNewProfile = { [weak self] in self?.showNewProfile(ticked: []) }
+        Self.settingsWindow?.onImport = { [weak self] in self?.showImportDialog() }
         Self.settingsWindow?.show(over: window)
     }
 
@@ -1191,6 +1197,65 @@ final class BrowserWindow {
         let top = Double(position.y) + max(0, (Double(size.height) - height) / 2)
         profileWindow.place(origin: PointInt32(x: Int32(left.rounded()), y: Int32(top.rounded())),
                             size: SizeInt32(width: Int32(width), height: Int32(height)))
+    }
+
+    // MARK: Import
+
+    private func makeImportDialog() {
+        importDialog.onImport = { [weak self] source in self?.runImport(source) }
+        importDialog.onCancel = { [weak self] in self?.hideImportDialog() }
+        do {
+            importWindow = try FloatingWindow(owner: window, content: importDialog.root)
+            importWindow?.onClose = { [weak self] in self?.hideImportDialog() }
+        } catch {
+            print("The import dialog's window could not be made: \(error)")
+        }
+    }
+
+    /// Import from Another Browser…: the browsers with data on this PC.
+    func showImportDialog() {
+        guard !closing else { return }
+        let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment)
+        let sources = folders.map { f in WindowsImportSource.available(in: f).map { (source: $0, profiles: $0.profiles(in: f)) } } ?? []
+        importDialogHeight = importDialog.show(sources)
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, let importWindow = self.importWindow, !self.closing else { return }
+            self.placeImportDialog()
+            importWindow.show { [weak self] in self?.importDialog.focus() }
+        }
+    }
+
+    /// Adds the browser's plan to the sidebar, shows its first space and says what came over.
+    private func runImport(_ source: WindowsImportSource) {
+        hideImportDialog()
+        guard let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment) else { return }
+        do {
+            let plan = try source.plan(in: folders)
+            let result = store.apply(plan, includeArchive: true, includeSettings: source.kind == .arc, favicons: Favicons.folder)
+            if let first = result.spaceIDs.first { store.focusSpace(first, window: windowID) }
+            showToast(result.summary(from: source.name))
+        } catch {
+            showToast((error as? LocalizedError)?.errorDescription ?? "Could not import from \(source.name)")
+        }
+    }
+
+    private func hideImportDialog() {
+        guard importWindow?.isVisible == true else { return }
+        importWindow?.hide()
+        if let window = HWND(bitPattern: hwnd) { _ = SetForegroundWindow(window) }
+        focusContent()
+    }
+
+    /// Centred on the window, as the profile dialogs are.
+    private func placeImportDialog() {
+        guard let importWindow, let window else { return }
+        let scale = window.scale
+        let position = window.appWindow.position, size = window.appWindow.size
+        let width = (ImportDialogView.width * scale).rounded(), height = (importDialogHeight * scale).rounded()
+        let left = Double(position.x) + (Double(size.width) - width) / 2
+        let top = Double(position.y) + max(0, (Double(size.height) - height) / 2)
+        importWindow.place(origin: PointInt32(x: Int32(left.rounded()), y: Int32(top.rounded())),
+                           size: SizeInt32(width: Int32(width), height: Int32(height)))
     }
 
     // MARK: Site Control Center

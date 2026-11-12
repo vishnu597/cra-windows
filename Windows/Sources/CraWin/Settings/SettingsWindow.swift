@@ -36,6 +36,8 @@ final class SettingsWindow {
     /// Settings ▸ Profiles ▸ Create Profile…: Create a new Profile in the browser window that
     /// last opened Settings.
     var onNewProfile: () -> Void = {}
+    /// General ▸ Import from another browser: the browser window in use shows the Import dialog.
+    var onImport: () -> Void = {}
 
     init(store: SidebarStore) throws {
         self.store = store
@@ -255,7 +257,7 @@ final class SettingsWindow {
         case .shortcuts:
             let view = ShortcutsPaneView(bindings: WinKeyBindings.shared, palette: palette)
             built = SettingsPaneContent(element: view.root) { view.render() }
-        default: built = SettingsPanes.general(palette: palette)
+        default: built = SettingsPanes.general(palette: palette) { [weak self] in self?.onImport() }
         }
         scroll.content = built.element
         syncPane = built.sync

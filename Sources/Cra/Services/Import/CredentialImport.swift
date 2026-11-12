@@ -78,14 +78,6 @@ enum CredentialImportError: LocalizedError {
     }
 }
 
-enum ChromiumTime {
-    /// Seconds between 1601-01-01 and 1970-01-01.
-    static let epochDelta: Int64 = 11_644_473_600
-    static var now: Int64 { from(Date()) }
-    static func from(_ d: Date) -> Int64 { Int64((d.timeIntervalSince1970 + Double(epochDelta)) * 1_000_000) }
-    static func fromUnix(seconds s: Double) -> Int64 { Int64((s + Double(epochDelta)) * 1_000_000) }
-}
-
 // MARK: - Chromium crypto (macOS: v10 = AES-128-CBC, key PBKDF2-SHA1 of the Keychain secret)
 
 enum ChromiumCrypto {

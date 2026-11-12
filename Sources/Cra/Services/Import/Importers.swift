@@ -1,140 +1,25 @@
-import AppKit
-import CryptoKit
 import Foundation
 
-// Importers read Arc's and Dia's on-disk stores (see docs/arc-reverse-engineering.md)
-// into a neutral ImportPlan that the store applies.
-
-struct ImportedItem {
-    var customTitle: String?
-    var pageTitle: String = ""
-    var url: String?
-    var isFolder = false
-    var children: [ImportedItem] = []
-    var createdAt = Date()
-    /// Cached favicon file in the source browser, if any.
-    var faviconPath: String?
-    /// A live folder's source and filter (Arc's GitHub live folder, #215): it keeps refreshing.
-    var liveFolder: LiveFolderData?
-    /// The live item a tab in a live folder stands for (Arc: `liveItemID.url`).
-    var liveItemURL: String?
-}
-
-struct ImportedSpace {
-    var title: String
-    var emoji: String
-    var theme: SpaceTheme?
-    /// The space's own favorites (Arc: the top apps of the space's profile).
-    var favorites: [ImportedItem] = []
-    var pinned: [ImportedItem] = []
-    var today: [ImportedItem] = []
-    /// The source browser's profile the space was on, when it is not Default (Arc, GitHub #131).
-    var profile: ImportedProfile?
-}
-
-/// A Chromium profile of the source browser: its folder under `User Data` and the name it shows.
-struct ImportedProfile: Hashable {
-    var folder: String
-    var name: String
-}
-
-struct ImportedArchiveEntry {
-    var customTitle: String?
-    var pageTitle: String
-    var url: String
-    var archivedAt: Date
-    var reason: ArchiveReason
-    var spaceTitle: String?
-}
-
-/// Air Traffic Control destinations name spaces by title; ids differ between browsers.
-enum ImportedLinkDestination {
-    case mostRecentSpace
-    case space(title: String)
-    case littleWindow(spaceTitle: String?)
-}
-
-struct ImportedLinkRoute {
-    var match: LinkMatchStyle
-    var text: String
-    var destination: ImportedLinkDestination
-}
-
-struct ImportedSettings {
-    var autoArchive: AutoArchiveThreshold?
-    var sidebarWidth: Double?
-    var showToolbar: Bool?
-    var toolbarShowsFullURL: Bool?
-    var linkRoutes: [ImportedLinkRoute] = []
-    var defaultLinkDestination: ImportedLinkDestination?
-
-    var isEmpty: Bool {
-        autoArchive == nil && sidebarWidth == nil && showToolbar == nil && toolbarShowsFullURL == nil && linkRoutes.isEmpty && defaultLinkDestination == nil
-    }
-}
-
-struct ImportPlan {
-    var source: String
-    var spaces: [ImportedSpace] = []
-    /// Favorites that belong to no imported space; they go to the focused space.
-    var favorites: [ImportedItem] = []
-    var archive: [ImportedArchiveEntry] = []
-    var settings = ImportedSettings()
-
-    var tabCount: Int {
-        func count(_ items: [ImportedItem]) -> Int { items.reduce(0) { $0 + ($1.isFolder ? count($1.children) : 1) } }
-        return spaces.reduce(count(favorites)) { $0 + count($1.favorites) + count($1.pinned) + count($1.today) }
-    }
-    var folderCount: Int {
-        func count(_ items: [ImportedItem]) -> Int { items.reduce(0) { $0 + ($1.isFolder ? 1 + count($1.children) : 0) } }
-        return spaces.reduce(count(favorites)) { $0 + count($1.favorites) + count($1.pinned) + count($1.today) }
-    }
-}
-
-enum ImportError: LocalizedError {
-    case notFound(String)
-    case unreadable(String)
-    var errorDescription: String? {
-        switch self {
-        case .notFound(let s): return "\(s) data was not found on this Mac."
-        case .unreadable(let s): return "Could not read \(s)."
-        }
-    }
-}
+// The Mac's importers for Arc and Dia: where their files are and their preferences. The plan
+// types, Arc's sidebar reader and `SidebarStore.apply` are in CraCore (ImportPlan.swift,
+// ArcImporter.swift, SidebarStore+Import.swift), which Windows reads too.
 
 private func refDate(_ v: Any?) -> Date {
     if let d = v as? Double { return Date(timeIntervalSinceReferenceDate: d) }
     return Date()
 }
 
-/// Arc stores `[id, object, id, object…]` for ordered dictionaries.
-private func pairs(_ list: Any?) -> [(String, [String: Any])] {
-    guard let arr = list as? [Any] else { return [] }
-    var out: [(String, [String: Any])] = []
-    var i = 0
-    while i + 1 < arr.count {
-        if let id = arr[i] as? String, let obj = arr[i + 1] as? [String: Any] { out.append((id, obj)); i += 2 }
-        else { i += 1 }
-    }
-    return out
-}
-
-/// Arc wraps an enum case's value as `{case: {_0: value}}`.
-private func tagged<T>(_ value: Any?, _ key: String) -> T? {
-    ((value as? [String: Any])?[key] as? [String: Any])?["_0"] as? T
-}
-
 // MARK: - Arc
 
-enum ArcImporter {
+extension ArcImporter {
     /// CRA_ARC_DIR points a test instance at a made-up profile (Tests/Fixtures/Arc).
     static let supportDir = ProcessInfo.processInfo.environment["CRA_ARC_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Arc", isDirectory: true)
 
-    static var isAvailable: Bool { FileManager.default.fileExists(atPath: supportDir.appendingPathComponent("StorableSidebar.json").path) }
+    static var isAvailable: Bool { isAvailable(in: supportDir) }
 
     /// Arc's Chromium profiles: Default and "Profile <n>", one per profile a space can be on.
-    static var userData: URL { supportDir.appendingPathComponent("User Data", isDirectory: true) }
+    static var userData: URL { userData(in: supportDir) }
 
     /// Arc's View ▸ Show Toolbar (topBarURLEnabled, off by default); nil when Arc never stored it.
     static var showsToolbar: Bool? {
@@ -146,181 +31,22 @@ enum ArcImporter {
         UserDefaults(suiteName: "company.thebrowser.Browser")?.object(forKey: "toolbarShowFullURLsEnabledPreference") as? Bool
     }
 
-    static func plan() throws -> ImportPlan {
-        let url = supportDir.appendingPathComponent("StorableSidebar.json")
-        guard let data = try? Data(contentsOf: url) else { throw ImportError.notFound("Arc") }
-        return try plan(sidebar: data)
+    /// Arc's preferences, from its defaults.
+    static var preferences: Preferences {
+        Preferences(autoArchive: UserDefaults(suiteName: "company.thebrowser.Browser")?.string(forKey: "autoArchiveTimeThreshold"),
+                    showsToolbar: showsToolbar, showsFullURL: showsFullURL)
     }
+
+    static func plan() throws -> ImportPlan { try plan(supportDir: supportDir, preferences: preferences) }
 
     /// The plan from a StorableSidebar.json's contents (favicons and profiles still come from
     /// `supportDir`).
     static func plan(sidebar data: Data) throws -> ImportPlan {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let sidebar = root["sidebar"] as? [String: Any],
-              let containers = sidebar["containers"] as? [[String: Any]] else { throw ImportError.unreadable("Arc's sidebar") }
-        var plan = ImportPlan(source: "Arc")
-        guard let main = containers.first(where: { $0["spaces"] != nil }) else { return plan }
-        // A damaged file can list an id twice: the later entry wins, as when Arc decodes it.
-        let items = Dictionary(pairs(main["items"]), uniquingKeysWith: { _, later in later })
-        var spaceTitleByID: [String: String] = [:]
-
-        func convert(_ id: String) -> ImportedItem? {
-            guard let it = items[id], let dataDict = it["data"] as? [String: Any] else { return nil }
-            let custom = it["title"] as? String
-            let created = refDate(it["createdAt"])
-            let childIDs = it["childrenIds"] as? [String] ?? []
-            if let tab = dataDict["tab"] as? [String: Any] {
-                guard let u = tab["savedURL"] as? String, !u.isEmpty else { return nil }
-                return ImportedItem(customTitle: custom, pageTitle: tab["savedTitle"] as? String ?? "", url: u, createdAt: created,
-                                    faviconPath: faviconFile(forItemID: id), liveItemURL: tagged(tab["liveItemID"], "url"))
-            }
-            if let list = dataDict["list"] as? [String: Any] {
-                return ImportedItem(customTitle: custom, pageTitle: custom ?? "Folder", url: nil, isFolder: true,
-                                    children: childIDs.compactMap(convert), createdAt: created,
-                                    liveFolder: liveFolder(list["automaticLiveFolderData"]))
-            }
-            if dataDict["splitView"] != nil || dataDict["tabGroup"] != nil {
-                // Flatten split views into their tabs.
-                let kids = childIDs.compactMap(convert)
-                return kids.count == 1 ? kids[0] : ImportedItem(customTitle: custom ?? "Split", pageTitle: "", url: nil, isFolder: true, children: kids, createdAt: created)
-            }
-            return nil
-        }
-
-        // Each space is on a Chromium profile in User Data, named as Arc's space menu shows it.
-        let profileNames = ChromiumImporter.profileNames(userData: userData)
-
-        // Favorites (topApps): one container per profile, shared by that profile's spaces.
-        var favoritesByProfile: [(profile: NSDictionary, items: [ImportedItem])] = []
-        var allFavorites: [ImportedItem] = []
-        for (_, it) in items {
-            guard let d = it["data"] as? [String: Any], let c = d["itemContainer"] as? [String: Any],
-                  let type = c["containerType"] as? [String: Any], let top = type["topApps"] as? [String: Any] else { continue }
-            let favs = (it["childrenIds"] as? [String] ?? []).compactMap(convert)
-            allFavorites += favs
-            if let profile = top["_0"] as? NSDictionary { favoritesByProfile.append((profile, favs)) }
-        }
-
-        for (sid, space) in pairs(main["spaces"]) {
-            let title = space["title"] as? String ?? "Space"
-            spaceTitleByID[sid] = title
-            // No iconType is Remove Icon in Arc, a dot in its dock: keep it icon-less, which Cra's
-            // dock draws as the same dot (#252). An icon this can't read gets 🗂️.
-            var emoji = ""
-            if let info = space["customInfo"] as? [String: Any], let icon = info["iconType"] as? [String: Any] {
-                emoji = "🗂️"
-                if let e = icon["emoji_v2"] as? String { emoji = e }
-                else if let code = icon["emoji"] as? Int, let scalar = UnicodeScalar(code) { emoji = String(Character(scalar)) }
-            }
-            var pinnedID: String?, todayID: String?
-            if let ids = space["containerIDs"] as? [Any] {
-                var i = 0
-                while i + 1 < ids.count {
-                    if let k = ids[i] as? String, let v = ids[i + 1] as? String {
-                        if k == "pinned" { pinnedID = v } else if k == "unpinned" { todayID = v }
-                    }
-                    i += 2
-                }
-            }
-            // A space without a theme is Arc's default dark purple, close to Ink. Not the next
-            // preset: that shifted every later space onto another colour (issue #30).
-            var sp = ImportedSpace(title: title, emoji: emoji, theme: ArcThemeImport.theme(from: space) ?? SpaceTheme.presets[0])
-            let profile = space["profile"] as? NSDictionary
-            sp.favorites = favoritesByProfile.first { $0.profile.isEqual(profile) }?.items ?? allFavorites
-            sp.profile = ImportProfileMap.arcProfileFolder(space["profile"]).map { ImportedProfile(folder: $0, name: profileNames[$0] ?? $0) }
-            if let p = pinnedID, let c = items[p] { sp.pinned = (c["childrenIds"] as? [String] ?? []).compactMap(convert) }
-            if let t = todayID, let c = items[t] { sp.today = (c["childrenIds"] as? [String] ?? []).compactMap(convert) }
-            plan.spaces.append(sp)
-        }
-
-        // Archive
-        if let adata = try? Data(contentsOf: supportDir.appendingPathComponent("StorableArchiveItems.json")),
-           let aroot = try? JSONSerialization.jsonObject(with: adata) as? [String: Any],
-           let aitems = aroot["items"] as? [Any] {
-            for case let e as [String: Any] in aitems {
-                guard let si = e["sidebarItem"] as? [String: Any], let d = si["data"] as? [String: Any],
-                      let tab = d["tab"] as? [String: Any], let u = tab["savedURL"] as? String, !u.isEmpty else { continue }
-                let reason = (e["reason"] as? String) == "auto" ? ArchiveReason.auto : .manual
-                var spaceTitle: String?
-                if let src = e["source"] as? [String: Any], let sp = src["space"] as? [String: Any], let id = sp["_0"] as? String { spaceTitle = spaceTitleByID[id] }
-                plan.archive.append(ImportedArchiveEntry(customTitle: si["title"] as? String, pageTitle: tab["savedTitle"] as? String ?? "",
-                                                         url: u, archivedAt: refDate(e["archivedAt"]), reason: reason, spaceTitle: spaceTitle))
-            }
-            plan.archive.sort { $0.archivedAt > $1.archivedAt }
-            if plan.archive.count > 1500 { plan.archive.removeLast(plan.archive.count - 1500) }
-        }
-
-        // Settings
-        if let wdata = try? Data(contentsOf: supportDir.appendingPathComponent("StorableWindows.json")),
-           let wroot = try? JSONSerialization.jsonObject(with: wdata) as? [String: Any],
-           let prefs = wroot["sidebarViewPreferences"] as? [String: Any], let w = prefs["sidebarWidth"] as? Double {
-            plan.settings.sidebarWidth = w
-        }
-        if let threshold = UserDefaults(suiteName: "company.thebrowser.Browser")?.string(forKey: "autoArchiveTimeThreshold") {
-            plan.settings.autoArchive = AutoArchiveThreshold(rawValue: threshold)
-        }
-        plan.settings.showToolbar = showsToolbar
-        plan.settings.toolbarShowsFullURL = showsFullURL
-        if let ldata = try? Data(contentsOf: supportDir.appendingPathComponent("StorableLinkRouting.json")),
-           let lroot = try? JSONSerialization.jsonObject(with: ldata) as? [String: Any] {
-            plan.settings.defaultLinkDestination = linkDestination(lroot["defaultDestination"], spaceTitles: spaceTitleByID)
-            plan.settings.linkRoutes = (lroot["rules"] as? [[String: Any]] ?? []).compactMap { linkRoute($0, spaceTitles: spaceTitleByID) }
-        }
-        return plan
-    }
-
-    /// Arc's `automaticLiveFolderData` for a GitHub folder: `dataSource {github: {}}`, `filter
-    /// {github: {_0: {attributes, hiddenRepositories [{owner, name}]}}}`, `hiddenItems [{url: {_0}}]`.
-    /// Its `lastFetch` stays behind, so the folder refreshes as soon as Cra runs (#215).
-    static func liveFolder(_ value: Any?) -> LiveFolderData? {
-        guard let data = value as? [String: Any], (data["dataSource"] as? [String: Any])?["github"] != nil else { return nil }
-        var live = LiveFolderData()
-        if let filter: [String: Any] = tagged(data["filter"], "github") {
-            if let bits = filter["attributes"] as? Int { live.filter.attributes = GitHubLiveFilter.Attributes(rawValue: bits).intersection(.all) }
-            live.filter.hiddenRepositories = (filter["hiddenRepositories"] as? [[String: Any]] ?? []).compactMap { r in
-                guard let owner = r["owner"] as? String, let name = r["name"] as? String else { return nil }
-                return "\(owner)/\(name)"
-            }
-        }
-        live.hiddenItems = (data["hiddenItems"] as? [Any] ?? []).compactMap { tagged($0, "url") }
-        return live
-    }
-
-    /// One Air Traffic Control rule: `sourceComponents[0].componentType.urlMatch` is
-    /// `{_0: {contains: {}} | {matches: {}}, _1: text}`.
-    private static func linkRoute(_ rule: [String: Any], spaceTitles: [String: String]) -> ImportedLinkRoute? {
-        guard let dest = linkDestination(rule["destination"], spaceTitles: spaceTitles),
-              let component = (rule["sourceComponents"] as? [[String: Any]])?.first,
-              let type = component["componentType"] as? [String: Any],
-              let urlMatch = type["urlMatch"] as? [String: Any],
-              let text = urlMatch["_1"] as? String else { return nil }
-        let style: LinkMatchStyle = (urlMatch["_0"] as? [String: Any])?["matches"] != nil ? .equals : .contains
-        return ImportedLinkRoute(match: style, text: text, destination: dest)
-    }
-
-    /// `{littleArc: {_0: <profile>}}` or `{space: {_0: {mostRecent: {}}}}`; a specific
-    /// space is recognised by its id anywhere inside either. Arc's editor never wrote a
-    /// Little Arc with a space, but one written by hand loaded in that space's profile;
-    /// Cra's Little Window route can name the space (#258).
-    private static func linkDestination(_ value: Any?, spaceTitles: [String: String]) -> ImportedLinkDestination? {
-        guard let d = value as? [String: Any] else { return nil }
-        func title(_ v: Any) -> String? {
-            if let s = v as? String { return spaceTitles[s] }
-            if let o = v as? [String: Any] { return o.values.lazy.compactMap(title).first }
-            if let a = v as? [Any] { return a.lazy.compactMap(title).first }
-            return nil
-        }
-        if let little = d["littleArc"] { return .littleWindow(spaceTitle: title(little)) }
-        guard let space = d["space"] else { return nil }
-        return title(space).map { .space(title: $0) } ?? .mostRecentSpace
+        try plan(sidebar: data, supportDir: supportDir, preferences: preferences)
     }
 
     /// Arc caches sidebar favicons as 32x32 PNGs named md5(item id).
-    static func faviconFile(forItemID id: String) -> String? {
-        let digest = Insecure.MD5.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
-        let path = supportDir.appendingPathComponent("SidebarItemsFaviconCache/\(digest)").path
-        return FileManager.default.fileExists(atPath: path) ? path : nil
-    }
+    static func faviconFile(forItemID id: String) -> String? { faviconFile(forItemID: id, in: supportDir) }
 }
 
 // MARK: - Dia
@@ -443,185 +169,9 @@ enum DiaImporter {
 // MARK: - Applying
 
 extension SidebarStore {
-    struct ImportResult {
-        var spaces = 0; var tabs = 0; var folders = 0; var archived = 0; var spaceIDs: [UUID] = []
-        /// The Cra profile each source profile of an imported space landed in.
-        var profiles = ImportProfileMap()
-    }
-
-    /// Add a plan to the sidebar. Like Dia, every imported space is a new one (importing
-    /// twice gives two of each), so people pick what to keep; a taken title gets a number
-    /// ("JYSK 2"). Favorites on the current space skip URLs it already has. `replacing`
-    /// spaces (a fresh install's empty one) are deleted afterwards and don't take titles.
+    /// Add a plan to the sidebar, its favicons copied into Cra's favicon cache.
     @discardableResult
     func apply(_ plan: ImportPlan, includeArchive: Bool, includeSettings: Bool, replacing: [UUID] = []) -> ImportResult {
-        var result = ImportResult()
-
-        // A pinned tab that has navigated still counts as present via its home URL.
-        func existingURLs(under container: UUID) -> Set<String> {
-            Set(tabs(under: container).flatMap { [$0.tab?.url, $0.tab?.savedURL].compactMap { $0 } })
-        }
-
-        // Favicons first, for every item (also ones skipped as duplicates).
-        func copyFavicons(_ items: [ImportedItem]) {
-            for it in items {
-                if it.isFolder { copyFavicons(it.children); continue }
-                guard let src = it.faviconPath, let url = it.url, let key = FaviconKey.key(for: url) else { continue }
-                let dst = AppPaths.favicons.appendingPathComponent(FaviconCache.fileName(key))
-                if !FileManager.default.fileExists(atPath: dst.path) {
-                    try? FileManager.default.copyItem(atPath: src, toPath: dst.path)
-                }
-            }
-        }
-        copyFavicons(plan.favorites)
-        for sp in plan.spaces { copyFavicons(sp.favorites); copyFavicons(sp.pinned); copyFavicons(sp.today) }
-
-        func insert(_ items: [ImportedItem], into parent: UUID, skip: Set<String>, pinned: Bool) {
-            var skip = skip
-            for it in items {
-                if let live = it.liveFolder {
-                    insertLiveFolder(it, live, into: parent, pinned: pinned)
-                } else if it.isFolder {
-                    let name = it.customTitle ?? it.pageTitle
-                    // Re-importing must not duplicate folders: reuse one with the same name.
-                    let folder: SidebarItem
-                    if let existing = children(of: parent).first(where: { $0.isFolder && ($0.title ?? "") == name }) {
-                        folder = existing
-                    } else {
-                        folder = createFolder(named: name, in: parent)
-                        setExpanded(folder.id, false)
-                        result.folders += 1
-                    }
-                    insert(it.children, into: folder.id, skip: existingURLs(under: folder.id), pinned: pinned)
-                } else if let url = it.url, !skip.contains(url) {
-                    skip.insert(url)
-                    var tab = SidebarItem.tab(url, title: it.pageTitle, parent: parent)
-                    tab.title = it.customTitle
-                    tab.createdAt = it.createdAt
-                    // An open tab was alive in the other browser: auto-archive counts from the import,
-                    // not from when the tab was made (Dia keeps tabs for weeks with auto-clean off).
-                    if var t = tab.tab {
-                        t.timeLastActiveAt = pinned ? it.createdAt : clock.now
-                        if self.items[parent]?.isLiveFolder == true { t.liveItemURL = it.liveItemURL }
-                        tab.data = .tab(t)
-                    }
-                    insertItem(tab, into: parent, at: nil)
-                    result.tabs += 1
-                }
-            }
-        }
-
-        // A space has one GitHub live folder: importing again fills the one it has.
-        func insertLiveFolder(_ it: ImportedItem, _ live: LiveFolderData, into parent: UUID, pinned: Bool) {
-            guard let sid = self.spaceID(ofItem: parent), !isIncognito(space: sid) else { return }
-            let folder: SidebarItem
-            if let existing = self.liveFolder(live.source, inSpace: sid) {
-                folder = existing
-            } else {
-                folder = createFolder(named: it.customTitle ?? it.pageTitle, in: parent)
-                self.items[folder.id]?.liveFolder = live
-                setExpanded(folder.id, false)
-                result.folders += 1
-            }
-            insert(it.children.filter { $0.liveItemURL != nil }, into: folder.id, skip: existingURLs(under: folder.id), pinned: pinned)
-        }
-
-        let current = focusedSpace.favoritesContainerID
-        insert(plan.favorites, into: current, skip: existingURLs(under: current), pinned: true)
-
-        // Archive entries and link routes name spaces by title: point them at this import's spaces.
-        var imported: [String: UUID] = [:]
-        func spaceID(titled title: String) -> UUID? {
-            imported[title.lowercased()] ?? orderedSpaces.first { $0.title.caseInsensitiveCompare(title) == .orderedSame }?.id
-        }
-        func freeTitle(_ title: String) -> String {
-            let taken = Set(orderedSpaces.filter { !replacing.contains($0.id) }.map { $0.title.lowercased() })
-            guard taken.contains(title.lowercased()) else { return title }
-            var n = 2
-            while taken.contains("\(title) \(n)".lowercased()) { n += 1 }
-            return "\(title) \(n)"
-        }
-
-        // A source profile's spaces go on the Cra profile of its name; the rest stay on Default.
-        for sp in plan.spaces {
-            let space = createSpace(title: freeTitle(sp.title), emoji: sp.emoji, theme: sp.theme, focus: false)
-            if let source = sp.profile {
-                let folder = result.profiles.folders[source.folder] ?? importedProfile(named: source.name).directoryName
-                result.profiles.folders[source.folder] = folder
-                if let p = profiles.first(where: { $0.directoryName == folder }) { setProfile(p.id, forSpace: space.id) }
-            } else {
-                result.profiles.folders["Default"] = "Default"
-            }
-            result.spaces += 1
-            result.spaceIDs.append(space.id)
-            if imported[sp.title.lowercased()] == nil { imported[sp.title.lowercased()] = space.id }
-            // With shared favorites (#154) the profile picks which list the space shows.
-            let favorites = self.space(space.id)?.favoritesContainerID ?? space.favoritesContainerID
-            insert(sp.favorites, into: favorites, skip: existingURLs(under: favorites), pinned: true)
-            insert(sp.pinned, into: space.pinnedContainerID, skip: existingURLs(under: space.pinnedContainerID), pinned: true)
-            insert(sp.today, into: space.todayContainerID, skip: existingURLs(under: space.todayContainerID), pinned: false)
-        }
-        for id in replacing { deleteSpace(id) }
-
-        if includeArchive {
-            let known = Set(archive.compactMap { $0.item.tab?.url })
-            for e in plan.archive where !known.contains(e.url) {
-                var item = SidebarItem.tab(e.url, title: e.pageTitle, parent: nil)
-                item.title = e.customTitle
-                let sid = e.spaceTitle.flatMap(spaceID(titled:))
-                appendArchived(ArchivedItem(archivedAt: e.archivedAt, reason: e.reason, sourceSpaceID: sid, wasPinned: false, item: item))
-                result.archived += 1
-            }
-        }
-
-        if includeSettings {
-            if let a = plan.settings.autoArchive { settings.autoArchive = a }
-            if let w = plan.settings.sidebarWidth { prefs.sidebarWidth = SidebarWidth.clamped(w) }
-            if let t = plan.settings.showToolbar { settings.showToolbar = t }
-            if let f = plan.settings.toolbarShowsFullURL { settings.toolbarShowsFullURL = f }
-            // Air Traffic Control, pointed at the spaces of the same name.
-            func destination(_ d: ImportedLinkDestination) -> LinkDestination {
-                switch d {
-                case .mostRecentSpace: return .mostRecentSpace
-                case .littleWindow(let title): return .littleWindow(space: title.flatMap(spaceID(titled:)))
-                case .space(let title):
-                    return spaceID(titled: title).map { .space($0) } ?? .mostRecentSpace
-                }
-            }
-            if let d = plan.settings.defaultLinkDestination { settings.defaultLinkDestination = destination(d) }
-            for r in plan.settings.linkRoutes where !settings.linkRoutes.contains(where: { $0.match == r.match && $0.text == r.text }) {
-                settings.linkRoutes.append(LinkRoute(match: r.match, text: r.text, destination: destination(r.destination)))
-            }
-        }
-        touchAfterImport()
-        return result
-    }
-
-    /// The Cra profile a source profile becomes: one already there of the same name is reused, so
-    /// importing again (or rebuilding from Arc) doesn't add "Work" twice.
-    private func importedProfile(named name: String) -> BrowserProfile {
-        profiles.first { $0.name == name } ?? createProfile(name: name)
-    }
-
-    // MARK: Rebuild from Arc (GitHub #131)
-
-    /// Spaces an import from before Cra kept Arc's profiles left on Default, that Arc has on a
-    /// profile of their own (matched by name).
-    func arcProfileMoves(_ plan: ImportPlan) -> [ArcProfileRebuild.Move] {
-        let cra = orderedSpaces.map { ArcProfileRebuild.CraSpace(id: $0.id, title: $0.title, movable: $0.profileID == nil && !isIncognito(space: $0.id)) }
-        let arc = plan.spaces.map { ArcProfileRebuild.ArcSpace(title: $0.title, folder: $0.profile?.folder, name: $0.profile?.name ?? "Default") }
-        return ArcProfileRebuild.moves(cra: cra, arc: arc)
-    }
-
-    /// Puts each space on the Cra profile its Arc profile becomes; what Arc's profiles map to.
-    @discardableResult
-    func applyArcProfileMoves(_ moves: [ArcProfileRebuild.Move]) -> ImportProfileMap {
-        var map = ImportProfileMap(folders: ["Default": "Default"])
-        for m in moves where spaces[m.spaceID] != nil {
-            let profile = map.folders[m.folder].flatMap { f in profiles.first { $0.directoryName == f } } ?? importedProfile(named: m.profileName)
-            map.folders[m.folder] = profile.directoryName
-            setProfile(profile.id, forSpace: m.spaceID)
-        }
-        return map
+        apply(plan, includeArchive: includeArchive, includeSettings: includeSettings, replacing: replacing, favicons: AppPaths.favicons)
     }
 }

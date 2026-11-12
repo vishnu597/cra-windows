@@ -57,7 +57,8 @@ through `Sources/Cra/App/CraCoreExports.swift`.
 This logic is pure enough for CraCore but still lives in the app. Move a piece when a change
 touches it anyway, not as a side errand.
 
-- `Services/Import/`: the parsers for other browsers' files. Tested on `Tests/Fixtures` by
+- `Services/Import/`: the parsers for other browsers' files (Arc's, Chromium's bookmarks and
+  sessions, and `apply` are in CraCore already). Tested on `Tests/Fixtures` by
   `scripts/test-store.sh`.
 - `UI/Windows/ExtensionLaunch.swift` and `Services/DevToolsToggle.swift`: policies, tested by
   `scripts/test-policies.sh`.
