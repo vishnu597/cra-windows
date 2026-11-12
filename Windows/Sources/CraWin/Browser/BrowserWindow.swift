@@ -104,6 +104,8 @@ final class BrowserWindow {
     private let importDialog = ImportDialogView()
     private var importWindow: FloatingWindow?
     private var importDialogHeight = 300.0
+    private var onboarding: OnboardingView?
+    private var onboardingWindow: FloatingWindow?
     /// The sliders button at the end of the address pill, and the Site Control Center it opens.
     private var sliders: Button!
     private let slidersGlyph = FontIcon()
@@ -1231,7 +1233,26 @@ final class BrowserWindow {
     /// With `credentials`, its passwords and sign-ins are staged for the next launch and the card
     /// stays up to say so (the Mac's Passwords and Sign-ins tiles).
     private func runImport(_ source: WindowsImportSource, credentials: Bool) {
-        guard let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment) else { return hideImportDialog() }
+        switch importData(source, credentials: credentials) {
+        case .failed(let error):
+            hideImportDialog()
+            showToast(error)
+        case .done(let summary, nil):
+            hideImportDialog()
+            showToast(summary)
+        case .done(let summary, let words?):
+            importDialogHeight = importDialog.showResult(title: summary, lines: [words])
+            placeImportDialog()
+            importDialog.focus()
+        }
+    }
+
+    /// The import itself, for Import from Another Browser and the onboarding: the plan into the
+    /// sidebar (its first space shown) and, with `credentials`, the passwords and sign-ins staged.
+    private func importData(_ source: WindowsImportSource, credentials: Bool) -> OnboardingView.ImportOutcome {
+        guard let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment) else {
+            return .failed("Could not import from \(source.name)")
+        }
         let summary: String
         var profiles = ImportProfileMap()
         do {
@@ -1241,9 +1262,7 @@ final class BrowserWindow {
             summary = result.summary(from: source.name)
             profiles = result.profiles
         } catch {
-            hideImportDialog()
-            showToast((error as? LocalizedError)?.errorDescription ?? "Could not import from \(source.name)")
-            return
+            return .failed((error as? LocalizedError)?.errorDescription ?? "Could not import from \(source.name)")
         }
         var report = CredentialImportReport()
         if credentials, let userData = source.userData(in: folders) {
@@ -1251,14 +1270,93 @@ final class BrowserWindow {
             report = read.report
             if !CredentialImport.stage(read.credentials, profiles: profiles) { report.failed = true }
         }
-        guard let words = report.summary(from: source.name) else {
-            hideImportDialog()
-            showToast(summary)
+        return .done(summary: summary, credentials: report.summary(from: source.name))
+    }
+
+    // MARK: Onboarding
+
+    /// The first-run onboarding, on a card over this window (Onboarding.isNeeded decides).
+    func showOnboarding() {
+        guard !closing, !isIncognito, onboardingWindow == nil else { return }
+        let view = OnboardingView()
+        let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment)
+        let sources = folders.map { f in WindowsImportSource.available(in: f).map { OnboardingView.Source(source: $0, profiles: $0.profiles(in: f)) } } ?? []
+        view.importData = { [weak self] source, credentials in
+            self?.importData(source, credentials: credentials) ?? .failed("")
+        }
+        view.pinCandidates = { [weak self] source in
+            guard let self else { return (Onboarding.presetPins, []) }
+            return OnboardingSites.candidates(source: source, sources: sources, existingHosts: self.favoriteHosts)
+        }
+        view.pin = { [weak self] picked in
+            guard let self, !picked.isEmpty else { return }
+            var plan = ImportPlan(source: "Onboarding")
+            plan.favorites = picked.map { ImportedItem(customTitle: $0.name, pageTitle: $0.name, url: $0.url) }
+            self.store.apply(plan, includeArchive: false, includeSettings: false, favicons: nil)
+        }
+        view.chooseTheme = { [weak self] i in
+            guard let self, SpaceTheme.presets.indices.contains(i) else { return }
+            var space = self.store.focusedSpace(window: self.windowID)
+            space.theme = SpaceTheme.presets[i]
+            self.store.updateSpace(space)
+        }
+        view.applySystemOptions = { makeDefault, launch in
+            if makeDefault && !DefaultBrowser.isDefault && !DefaultBrowser.makeDefault() {
+                return "Cra couldn’t register itself with Windows as a browser."
+            }
+            if launch != LaunchAtLogin.isEnabled, let error = LaunchAtLogin.set(launch) { return error }
+            return nil
+        }
+        view.finish = { [weak self] in self?.finishOnboarding() }
+        do {
+            let window = try FloatingWindow(owner: self.window, content: view.root)
+            // Alt+F4: put away for now; the next launch shows it again.
+            window.onClose = { [weak self] in self?.hideOnboarding() }
+            onboardingWindow = window
+        } catch {
+            print("The onboarding's window could not be made: \(error)")
             return
         }
-        importDialogHeight = importDialog.showResult(title: summary, lines: [words])
-        placeImportDialog()
-        importDialog.focus()
+        onboarding = view
+        let flow = Onboarding.Flow(offersDefaultBrowser: !DefaultBrowser.isDefault, offersPrivacy: false,
+                                   offersPinnedTabs: Onboarding.offersPinnedTabs(favoriteCount: favoriteHosts.count))
+        view.start(flow: flow, sources: sources, launchesAtLogin: LaunchAtLogin.isEnabled)
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, let window = self.onboardingWindow, !self.closing else { return }
+            self.placeOnboarding()
+            window.show { [weak self] in self?.onboarding?.focus() }
+        }
+    }
+
+    /// The hosts of this window's space's favorites.
+    private var favoriteHosts: Set<String> {
+        let space = store.focusedSpace(window: windowID)
+        return Set(store.tabs(under: space.favoritesContainerID).compactMap { $0.tab.flatMap { FaviconKey.key(for: $0.url) } })
+    }
+
+    /// The onboarding ended: it counts as seen from now on.
+    private func finishOnboarding() {
+        store.settings.hasSeenImportPrompt = true
+        hideOnboarding()
+    }
+
+    /// The card's window stays made (hidden) for the rest of the run, as the import card's does.
+    private func hideOnboarding() {
+        onboardingWindow?.hide()
+        if let window = HWND(bitPattern: hwnd) { _ = SetForegroundWindow(window) }
+        focusContent()
+    }
+
+    /// Centred on the window, as the import card is.
+    private func placeOnboarding() {
+        guard let onboardingWindow, let window else { return }
+        let scale = window.scale
+        let position = window.appWindow.position, size = window.appWindow.size
+        let width = (OnboardingView.width * scale).rounded(), height = (OnboardingView.height * scale).rounded()
+        let left = Double(position.x) + (Double(size.width) - width) / 2
+        let top = Double(position.y) + max(0, (Double(size.height) - height) / 2)
+        onboardingWindow.place(origin: PointInt32(x: Int32(left.rounded()), y: Int32(top.rounded())),
+                               size: SizeInt32(width: Int32(width), height: Int32(height)))
     }
 
     private func hideImportDialog() {

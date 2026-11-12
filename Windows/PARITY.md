@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 4967f24 -->
+<!-- upstream-reviewed: 0b0b328 -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -33,10 +33,10 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 0 | 0 | 5 | 0 |
 | Settings | 2 | 4 | 0 | 5 | 0 |
-| Import and onboarding | 0 | 3 | 0 | 2 | 1 |
+| Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 4 |
 | System integration and release | 3 | 2 | 0 | 9 | 5 |
-| **All** | 22 | 34 | 0 | 80 | 12 |
+| **All** | 22 | 34 | 1 | 79 | 12 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -218,11 +218,11 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
 | Import from Arc and Dia: spaces, pinned, folders, favorites, archive, profiles (`importData`) | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `Importers.swift`, `DiaSidebar.swift`, `BrowserSources.swift` | `ImportPlan`, `ArcImporter`, `SidebarStore+Import` (`apply`), `WindowsImportSource`, `MD5`, `ArcThemeImport`, `ExtensionProfiles` | Windows: Import from Another Browser… (command bar, Settings ▸ General ▸ Your data) reads Arc for Windows' package folder (`%LOCALAPPDATA%\Packages\TheBrowserCompany.Arc_*\LocalCache\Local\Arc`): spaces, profiles, pinned, favorites, archive, Air Traffic Control. Arc for Windows' own preferences (toolbar, auto-archive) aren't read. No Dia on Windows. Next: the onboarding flow (item 11). |
-| Import from Chrome, Edge, Brave, Opera, Vivaldi, Helium: tabs, bookmarks, history, extensions | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `ChromiumImporter.swift`, `ExtensionImporter.swift` | `ChromiumImporter` (profiles, bookmarks, sessions), `TopSite`, `ChromiumTime` | Bookmarks and the last session's tabs, one space per profile, from Chrome, Brave, Edge, Opera, Opera GX, Vivaldi and Chromium. Left: history-based top sites and favicons (need SQLite on Windows), extensions, Helium (its Windows folder is unconfirmed). |
+| Import from Chrome, Edge, Brave, Opera, Vivaldi, Helium: tabs, bookmarks, history, extensions | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `ChromiumImporter.swift`, `ExtensionImporter.swift` | `ChromiumImporter` (profiles, bookmarks, sessions), `TopSite`, `ChromiumTime` | Bookmarks and the last session's tabs, one space per profile, from Chrome, Brave, Edge, Opera, Opera GX, Vivaldi and Chromium. Left: extensions, Helium (its Windows folder is unconfirmed). |
 | Passwords and sign-ins | 🟡 [#36](https://github.com/vishnu597/cra-windows/pull/36) | `CredentialImport.swift` | `ImportedCredentials` (`ImportedLogin`, `ImportedCookie`), `PendingCredentials`, `CredentialImportReport`, `ChromiumOSCrypt`, `ChromiumCredentialRows`, `AESGCM`, `SHA256Hash` | Windows: the import card's "Passwords and sign-ins" box reads each profile's Login Data and Cookies with the browser's Local State key (DPAPI, then AES-GCM in CraCore), seals them with Cra's key and stages them in the Mac's `pending-credentials.json`; they go into Cra's profile at the next launch (`CraData.cpp`: DPAPI and winsqlite3). Chrome 127+ seals cookies to itself (app-bound "v20"): those stay, and the card says so. A running browser holds its Cookies shut: the card asks to quit it. Left: a Restart button, Firefox. The Mac still keeps its own copy of the staging code. |
 | Firefox and Zen | ❌ | `FirefoxImporter.swift`, `ZenImporter.swift` | | Same move. |
 | Safari | ➖ | `SafariImporter.swift` | | No Safari on Windows. |
-| Onboarding: import, theme colour, address bar placement | ❌ | `ImportFlow.swift`, `ImportFlowArt.swift`, `ImportFlowViews.swift`, `OnboardingSteps.swift` | | Phase 2 item 11, after import. |
+| Onboarding: import, theme colour, address bar placement | 🔜 | `ImportFlow.swift`, `ImportFlowArt.swift`, `ImportFlowViews.swift`, `OnboardingSteps.swift` | `Onboarding` (`isNeeded`, `Flow`, `presetPins`, `pinCandidates`), `TopSite` (`historyQuery`, `ranked`, `faviconQuery`) | Windows: on a fresh install a card over the first window runs the cover, default browser (with open at sign-in), the import list, pinned tabs (the imported browser's most visited sites and Dia's presets, with their icons), the space's colour and the outro (`OnboardingView`, `OnboardingSites`). Not yet: the privacy step (no ad blocker or usage stats on Windows), the address bar layout (no toolbar), Dia's artwork and slide transitions. The Mac reads the shared step rules and pin suggestions. |
 
 ## Arc Max (on-device AI)
 
@@ -482,6 +482,13 @@ list (kept CraCore paths, added `MemoryReclaim.swift`). `ToolbarAutoHide`'s Core
 | 39aa7bb, 4b0ba66 | Tab freezing spares WebSocket pages; closed tabs' memory goes back; five hidden tabs keep frames (#195) | Tabs and memory rows (`TabSleepPolicy`, `MemoryReclaim`, `HiddenFrameRelease`). ❌ |
 | f13c956 | The downloaded update runs once hidden first | Auto-update row (`UpdatePrewarm`, `UpdatePrewarmer.swift`). ❌ |
 | 21bee29, 4967f24 | Test copies' windows report visible; the speed bench (scripts/perf, docs/speed.md) | Nothing for Windows. |
+
+Upstream sync #12 merged the 2 commits after 4967f24, with no conflicts.
+
+| Commit | What | Windows |
+|---|---|---|
+| 2165ca1 | The update warm-up runs the helper apps too | Auto-update row (`UpdatePrewarm`). ❌ |
+| 0b0b328 | A window manager's nil child window no longer crashes Cra (#391) | Mac accessibility (`DockedWindowAccessibility.swift`). ➖ |
 
 ## Keeping this current
 

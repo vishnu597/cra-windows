@@ -56,13 +56,8 @@ struct ImportOutcome {
     var needsRelaunch: Bool { extensionsImported > 0 || credentialsStaged }
 }
 
-/// A site offered on the pinned tabs step (Dia's PinnedTabButton).
-struct PinCandidate: Identifiable, Hashable {
-    var id: String { host }
-    let host: String
-    let name: String
-    let url: String
-}
+/// A site offered on the pinned tabs step (Dia's PinnedTabButton), in CraCore.
+typealias PinCandidate = Onboarding.PinCandidate
 
 @MainActor
 @Observable
@@ -567,58 +562,29 @@ final class ImportFlowModel {
     // MARK: Pinned tabs (Dia's PinnedTabsView)
 
     /// Shown unless the favorites grid already has a full row.
-    var offersPinnedTabs: Bool { store.tabs(under: store.focusedSpace.favoritesContainerID).count < 4 }
+    var offersPinnedTabs: Bool {
+        Onboarding.offersPinnedTabs(favoriteCount: store.tabs(under: store.focusedSpace.favoritesContainerID).count)
+    }
 
-    /// Dia's pre-pinnable apps (PinnedTabs/Icons/* in its Onboarding bundle).
-    static let presetPins: [PinCandidate] = [
-        PinCandidate(host: "mail.google.com", name: "Gmail", url: "https://mail.google.com/"),
-        PinCandidate(host: "calendar.google.com", name: "Calendar", url: "https://calendar.google.com/"),
-        PinCandidate(host: "app.slack.com", name: "Slack", url: "https://app.slack.com/"),
-        PinCandidate(host: "notion.so", name: "Notion", url: "https://www.notion.so/"),
-        PinCandidate(host: "github.com", name: "GitHub", url: "https://github.com/"),
-        PinCandidate(host: "figma.com", name: "Figma", url: "https://www.figma.com/"),
-        PinCandidate(host: "youtube.com", name: "YouTube", url: "https://www.youtube.com/"),
-        PinCandidate(host: "open.spotify.com", name: "Spotify", url: "https://open.spotify.com/"),
-        PinCandidate(host: "drive.google.com", name: "Drive", url: "https://drive.google.com/"),
-        PinCandidate(host: "docs.google.com", name: "Docs", url: "https://docs.google.com/"),
-        PinCandidate(host: "linear.app", name: "Linear", url: "https://linear.app/"),
-        PinCandidate(host: "canva.com", name: "Canva", url: "https://www.canva.com/"),
-    ]
-
-    /// Most visited sites from the browser imported from (Dia's rankedTopSitesTask),
-    /// then the presets, twelve in all; the first four visited sites start ticked.
+    /// Most visited sites from the browser imported from, then the presets (Onboarding.pinCandidates).
     func loadPinCandidates() {
         guard !pinsLoaded else { return }
         pinsLoaded = true
         let source = self.source?.kind == .safari ? nil : (self.source ?? sources.first { $0.kind != .safari })
         let fromExport = exportTopSites
         let existing = Set(store.tabs(under: store.focusedSpace.favoritesContainerID).compactMap { $0.tab.flatMap { FaviconKey.key(for: $0.url) } })
-        pinCandidates = Self.presetPins
+        pinCandidates = Onboarding.presetPins
         Task { @MainActor in
             let (sites, icons) = await Task.detached(priority: .userInitiated) { () -> ([TopSite], [String: NSImage]) in
                 let sites = fromExport.isEmpty ? (source?.topSites(limit: 16) ?? []) : fromExport
-                let hosts = sites.map(\.host) + Self.presetPins.map(\.host)
+                let hosts = sites.map(\.host) + Onboarding.presetPins.map(\.host)
                 return (sites, source?.favicons(hosts: hosts) ?? [:])
             }.value
-            var seen = Set<String>()
-            var out: [PinCandidate] = []
-            for s in sites where out.count < 6 && seen.insert(s.host).inserted && !existing.contains(s.host) {
-                let preset = Self.presetPins.first { $0.host == s.host }
-                out.append(preset ?? PinCandidate(host: s.host, name: Self.displayName(s), url: s.url))
-            }
-            let visited = out.prefix(4).map(\.host)
-            for p in Self.presetPins where out.count < 12 && seen.insert(p.host).inserted { out.append(p) }
+            let offered = Onboarding.pinCandidates(visited: sites, existingHosts: existing)
             pinIcons = icons
-            pinCandidates = out
-            selectedPins = Set(visited)
+            pinCandidates = offered.candidates
+            selectedPins = offered.ticked
         }
-    }
-
-    private static func displayName(_ s: TopSite) -> String {
-        let title = s.title.split(whereSeparator: { "|–—-·:".contains($0) }).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
-        if !title.isEmpty && title.count <= 18 { return title }
-        let base = s.host.split(separator: ".").dropLast().last.map(String.init) ?? s.host
-        return base.prefix(1).uppercased() + base.dropFirst()
     }
 
     func togglePin(_ host: String) {
