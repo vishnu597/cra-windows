@@ -35,7 +35,7 @@ CORE = os.path.join(ROOT, "Packages", "CraCore", "Sources", "CraCore")
 MAC_DIRS = [os.path.join(ROOT, "Sources", d) for d in ("Cra", "CraCEF", "CraHelper")]
 WIN_SOURCES = os.path.join(ROOT, "Windows", "Sources")
 KEYS = os.path.join(CORE, "KeyBindingDefaults.swift")
-PANES = os.path.join(CORE, "SettingsNavigation.swift")
+PANES = os.path.join(CORE, "DiaSettingsNavigation.swift")
 STATUSES = ["✅", "🟡", "🔜", "❌", "➖"]
 SUMMARY = re.compile(r"(<!-- summary:[^>]*-->\n)(.*?)(<!-- /summary -->)", re.S)
 MARKER = re.compile(r"<!--\s*upstream-reviewed:\s*([0-9a-f]{7,40})\s*-->")
@@ -97,8 +97,8 @@ def windows_actions():
 
 def panes():
     src = read(PANES)
-    every = re.search(r"case ((?:\w+, )*\w+)\n", block(src, "enum SettingsPane", "public var id")).group(1).split(", ")
-    win = re.findall(r"\.(\w+)", re.search(r"windowsPanes: \[SettingsPane\] = \[([^\]]*)\]", src).group(1))
+    every = re.search(r"case ((?:\w+, )*\w+)\n", block(src, "enum DiaSettingsPane", "public var id")).group(1).split(", ")
+    win = re.findall(r"\.(\w+)", re.search(r"windowsPanes: \[DiaSettingsPane\] = \[([^\]]*)\]", src).group(1))
     return every, set(win)
 
 

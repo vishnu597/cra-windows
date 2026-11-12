@@ -26,6 +26,54 @@ enum BrowserManagerLifecycleTests {
                "the Option-clicked link opens beside the live page's tab, once Chromium's call has returned")
     }
 
+    /// A two-finger swipe back over a page asks for the tab its view belongs to (#370): the page's
+    /// own Alloy container, its Chrome window, or the views moved out of that window into a card.
+    // promise: #370
+    @MainActor
+    private static func pageViewTabCase(_ manager: BrowserManager, _ runtime: TabRuntime, tab: UUID) {
+        let inContainer = NSView()
+        runtime.browser.containerView.addSubview(inContainer)
+        let host = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: true)
+        let page = NSView(), inPage = NSView()
+        page.addSubview(inPage)
+        runtime.browser.hostWindow = host
+        EmbeddedPages.viewsByHost[ObjectIdentifier(host)] = [page]
+        defer {
+            inContainer.removeFromSuperview()
+            runtime.browser.hostWindow = nil
+            EmbeddedPages.viewsByHost[ObjectIdentifier(host)] = nil
+        }
+        expect(manager.visibleTabID(ofPageView: inContainer) == tab && manager.visibleTabID(ofPageView: inPage) == tab,
+               "a page view in the tab's container, or in its page moved into a card, is the tab's")
+        expect(manager.visibleTabID(ofPageView: NSView()) == nil, "a view of no page on screen is no tab's")
+    }
+
+    /// Arc's ⌥⌘-click opens a link in a Little Window (#373): only when the switch is on and the page's own
+    /// last click had ⌥⌘, not a click made with other keys while ⌥⌘ are down by the time Chromium asks.
+    // promise: #373
+    @MainActor
+    private static func optionCommandLittleWindowCase(_ manager: BrowserManager, _ store: SidebarStore, _ observer: Observer,
+                                                      live: CraBrowser, closed: CraBrowser, tab: UUID) {
+        let optionCommand = UInt(NSEvent.ModifierFlags([.option, .command]).rawValue)
+        let command = UInt(NSEvent.ModifierFlags.command.rawValue)
+        let link = "https://example.test/little"
+        let before = observer.littleWindowLinks.count
+        store.settings.littleWindowOnOptionCommandClick = false
+        expect(!manager.browser(live, opensLittleWindowForURL: link, clickModifiers: optionCommand, clickAge: 0.05),
+               "with the switch off a ⌥⌘-click stays Chromium's split view click (#298)")
+        store.settings.littleWindowOnOptionCommandClick = true
+        expect(!manager.browser(live, opensLittleWindowForURL: link, clickModifiers: command, clickAge: 0.05)
+               && !manager.browser(live, opensLittleWindowForURL: link, clickModifiers: 0, clickAge: 0.05)
+               && !manager.browser(live, opensLittleWindowForURL: link, clickModifiers: optionCommand, clickAge: -1)
+               && !manager.browser(closed, opensLittleWindowForURL: link, clickModifiers: optionCommand, clickAge: 0.05),
+               "a ⌘-click, a plain click, no click in this page and a closed page's open no Little Window")
+        expect(manager.browser(live, opensLittleWindowForURL: link, clickModifiers: optionCommand, clickAge: 0.05),
+               "a ⌥⌘-click with the switch on opens one")
+        expect(observer.littleWindowLinks.dropFirst(before).map(\.url) == [link] && observer.littleWindowLinks.last?.tab == tab,
+               "from the live page's tab, once")
+        store.settings.littleWindowOnOptionCommandClick = false
+    }
+
     @MainActor
     static func main() async {
         await tabFaviconsCase()
@@ -77,6 +125,8 @@ enum BrowserManagerLifecycleTests {
         expect(observer.splitLinks.map(\.url) == ["https://example.test/entry"] && observer.splitLinks.first?.tab == id,
                "Open Link in Split View reaches the window with the live page's tab, a closed page's doesn't")
         await optionClickSplitCase(manager, observer, live: replacement.browser, closed: old.browser, tab: id)
+        pageViewTabCase(manager, replacement, tab: id)
+        optionCommandLittleWindowCase(manager, store, observer, live: replacement.browser, closed: old.browser, tab: id)
 
         let retainedID = store.createTab(url: "https://example.test/retained").id
         weak var retainedBrowser = manager.ensureRuntime(for: retainedID)?.browser
@@ -159,6 +209,7 @@ enum BrowserManagerLifecycleTests {
         await pageEngineCase()
         pageHistoryCase()
         await permissionWaitsForItsTabCase()
+        permissionPopoverStepsAsideCase()
         print("Browser manager lifecycle: \(checks) checks passed")
     }
 
@@ -1168,7 +1219,8 @@ enum BrowserManagerLifecycleTests {
 
     /// The player's Picture in Picture button asks the off-screen page through the protocol, as a
     /// user gesture; only a page with no video of its own (a player in an iframe) gets the
-    /// context menu's request.
+    /// context menu's request. The gesture goes only to a page that has a video: a first look runs
+    /// without one, since a gesture also lets the page open pop-ups for a few seconds (#357).
     @MainActor
     private static func nowPlayingPictureInPictureCase() async {
         let store = SidebarStore()
@@ -1181,9 +1233,18 @@ enum BrowserManagerLifecycleTests {
                                           ("none", 1, "a page with no video of its own")] {
             let before = ra.browser.pictureInPictureRequests
             manager.performNowPlaying(a, .pictureInPicture)
-            expect(ra.browser.lastParams.contains(#""userGesture":true"#), "the player's request runs as a user gesture")
-            ra.browser.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"\#(answer)"}}"#)
-            await drainMainQueue()
+            expect(ra.browser.lastParams.contains(#""userGesture":false"#), "the first look at the page runs with no user gesture")
+            if answer == "none" {
+                ra.browser.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"none"}}"#)
+                await drainMainQueue()
+                expect(ra.browser.lastParams.contains(#""userGesture":false"#), "a page with no video gets no user gesture")
+            } else {
+                ra.browser.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"video"}}"#)
+                await drainMainQueue()
+                expect(ra.browser.lastParams.contains(#""userGesture":true"#), "the player's request runs as a user gesture")
+                ra.browser.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"\#(answer)"}}"#)
+                await drainMainQueue()
+            }
             expect(ra.browser.pictureInPictureRequests - before == fallback,
                    "\(label) \(fallback == 1 ? "falls back to" : "does not also get") the page request")
         }
@@ -1192,7 +1253,10 @@ enum BrowserManagerLifecycleTests {
 
     /// Leaving a video tab (Arc's automatic Picture in Picture) asks the page through the protocol as
     /// a user gesture, for an audible playing video only. The key press the page path lends the page
-    /// raced the tab going hidden, so PiP sometimes never opened (X report, 2 Nov 2026).
+    /// raced the tab going hidden, so PiP sometimes never opened (X report, 2 Nov 2026). Only a page
+    /// with such a video gets the gesture: leaving any tab handed one out, and with it the right to
+    /// open pop-ups for a few seconds (#357).
+    // promise: #357
     @MainActor
     private static func leaveVideoTabPictureInPictureCase() async {
         let store = SidebarStore()
@@ -1207,11 +1271,20 @@ enum BrowserManagerLifecycleTests {
             let before = ra.browser.automaticPictureInPictureRequests
             manager.show(b, focus: false)
             expect(!ra.browser.replies.contains { $0.method == "Cra.autoPictureInPicture" }, "a page that isn't capturing goes straight to the video request")
-            expect(ra.browser.lastParams.contains(#""userGesture":true"#), "leaving a video tab asks as a user gesture")
-            expect(ra.browser.lastParams.contains("})(true)"), "leaving a video tab takes only an audible, playing video")
+            expect(ra.browser.lastParams.contains(#""userGesture":false"#), "leaving a tab looks for a video with no user gesture")
+            expect(ra.browser.lastParams.contains("})(true, false)"), "leaving a video tab takes only an audible, playing video")
+            if answer == "ok" {
+                ra.browser.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"video"}}"#)
+                await drainMainQueue()
+                expect(ra.browser.lastParams.contains(#""userGesture":true"#), "a page with such a video is asked as a user gesture")
+                expect(ra.browser.lastParams.contains("})(true, true)"), "and asked for Picture in Picture")
+            }
             let reply = answer.map { #"{"result":{"type":"string","value":"\#($0)"}}"# }
             ra.browser.reply(to: "Runtime.evaluate", with: reply)
             await drainMainQueue()
+            if answer != "ok" {
+                expect(ra.browser.lastParams.contains(#""userGesture":false"#), "\(label) gets no user gesture")
+            }
             expect(ra.browser.automaticPictureInPictureRequests - before == fallback,
                    "\(label) \(fallback == 1 ? "falls back to" : "does not also get") the page request")
             manager.show(a, focus: false)
@@ -1340,7 +1413,7 @@ enum BrowserManagerLifecycleTests {
             manager.show(b, focus: false)
             if let reply { ra.browser.reply(to: "Cra.autoPictureInPicture", with: reply) } else { ra.browser.fail("Cra.autoPictureInPicture", with: "not found") }
             await drainMainQueue()
-            expect(evaluations() == 1 && ra.browser.lastParams.contains("})(true)"), "leaving its tab falls back to the video request")
+            expect(evaluations() == 1 && ra.browser.lastParams.contains("})(true, false)"), "leaving its tab falls back to the video request")
             ra.browser.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"none"}}"#)
             await drainMainQueue()
             manager.show(a, focus: false)
@@ -1436,7 +1509,7 @@ enum BrowserManagerLifecycleTests {
 
         ra.browser.isAudible = true
         manager.windowVisibilityChanged(covered: true)
-        expect(ra.browser.lastParams.contains(#""userGesture":true"#) && ra.browser.lastParams.contains("})(true)"),
+        expect(ra.browser.lastParams.contains(#""userGesture":false"#) && ra.browser.lastParams.contains("})(true, false)"),
                "a covered window asks its playing page for automatic Picture in Picture")
         ra.browser.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"ok"}}"#)
         await drainMainQueue()
@@ -1613,6 +1686,45 @@ enum BrowserManagerLifecycleTests {
         otherManager.closeAll()
     }
 
+    // promise: #371
+    /// A page's permission request asks in Arc's card over the top left corner of its tab's page,
+    /// not a sheet over the window (#371: "wants to access other devices on your network" took
+    /// the whole window). The window stays usable, so a tab switch takes the card down
+    /// unanswered, and it asks again when its tab is back.
+    @MainActor
+    private static func permissionPopoverStepsAsideCase() {
+        AppDialog.presented = []
+        let store = SidebarStore()
+        let container = NSView()
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 20, height: 20),
+                              styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView!.addSubview(container)
+        let webArea = NSView()
+        container.addSubview(webArea)
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: container)
+        manager.paneHost = { _ in webArea }
+        let asking = store.createTab(url: "https://router.example/").id
+        let other = store.createTab(url: "https://example.test/").id
+        manager.show(asking, focus: false)
+        var answers: [Bool] = []
+        manager.browser(page(manager, asking), requestsPermissionForOrigin: "https://router.example", kinds: 1 << 7) { answers.append($0) }
+        let first = AppDialog.presented.last
+        expect(first?.title == "https://router.example wants to access other devices on your local network"
+               && first?.anchor === webArea && first?.isUp == true,
+               "the request asks in a card on its tab's page")
+        manager.show(other, focus: false)
+        expect(first?.isUp == false && answers.isEmpty, "switching tabs takes the card down, unanswered")
+        manager.show(asking, focus: false)
+        let again = AppDialog.presented.last
+        expect(AppDialog.presented.count == 2 && again !== first && again?.isUp == true && again?.title == first?.title,
+               "its tab back in front asks again")
+        again?.answer(.alertFirstButtonReturn)
+        expect(answers == [true], "Allow answers it once")
+        manager.closeAll()
+    }
+
     @MainActor
     private static func page(_ manager: BrowserManager, _ id: UUID) -> CraBrowser { manager.runtime(for: id)!.browser }
 
@@ -1680,7 +1792,7 @@ private final class Observer: BrowserManagerDelegate {
     var activatedByPage: [Bool] = []
     var onPageWindowsChanged: (() -> Void)?
     func browserManagerDidUpdate(_ tabID: UUID) {}
-    func browserManager(statusMessage: String) {}
+    func browserManager(statusMessage: String, tabID: UUID?) {}
     func browserManager(findMatches count: Int, activeMatch: Int) {}
     func browserManager(download: CraDownloadInfo) {}
     func browserManager(fullscreen: Bool, tabID: UUID) {}
@@ -1699,6 +1811,11 @@ private final class Observer: BrowserManagerDelegate {
         activatedByPage.append(byPage)
     }
     func browserManagerOpensPeek(url: String, fromTab tabID: UUID, pageURL: String, shiftClick: Bool, newTab: Bool) -> Bool { false }
+    var littleWindowLinks: [(url: String, tab: UUID)] = []
+    func browserManagerOpensLittleWindow(url: String, fromTab tabID: UUID) -> Bool {
+        littleWindowLinks.append((url, tabID))
+        return true
+    }
     var openedLinks: [(url: String, kind: CraLinkWindow, space: UUID?, incognito: Bool)] = []
     var capturedImages: [(point: NSPoint, tab: UUID)] = []
     func browserManagerOpenLink(_ url: String, in kind: CraLinkWindow, space: UUID?, fromIncognito: Bool) {

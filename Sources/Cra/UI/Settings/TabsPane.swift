@@ -23,6 +23,14 @@ struct TabsPane: View {
                 .frame(maxWidth: .infinity)
             }
             SettingsFootnote("\(KeyBindingRegistry.shared.action("toggleToolbar")?.primary?.display ?? "⇧⌘D") in any window, or the View menu’s Show Toolbar, switches it too.")
+            SettingsFeatureCard {
+                // GitHub #344, not in Arc: Arc's sidebar address opens the command bar on a click.
+                SettingsToggleRow("Edit the address in the sidebar",
+                                  detail: "Clicking the address at the top of the sidebar lets you edit it right there instead of opening the command bar. \(KeyBindingRegistry.shared.action("editURL")?.primary?.display ?? "⌘L") still opens the command bar.",
+                                  isOn: $store.settings.editAddressInPlace,
+                                  enabled: store.settings.addressBarPlacement == .sidebar)
+            }
+            .padding(.top, 12)
 
             // Settings that change how Cra looks carry a picture of the change.
             SettingsHeader("Sidebar").padding(.top, 20)
@@ -34,15 +42,6 @@ struct TabsPane: View {
                 SettingsSwitchRow("New Tab button above tabs",
                                   detail: "The + New Tab row sits at the top of the tab list, where you can always reach it.",
                                   isOn: $store.settings.newTabButtonAtTop) { SettingsArt.newTabButtonAtTop }
-                SettingsCardDivider()
-                SettingsSwitchRow("Folder previews",
-                                  detail: "Hover over a closed folder to see the tabs inside it.",
-                                  isOn: $store.settings.folderPreviews) { SettingsArt.folderPreviews }
-                SettingsCardDivider()
-                // Arc: Settings ▸ General ▸ Previews (Gmail's unread mail on its favorite).
-                SettingsSwitchRow("Gmail previews",
-                                  detail: "Hover over Gmail in your Favorites to see your unread mail.",
-                                  isOn: $store.settings.favoritePreviews) { SettingsArt.gmailPreviews }
                 SettingsCardDivider()
                 SettingsSwitchRow("Colorful favorite outline",
                                   detail: "The open favorite gets a rim in its logo’s colors instead of a plain one.",
@@ -60,34 +59,18 @@ struct TabsPane: View {
                 SettingsSwitchRow("Edge to edge",
                                   detail: "Pages fill the window, with no margin or rounded corners around them.",
                                   isOn: $store.settings.edgeToEdgeContent) { SettingsArt.edgeToEdge }
-                SettingsCardDivider()
-                SettingsSwitchRow("Automatic Picture in Picture",
-                                  detail: "Switch away from a tab playing a video and the video keeps playing in a small floating window. A site you set in its site controls keeps its own choice.",
-                                  isOn: $store.settings.autoPictureInPicture) { SettingsArt.autoPictureInPicture }
             }
 
             SettingsHeader("Tabs and Favorites").padding(.top, 20)
             SettingsFeatureCard {
-                SettingsToggleRow("Haptic feedback when reordering",
-                                  detail: "The trackpad taps as a dragged tab moves past another one.",
-                                  isOn: $store.settings.hapticFeedbackOnReorder)
-                SettingsCardDivider()
                 // #154: Arc's favorites, one set per profile.
                 SettingsToggleRow("Share Favorites across Spaces",
                                   detail: "Spaces on the same profile show the same Favorites, as in Arc. Turning it on combines their Favorites; turning it off gives each Space its own copy.",
                                   isOn: Binding(get: { store.settings.sharedFavorites }, set: { store.setFavoritesShared($0) }))
             }
 
-            SettingsHeader("Tab cleanup").padding(.top, 20)
+            SettingsHeader("Memory").padding(.top, 20)
             SettingsFeatureCard {
-                SettingsToggleRow("Archive unused tabs",
-                                  detail: "Today tabs you haven’t opened for a while move to the archive. Pinned tabs and Favorites stay.",
-                                  isOn: $store.settings.autoArchiveEnabled) {
-                    SettingsInlinePicker(label: "After", selection: $store.settings.autoArchive, enabled: store.settings.autoArchiveEnabled) {
-                        ForEach(AutoArchiveThreshold.allCases) { Text($0.label).tag($0) }
-                    }
-                }
-                SettingsCardDivider()
                 // Tab sleeping (GitHub #153): Arc's 4 hours and nothing more unless you ask.
                 SettingsToggleRow("Free memory from unused tabs",
                                   detail: "A tab you haven’t used for a while is forced out of memory and reloads when you open it.",

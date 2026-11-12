@@ -78,6 +78,8 @@ MainActor.assumeIsolated {
     }
 
     ChromiumBluetoothCache.install()
+    ChromiumDockTile.install()
+    ChromiumHistorySwipe.install()
 
     // Only now: the "another Cra is running" and failed-start exits above leave no session marker.
     Perf.phase("chromiumStarted")

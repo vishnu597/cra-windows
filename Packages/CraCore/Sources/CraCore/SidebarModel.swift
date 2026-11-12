@@ -558,12 +558,20 @@ public struct AppSettings: Codable, Equatable {
     /// Cra's addition (issue #12): links to other sites peek from every tab, not only
     /// favorites and pinned tabs.
     public var peekInEveryTab: Bool = false
+    /// Cra's addition (GitHub #380), off by default: ⌘-clicking a Peek's Expand button loads the page
+    /// in the tab the Peek came from instead of a new tab (PeekExpand). Arc's Expand always made a tab.
+    public var peekExpandInSourceTab: Bool = false
     /// Arc's "Open a Peek window when clicking on links with Shift held"
     /// (shiftClickModalEntryPointEnabled).
     public var peekOnShiftClick: Bool = true
     /// Arc's "Open Little Arc when I press ⌥⌘N" (globalLittleBrowserHotkeyEnabled, on by default):
     /// New Little Window's shortcut works from every app, full-screen ones too (GitHub #195).
     public var littleWindowShortcutEverywhere: Bool = true
+    /// Arc's "Open Little Arc when clicking on links with ⌥⌘ held" (optionCommandClickLittleArcEntryPointEnabled,
+    /// on in the Arc 1.172.2 measured on 11 Nov 2026): a link clicked with both keys down opens in a Little Window
+    /// (LittleWindowTrigger). Off in Cra, unlike Arc: since 0.1.38 a ⌘⌥-click opens Split View (#298,
+    /// Chromium 156's own split view click), and this switch takes that click over.
+    public var littleWindowOnOptionCommandClick: Bool = false
     /// A page's "Open Link in New Tab" switches to the tab it opens (LinkMenu). Off as in Arc, whose
     /// item leaves the page in front and the tab loading behind it (GitHub #276). A new key: #183's
     /// openLinksInBackground was off (switch) in every settings.json that never turned it on.
@@ -599,6 +607,10 @@ public struct AppSettings: Codable, Equatable {
     public var tabSleepOnMemoryPressure: Bool = false
     /// Privacy ▸ "Always use secure connections": Chrome's HTTPS-Only Mode.
     public var httpsOnly: Bool = false
+    /// Privacy ▸ "Fingerprinting protection" (not in Arc, off by default): Cra's Chromium adds
+    /// faint noise to what pages read back from canvas, WebGL and offline audio, and reports 8
+    /// processor cores, with a seed per site, profile and launch (fingerprinting-protection.patch).
+    public var fingerprintingProtection: Bool = false
     /// Arc's View ▸ Appearance: what websites see as the colour scheme.
     public var websiteAppearance: WebsiteAppearance = .automatic
     /// Arc's Settings ▸ Advanced "Play Arc sound effects" (the capture shutter), on by default.
@@ -628,6 +640,14 @@ public struct AppSettings: Codable, Equatable {
     public var boostsEnabled: Bool = true
     /// Arc's Settings ▸ General ▸ Previews: hovering a Gmail favorite shows its unread mail.
     public var favoritePreviews: Bool = true
+    /// Previews Settings… ▸ "Recent pages on Linear, Notion, and Figma" (GitHub #376): hovering a
+    /// favorite or pinned tab on Linear, Notion, Figma or Confluence lists the pages you visited there.
+    public var recentPagesPreviews: Bool = true
+    /// Previews Settings… ▸ "Outlook Mail", "Outlook Calendar" and "Notion Calendar" (GitHub #376),
+    /// read with the page's own sign-in.
+    public var outlookMailPreviews: Bool = true
+    public var outlookCalendarPreviews: Bool = true
+    public var notionCalendarPreviews: Bool = true
     /// Cra's addition (PR #267, Dia-like): the open favorite's rim takes its logo's colours.
     /// Off keeps Arc's neutral 2 pt rim.
     public var favoriteLogoOutline: Bool = false
@@ -646,6 +666,9 @@ public struct AppSettings: Codable, Equatable {
     /// GitHub #307, not in Arc: ⌘T searches and lists only the open tabs of the window's space
     /// (`TabSearchScope.commandBarTabs`). Off is Arc's bar, which finds a tab in any space.
     public var commandBarCurrentSpaceOnly: Bool = false
+    /// GitHub #344, not in Arc: a click on the sidebar's URL field edits the address where it is
+    /// (`SidebarAddressEdit`). Off is Arc's, which opens the command bar; ⌘L opens it either way.
+    public var editAddressInPlace: Bool = false
     /// Arc's showSpaceHeaderOnSingleUnnamedSpaces: with only one space, its header (and the
     /// dock's lone space icon) can be hidden, for people who don't use spaces.
     public var showSpaceHeaderOnSingleSpace: Bool = true
@@ -671,9 +694,16 @@ public struct AppSettings: Codable, Equatable {
     /// Arc Max's Tidy Downloads (renameDownloadsEnabled): a finished download gets a readable name from
     /// the Mac's Apple Intelligence model. Off by default, like Arc Max.
     public var tidyDownloads: Bool = false
+    /// Arc Max's 5-Second Previews (fiveSecondPreviewsEnabled / fiveSecondPreviews): hover or Shift-hover
+    /// on a link generates a summary of the webpage using the Mac's Apple Intelligence model.
+    /// Off by default, like Arc Max.
+    public var fiveSecondPreviews: Bool = false
     /// Arc's per-profile Download location (#190), by DownloadLocation.key(profileID:). A profile
     /// that isn't here saves to the Downloads folder without asking.
     public var downloadLocations: [String: DownloadLocation] = [:]
+    /// Arc's per-profile "New documents" (#375), by NewDocumentApp.key(profileID:): the app the
+    /// command bar's "New …" command opens. A profile that isn't here has none (Arc's "——").
+    public var newDocumentApps: [String: NewDocumentApp] = [:]
     /// Settings ▸ Privacy ▸ "Share anonymous usage stats" and onboarding's Privacy step (Dia's
     /// "Help improve Dia" row): a daily UsageStats report. Off unless the user turns it on.
     public var shareUsageStats: Bool = false
@@ -882,8 +912,10 @@ extension AppSettings {
         linkRoutes = c.contains(.linkRoutes) ? (try? c.decode([LinkRoute].self, forKey: .linkRoutes)) ?? [] : [.googleMeet]
         peekLinksToOtherSites = try c.decodeIfPresent(Bool.self, forKey: .peekLinksToOtherSites) ?? true
         peekInEveryTab = try c.decodeIfPresent(Bool.self, forKey: .peekInEveryTab) ?? false
+        peekExpandInSourceTab = try c.decodeIfPresent(Bool.self, forKey: .peekExpandInSourceTab) ?? false
         peekOnShiftClick = try c.decodeIfPresent(Bool.self, forKey: .peekOnShiftClick) ?? true
         littleWindowShortcutEverywhere = try c.decodeIfPresent(Bool.self, forKey: .littleWindowShortcutEverywhere) ?? true
+        littleWindowOnOptionCommandClick = try c.decodeIfPresent(Bool.self, forKey: .littleWindowOnOptionCommandClick) ?? false
         openLinksInForeground = try c.decodeIfPresent(Bool.self, forKey: .openLinksInForeground) ?? false
         folderPreviews = try c.decodeIfPresent(Bool.self, forKey: .folderPreviews) ?? true
         hapticFeedbackOnReorder = try c.decodeIfPresent(Bool.self, forKey: .hapticFeedbackOnReorder) ?? true
@@ -894,6 +926,7 @@ extension AppSettings {
         tabSleepAfter = (try? c.decodeIfPresent(TabSleepThreshold.self, forKey: .tabSleepAfter)) ?? .fourHours
         tabSleepOnMemoryPressure = try c.decodeIfPresent(Bool.self, forKey: .tabSleepOnMemoryPressure) ?? false
         httpsOnly = try c.decodeIfPresent(Bool.self, forKey: .httpsOnly) ?? false
+        fingerprintingProtection = try c.decodeIfPresent(Bool.self, forKey: .fingerprintingProtection) ?? false
         websiteAppearance = (try? c.decodeIfPresent(WebsiteAppearance.self, forKey: .websiteAppearance)) ?? .automatic
         soundEffects = try c.decodeIfPresent(Bool.self, forKey: .soundEffects) ?? true
         mediaLibraryEnabled = try c.decodeIfPresent(Bool.self, forKey: .mediaLibraryEnabled) ?? false
@@ -908,6 +941,10 @@ extension AppSettings {
         pageTopWindowDrag = try c.decodeIfPresent(Bool.self, forKey: .pageTopWindowDrag) ?? true
         boostsEnabled = try c.decodeIfPresent(Bool.self, forKey: .boostsEnabled) ?? true
         favoritePreviews = try c.decodeIfPresent(Bool.self, forKey: .favoritePreviews) ?? true
+        recentPagesPreviews = try c.decodeIfPresent(Bool.self, forKey: .recentPagesPreviews) ?? true
+        outlookMailPreviews = try c.decodeIfPresent(Bool.self, forKey: .outlookMailPreviews) ?? true
+        outlookCalendarPreviews = try c.decodeIfPresent(Bool.self, forKey: .outlookCalendarPreviews) ?? true
+        notionCalendarPreviews = try c.decodeIfPresent(Bool.self, forKey: .notionCalendarPreviews) ?? true
         favoriteLogoOutline = try c.decodeIfPresent(Bool.self, forKey: .favoriteLogoOutline) ?? false
         liveCalendar = try c.decodeIfPresent(Bool.self, forKey: .liveCalendar) ?? true
         calendarHoverPreview = try c.decodeIfPresent(Bool.self, forKey: .calendarHoverPreview) ?? true
@@ -915,6 +952,7 @@ extension AppSettings {
         calendarMeetingLink = (try? c.decodeIfPresent(CalendarPreview.LinkTiming.self, forKey: .calendarMeetingLink)) ?? .twoMinutes
         searchSuggestions = try c.decodeIfPresent(Bool.self, forKey: .searchSuggestions) ?? true
         commandBarCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .commandBarCurrentSpaceOnly) ?? false
+        editAddressInPlace = try c.decodeIfPresent(Bool.self, forKey: .editAddressInPlace) ?? false
         showSpaceHeaderOnSingleSpace = try c.decodeIfPresent(Bool.self, forKey: .showSpaceHeaderOnSingleSpace) ?? true
         sharedFavorites = try c.decodeIfPresent(Bool.self, forKey: .sharedFavorites) ?? false
         edgeToEdgeContent = try c.decodeIfPresent(Bool.self, forKey: .edgeToEdgeContent) ?? false
@@ -923,7 +961,9 @@ extension AppSettings {
         tidyTabs = try c.decodeIfPresent(Bool.self, forKey: .tidyTabs) ?? true
         tidyTabTitles = try c.decodeIfPresent(Bool.self, forKey: .tidyTabTitles) ?? false
         tidyDownloads = try c.decodeIfPresent(Bool.self, forKey: .tidyDownloads) ?? false
+        fiveSecondPreviews = try c.decodeIfPresent(Bool.self, forKey: .fiveSecondPreviews) ?? false
         downloadLocations = (try? c.decodeIfPresent([String: DownloadLocation].self, forKey: .downloadLocations)) ?? [:]
+        newDocumentApps = NewDocumentApp.decodeMap(try? c.decodeIfPresent([String: String].self, forKey: .newDocumentApps))
         shareUsageStats = try c.decodeIfPresent(Bool.self, forKey: .shareUsageStats) ?? false
         crashReports = (try? c.decodeIfPresent(CrashReportChoice.self, forKey: .crashReports)) ?? .ask
         askedToShare = try c.decodeIfPresent(Bool.self, forKey: .askedToShare) ?? false
@@ -1009,9 +1049,20 @@ extension TabData {
     }
 }
 
-/// Arc's View ▸ Appearance ("Websites, Easels, and Notes will use:"): Automatic follows the Mac.
+/// Arc's View ▸ Appearance ("Websites, Easels, and Notes will use:", in the command bar "Switch to
+/// Light Mode" and the like): Automatic follows the Mac. Light and Dark turn the browser as well as
+/// its pages, as Arc's do: its windows, menus, command bar and Auto space themes (#362).
 public enum WebsiteAppearance: String, Codable, CaseIterable, Sendable {
     case automatic, light, dark
+
+    /// The appearance the browser itself takes: true dark, false light, nil the Mac's.
+    public var forcesDark: Bool? {
+        switch self {
+        case .automatic: nil
+        case .light: false
+        case .dark: true
+        }
+    }
 
     public var title: String {
         switch self {

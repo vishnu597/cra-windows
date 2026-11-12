@@ -18,7 +18,7 @@ final class SettingsWindow {
     private let appWindow: AppWindow
     private let xaml = DesktopWindowXamlSource()
     private let store: SidebarStore
-    private let nav = SettingsNavigation()
+    private let nav = DiaSettingsNavigation()
     private let palette = SettingsPalette()
     private let sidebarRows = StackPanel()
     private let titleText = UI.text("", size: 15, trimmed: false)
@@ -27,7 +27,7 @@ final class SettingsWindow {
     private var backButton: Button!
     private var forwardButton: Button!
     private let scroll = ScrollViewer()
-    private var shownPane: SettingsPane?
+    private var shownPane: DiaSettingsPane?
     /// Puts the shown pane's controls in step with the settings (changed elsewhere, or by them).
     private var syncPane: () -> Void = {}
     private var refreshQueued = false
@@ -88,7 +88,7 @@ final class SettingsWindow {
 
     private func place(over owner: HostWindow) {
         let scale = self.scale
-        let size = SettingsMetrics.windowSize
+        let size = DiaSettingsMetrics.windowSize
         try? appWindow.resizeClient(SizeInt32(width: Int32((Double(size.width) * scale).rounded()),
                                               height: Int32((Double(size.height) * scale).rounded())))
         let client = appWindow.clientSize
@@ -102,7 +102,7 @@ final class SettingsWindow {
         let root = Grid()
         root.requestedTheme = palette.isDark ? .dark : .light
         root.background = palette.window
-        root.columnDefinitions.append(UI.column(UI.pixels(Double(SettingsMetrics.sidebarWidth))))
+        root.columnDefinitions.append(UI.column(UI.pixels(Double(DiaSettingsMetrics.sidebarWidth))))
         root.columnDefinitions.append(UI.column(UI.pixels(1)))
         root.columnDefinitions.append(UI.column(UI.star))
 
@@ -118,7 +118,7 @@ final class SettingsWindow {
         try? Grid.setColumn(divider, 1)
 
         let main = Grid()
-        main.rowDefinitions.append(UI.row(UI.pixels(Double(SettingsMetrics.toolbarHeight))))
+        main.rowDefinitions.append(UI.row(UI.pixels(Double(DiaSettingsMetrics.toolbarHeight))))
         main.rowDefinitions.append(UI.row(UI.star))
         let toolbar = makeToolbar()
         main.children.append(toolbar)
@@ -153,9 +153,9 @@ final class SettingsWindow {
         // A Border draws the capsule (a Grid's corner radius left its fill square, seen on a PC).
         let capsule = Border()
         let pill = Grid()
-        let half = Double(SettingsMetrics.navPillSize.width) / 2, height = Double(SettingsMetrics.navPillSize.height)
+        let half = Double(DiaSettingsMetrics.navPillSize.width) / 2, height = Double(DiaSettingsMetrics.navPillSize.height)
         let r = height / 2
-        capsule.width = Double(SettingsMetrics.navPillSize.width)
+        capsule.width = Double(DiaSettingsMetrics.navPillSize.width)
         capsule.height = height
         capsule.cornerRadius = CornerRadius(topLeft: r, topRight: r, bottomRight: r, bottomLeft: r)
         capsule.background = palette.pill
@@ -219,9 +219,9 @@ final class SettingsWindow {
 
     /// Dia's source list: 28 DIP rows, the glyph 20 DIPs in, the label at 49. The selected row
     /// is accent-filled with white text.
-    private func buildSidebar(selected: SettingsPane) {
+    private func buildSidebar(selected: DiaSettingsPane) {
         sidebarRows.children.clear()
-        for pane in SettingsPane.windowsPanes {
+        for pane in DiaSettingsPane.windowsPanes {
             let isSelected = pane == selected
             let ink = isSelected ? palette.onAccent : palette.text
             let icon = FontIcon()
@@ -245,7 +245,7 @@ final class SettingsWindow {
         }
     }
 
-    private func showPane(_ pane: SettingsPane) {
+    private func showPane(_ pane: DiaSettingsPane) {
         shownPane = pane
         let built: SettingsPaneContent
         switch pane {
@@ -262,8 +262,8 @@ final class SettingsWindow {
         _ = try? scroll.changeView(nil, 0, nil, true)
     }
 
-    /// The Mac's SF Symbols for the panes (SettingsPane.symbol) as Segoe Fluent Icons glyphs.
-    private static func glyph(_ pane: SettingsPane) -> String {
+    /// The Mac's SF Symbols for the panes (DiaSettingsPane.symbol) as Segoe Fluent Icons glyphs.
+    private static func glyph(_ pane: DiaSettingsPane) -> String {
         switch pane {
         case .general: return "\u{E713}"  // Settings
         case .tabs: return "\u{E8A9}"  // ViewAll

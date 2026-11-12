@@ -29,6 +29,9 @@ open class CraBrowser {
     public var isPictureInPicturePlaying = false
     public var isCapturingMedia = false
     public var isAudible = false
+    /// Chrome's pop-up site setting (#357).
+    public private(set) var popupsAllowed = false
+    public func setPopupsAllowed(_ allowed: Bool) { popupsAllowed = allowed }
     public var hasDevTools = false
     public var closedByPage = false
     public let isIncognito: Bool
@@ -78,6 +81,7 @@ open class CraBrowser {
     public func closePictureInPicture() { pictureInPictureCloses += 1; isInPictureInPicture = false }
     public func togglePictureInPicturePlayback() {}
     public func skipPictureInPicture(by seconds: Double) {}
+    public func seekPictureInPicture(to seconds: Double) {}
     public private(set) var lastParams = ""
     public func sendDevToolsMethod(_ method: String, params: String, completion: @escaping (String?, String?) -> Void) {
         lastParams = params

@@ -11,7 +11,7 @@ struct SettingsPaneContent {
     let sync: () -> Void
 }
 
-/// The panes the Windows app has so far (SettingsPane.windowsPanes), with the Mac's wording.
+/// The panes the Windows app has so far (DiaSettingsPane.windowsPanes), with the Mac's wording.
 /// Rows wait for their feature.
 @MainActor
 enum SettingsPanes {
@@ -21,13 +21,13 @@ enum SettingsPanes {
     static func general(palette: SettingsPalette) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
-        stack.margin = Thickness(left: Double(SettingsMetrics.paneInset), top: Double(SettingsMetrics.paneTop),
-                                 right: Double(SettingsMetrics.paneInset), bottom: 20)
+        stack.margin = Thickness(left: Double(DiaSettingsMetrics.paneInset), top: Double(DiaSettingsMetrics.paneTop),
+                                 right: Double(DiaSettingsMetrics.paneInset), bottom: 20)
         stack.children.append(header("System", palette: palette))
 
         let footnote = UI.text("", size: 11, color: palette.error, trimmed: false)
         footnote.textWrapping = .wrap
-        footnote.margin = Thickness(left: Double(SettingsMetrics.cardRowInset), top: 6, right: 0, bottom: 0)
+        footnote.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 6, right: 0, bottom: 0)
         footnote.visibility = .collapsed
 
         let toggle = ToggleSwitch()
@@ -61,7 +61,7 @@ enum SettingsPanes {
         let current = UI.text("", color: palette.secondaryText)
         current.verticalAlignment = .center
         let hint = note("Cra works best as your default browser.", palette: palette)
-        hint.margin = Thickness(left: Double(SettingsMetrics.cardRowInset), top: 6, right: 0, bottom: 0)
+        hint.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 6, right: 0, bottom: 0)
         var setDefaultButton: Button?
         func syncBrowser() -> Bool {
             let isDefault = DefaultBrowser.isDefault
@@ -222,8 +222,8 @@ enum SettingsPanes {
     static func profiles(store: SidebarStore, palette: SettingsPalette, newProfile: @escaping @MainActor () -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
-        stack.margin = Thickness(left: Double(SettingsMetrics.paneInset), top: Double(SettingsMetrics.paneTop),
-                                 right: Double(SettingsMetrics.paneInset), bottom: 20)
+        stack.margin = Thickness(left: Double(DiaSettingsMetrics.paneInset), top: Double(DiaSettingsMetrics.paneTop),
+                                 right: Double(DiaSettingsMetrics.paneInset), bottom: 20)
         stack.children.append(header("Profiles", palette: palette))
         let holder = Border()
         stack.children.append(holder)
@@ -236,7 +236,7 @@ enum SettingsPanes {
         let footnote = UI.text("Profiles help keep your data separate across Spaces, like logins, cookies and site data. You can use any Profile across one or more Spaces: choose Change Profile in the command bar, or Set Profile on a Space’s menu. Spaces on the same Profile share their logins. Only Profiles not assigned to any Spaces can be deleted.",
                                size: 11, color: palette.secondaryText, trimmed: false)
         footnote.textWrapping = .wrap
-        footnote.margin = Thickness(left: Double(SettingsMetrics.cardRowInset), top: 10, right: 0, bottom: 0)
+        footnote.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 10, right: 0, bottom: 0)
         stack.children.append(footnote)
 
         // Rebuilt when a profile, or which spaces use one, changes (not on every space edit, so an
@@ -266,8 +266,8 @@ enum SettingsPanes {
     private static func profileRow(name: String, profile: BrowserProfile?, spaces: [Space], store: SidebarStore,
                                    palette: SettingsPalette, keep: (AnyObject) -> Void) -> Grid {
         let row = Grid()
-        row.minHeight = Double(SettingsMetrics.cardRowHeight) + 8
-        row.padding = Thickness(left: Double(SettingsMetrics.cardRowInset), top: 6, right: Double(SettingsMetrics.cardRowInset), bottom: 6)
+        row.minHeight = Double(DiaSettingsMetrics.cardRowHeight) + 8
+        row.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 6, right: Double(DiaSettingsMetrics.cardRowInset), bottom: 6)
         row.columnDefinitions.append(UI.column(UI.star))
         row.columnDefinitions.append(UI.column(UI.auto))
         let labels = StackPanel()
@@ -364,10 +364,10 @@ enum SettingsPanes {
 
         init(palette: SettingsPalette) {
             self.palette = palette
-            grid.margin = Thickness(left: 0, top: Double(SettingsMetrics.formTop), right: Double(SettingsMetrics.paneInset), bottom: 20)
-            grid.rowSpacing = Double(SettingsMetrics.formGroupSpacing)
-            grid.columnDefinitions.append(UI.column(UI.pixels(Double(SettingsMetrics.formLabelWidth))))
-            grid.columnDefinitions.append(UI.column(UI.pixels(Double(SettingsMetrics.formControlX - SettingsMetrics.formLabelWidth))))
+            grid.margin = Thickness(left: 0, top: Double(DiaSettingsMetrics.formTop), right: Double(DiaSettingsMetrics.paneInset), bottom: 20)
+            grid.rowSpacing = Double(DiaSettingsMetrics.formGroupSpacing)
+            grid.columnDefinitions.append(UI.column(UI.pixels(Double(DiaSettingsMetrics.formLabelWidth))))
+            grid.columnDefinitions.append(UI.column(UI.pixels(Double(DiaSettingsMetrics.formControlX - DiaSettingsMetrics.formLabelWidth))))
             grid.columnDefinitions.append(UI.column(UI.star))
         }
 
@@ -393,7 +393,7 @@ enum SettingsPanes {
     private static func header(_ title: String, palette: SettingsPalette) -> TextBlock {
         let t = UI.text(title, size: 13, color: palette.text, trimmed: false)
         t.fontWeight = UWP.FontWeight(weight: 600)
-        t.margin = Thickness(left: Double(SettingsMetrics.cardRowInset), top: 0, right: 0, bottom: 8)
+        t.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 0, right: 0, bottom: 8)
         return t
     }
 
@@ -413,13 +413,13 @@ enum SettingsPanes {
                 let line = Border()
                 line.height = 1
                 line.background = palette.hairline
-                line.margin = Thickness(left: Double(SettingsMetrics.cardRowInset), top: 0, right: Double(SettingsMetrics.cardRowInset), bottom: 0)
+                line.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 0, right: Double(DiaSettingsMetrics.cardRowInset), bottom: 0)
                 stack.children.append(line)
             }
             stack.children.append(row)
         }
         let border = Border()
-        let corner = Double(SettingsMetrics.cardCorner)
+        let corner = Double(DiaSettingsMetrics.cardCorner)
         border.cornerRadius = CornerRadius(topLeft: corner, topRight: corner, bottomRight: corner, bottomLeft: corner)
         border.background = palette.card
         border.child = stack
@@ -429,8 +429,8 @@ enum SettingsPanes {
     /// Label on the left, control on the right, 43 DIPs tall.
     private static func cardRow(_ title: String, trailing: FrameworkElement, palette: SettingsPalette) -> Grid {
         let row = Grid()
-        row.minHeight = Double(SettingsMetrics.cardRowHeight)
-        row.padding = Thickness(left: Double(SettingsMetrics.cardRowInset), top: 0, right: Double(SettingsMetrics.cardRowInset), bottom: 0)
+        row.minHeight = Double(DiaSettingsMetrics.cardRowHeight)
+        row.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 0, right: Double(DiaSettingsMetrics.cardRowInset), bottom: 0)
         row.columnDefinitions.append(UI.column(UI.star))
         row.columnDefinitions.append(UI.column(UI.auto))
         let label = UI.text(title, color: palette.text)

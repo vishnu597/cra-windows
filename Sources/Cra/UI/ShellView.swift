@@ -116,6 +116,11 @@ final class ShellView: NSView {
     }
 
     var sidebarWidth: CGFloat = CraMetrics.sidebarDefaultWidth { didSet { needsLayout = true } }
+    /// While the Library is in the sidebar, or a swipe is bringing it in: the tab sidebar the page
+    /// keeps its width from (nil inside when the Library brought out a hidden sidebar). The page
+    /// moves with the Library's edge and past the window's instead of narrowing (LibraryWidth.page, #340).
+    var pageBesideLibrary: () -> PageBesideLibrary? = { nil }
+    struct PageBesideLibrary { var tabSidebar: CGFloat? }
     /// Off while the Library has the sidebar: its width is not the user's to drag.
     var sidebarResizable = true { didSet { needsLayout = true } }
     var sidebarVisible = true { didSet { needsLayout = true } }
@@ -546,7 +551,8 @@ final class ShellView: NSView {
         for c in paneCards where c.tabID != ShellView.noTabID {
             guard let f = layout.frames[c.tabID] else { continue }
             let th: CGFloat = panesShowBars ? c.toolbarHeight : 0
-            var web = NSRect(x: f.minX, y: f.minY, width: f.width, height: max(0, f.height - th))
+            let bh = c.bottomBarHeight
+            var web = NSRect(x: f.minX, y: f.minY + bh, width: f.width, height: max(0, f.height - th - bh))
             if c.tabID == focusedPaneID, devToolsVisible, !devToolsFrontendDocked, f.width > 640 {
                 web.size.width -= min(max(320, devToolsWidth), f.width * 0.7)
             }
@@ -646,7 +652,12 @@ final class ShellView: NSView {
         let inset = fill ? 0 : CraMetrics.contentInset
         let radius = fill ? 0 : CraMetrics.contentCornerRadius
         if sidebarVisible {
-            let content = NSRect(x: width, y: inset, width: max(0, b.width - width - inset), height: max(0, b.height - 2 * inset))
+            var pageWidth = b.width - width - inset
+            if let kept = pageBesideLibrary() {
+                pageWidth = CGFloat(LibraryWidth.page(window: Double(b.width), library: Double(width),
+                                                      tabSidebar: kept.tabSidebar.map(Double.init), inset: Double(inset)))
+            }
+            let content = NSRect(x: width, y: inset, width: max(0, pageWidth), height: max(0, b.height - 2 * inset))
             return Frames(sidebar: NSRect(x: 0, y: 0, width: width, height: b.height),
                           handle: NSRect(x: width - 4, y: 0, width: 8, height: b.height),
                           content: content, cornerRadius: radius, sidebarCorner: 0)
@@ -758,24 +769,25 @@ final class ShellView: NSView {
         let focus = focusedCard
         let fb = focus?.bounds ?? .zero
         let th: CGFloat = toolbarVisible ? focus?.toolbarHeight ?? CraMetrics.toolbarHeight : 0
-        let bodyH = max(0, fb.height - th)
+        let bh = focus?.bottomBarHeight ?? 0
+        let bodyH = max(0, fb.height - th - bh)
         let selfDock = devToolsFrontendDocked
         let showDev = devToolsVisible && hasTab && focus != nil && (selfDock || fb.width > 640)
         let devW: CGFloat = showDev && !selfDock ? min(max(320, devToolsWidth), fb.width * 0.7) : 0
         if let focus, showDev {
             for v in [devToolsHost, devToolsDivider, devToolsHandle] where v.superview !== focus { v.removeFromSuperview(); focus.addSubview(v) }
-            focus.webArea.frame = NSRect(x: 0, y: 0, width: fb.width - devW, height: bodyH)
+            focus.webArea.frame = NSRect(x: 0, y: bh, width: fb.width - devW, height: bodyH)
             EmbeddedPages.place(focus.webArea.subviews, in: focus.pageBounds)
         }
         // A frontend-docked DevTools paints its own split; the shell's dock chrome stays hidden.
         devToolsHost.isHidden = !showDev || selfDock
         devToolsDivider.isHidden = !showDev || selfDock
         devToolsHandle.isHidden = !showDev || selfDock
-        let devFrame = selfDock ? NSRect(x: 0, y: 0, width: fb.width, height: bodyH)
-                                : NSRect(x: fb.width - devW, y: 0, width: devW, height: bodyH)
+        let devFrame = selfDock ? NSRect(x: 0, y: bh, width: fb.width, height: bodyH)
+                                : NSRect(x: fb.width - devW, y: bh, width: devW, height: bodyH)
         devToolsHost.frame = devFrame
-        devToolsDivider.frame = NSRect(x: fb.width - devW, y: 0, width: 1, height: bodyH)
-        devToolsHandle.frame = NSRect(x: fb.width - devW - 3, y: 0, width: 7, height: bodyH)
+        devToolsDivider.frame = NSRect(x: fb.width - devW, y: bh, width: 1, height: bodyH)
+        devToolsHandle.frame = NSRect(x: fb.width - devW - 3, y: bh, width: 7, height: bodyH)
         for sub in devToolsHost.subviews { sub.frame = devToolsHost.bounds }
         if showDev, let focus { onDevToolsFrame?(focus.convert(devFrame, to: nil)) }
 
@@ -789,7 +801,8 @@ final class ShellView: NSView {
             }
         }
         statusHost.isHidden = !statusVisible
-        statusHost.frame = NSRect(x: wb.minX, y: wb.minY, width: min(540, wb.width), height: 34)
+        // In the overlay panel this fills it: the panel is just this strip of the page (#346).
+        statusHost.frame = StatusBubbleStrip.frame(inPage: wb)
         if findHost.superview === overlayParent {
             let size = CraMetrics.findBarSize, inset = CraMetrics.findBarInset
             findHost.isHidden = !findVisible

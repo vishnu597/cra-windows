@@ -614,10 +614,13 @@ public final class SidebarStore {
 
     /// What Back does on tab `id`, whose page `canGoBack` or not: a tab a link opened, with no
     /// page behind, closes to the tab it came from while that one is still in the sidebar (#273).
-    public func backStep(_ id: UUID, canGoBack: Bool) -> BackToReferrer.Step {
+    /// `swipe`: a two-finger swipe back over the page asks (#370).
+    public func backStep(_ id: UUID, canGoBack: Bool, swipe: Bool = false) -> BackToReferrer.Step {
         let referrer = items[id]?.tab?.referrerID.flatMap { items[$0]?.isTab == true ? $0 : nil }
-        return BackToReferrer.step(canGoBack: canGoBack, tab: id, referrer: referrer,
-                                   inSplit: splitContaining(id) != nil, pinned: isPinned(id))
+        let inSplit = splitContaining(id) != nil, pinned = isPinned(id)
+        return swipe
+            ? BackToReferrer.swipeBack(pageCanGoBack: canGoBack, tab: id, referrer: referrer, inSplit: inSplit, pinned: pinned)
+            : BackToReferrer.step(canGoBack: canGoBack, tab: id, referrer: referrer, inSplit: inSplit, pinned: pinned)
     }
 
     /// Back's `.close`: the tab goes to the archive like ⌘W and `referrer` is shown in `window`.
@@ -2366,7 +2369,12 @@ public final class SidebarStore {
     /// The profile a tab's pages load in: its shared-favorites list's, else its space's.
     public func profileID(item id: UUID) -> UUID? {
         if let l = profileList(ofItem: id) { return profile(l.profileID)?.id }
-        return spaceID(ofItem: id).flatMap { isIncognito(space: $0) ? nil : profile(spaces[$0]?.profileID)?.id }
+        return spaceID(ofItem: id).flatMap(profileID(space:))
+    }
+
+    /// The profile a space's pages load in (nil = Default, and for an incognito space).
+    public func profileID(space id: UUID) -> UUID? {
+        isIncognito(space: id) ? nil : profile(spaces[id]?.profileID)?.id
     }
 
     /// The Chromium profile folder ("Default" or "Profile <id>") a space's pages load in;
@@ -2447,6 +2455,7 @@ public final class SidebarStore {
         }
         profileFavorites.removeAll { $0.profileID == id }
         settings.downloadLocations[DownloadLocation.key(profileID: id)] = nil
+        settings.setNewDocumentApp(nil, profileID: id)
         onProfileDeleted(p.directoryName)
         touch()
     }

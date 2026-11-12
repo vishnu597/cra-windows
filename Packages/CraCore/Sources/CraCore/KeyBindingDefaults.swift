@@ -57,10 +57,14 @@ public enum KeyBindingDefaults {
             // View
             KeyAction(id: "toggleSidebar", name: "Hide Sidebar", section: .view, shortcuts: [KeyChord("s", cmd)], triggers: ["sidebar", "hide sidebar", "show sidebar"]),
             KeyAction(id: "toggleToolbar", name: "Hide Toolbar", section: .view, shortcuts: [KeyChord("d", cmdShift)], triggers: ["toolbar"]),
-            // Arc: View ▸ Appearance, what websites see (Websites, Easels, and Notes will use:).
-            KeyAction(id: "appearanceAutomatic", name: "Website Appearance: Automatic", section: .none, shortcuts: [], triggers: ["website appearance", "system appearance"], symbol: "circle.lefthalf.filled"),
-            KeyAction(id: "appearanceLight", name: "Website Appearance: Light", section: .none, shortcuts: [], triggers: ["light mode", "light websites"], symbol: "sun.max"),
-            KeyAction(id: "appearanceDark", name: "Website Appearance: Dark", section: .none, shortcuts: [], triggers: ["dark mode", "dark websites"], symbol: "moon"),
+            // Arc: View ▸ Appearance ("Websites, Easels, and Notes will use:"), which turns Arc itself too.
+            // Names, aliases and symbols are Arc's command bar entries for those items (#362).
+            KeyAction(id: "appearanceAutomatic", name: "Switch to Automatic Appearance", section: .none, shortcuts: [],
+                      triggers: ["switch automatic mode", "automatic mode", "system appearance", "website appearance"], symbol: "sparkles"),
+            KeyAction(id: "appearanceLight", name: "Switch to Light Mode", section: .none, shortcuts: [],
+                      triggers: ["switch light mode", "light mode", "light websites"], symbol: "sun.max"),
+            KeyAction(id: "appearanceDark", name: "Switch to Dark Mode", section: .none, shortcuts: [],
+                      triggers: ["switch dark mode", "dark mode", "night mode", "dark websites"], symbol: "moon.stars.fill"),
             // Arc: View ▸ Collapse Pinned Tabs / Expand Pinned Tabs.
             KeyAction(id: "collapsePinned", name: "Collapse Pinned Tabs", section: .view, shortcuts: [], triggers: ["collapse pinned", "expand pinned"]),
             KeyAction(id: "stop", name: "Stop Loading", section: .view, shortcuts: [KeyChord(".", cmd)], inCommandBar: false),
@@ -90,6 +94,9 @@ public enum KeyBindingDefaults {
             KeyAction(id: "addSplitView", name: "Add Split View", section: .view, shortcuts: [KeyChord("=", [.control, .shift] as KeyChord.Modifiers)], triggers: ["split", "split view", "add split"]),
             KeyAction(id: "closeSplitPane", name: "Close this Split Pane", section: .view, shortcuts: [KeyChord("-", [.control, .shift] as KeyChord.Modifiers)], triggers: ["close split", "close pane"]),
             KeyAction(id: "separateFromSplit", name: "Separate Page from Split View", section: .view, shortcuts: [], triggers: ["separate", "unsplit"]),
+            // Arc 1.172: View ▸ Expand Current Split (expandSplitViewPane), no shortcut; the command bar
+            // finds it by "Expand; Expand Split View; Maximize" (MainMenu.nib).
+            KeyAction(id: "expandSplitPane", name: "Expand Current Split", section: .view, shortcuts: [], triggers: ["expand", "expand split view", "maximize"]),
             KeyAction(id: "flipSplitOrientation", name: "Flip Split View Orientation", section: .view, shortcuts: [], triggers: ["vertical split", "horizontal split", "flip split"]),
             KeyAction(id: "nextSplitPane", name: "Switch to Next Split View", section: .view, shortcuts: [], inCommandBar: false),
             KeyAction(id: "previousSplitPane", name: "Switch to Previous Split View", section: .view, shortcuts: [], inCommandBar: false),
@@ -143,8 +150,9 @@ public enum KeyBindingDefaults {
             KeyAction(id: "viewMedia", name: "View Media…", section: .window, shortcuts: [], triggers: ["media", "screenshots", "photos"]),
             // Arc: Window ▸ Stay On Top.
             KeyAction(id: "stayOnTop", name: "Stay On Top", section: .window, shortcuts: [], triggers: ["stay on top", "float", "always on top", "pin window"]),
-            // Arc's Little Arc "Open in Space" button (LittleBrowserMoveButton) and "Close Little Arc Windows".
-            KeyAction(id: "promoteLittleWindow", name: "Open Little Window in Space", section: .window, shortcuts: [KeyChord("o", cmd)], inCommandBar: false),
+            // Arc's Tabs ▸ "Open Little Arc or Peek in" (openTabIn), the Little Arc's "Open in <space>" button;
+            // the menu row reads "Open in <space>" (TabsMenu).
+            KeyAction(id: "promoteLittleWindow", name: TabsMenu.openInName, section: .tabs, shortcuts: [KeyChord("o", cmd)], inCommandBar: false),
             // Arc: Show Little Arc "Open In" Menu ⇧⌘O.
             KeyAction(id: "littleWindowOpenInMenu", name: "Show Little Window “Open In” Menu", section: .window,
                       shortcuts: [KeyChord("o", cmdShift)], inCommandBar: false),
@@ -361,6 +369,7 @@ public enum ShortcutDescriptions {
         "addSplitView": "Open another page beside this one.",
         "closeSplitPane": "Close the focused split pane.",
         "separateFromSplit": "Move the page out of the split view into its own tab.",
+        "expandSplitPane": "Give the focused split pane the window, leaving the other panes narrow.",
         "flipSplitOrientation": "Switch the split view between side by side and stacked.",
         "nextSplitPane": "Focus the next split pane.",
         "previousSplitPane": "Focus the previous split pane.",
@@ -386,7 +395,7 @@ public enum ShortcutDescriptions {
         "viewArchive": "Open the archive of closed tabs.",
         "openLibrary": "Open the Library.",
         "viewDownloads": "Show your downloads.",
-        "promoteLittleWindow": "Move the Little Window’s page into a space.",
+        "promoteLittleWindow": "Move the Little Window’s or Peek’s page into the space its Open in button names.",
         "closeLittleWindows": "Close all Little Windows.",
         "settings": "Open Settings.",
         "setDefaultBrowser": "Make Cra the default browser.",
