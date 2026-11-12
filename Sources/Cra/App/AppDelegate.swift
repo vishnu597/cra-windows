@@ -46,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard !bootstrapped else { return }
         bootstrapped = true
         NSApp.setActivationPolicy(.regular)
+        // Before any window docks: window managers see one Cra window, not its page and panels (#391).
+        DockedWindowAccessibility.install()
         SystemAppearance.shared.start()
         installURLEventHandler()
         PerfCEF.install(app: self)
@@ -1018,6 +1020,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if dict["embedDump"] != nil { NSLog("%@", main.embeddedPagesDump()); return }
             if dict["pageInsets"] != nil { CraLog.note(main.pageInsetsReadout()); return }
             if dict["chromiumDialogs"] != nil { CraLog.note(ChromiumDialogs.readout()); return }
+            if let label = dict["switcherWindows"] {
+                CraLog.note(SwitcherWindows.readout(label, main: main.window, little: littleWindows.compactMap(\.window))); return
+            }
             if let g = dict["screenshotPick"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 2 {
                 CraLog.note(main.screenshotPickReadout(at: CGPoint(x: g[0], y: g[1]))); return
             }
@@ -1352,8 +1357,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 for m in mainWindows {
                     let space = m.focusedSpace
                     let drawn = m.window?.contentView.flatMap(sidebar(in:)).map { side($0.palette.isDark) } ?? "-"
-                    NSLog("Cra theme shown %@: space=%@ follows=%d theme=%@ shell=%@ sidebar=%@", label, space.title, space.theme.followsSystem ? 1 : 0,
-                          side(space.theme.shown.isDark), side(m.shell.isDarkTheme), drawn)
+                    NSLog("Cra theme shown %@: space=%@ follows=%d theme=%@ shell=%@ sidebar=%@ library=%@", label, space.title, space.theme.followsSystem ? 1 : 0,
+                          side(space.theme.shown.isDark), side(m.shell.isDarkTheme), drawn, m.sidebarUI.libraryPage.map { "\($0)" } ?? "-")
                 }
                 return
             }
@@ -1809,6 +1814,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 main.testPickedMenu(count: n, label: dict["label"] ?? "\(n)", run: dict["run"])
                 return
             }
+            // favoriteMenu=<n>[&label=][&run=<row>]: the n-th favorite tile's menu, see testFavoriteMenu (#387).
+            if let n = dict["favoriteMenu"].flatMap(Int.init) {
+                main.testFavoriteMenu(tile: n, label: dict["label"] ?? "\(n)", run: dict["run"])
+                return
+            }
+            // tabMute=<label>: every loaded page's mute, as the tab saved it and as its engine has the
+            // page, so a muted tab that comes back (relaunch, sleep, a popup) is seen to stay quiet (#387).
+            if let label = dict["tabMute"] {
+                let rows = mainWindows.flatMap { $0.browsers.runtimes.values }.compactMap { rt -> String? in
+                    guard let tab = store.item(rt.tabID)?.tab else { return nil }
+                    return "\(tab.url) saved=\(tab.muted ? "muted" : "unmuted") page=\(rt.browser.isAudioMuted() ? "muted" : "unmuted")"
+                }.sorted()
+                CraLog.note("tab mute \(label): \(rows.isEmpty ? "none" : rows.joined(separator: ", "))")
+                return
+            }
             // pickedCopy=<c2,s3…>[&label=]: rows ⌘/⇧-clicked, then ⇧⌘C typed; see testPickedCopy (#322).
             if let clicks = dict["pickedCopy"] {
                 main.testPickedCopy(clicks: clicks, label: dict["label"] ?? clicks)
@@ -2067,7 +2087,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return nil
             case .switchSpace(let step):
                 if let window = self.mainWindows.first(where: { $0.pointerOverSidebar() }) {
-                    self.store.focusSpace(offset: step, window: window.windowID)
+                    window.stepSidebarPage(step)
                 }
                 CraLog.note("mouse key \(which): switched space")
             case .history(let step):
@@ -2088,7 +2108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                   let target = event.window else { return event }
             let which = offset < 0 ? "back" : "forward"
             if let window = self.mainWindows.first(where: { $0.pointerOverSidebar() }) {
-                self.store.focusSpace(offset: offset, window: window.windowID)
+                window.stepSidebarPage(offset)
                 CraLog.note("mouse swipe \(which): switched space")
                 return nil
             }

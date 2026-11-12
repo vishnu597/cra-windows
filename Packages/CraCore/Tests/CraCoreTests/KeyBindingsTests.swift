@@ -171,6 +171,16 @@ struct KeyBindingsTests {
         #expect(mac.first { $0.id == "newTab" }?.shortcut == "⌘T")
     }
 
+    /// A private window's Enter on Import did nothing (#35's PC test): the row isn't offered there.
+    @Test func privateWindowsLeaveOutTheImport() throws {
+        let dir = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let registry = Self.registry(KeyBindingDefaults.windows, in: dir)
+        #expect(registry.barCommands(display: \.windowsDisplay).contains { $0.id == "importData" })
+        let hidden = registry.barCommands(display: \.windowsDisplay, inPrivateWindow: true)
+        #expect(!hidden.contains { $0.id == "importData" } && hidden.contains { $0.id == "newTab" })
+    }
+
     // MARK: Shortcuts pane
 
     @Test func listGroupsByMenuAndFilters() throws {

@@ -22,6 +22,7 @@ enum StoreTests {
         try arcImport()
         try diaImport()
         chromiumProfile()
+        deletedBrowserStillImports()
         chromiumManifestV2Import()
         autoArchive()
         longAutoArchive()
@@ -78,6 +79,7 @@ enum StoreTests {
         oneWindowAtLaunch()
         openLinkInSplit()
         backToReferrer()
+        recentTabsTakeBackgroundTabs()
         print("Store: \(checks) checks passed")
     }
 
@@ -261,6 +263,27 @@ enum StoreTests {
         expect(ExtensionImporter.disabledIDs(inProfile: profile).contains("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
                && !ExtensionImporter.disabledIDs(inProfile: profile).contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
                "an extension with disable_reasons is off, one in state 1 is on")
+    }
+
+    /// A browser someone has already deleted still leaves its profile behind, and the import
+    /// reads only that: Chrome and Firefox are offered from their data alone, as Arc, Dia and Zen
+    /// are. Requiring the app too left a Chrome switcher with only Safari (X DM, 12 Nov).
+    private static func deletedBrowserStillImports() {
+        let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures")
+        let chrome = ImportSource(id: "chrome", name: "Chrome", bundleID: "app.cra.tests.not-installed", kind: .chromium,
+                                  dataDir: fixtures.appendingPathComponent("Chromium"))
+        expect(!chrome.isInstalled && chrome.isAvailable, "a Chrome profile without the app is offered")
+        let firefoxRoot = FileManager.default.temporaryDirectory.appendingPathComponent("cra-firefox-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: firefoxRoot) }
+        try? FileManager.default.createDirectory(at: firefoxRoot.appendingPathComponent("abc.default-release"), withIntermediateDirectories: true)
+        try? Data("[Profile0]\nName=default-release\nIsRelative=1\nPath=abc.default-release\nDefault=1\n".utf8)
+            .write(to: firefoxRoot.appendingPathComponent("profiles.ini"))
+        FileManager.default.createFile(atPath: firefoxRoot.appendingPathComponent("abc.default-release/places.sqlite").path, contents: Data())
+        let firefox = ImportSource(id: "firefox", name: "Firefox", bundleID: "app.cra.tests.not-installed", kind: .firefox, dataDir: firefoxRoot)
+        expect(!firefox.isInstalled && firefox.isAvailable, "a Firefox profile without the app is offered")
+        let empty = ImportSource(id: "chrome", name: "Chrome", bundleID: "app.cra.tests.not-installed", kind: .chromium,
+                                 dataDir: firefoxRoot.appendingPathComponent("none"))
+        expect(!empty.isAvailable, "no profile, nothing to offer")
     }
 
     // promise: #228
@@ -2584,6 +2607,25 @@ enum StoreTests {
         store.togglePinnedCollapsed(sid)
         store.revealInSidebar(today.id)
         expect(store.isPinnedCollapsed(sid), "a Today tab leaves the pinned section as it is")
+    }
+
+    /// Arc's ⌃Tab after a ⌘-click: the tab the link opened in the background is next after the
+    /// current one, so a tap goes to it and the next tap comes back.
+    @MainActor
+    private static func recentTabsTakeBackgroundTabs() {
+        let clock = ManualScheduler()
+        let store = AppComposition(clock: clock).store
+        let sid = store.createSpace(title: "Recent", emoji: "⏱️").id
+        let older = store.createTab(url: "https://example.com/older", in: sid)
+        clock.advance(by: 1)
+        let source = store.createTab(url: "https://example.com/source", in: sid)
+        clock.advance(by: 1)
+        let link = store.createTab(url: "https://example.com/link", in: sid, select: false, referrer: source.id)
+        expect(store.recentTabs(in: sid, limit: .max) == [source.id, link.id, older.id],
+               "the background tab comes right after the current tab, before the one visited earlier")
+        clock.advance(by: 1)
+        store.selectTab(link.id)
+        expect(store.recentTabs(in: sid, limit: .max) == [link.id, source.id, older.id], "on it, the next tab is the one it came from")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

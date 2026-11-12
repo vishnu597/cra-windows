@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: b517a00 -->
+<!-- upstream-reviewed: 192b41e -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -33,10 +33,10 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 0 | 0 | 5 | 0 |
 | Settings | 2 | 4 | 0 | 5 | 0 |
-| Import and onboarding | 0 | 2 | 0 | 3 | 1 |
+| Import and onboarding | 0 | 3 | 0 | 2 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 3 |
-| System integration and release | 3 | 2 | 0 | 9 | 4 |
-| **All** | 22 | 33 | 0 | 81 | 10 |
+| System integration and release | 3 | 2 | 0 | 9 | 5 |
+| **All** | 22 | 34 | 0 | 80 | 11 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -73,7 +73,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Spaces: switch, create, delete, the space dock | 🟡 [#5] | `SidebarView.swift`, `SidebarRootView.swift`, `SpaceDock.swift`, `SpaceListView.swift`, `SpaceColumnView.swift`, `SidebarUIState.swift` | `SidebarStore`, `SidebarModel`, `ItemTable`, `SidebarIntegrity`, `SpaceDock` | Same `sidebar.json` as the Mac. The Windows dock has emoji buttons; upstream a7ea20f and dc404ff add Arc's iconless/squeezed dots and expanding hovered dot, which are not drawn on Windows yet. |
+| Spaces: switch, create, delete, the space dock | 🟡 [#5] | `SidebarView.swift`, `SidebarRootView.swift`, `SpaceDock.swift`, `SpaceListView.swift`, `SpaceColumnView.swift`, `SidebarUIState.swift`, `EmojiLabelFrame.swift` | `SidebarStore`, `SidebarModel`, `ItemTable`, `SidebarIntegrity`, `SpaceDock` | Same `sidebar.json` as the Mac. The Windows dock has emoji buttons; upstream a7ea20f and dc404ff add Arc's iconless/squeezed dots and expanding hovered dot, which are not drawn on Windows yet. |
 | Go to Space N (`spaceN`) on Alt+1–9, next and previous space on Ctrl+Alt+Right and Left | ✅ [#5] [#21] | `MainWindowController.swift`, `AppDelegate.swift` | `KeyBindingDefaults`, `SidebarStore` (`focusSpace(number:)`) | Arc for Windows' keys: Ctrl+1–9 stays Go to Tab, as in Chrome. |
 | Move Tab to Space N (`moveTabToSpaceN`) | ❌ | `MainWindowController.swift`, `AppDelegate.swift` | `SpaceWindow`, `SidebarStore` | No Windows key yet (the Mac's is ⌃⌘N); comes with Little Windows, whose page it can also send. |
 | Swipe, Shift + wheel or sideways wheel between spaces | ❌ | `SpacePagerView.swift` | `WheelSpaceSwitch`, `PageDetentHaptics` | Decisions shared; Windows needs the wheel hook and the slide. Upstream c4ee4dc adds one trackpad haptic per changed page, including a flick; hardware feedback needs a Windows counterpart if supported. |
@@ -111,7 +111,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Shortcuts in `keybindings.json`, Settings ▸ Shortcuts | ✅ [#15] | `KeyBindings.swift`, `ShortcutsPane.swift`, `KeyboardLayoutCharacters.swift` | `KeyBindingDefaults`, `KeyBindingRegistry`, `KeyChord`, `KeyChord+Windows` | Since upstream 370ca1a (#212) the Mac matches by the character the layout types and falls back to the key's ANSI place (`KeyChord.match`); Windows matches virtual keys, which already follow the layout. Windows' table is `KeyBindingDefaults.windowsShortcuts`; a command joins it when Windows performs it (`parity.py report` lists the rest, each named in its feature's row). |
 | Who gets a shortcut's keys while a page wants them: Prefer Cra, Use Both, Prefer Websites (#374); search by keys | ❌ | `ShortcutsPane.swift`, `AppDelegate.swift`, `CraCEF.mm` | `ShortcutPriority`, `ShortcutSearch`, `KeyBindingRegistry` | Upstream 115e806. keybindings.json carries each action's priority on its chords (`KeyBindingOverrides`), and Windows' registry reads and keeps it already; Windows still takes its keys at one point (before the page) and has no pop-up for it. |
 | Help menu: Essential Keyboard Shortcuts card (`essentialShortcuts`), Reveal Cra Data (`revealData`), Copy Cra Info (`copyAppInfo`), Open Task Manager (`taskManager`), Cast… (`cast`) | ❌ | `EssentialShortcutsWindow.swift`, `AppDelegate.swift` | `KeyBindingDefaults` | Upstream a6b5d41, d729895, d110dc6. Task Manager and Cast are Chrome's own pages. |
-| Recent-tab switcher on ⌃Tab (`recentTab`, `recentTabBackward`) | ❌ | `TabSwitcher.swift`, `TabSwitcherView.swift` | `SidebarStore` | Ctrl+Tab cycles sidebar order on Windows until this lands. |
+| Recent-tab switcher on ⌃Tab (`recentTab`, `recentTabBackward`) | ❌ | `TabSwitcher.swift`, `TabSwitcherView.swift` | `SidebarStore` | Ctrl+Tab cycles sidebar order on Windows until this lands. Upstream 5a93a4c (#394): `SidebarStore.recentTabs` puts a tab opened in the background right after the current one; the switcher reads it once it lands. |
 | Context menus show shortcut glyphs | 🟡 | `SidebarMenus.swift` | `KeyBindings` | WinUI menu items take KeyboardAcceleratorTextOverride. |
 | Command bar's search-suggestions notice | ❌ | `CommandBarController.swift`, `CommandBarView.swift` | `SearchSuggestionsNotice`, `CommandBarTones` | Upstream 50d2fa9 then 0c81531: Arc's (i) opens the search-engine privacy notice, not Site Control Center; Dismiss persists. Windows needs the badge, banner and Search Settings action. |
 | File menu's Arc sections, Share… (`share`) and New Profile (`newProfile`) | 🟡 | `AppDelegate.swift` | `FileMenu` | Upstream 7f5759f. Sync #8 exposes the existing Windows profile/share capabilities as commands. The Windows shell still has no native File menu built from `FileMenu.sections`. |
@@ -146,7 +146,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Auto-archive Today tabs after a set time | ✅ [#14] | `TabsPane.swift` | `SidebarModel` (`AutoArchiveThreshold`) | Upstream 2e8a659 adds 90/180 days and tolerant decoding of newer values. Windows' picker lists the shared cases, so the new thresholds arrive with the model; recheck the menu in the sync PC test. |
 | Tab freezing and sleeping, Tab Cleanup timers, calls stay awake | ❌ | `BrowserManager.swift` | `TabSleepPolicy` | The policy is shared; Windows needs the CEF discard calls and the two Settings ▸ Tabs switches. Since upstream 135f794 (#214) the policy reads a `PageState` per page and says why it passed one over. Since upstream c09f3c3 (#237) critical memory pressure closes 9 pages a pass and each pass logs one line per way of closing (`TabSleepPolicy.PassLog`). |
-| Mute a tab (`muteTab`), speaker icon, camera and microphone dot | 🟡 | `SidebarRowViews.swift` | `SidebarModel` | The bridge can mute; the sidebar shows no speaker yet. |
+| Mute a tab (`muteTab`), speaker icon, camera and microphone dot | 🟡 | `SidebarRowViews.swift` | `SidebarModel` | The bridge can mute; the sidebar shows no speaker yet. Upstream 4d9beb0, 7cd69db (#387): a muted tab stays muted on its next page and after a relaunch (`Tab.isMuted` in `sidebar.json`), and a favorite's menu has Mute / Unmute. Windows needs to re-apply the mute when a page is created. |
 | Open links in new tabs in the background | ❌ | `TabsPane.swift` | `LinkMenu` | |
 | Background tabs laid out at the pane's size, first seconds of a tab, hidden tabs give their GPU tiles back (#195) | ❌ | `BrowserManager.swift`, `PageProbe.swift`, `PageScript.swift` | `HiddenFrameRelease` | `PageScript.swift` is Foundation only: move it to CraCore. |
 | Tabs keep back/forward history across relaunch; Back closes a link-opened tab and returns to its source | ❌ | `PageHistoryStore.swift`, `BrowserManager.swift` | `PageHistory`, `BackToReferrer` | Upstream 5fe9cd2 and fe7810f. Windows needs Chromium serialized-history save/restore callbacks and referrer-aware Back behavior; the shared model alone does not preserve a CEF page's history. |
@@ -219,7 +219,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Import from Arc and Dia: spaces, pinned, folders, favorites, archive, profiles (`importData`) | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `Importers.swift`, `DiaSidebar.swift`, `BrowserSources.swift` | `ImportPlan`, `ArcImporter`, `SidebarStore+Import` (`apply`), `WindowsImportSource`, `MD5`, `ArcThemeImport`, `ExtensionProfiles` | Windows: Import from Another Browser… (command bar, Settings ▸ General ▸ Your data) reads Arc for Windows' package folder (`%LOCALAPPDATA%\Packages\TheBrowserCompany.Arc_*\LocalCache\Local\Arc`): spaces, profiles, pinned, favorites, archive, Air Traffic Control. Arc for Windows' own preferences (toolbar, auto-archive) aren't read. No Dia on Windows. Next: the onboarding flow (item 11). |
 | Import from Chrome, Edge, Brave, Opera, Vivaldi, Helium: tabs, bookmarks, history, extensions | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `ChromiumImporter.swift`, `ExtensionImporter.swift` | `ChromiumImporter` (profiles, bookmarks, sessions), `TopSite`, `ChromiumTime` | Bookmarks and the last session's tabs, one space per profile, from Chrome, Brave, Edge, Opera, Opera GX, Vivaldi and Chromium. Left: history-based top sites and favicons (need SQLite on Windows), extensions, Helium (its Windows folder is unconfirmed). |
-| Passwords and sign-ins | ❌ | `CredentialImport.swift` | | Windows decrypts with DPAPI and AES-GCM (BCrypt) instead of the Keychain. |
+| Passwords and sign-ins | 🟡 [#36](https://github.com/vishnu597/cra-windows/pull/36) | `CredentialImport.swift` | `ImportedCredentials` (`ImportedLogin`, `ImportedCookie`), `PendingCredentials`, `CredentialImportReport`, `ChromiumOSCrypt`, `ChromiumCredentialRows`, `AESGCM`, `SHA256Hash` | Windows: the import card's "Passwords and sign-ins" box reads each profile's Login Data and Cookies with the browser's Local State key (DPAPI, then AES-GCM in CraCore), seals them with Cra's key and stages them in the Mac's `pending-credentials.json`; they go into Cra's profile at the next launch (`CraData.cpp`: DPAPI and winsqlite3). Chrome 127+ seals cookies to itself (app-bound "v20"): those stay, and the card says so. A running browser holds its Cookies shut: the card asks to quit it. Left: a Restart button, Firefox. The Mac still keeps its own copy of the staging code. |
 | Firefox and Zen | ❌ | `FirefoxImporter.swift`, `ZenImporter.swift` | | Same move. |
 | Safari | ➖ | `SafariImporter.swift` | | No Safari on Windows. |
 | Onboarding: import, theme colour, address bar placement | ❌ | `ImportFlow.swift`, `ImportFlowArt.swift`, `ImportFlowViews.swift`, `OnboardingSteps.swift` | | Phase 2 item 11, after import. |
@@ -246,6 +246,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Custom app icon | ❌ | `AppIconManager.swift` | | |
 | Bluetooth device cache for Chromium | ➖ | `ChromiumBluetoothCache.swift` | | Mac only (CoreBluetooth). |
 | Chromium follows the system language | ❌ | `AppDelegate.swift` | `ChromiumLocale` | Shared decision; Windows passes the user's UI language. |
+| Window switchers and window managers see one window per Cra window (#391, #401) | ➖ | `DockedWindowAccessibility.swift`, `SwitcherWindows+AppKit.swift` | `SwitcherWindows` | Upstream ac12d60, 192b41e: macOS lists docked Chromium windows through accessibility. On Windows CEF's pages are child windows of Cra's top-level window, so Alt+Tab and snapping already see one window. Check on the PC that a Little Window's or Peek's page doesn't show as a window of its own. |
 | Shortcuts set in the system's keyboard settings work in pages | ➖ | `AppDelegate.swift` | | macOS only. |
 | AppleScript with Arc's dictionary, JavaScript from Apple Events off by default (`allowAppleEventsJavaScript`) | ➖ | `AppleScripting.swift` | | macOS only (upstream de695e2). Windows' scripting goes through `cra://` (its own row). |
 | Keep Cra in the menu bar after quitting (#231) | ❌ | `MenuBarItem.swift` | `MenuBarMode` | Upstream 96c0255. Windows' counterpart is a notification-area icon that keeps Cra running. |
@@ -271,7 +272,9 @@ the next Windows PRs need:
    Foundation only. (`DevToolsToggle` moved in #20.)
 2. The rest of `Services/Import/` (Firefox, Zen, Dia, extensions, credentials): replace `NSImage`
    with PNG `Data` and SQLite with a reader each app passes in. Arc's and Chromium's readers and
-   `apply` moved in #35, tested on the Mac's fixtures by CraCore's `ImportTests`.
+   `apply` moved in #35, tested on the Mac's fixtures by CraCore's `ImportTests`. The credential
+   rows, the staged file's format and Windows' os_crypt moved in #36; the Mac's `CredentialImport`
+   can switch to `PendingCredentials` and `ChromiumCredentialRows`.
 3. `PageScript.swift`, `CraLog.swift`, `NativeMessagingHosts.swift`,
    `ExtensionProtocolReply.swift`, `SearchSuggestLoader.swift`: Foundation only today.
 4. `EmojiCatalog+Data.swift`: data with no imports, for the space icon picker.
@@ -447,6 +450,20 @@ types for Windows became `DiaSettingsPane`, `DiaSettingsNavigation` and `DiaSett
 | fb6d039, b517a00 | Previews on favorites and pinned tabs: Linear, Notion, Figma, Confluence, Outlook and Notion Calendar (#376) | Favorite previews row (`RecentPagesPreview`, `OutlookPreview`, `OutlookClient.swift`). ❌ |
 | 115e806 | Shortcuts: who gets the keys, Prefer Cra, Use Both or Prefer Websites (#374) | New shortcut priority row (`ShortcutPriority`, `ShortcutSearch`). ❌ |
 | 9629fd1 | Expand Current Split (`expandSplitPane`) | New Expand Current Split row (`SplitPaneTransition.swift`). ❌ |
+
+Upstream sync #10 merged the 10 commits after b517a00 (ad76399 to 192b41e). One conflict:
+`SidebarStore.recentTabs` (upstream's background-tab order, kept `public` with the fork's `window:`).
+
+| Commit | What | Windows |
+|---|---|---|
+| ad76399 | Import offers Chrome and Firefox from their data alone, without the app installed | Mac's `BrowserSources.swift`. Windows' `WindowsImportSource` already offers a browser from its data. |
+| 7cd69db, 4d9beb0 | Mute / Unmute on a favorite's menu; a muted tab stays quiet on its next page and after a relaunch (#387) | Mute row. ❌ |
+| 5c6439a | A space's emoji keeps its bottom row when macOS clips labels (#399) | Mac only (`EmojiLabelFrame.swift`, AppKit text layout). ➖ |
+| 915260b | Picked tabs: Open in Split View splits the picks (a test) (#386) | Sidebar multi-selection row. ❌ |
+| ac12d60, 192b41e | Window managers move the whole window; window switchers list one window per Cra window (#391, #401) | Window switchers row (`SwitcherWindows`). ➖ |
+| 1fd954f | Mouse back over the first space opens the Library, like the swipe (#233) | Mouse buttons row (`MouseButtonSpaceSwitch`). ❌ |
+| 5a93a4c | A tab opened in the background is next on ⌃Tab (#394) | Recent-tab switcher row; the store order came with the sync. ❌ |
+| ffd7de6 | Dark theme colours without the purple cast (#392) | Space theme editor row (`SpaceThemeVariants`, shared). Windows doesn't draw a theme's dark half yet, so nothing changes there. ❌ |
 
 ## Keeping this current
 

@@ -91,6 +91,12 @@ public struct WindowsImportSource: Identifiable, Hashable {
         return url
     }
 
+    /// Chromium's User Data folder, with Local State (the key passwords and cookies are sealed
+    /// with) beside the profiles: Arc's is inside its support folder.
+    public func userData(in folders: Folders) -> URL? {
+        folder(in: folders).map { kind == .arc ? ArcImporter.userData(in: $0) : $0 }
+    }
+
     /// The Chromium profiles whose data can come over (Arc's own, for Arc).
     public func profiles(in folders: Folders) -> [ChromiumProfile] {
         guard let dir = folder(in: folders) else { return [] }

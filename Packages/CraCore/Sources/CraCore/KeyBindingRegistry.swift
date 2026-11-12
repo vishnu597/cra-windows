@@ -150,8 +150,10 @@ public final class KeyBindingRegistry {
 
     /// What the command bar offers (SuggestionEngine), in menu order, with the user's shortcuts
     /// as the platform writes them (`\.display` on the Mac, `\.windowsDisplay` on Windows).
-    public func barCommands(display: (KeyChord) -> String) -> [CommandBarCommand] {
-        actions.filter(\.inCommandBar).map {
+    /// `inPrivateWindow` leaves out what a private window doesn't do
+    /// (`KeyBindingDefaults.hiddenInPrivateWindows`).
+    public func barCommands(display: (KeyChord) -> String, inPrivateWindow: Bool = false) -> [CommandBarCommand] {
+        actions.filter { $0.inCommandBar && !(inPrivateWindow && KeyBindingDefaults.hiddenInPrivateWindows.contains($0.id)) }.map {
             CommandBarCommand(id: $0.id, name: $0.name, triggers: $0.triggers, symbol: $0.symbol, shortcut: $0.primary.map(display))
         }
     }

@@ -222,9 +222,13 @@ public enum KeyBindingDefaults {
     /// Commands that do more or less on Windows than on the Mac, named for what they do there.
     public static let windowsText: [String: (name: String, description: String, triggers: [String])] = [
         // No Dia on Windows; the Chromium browsers come over too.
-        "importData": ("Import from Another Browser…", "Bring spaces, bookmarks and open tabs over from Arc, Chrome, Edge or another browser.",
+        "importData": ("Import from Another Browser…", "Bring spaces, bookmarks, open tabs, passwords and sign-ins over from Arc, Chrome, Edge or another browser.",
                        ["import", "arc", "chrome", "edge"]),
     ]
+
+    /// Commands a private window's command bar leaves out: an import adds spaces and sign-ins to
+    /// the normal windows, which a private window doesn't show or use.
+    public static let hiddenInPrivateWindows: Set<String> = ["importData"]
 
     /// Action id to Windows' default shortcuts. An action joins when the Windows app performs it.
     public static let windowsShortcuts: [String: [KeyChord]] = {

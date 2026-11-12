@@ -132,7 +132,9 @@ final class BrowserWindow {
         isIncognito = session.isIncognito
         self.host = host
         self.dispatcher = dispatcher
-        engine = SuggestionEngine(store: store, commands: { WinKeyBindings.shared.barCommands(display: \.windowsDisplay) },
+        let incognito = session.isIncognito
+        engine = SuggestionEngine(store: store,
+                                  commands: { WinKeyBindings.shared.barCommands(display: \.windowsDisplay, inPrivateWindow: incognito) },
                                   load: WinSuggestLoader.load)
         commandBar = CommandBarView(engine: engine, store: store, windowID: session.id)
         sidebar = SidebarView(store: store, windowID: session.id, actions: self)
@@ -1202,7 +1204,7 @@ final class BrowserWindow {
     // MARK: Import
 
     private func makeImportDialog() {
-        importDialog.onImport = { [weak self] source in self?.runImport(source) }
+        importDialog.onImport = { [weak self] source, credentials in self?.runImport(source, credentials: credentials) }
         importDialog.onCancel = { [weak self] in self?.hideImportDialog() }
         do {
             importWindow = try FloatingWindow(owner: window, content: importDialog.root)
@@ -1226,17 +1228,37 @@ final class BrowserWindow {
     }
 
     /// Adds the browser's plan to the sidebar, shows its first space and says what came over.
-    private func runImport(_ source: WindowsImportSource) {
-        hideImportDialog()
-        guard let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment) else { return }
+    /// With `credentials`, its passwords and sign-ins are staged for the next launch and the card
+    /// stays up to say so (the Mac's Passwords and Sign-ins tiles).
+    private func runImport(_ source: WindowsImportSource, credentials: Bool) {
+        guard let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment) else { return hideImportDialog() }
+        let summary: String
+        var profiles = ImportProfileMap()
         do {
             let plan = try source.plan(in: folders)
             let result = store.apply(plan, includeArchive: true, includeSettings: source.kind == .arc, favicons: Favicons.folder)
             if let first = result.spaceIDs.first { store.focusSpace(first, window: windowID) }
-            showToast(result.summary(from: source.name))
+            summary = result.summary(from: source.name)
+            profiles = result.profiles
         } catch {
+            hideImportDialog()
             showToast((error as? LocalizedError)?.errorDescription ?? "Could not import from \(source.name)")
+            return
         }
+        var report = CredentialImportReport()
+        if credentials, let userData = source.userData(in: folders) {
+            let read = CredentialImport.read(userData: userData, profiles: source.profiles(in: folders))
+            report = read.report
+            if !CredentialImport.stage(read.credentials, profiles: profiles) { report.failed = true }
+        }
+        guard let words = report.summary(from: source.name) else {
+            hideImportDialog()
+            showToast(summary)
+            return
+        }
+        importDialogHeight = importDialog.showResult(title: summary, lines: [words])
+        placeImportDialog()
+        importDialog.focus()
     }
 
     private func hideImportDialog() {
