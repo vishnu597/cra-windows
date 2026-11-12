@@ -74,6 +74,10 @@ int cra_share_link(uintptr_t owner, const char *url, const char *title);
 /// One Share attempt: 1 opened, 2 Share's server is temporarily busy, 0 another failure.
 /// The legacy cra_share_link entry still returns only 0 or 1.
 int cra_share_link_attempt(uintptr_t owner, const char *url, const char *title);
+/// 1 when DWM cloaks the foreground window: it holds the front and draws nothing, as a dead
+/// Windows Share sheet did once Cra took the front back. (A working sheet's CoreWindow reports
+/// layered alpha 0 too, so alpha can't tell a dead sheet from a live one: PR #37's PC test.)
+int cra_foreground_draws_nothing(void);
 /// A native menu at the pointer, owned by `owner` (an HWND): `titles[i]` is item i, and NULL or
 /// "" a separator. Returns the chosen item's index plus one, 0 when none was chosen. Modal.
 int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count);

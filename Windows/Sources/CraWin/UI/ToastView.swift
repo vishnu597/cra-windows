@@ -2,6 +2,7 @@ import CraCore
 import Foundation
 import UWP
 import WinAppSDK
+import WinSDK
 import WindowsFoundation
 import WinUI
 
@@ -28,9 +29,12 @@ final class ToastView {
     private var timer: WinAppSDK.DispatcherQueueTimer?
     /// The page's frame on screen in physical pixels, and the scale: where the toast goes.
     private let page: () -> (left: Int32, top: Int32, right: Int32, scale: Double)?
+    /// The window the toast belongs to, which takes the front back when the button is pressed.
+    private let owner: UInt
 
     init(owner: HostWindow, page: @escaping () -> (left: Int32, top: Int32, right: Int32, scale: Double)?) {
         self.page = page
+        self.owner = owner.hwnd
         build()
         do {
             window = try FloatingWindow(owner: owner, content: root)
@@ -120,6 +124,10 @@ final class ToastView {
         button = UI.button(buttonLabel, padding: Thickness(left: Double(ToastStyle.buttonPadding), top: 0,
                                                            right: Double(ToastStyle.buttonPadding), bottom: 0)) { [weak self] in
             guard let self, let action = self.action else { return }
+            // The click made the toast the active window; hidden, Windows would hand the front to
+            // whatever app is next, and Share opens nothing over a window that isn't in front
+            // (PR #36's PC test). Its own window takes the front first.
+            if let owner = HWND(bitPattern: self.owner) { _ = SetForegroundWindow(owner) }
             self.hide()
             action.run()
         }

@@ -1019,6 +1019,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let js = dict["devtoolsjs"] { main.debugRunInDevTools(js) }
             if dict["embedDump"] != nil { NSLog("%@", main.embeddedPagesDump()); return }
             if dict["pageInsets"] != nil { CraLog.note(main.pageInsetsReadout()); return }
+            // toolbar=out|in|sample|state: the floating toolbar (Settings ▸ Tabs), and where it is.
+            if let command = dict["toolbar"] { CraLog.note(main.shell.debugToolbar(command)); return }
             if dict["chromiumDialogs"] != nil { CraLog.note(ChromiumDialogs.readout()); return }
             if let label = dict["switcherWindows"] {
                 CraLog.note(SwitcherWindows.readout(label, main: main.window, little: littleWindows.compactMap(\.window))); return
@@ -1061,12 +1063,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // key=<characters>,<key code>,<modifier bits>: a key press as a layout reports it
             // (Turkish Q's ⌘- is "-",24,1048576), through the app's event queue (#212); the
             // characters are percent-encoded. zoomLevel logs the page's zoom. page=1: straight to the
-            // current page, as the keyboard reaches a page that has it (a background copy has no key window).
+            // current page, as the keyboard reaches a page that has it (a background copy has no key window);
+            // with target=little, the newest Little Window's or Peek's page (#402).
             if let k = dict["key"]?.split(separator: ",", omittingEmptySubsequences: false), k.count == 3,
                let code = UInt16(k[1]), let mods = UInt(k[2]), let w = main.window {
                 let flags = NSEvent.ModifierFlags(rawValue: mods)
                 if dict["page"] == "1" {
-                    guard let page = main.currentBrowser else { NSLog("Cra TestGesture: no page"); return }
+                    let little = dict["target"] == "little" ? littleWindows.last : nil
+                    guard let page = little != nil ? little?.browser : main.currentBrowser else { NSLog("Cra TestGesture: no page"); return }
+                    let w = little?.window ?? w
                     TestGesture.pageKey(String(k[0]), keyCode: code, modifiers: flags,
                                         in: [page.hostWindow?.contentView, page.containerView].compactMap { $0 }, window: w)
                 } else {
@@ -1079,6 +1084,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 CraLog.note("zoom level \(main.currentBrowser?.zoomLevel() ?? .nan), keys go to \(keys)")
                 return
             }
+            // Ask on Page (#393): askOnPage=<label> logs the card's state; ask=<question> opens ⌘F's
+            // card and asks; askQuery=<text> types it and presses Return; askFindQuote=<n> presses the
+            // last answer's nth Find on Page.
+            if let label = dict["askOnPage"] { CraLog.note(main.askOnPage.readout(label)); return }
+            if let q = dict["ask"] { main.showFindBar(); main.askOnPage.ask(q); return }
+            if let q = dict["askQuery"] {
+                main.showFindBar()
+                main.overlay.findQuery = q
+                main.askOnPage.submit(shift: false)
+                return
+            }
+            if let n = dict["askFindQuote"].flatMap(Int.init) { main.askOnPage.debugFindQuote(n); return }
             // tidy: the divider's Tidy on the window's space, without hovering it; undoTidy: ⌘Z's.
             if dict["tidy"] != nil { TidyTabsService.shared.tidy(store.focusedSpace(window: main.windowID).id, store: store); return }
             if dict["undoTidy"] != nil { _ = store.undoTidy(); return }
@@ -1435,14 +1452,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let label = dict["pageWindows"] { CraLog.note("page windows \(label): \(CraCEFRuntime.pageWindowsReadout)"); return }
             // pip=<label>: Chromium's Picture in Picture window as Cra keeps it; pipKey=space|force asks
             // it to become key the ways Chromium can leave it open to that (#262); pipDrop=left|right|top|bottom
-            // lets it go half past that edge of its display, as a mouse drag does (#332); pipClick=<n> clicks
+            // lets it go half past that edge of the screen, as a mouse drag does (#332); pipClick=<n> clicks
             // the video, as the last of n quick clicks (2: a double click, back to the tab); pipSeek=<0…1>
-            // presses the scrubber that far along.
+            // presses the scrubber that far along; pipSize=<0…1> resizes it to that share of its
+            // display's width.
             if let label = dict["pip"] { NSLog("Cra pip %@: %@", label, PictureInPictureChrome.shared.readout()); return }
             if let count = dict["pipClick"].flatMap(Int.init) { PictureInPictureChrome.shared.debugClick(count); return }
             if let at = dict["pipSeek"].flatMap(Double.init) { PictureInPictureChrome.shared.debugSeek(at); return }
             if let how = dict["pipKey"] { PictureInPictureChrome.shared.debugTakeKey(how); return }
             if let edge = dict["pipDrop"] { PictureInPictureChrome.shared.debugDrop(edge); return }
+            if let share = dict["pipSize"].flatMap(Double.init) { PictureInPictureChrome.shared.debugSize(CGFloat(share)); return }
             // peekShown=<label>: the page behind a Peek in each window, faded and drawn back or whole (PR #221).
             if let label = dict["peekShown"] {
                 for m in mainWindows { NSLog("Cra peek shown %@: %@", label, m.peekBackdropShown()) }
@@ -1553,6 +1572,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let t = dict["selectTab"].flatMap(UUID.init(uuidString:)) { store.selectTab(t, window: main.windowID); return }
             // Tab freezing with a short threshold (seconds) from now on, so it can be tried without
             // waiting: the minute's pass would otherwise take the votes back.
+            if dict["freezingState"] != nil { for w in mainWindows { w.browsers.logFreezingStates() }; return }
             if let s = dict["freezeTabs"].flatMap(Double.init) {
                 freezeAfter = s
                 for w in mainWindows { w.browsers.freezeIdleTabs(hiddenLongerThan: s) }

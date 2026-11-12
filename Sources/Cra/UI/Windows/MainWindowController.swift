@@ -126,11 +126,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                           sidebar: SidebarView(store: store, ui: sidebarUI, actions: sidebarActions, favicons: app.favicons),
                           toolbar: PaneToolbarView(paneTabID: nil, store: store, ui: sidebarUI, actions: sidebarActions),
                           status: StatusBubbleView(overlay: overlay),
-                          find: FindBarView(overlay: overlay, onFind: { [weak self] q, fwd in self?.find(q, forward: fwd) },
+                          // In a conversation Ask on Page's field only asks: typing doesn't find.
+                          find: FindBarView(overlay: overlay, onFind: { [weak self] q, fwd in
+                                                guard let self, self.askOnPage.findsWhileTyping else { return }
+                                                self.find(q, forward: fwd)
+                                            },
                                             onClose: { [weak self] in self?.hideFindBar() }))
         shell.sidebarWidth = CGFloat(store.prefs.sidebarWidth)
         shell.sidebarVisible = sidebarVisible
         shell.showToolbar = store.settings.showsBar(above: selectedTabID.flatMap { store.item($0)?.tab?.url })
+        shell.autoHideToolbar = store.settings.hidesToolbar(above: selectedTabID.flatMap { store.item($0)?.tab?.url })
         shell.edgeToEdge = store.settings.edgeToEdgeContent
         lastSidebarVisible = sidebarVisible
         window.trafficLightsHidden = !sidebarVisible
@@ -264,6 +269,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             return .init(tabSidebar: libraryShowedSidebar ? nil : CGFloat(store.prefs.sidebarWidth))
         }
         shell.onAnimatePaneFrames = { [weak self] frames, d, timing in self?.animatePageWindows(to: frames, duration: d, timing: timing) }
+        // A Peek keeps to the page area while the sidebar slides in or out under it (#402).
+        shell.onSidebarSlideFrame = { [weak self] in self?.peeks.filter { !$0.isParked }.forEach { $0.repositionPeek() } }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refreshMaterialActive(); self?.sidebarUI.appActive = true }
         }
@@ -539,6 +546,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // A lone page's bar: the toolbar, or the developer bar on a Developer Mode site (#185).
         let loneBar = store.settings.showsBar(above: panes.count == 1 ? store.item(panes[0])?.tab?.url : nil)
         if shell.showToolbar != loneBar { shell.showToolbar = loneBar }
+        // That bar floats over the page when the setting says so (ToolbarAutoHide); a split's bars never do.
+        let hidesBar = store.settings.hidesToolbar(above: panes.count == 1 ? store.item(panes[0])?.tab?.url : nil)
+        if shell.autoHideToolbar != hidesBar { shell.autoHideToolbar = hidesBar }
         if shell.edgeToEdge != store.settings.edgeToEdgeContent { shell.edgeToEdge = store.settings.edgeToEdgeContent }
         // Before setPanes: a pane whose page is not live yet gets its bar colour now, not white.
         let bars = toolbarColors(panes: panes)
@@ -877,6 +887,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         let bars = toolbarColors(panes: shell.paneIDs)
         if bars != shell.toolbarColors { shell.toolbarColors = bars }
         if tabID == browsers.visibleTabID { window?.title = store.item(tabID)?.displayTitle ?? "Cra" }
+        if overlay.findVisible, tabID == browsers.visibleTabID { syncAskOnPage() }
     }
 
     /// Each live page's and each pane's bar colour, by PaneToolbarView's rule (ToolbarColor):
@@ -938,6 +949,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     func browserManager(findMatches count: Int, activeMatch: Int) {
         guard overlay.findVisible else { return }
+        askOnPage.matchesUpdated(count: count)
+        if count >= 0 { overlay.findCountText = lastFindText }
         if count >= 0 { overlay.findMatchCount = count }
         if activeMatch >= 0 { overlay.findActiveMatch = activeMatch }
     }
@@ -1106,6 +1119,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// panel made every shot of the page blank white (#346).
     private var overlayPanel: NSPanel?
     private var findPanel: FindBarPanel?
+    /// The text the page's find last ran on.
+    private var lastFindText = ""
+    /// The focused page's screen rect the find panel was last placed on.
+    private var lastFindPage: NSRect?
+    /// Arc Max's Ask on Page: with the setting on, the find bar's panel shows this card instead (#393).
+    private(set) lazy var askOnPage: AskOnPageController = {
+        let c = AskOnPageController(overlay: overlay)
+        c.onFind = { [weak self] q, forward in self?.find(q, forward: forward) }
+        c.onClose = { [weak self] in self?.hideFindBar() }
+        c.browser = { [weak self] in self?.currentBrowser }
+        c.onResize = { [weak self] in self?.refitFindPanel() }
+        return c
+    }()
     /// The focused pane's ring while its page is in a window of its own (DevTools docked in it):
     /// that window covers the card, and the card's ring with it (GitHub #178).
     private var ringPanel: NSPanel?
@@ -1131,6 +1157,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         panel.ignoresMouseEvents = true
         let find = FindBarPanel()
         shell.moveOverlays(to: panel.contentView!, findBar: find)
+        let ask = askOnPage.view
+        ask.frame = find.contentView!.bounds
+        ask.autoresizingMask = [.width, .height]
+        ask.isHidden = true
+        find.contentView!.addSubview(ask)
         window.addChildWindow(panel, ordered: .above)
         overlayPanel = panel
         findPanel = find
@@ -1214,7 +1245,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// The find bar's screen frame: the top trailing corner of the focused page, of the part the
     /// window shows when the page goes past its edge beside the Library (#340).
     private func findPanelFrame(page: NSRect) -> NSRect {
-        let size = CraMetrics.findBarSize, inset = CraMetrics.findBarInset
+        lastFindPage = page
+        let size = askOnPage.state.enabled ? askOnPage.size : CraMetrics.findBarSize, inset = CraMetrics.findBarInset
         var page = page
         if let window, page.maxX > window.frame.maxX { page.size.width = max(0, window.frame.maxX - page.minX) }
         return NSRect(x: page.maxX - size.width - inset, y: page.maxY - size.height - inset, width: size.width, height: size.height)
@@ -1321,8 +1353,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         }
         // Arc's band reaches 60 pt from the card's top with its bar (#363): 28 pt under the toolbar.
         grabber.barHeight = { [weak card] in
-            guard let card, card.showToolbar else { return 0 }
-            return card.toolbarHeight
+            // A floating bar takes nothing from the page, so the band starts at the card's top.
+            card?.barInset ?? 0
         }
         grabber.attach(to: page, owner: window)
     }
@@ -1655,7 +1687,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             if abs(page.maxX - body.maxX) < 0.5 { corners.insert(bottomRight) }
         }
         // Without the toolbar the page's top edge is the card's top edge too.
-        if !shell.contentFullscreen, !shell.panesShowBars, abs(page.maxY - body.maxY) < 0.5 {
+        if !shell.contentFullscreen, !shell.barsTakeRoom, abs(page.maxY - body.maxY) < 0.5 {
             if abs(page.minX - body.minX) < 0.5 { corners.insert(topLeft) }
             if abs(page.maxX - body.maxX) < 0.5 { corners.insert(topRight) }
         }
@@ -1784,7 +1816,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         let selfDock = browsers.runtime(for: tab)?.hostWindow != nil
         let bottom: CACornerMask = cv.isFlipped ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         let all: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        layer.maskedCorners = selfDock ? (shell.panesShowBars ? bottom : all) : [.layerMaxXMaxYCorner, .layerMaxXMinYCorner]
+        layer.maskedCorners = selfDock ? (shell.barsTakeRoom ? bottom : all) : [.layerMaxXMaxYCorner, .layerMaxXMinYCorner]
     }
 
     /// "Undock into separate window": the frontend's window becomes a floating window of its own.
@@ -1943,7 +1975,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // Asked from windowDidResize, before the shell has laid out at the new size.
         shell.layoutSubtreeIfNeeded()
         let content = shell.convert(shell.contentContainer.frame, to: nil)
-        let sidebarShown = store.window(windowID).sidebarVisible && content.minX > CraMetrics.contentInset
+        // While the sidebar slides, the edge is where the slide has it, on the way out too.
+        let sidebarShown = (store.window(windowID).sidebarVisible || shell.slidingSidebar) && content.minX > CraMetrics.contentInset
         return sidebarShown ? content.minX : 0
     }
 
@@ -3088,6 +3121,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// and the card's right edge.
     fileprivate func toolbarBottomOnScreen() -> (y: CGFloat, cardMaxX: CGFloat)? {
         guard let window else { return nil }
+        // Whatever asks is about to hang something under the bar: a floating one comes out for it.
+        shell.bringFloatingToolbarOut()
         let card = shell.focusedCard.map { shell.contentContainer.convert($0.frame, to: nil) }
             ?? shell.convert(shell.contentContainer.frame, to: nil)
         let onScreen = window.convertToScreen(card)
@@ -3928,12 +3963,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     // MARK: Find
 
     func showFindBar() {
+        syncAskOnPage()
         overlay.findVisible = true
         overlay.findFocusToken += 1
         shell.findVisible = true
         shell.layoutContentChildren()
         if let window, let find = findPanel {
             if find.parent !== window { window.addChildWindow(find, ordered: .above) }
+            refitFindPanel()
             find.makeKeyAndOrderFront(nil)
         }
     }
@@ -3941,6 +3978,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     func hideFindBar() {
         overlay.findVisible = false
         overlay.findMatchCount = nil
+        askOnPage.reset()
         shell.findVisible = false
         currentBrowser?.stopFinding(true)
         shell.layoutContentChildren()
@@ -3985,8 +4023,35 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// typing), so the bar shows "1/3" rather than "0/3".
     private func find(_ q: String, forward: Bool) {
         guard let b = currentBrowser else { return }
-        if q.isEmpty { overlay.findMatchCount = nil; b.stopFinding(true); return }
+        if q.isEmpty { overlay.findMatchCount = nil; lastFindText = ""; b.stopFinding(true); return }
+        lastFindText = q
         b.findText(q, forward: forward, matchCase: false, findNext: true)
+    }
+
+    /// Ask on Page or the plain find bar, by the setting and the model; the card follows the page in
+    /// front and the space's colour.
+    func syncAskOnPage() {
+        let enabled = store.settings.askOnPage && AskOnPageService.shared.isAvailable
+        let state = askOnPage.state
+        if state.enabled != enabled {
+            state.enabled = enabled
+            if !enabled { askOnPage.reset() }
+        }
+        shell.findHost.isHidden = enabled
+        askOnPage.view.isHidden = !enabled
+        let theme = focusedSpace.theme.shown
+        let c = AskOnPageTone.accent(themeHex: theme.accent ?? theme.colors.first ?? "#DDDDDD", dark: theme.isDark)
+        askOnPage.setAccent(c)
+        let tab = browsers.visibleTabID
+        askOnPage.pageChanged(tab: tab, url: tab.flatMap { store.item($0)?.tab?.url }.flatMap(URL.init(string:)))
+        refitFindPanel()
+    }
+
+    /// The find panel takes the card's size, its top trailing corner where it was.
+    private func refitFindPanel() {
+        guard let window, let find = findPanel, overlay.findVisible, let page = lastFindPage else { return }
+        let frame = findPanelFrame(page: page)
+        if find.parent === window, find.frame != frame { find.setFrame(frame, display: true) }
     }
 
     // MARK: Sheets
@@ -4009,7 +4074,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                 store.updateSpace(s)
                 id = s.id
             } else {
-                id = store.createSpace(title: title, emoji: icon.emoji, symbol: icon.symbol, theme: theme).id
+                id = store.createSpace(title: title, emoji: icon.emoji, symbol: icon.symbol, iconImage: icon.image, theme: theme).id
             }
             switch profile {
             case .existing(let p): store.setProfile(p, forSpace: id)

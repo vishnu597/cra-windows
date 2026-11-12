@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 192b41e -->
+<!-- upstream-reviewed: 4967f24 -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -34,9 +34,9 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Extensions | 0 | 0 | 0 | 5 | 0 |
 | Settings | 2 | 4 | 0 | 5 | 0 |
 | Import and onboarding | 0 | 3 | 0 | 2 | 1 |
-| Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 3 |
+| Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 4 |
 | System integration and release | 3 | 2 | 0 | 9 | 5 |
-| **All** | 22 | 34 | 0 | 80 | 11 |
+| **All** | 22 | 34 | 0 | 80 | 12 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -47,13 +47,13 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | More than one window, window frames saved in `windows.json` | ✅ [#18] | `MainWindowController.swift` | `WindowFrame`, `SpaceWindow` | `SpaceWindow` picks the window a Little Window's page goes to (#23); `moveTabToSpaceN` still waits for a key. |
 | Private (incognito) windows | ✅ [#18] | `BrowserManager.swift` | `SidebarStore` | |
 | Blank Window (`newBlankWindow`, "This Window" with a sidebar of its own); a tab dragged out of the window opens in one | ❌ | `AppDelegate.swift`, `MainWindowController.swift`, `SidebarRowViews.swift` | `BlankWindow`, `TabTearOff`, `SidebarStore` (`addBlankWindow`, `moveToBlankWindow`, `isStandalone`) | Upstream #220, #219 (f1d9c56, 9de5a59). The store already saves Blank Windows' spaces outside `spaceOrder`, so Windows needs the window, its header and the drag out of the sidebar (which waits for drag and drop). |
-| Toolbar: optional (`toggleToolbar`), host-only address, Show Full URL, reload that turns into stop (`stop`), tab colour, link-copy glyph | ❌ | `PaneToolbarView.swift`, `AppKitControls.swift` | `ToolbarComposition`, `ToolbarColor`, `ToolbarExtensionFit` | Off by default as on the Mac, so it comes after the sidebar's address pill. Composition and colour decisions are already shared. Upstream 87ab765 and 15c5913 set Arc's 36 pt button pitch and right-end spacing (`ToolbarComposition`). |
+| Toolbar: optional (`toggleToolbar`), host-only address, Show Full URL, reload that turns into stop (`stop`), tab colour, link-copy glyph | ❌ | `PaneToolbarView.swift`, `AppKitControls.swift` | `ToolbarComposition`, `ToolbarColor`, `ToolbarExtensionFit`, `ToolbarAutoHide` | Off by default as on the Mac, so it comes after the sidebar's address pill. Composition and colour decisions are already shared. Upstream 87ab765 and 15c5913 set Arc's 36 pt button pitch and right-end spacing (`ToolbarComposition`). Upstream 167c05a (#405, not in Arc) can float it over the page until the pointer rests at the top. |
 | Loading bar at the top middle of the window | ❌ | `LoadingIndicatorView.swift` | `LoadingIndicator` | Small: drive a XAML bar from `LoadingIndicator`. |
 | Hide the sidebar (`toggleSidebar`) and the floating sidebar that slides in from the left edge | ❌ | `FloatingSidebar.swift`, `FloatingSidebarGeometry.swift` | `SidebarMotion`, `SidebarSlidePage` (move `FloatingSidebarGeometry` here) | `FloatingSidebarGeometry` is a CLAUDE.md known exception: move it to CraCore with this PR. Upstream 86dbb44, fb2c304 and 43e8adc refine the reveal, fullscreen edge and page/toolbar staying put while the sidebar slides. Windows needs the whole hidden/floating-sidebar path. |
 | Drag the window from the top of a page (on by default, as in Arc) | ❌ | `MainWindowController.swift` | `PageTopDrag` | Upstream 3b6b27d. Windows: a press in the page's top strip starts the move (WM_NCLBUTTONDOWN with HTCAPTION). |
 | Clicks land under the pointer while Chrome's debugger bar shows (#241) | ❌ | `CraCEF.mm` | `PageViewInsets` | Upstream 7675257: the Mac page view moved down by the bar. Check on Windows when extensions that debug pages (#228) run. |
 | Find in page with match count | ✅ [#10] | `Overlays.swift` | `FindInPage` | |
-| Toasts (copied URL with Share, captures, downloads) | ✅ [#17] | `ShinyToast.swift`, `Overlays.swift` | `ToastStyle`, `ShareRetry` | Windows uses DataTransferManager for Share. `ShareRetry` bounds temporary-busy retries and ends with one failure toast; commands, Site Controls and copied-URL toasts use the same path. Successful Share-panel handling still needs a working Windows Share service in the PC test. |
+| Toasts (copied URL with Share, captures, downloads) | ✅ [#17] | `ShinyToast.swift`, `Overlays.swift` | `ToastStyle`, `ShareRetry` | Windows uses DataTransferManager for Share. `ShareRetry` bounds temporary-busy retries and ends with one failure toast; commands, Site Controls and copied-URL toasts use the same path. The sheet opens with Cra's window in front (a toast's Share button hands the foreground back to its window first), and `ShareRetry.OwnerWatch` re-enables a window a sheet left disabled (gone, or in front but cloaked) and shows the failure toast when no sheet ever showed. A wedged Windows Share (ShellExperienceHost holding a dead sheet) needs a sign-out on the PC; the sheet's own close can't be driven by test input. |
 | Site Control Center, lock badge and certificate viewer | 🟡 [#17] | `SiteControlCenter.swift`, `CertificateWindow.swift` | `SiteControlCenter`, `ConnectionSecurity`, `PageCapture` | Windows shows the sliders in the sidebar's address pill. Missing: the protected-media card (Mac only, see Media) and upstream cbb5753's per-site Automatic Picture-In-Picture switch. |
 | Zoom (`zoomIn`, `zoomOut`, `resetZoom`), `print`, `viewSource` | 🟡 | `AppDelegate.swift` | `KeyBindingDefaults` | Left to Chromium's own keys on Windows: not in Cra's key table, the command bar or Settings ▸ Shortcuts. Add them to `KeyBindingDefaults.windowsShortcuts`. |
 | Page context menu: Open Link in New Tab and Open Link in Split View; Alt-click split | 🟡 | `BrowserManager.swift` | `LinkMenu`, `PageMenuLabels`, `LinkSplitClick` | Chromium's menu shows on Windows. Upstream 9630b47, 249adb7 and 8a6c6bf add a split action, one localized Open Link in New Tab item following the foreground setting, and Option-click split (Alt on Windows). Windows needs those policies wired to the page callbacks. |
@@ -82,7 +82,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Folders: hinge animation, hover previews with search, tabs shown under a closed folder, icon picker | 🟡 | `FolderPreview.swift`, `FolderGlyphView.swift`, `FolderIconPicker.swift`, `FolderSymbolImages.swift` | `FolderPeek`, `FolderSymbol` | Windows has folders without previews or the animation. Since upstream 11ff4c9 (#234) the folder's emblem follows its front panel's perspective; 4fc05d2 adds Arc's picker and native symbol-mask rendering, still missing on Windows. |
 | Favorites | 🟡 [#5] | `SidebarRowViews.swift`, `TileColor.swift` | `FavoritesLayout`, `FavoritesSharing`, `FavoriteClick`, `FavoriteSelectionTint`, `FavoriteOutlineColors` | Missing: 4/2/1 columns by width (`FavoritesLayout`), tile colours and icons, "Drag to add Favorites" card, Settings' share-across-spaces switch, double-click returning to the pinned page (a17a8fe), and the opt-in logo-coloured outline/Arc hover fills (86dbb44, 9927600). |
 | Drag and drop: reorder, into folders and favorites, onto a space's icon, several picked tabs at once, reorder spaces | ❌ | `SidebarListDrop.swift`, `SpaceListView.swift` | `SidebarStore` | The store's moves are shared; the XAML drag layer is the work. Big item. Since 1f3c3d3 a tab dropped on any tab, pinned too, offers a split (no folder drop); since dfa3358 rows keep their hover through AppKit's stray exits (Mac only). |
-| Space menu: rename, icon, theme, profile, folder, export, delete | 🟡 [#5] [#19] | `MainWindowController+SpaceMenu.swift`, `SidebarMenus.swift`, `SpaceIconPicker.swift`, `EmojiCatalog.swift`, `EmojiCatalog+Data.swift` | `SpaceProfiles`, `SpaceIcon` | Since upstream 8f511ac (#205) a space's icon can be a symbol (`Space.symbol`, `SpaceIcon`); Windows draws the emoji only. Windows has New Folder, New Space, Clear Today, Hide Space Header, Set Profile, Delete. Missing `editSpace`, `deleteSpace` and `newSpace` as commands, rename, the emoji picker. `EmojiCatalog+Data.swift` has no imports: move it to CraCore for the Windows picker. |
+| Space menu: rename, icon, theme, profile, folder, export, delete | 🟡 [#5] [#19] | `MainWindowController+SpaceMenu.swift`, `SidebarMenus.swift`, `SpaceIconPicker.swift`, `EmojiCatalog.swift`, `EmojiCatalog+Data.swift`, `SpaceIconImage.swift` | `SpaceProfiles`, `SpaceIcon` | Since upstream 8f511ac (#205) a space's icon can be a symbol (`Space.symbol`, `SpaceIcon`); Windows draws the emoji only. Upstream 0b20792 (#395) adds a PNG or SVG as an icon (`Space.iconImage`); Windows shows the emoji. Windows has New Folder, New Space, Clear Today, Hide Space Header, Set Profile, Delete. Missing `editSpace`, `deleteSpace` and `newSpace` as commands, rename, the emoji picker. `EmojiCatalog+Data.swift` has no imports: move it to CraCore for the Windows picker. |
 | Space theme editor: Arc's presets, light and dark halves, grain | ❌ | `SpaceStyleEditor.swift`, `SpaceEditorView.swift` | `SpaceTheme`, `SpaceThemeVariants`, `SpaceColorPresets`, `ArcThemeImport` | Windows draws themes it reads; editing is missing. The colour logic is all shared. Since 6e371cc swatches and knobs grow under the pointer and shrink when pressed. |
 | Manage Spaces page (`manageSpaces`) | ❌ | `SpacesManagerView.swift` | `SidebarStore` | |
 | Space tooltip with its profile and keys | ❌ | `SpaceDock.swift`, `ArcTooltip.swift` | `ThemeTones` | |
@@ -145,7 +145,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
 | Auto-archive Today tabs after a set time | ✅ [#14] | `TabsPane.swift` | `SidebarModel` (`AutoArchiveThreshold`) | Upstream 2e8a659 adds 90/180 days and tolerant decoding of newer values. Windows' picker lists the shared cases, so the new thresholds arrive with the model; recheck the menu in the sync PC test. |
-| Tab freezing and sleeping, Tab Cleanup timers, calls stay awake | ❌ | `BrowserManager.swift` | `TabSleepPolicy` | The policy is shared; Windows needs the CEF discard calls and the two Settings ▸ Tabs switches. Since upstream 135f794 (#214) the policy reads a `PageState` per page and says why it passed one over. Since upstream c09f3c3 (#237) critical memory pressure closes 9 pages a pass and each pass logs one line per way of closing (`TabSleepPolicy.PassLog`). |
+| Tab freezing and sleeping, Tab Cleanup timers, calls stay awake | ❌ | `BrowserManager.swift` | `TabSleepPolicy`, `MemoryReclaim` | The policy is shared; Windows needs the CEF discard calls and the two Settings ▸ Tabs switches. Since upstream 135f794 (#214) the policy reads a `PageState` per page and says why it passed one over. Since upstream c09f3c3 (#237) critical memory pressure closes 9 pages a pass and each pass logs one line per way of closing (`TabSleepPolicy.PassLog`). |
 | Mute a tab (`muteTab`), speaker icon, camera and microphone dot | 🟡 | `SidebarRowViews.swift` | `SidebarModel` | The bridge can mute; the sidebar shows no speaker yet. Upstream 4d9beb0, 7cd69db (#387): a muted tab stays muted on its next page and after a relaunch (`Tab.isMuted` in `sidebar.json`), and a favorite's menu has Mute / Unmute. Windows needs to re-apply the mute when a page is created. |
 | Open links in new tabs in the background | ❌ | `TabsPane.swift` | `LinkMenu` | |
 | Background tabs laid out at the pane's size, first seconds of a tab, hidden tabs give their GPU tiles back (#195) | ❌ | `BrowserManager.swift`, `PageProbe.swift`, `PageScript.swift` | `HiddenFrameRelease` | `PageScript.swift` is Foundation only: move it to CraCore. |
@@ -230,6 +230,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Tidy Tabs | ➖ | `TidyTabsService.swift` | `TidyTabs` | Runs on Apple Intelligence; Cra sends nothing to a server. A Windows counterpart would need an on-device model (Windows AI APIs on Copilot+ PCs); the prompts and parsing in CraCore can be reused. |
 | Tidy Tab Titles (and Arc's rules for 52 sites) | ➖ | `TidyTitlesService.swift` | `TidyTitles`, `TidyTitleRules`, `TidyTitleRules+Data` | The rule-based titles need no model and could ship on Windows on their own. |
+| Ask on Page: find-or-ask card on ⌘F (#393) | ➖ | `AskOnPageService.swift`, `AskOnPageCard.swift` | `AskOnPage` | Upstream 2b39a45, dc6d118: answered by Apple Intelligence on the Mac. Windows keeps plain find in page until it has an on-device model. |
 | Tidy Downloads | ➖ | `TidyDownloadsService.swift` | `TidyDownloads` | As Tidy Tabs. |
 
 ## System integration and release
@@ -241,7 +242,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Another app's link (zoommtg:, slack:) in a new tab or window opens the app after asking, not a blank tab (#207) | ❌ | `AppLinkPrompt.swift`, `CraCEF.mm` | `AppLinks` | Upstream d1ad2af. Windows: CEF's external-protocol callback and a prompt in the page's place. |
 | Links Cra opens to crabrowser.app (release notes, help) name the button they came from | ❌ | `AppDelegate.swift`, `SoftwareUpdater.swift` | `SiteLinks` | Upstream 94c1fc3. Comes with Windows' help links and the updater. |
 | `cra://` scheme for scripting (`cra://open?space=`) | 🟡 [#31] | `AppDelegate.swift`, `TestGesture.swift` | `CraLink`, `ExternalLink`, `InternalURLRaise` | #31's PC test passed registration, commandbar query/edit, dismiss, foreground/named-space/background/Little Window opens, normal-mode refusals, opt-in action/navigate and cold starts. The background tab remained unread and selection did not change. Sync #8 carries upstream 6a4e05a's no-activation policy for background opens. Left: key, import, debug and `CRA_COMMAND_FILE`; Mac link parsing still has not switched to `CraLink`. |
-| Auto-update (`checkForUpdates`), update banner | ❌ | `SoftwareUpdater.swift`, `UpdateBanner.swift`, `UpdaterWindow.swift` | `UpdateNotice` | WinSparkle reads the same appcast. Upstream 110b3c6/ad2ed55 keep the news/sponsor card and show an update-news toast with the sidebar hidden. Windows needs its updater and this notice flow. Phase 3. |
+| Auto-update (`checkForUpdates`), update banner | ❌ | `SoftwareUpdater.swift`, `UpdateBanner.swift`, `UpdaterWindow.swift`, `UpdatePrewarmer.swift` | `UpdateNotice`, `UpdatePrewarm` | WinSparkle reads the same appcast. Upstream 110b3c6/ad2ed55 keep the news/sponsor card and show an update-news toast with the sidebar hidden. Windows needs its updater and this notice flow. Phase 3. |
 | Signed installer | ❌ | | | Authenticode and MSIX or Inno Setup. Phase 3. |
 | Custom app icon | ❌ | `AppIconManager.swift` | | |
 | Bluetooth device cache for Chromium | ➖ | `ChromiumBluetoothCache.swift` | | Mac only (CoreBluetooth). |
@@ -252,7 +253,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Keep Cra in the menu bar after quitting (#231) | ❌ | `MenuBarItem.swift` | `MenuBarMode` | Upstream 96c0255. Windows' counterpart is a notification-area icon that keeps Cra running. |
 | Open a Safari page handed off from an iPhone | ➖ | `AppDelegate+Handoff.swift` | | Upstream 4fd9b3e uses macOS Handoff/NSUserActivity. There is no direct Windows Handoff counterpart in this port. |
 | Sync sidebar, settings and shortcuts through iCloud or a folder | ❌ | `SettingsSyncService.swift`, `SyncSection.swift` | `SettingsSync` | Upstream cae2918. Folder manifests, merge and conflict decisions are portable; Windows needs the folder chooser, file coordination/watching and settings UI. iCloud integration is Mac-specific. Sharing consent and MCP permissions do not sync. |
-| Agents in Cra: permissioned local MCP server and bridge | ❌ | `MCPServer.swift`, `MCPListener.swift`, `MCPConnection.swift`, `MCPPeer.swift`, `MCPInput.swift`, `MCPPage.swift`, `MCPTransfers.swift` | `MCPAgents`, `MCPAgentAids`, `MCPInputPlan`, `MCPProtocol`, `JSONNumber`, `MCPReferences`, `MCPSession` | Upstream 31187f8. Protocol/session/reference/input policies are shared. Windows needs transport/client identity, approval UI and native page/input/capture integration; this sync does not start an MCP listener on Windows. JavaScript and history access remain separate opt-ins in the model. |
+| Agents in Cra: permissioned local MCP server and bridge | ❌ | `MCPServer.swift`, `MCPListener.swift`, `MCPConnection.swift`, `MCPPeer.swift`, `MCPInput.swift`, `MCPPage.swift`, `MCPTransfers.swift` | `MCPAgents`, `MCPAgentAids`, `MCPInputPlan`, `MCPProtocol`, `JSONNumber`, `MCPReferences`, `MCPSession`, `MCPUploadTarget` | Upstream 31187f8. Protocol/session/reference/input policies are shared. Windows needs transport/client identity, approval UI and native page/input/capture integration; this sync does not start an MCP listener on Windows. JavaScript and history access remain separate opt-ins in the model. |
 | Feature flags | ❌ | `FeatureFlags.swift` | | |
 | Persistence of the data folder | ✅ [#5] | `Persistence.swift`, `SidebarStore+App.swift`, `Scheduler.swift` | `JSONStore`, `Scheduling`, `SidebarStore` | `%LOCALAPPDATA%\Cra` holds the same files. Keep both versions of `Persistence.swift` in step: Mac tests compile it with CraCore. |
 | Portability helpers, CraCore seen by every Mac file | ✅ [#1] [#16] | `CraCoreExports.swift`, `TestScreen+AppKit.swift` | `CGVector+Portable`, `CGAffineTransform+Portable`, `ChromiumLocale`, `TestScreen` | `TestScreen` is the portable test-display decision; `TestScreen+AppKit.swift` applies it only on the Mac. New shared geometry helpers stay guarded for Linux and Windows. |
@@ -464,6 +465,23 @@ Upstream sync #10 merged the 10 commits after b517a00 (ad76399 to 192b41e). One 
 | 1fd954f | Mouse back over the first space opens the Library, like the swipe (#233) | Mouse buttons row (`MouseButtonSpaceSwitch`). ❌ |
 | 5a93a4c | A tab opened in the background is next on ⌃Tab (#394) | Recent-tab switcher row; the store order came with the sync. ❌ |
 | ffd7de6 | Dark theme colours without the purple cast (#392) | Space theme editor row (`SpaceThemeVariants`, shared). Windows doesn't draw a theme's dark half yet, so nothing changes there. ❌ |
+
+Upstream sync #11 merged the 14 commits after 192b41e (02d8f9a to 4967f24). Conflicts: `createSpace`
+gained `iconImage` (kept `public`), `SpaceDock.swift`'s imports, and `test-browser-manager.sh`'s file
+list (kept CraCore paths, added `MemoryReclaim.swift`). `ToolbarAutoHide`'s CoreGraphics import is guarded.
+
+| Commit | What | Windows |
+|---|---|---|
+| 02d8f9a, 904c9ca | Dark and Light keep the picked colour as it is (#392) | Space theme editor row (`SpaceThemeVariants`). ❌ |
+| 2b39a45, dc6d118 | Ask on Page: Arc Max's find-or-ask card on ⌘F (#393) | Ask on Page row (`AskOnPage`); Apple Intelligence only. ➖ |
+| 0b20792 | A PNG or SVG as a space's icon (#395) | Space menu row (`SpaceIcon`, `Space.iconImage`, `SpaceIconImage.swift`). ❌ |
+| 546d50a | Picture in Picture resizes up to the full display (#388) | Picture in Picture row (`PictureInPictureLayout`). ❌ |
+| ed26238 | ⌘S in a Peek toggles the browser window's sidebar (#402) | Peek row. ❌ |
+| 167c05a | Hide the toolbar until the pointer rests at the top (#405, not in Arc) | Toolbar row (`ToolbarAutoHide`). ❌ |
+| dc4ed11 | MCP page_upload finds hidden file inputs | Agents row (`MCPUploadTarget`). ❌ |
+| 39aa7bb, 4b0ba66 | Tab freezing spares WebSocket pages; closed tabs' memory goes back; five hidden tabs keep frames (#195) | Tabs and memory rows (`TabSleepPolicy`, `MemoryReclaim`, `HiddenFrameRelease`). ❌ |
+| f13c956 | The downloaded update runs once hidden first | Auto-update row (`UpdatePrewarm`, `UpdatePrewarmer.swift`). ❌ |
+| 21bee29, 4967f24 | Test copies' windows report visible; the speed bench (scripts/perf, docs/speed.md) | Nothing for Windows. |
 
 ## Keeping this current
 

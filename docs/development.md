@@ -158,6 +158,9 @@ to Markdown or `docs/` alone runs nothing.
 - `scripts/test-perf.sh`: the performance recorder on a real main run loop: injected stalls,
   hang files with a `sample` stack, the session marker, ownership, the recording switch
   ([performance.md](performance.md)).
+- `scripts/perf/rounds.sh` + `scripts/perf/report.py`: memory, idle CPU and wakeups, new tab and
+  tab switch timings of builds side by side, interleaved, in background copies; not part of
+  `scripts/test.sh` (about 7 minutes a build a round). How to read them: [speed.md](speed.md).
 - `python3 Tests/test_cef_download.py`: offline checks for direct downloads, API fallback,
   checksum and metadata failures, and custom URLs; included in `scripts/test.sh`.
 - `scripts/lint.py`: Cra's own rules (testing.md), checked by `scripts/test.sh`.
@@ -180,7 +183,7 @@ sleep does: notes Chromium's audio service), `wake=1` (what waking the Mac does:
 re-read their tabs' sound, a tab-sleeping pass runs and cra.log says whether the audio service lived), `stall=<ms>` (blocks the main
 thread), `perfReport=<path>` (the recorder's perf.json now), `systemAppearance=light|dark|system`
 (the appearance Auto space themes follow, without changing the Mac's), `themeEditor=1` (Edit
-Theme Color… for the focused space), `sidebarShown=<label>` (whether the window shows its sidebar,
+Theme Color… for the focused space), `toolbar=out|in|sample|at:<x>,<y>|<label>` (the floating toolbar of Settings ▸ Tabs ▸ "Hide the toolbar until you need it": put it out or in, look at the pointer once, or say what a pointer at that point from the window's top left is to it, then log `toolbar <command>: floats=… out=… inset=… page=…`), `sidebarShown=<label>` (whether the window shows its sidebar,
 and the View menu's Hide/Show Sidebar row: its title and the key it answers to, an App Shortcut's
 when one names it), `relaunch=1`, `quit=1`, and `nowPlaying=state|toggle|next|previous|pip|dismiss` (the sidebar player's
 newest card, then a `Cra nowPlaying[<label>] <host> playing=… prev=… next=… video=… pip=…` line per card

@@ -243,7 +243,8 @@ struct SpaceThemeAppearanceTests {
         let theme = SpaceThemeVariants.theme(key: swatch, intensity: 0.5, noise: 0.2, appearance: appearance)
         #expect(!theme.followsSystem && theme.dark == nil && theme.appearance == appearance)
         #expect(theme.resolved(systemDark: false) == theme.resolved(systemDark: true))
-        #expect(theme.isDark == (appearance == "dark"))
+        // Light and Dark keep the colour as Arc does, so its own lightness picks the look (#392).
+        #expect(theme.isDark == ((HexColor.luminance(swatch[0]) ?? 0) < 0.45))
     }
 
     /// A dark half written without its optional fields loads with them off, and one that can't be
@@ -285,10 +286,10 @@ struct SpaceThemeAppearanceTests {
         #expect(one.followsSystem && one.key == ["#8389FF"])
         #expect(one.resolved(systemDark: false).colors == ["#8389FF", "#8389FF"] && one.resolved(systemDark: false).solid)
         #expect(close(one.resolved(systemDark: true).accent, "#01021F"))
-        // In Light it is the same flat colour; in Dark one flat colour keeping its hue.
+        // In Light it is the same flat colour; in Dark too, as Arc keeps it, with dark text (#392).
         #expect(SpaceThemeVariants.theme(key: ["#8389FF"], intensity: 0.5, noise: 0, appearance: "light").solid)
         let darkOne = SpaceThemeVariants.theme(key: ["#8389FF"], intensity: 0.5, noise: 0, appearance: "dark")
-        #expect(darkOne.isDark && darkOne.colors.count == 2 && darkOne.colors[0] == darkOne.colors[1])
+        #expect(!darkOne.isDark && darkOne.colors == ["#8389FF", "#8389FF"] && darkOne.solid)
         #expect(SpaceThemeVariants.theme(key: ["#8389FF"], intensity: 0.5, noise: 0, appearance: "dark").dark == nil)
         // A colour too dark for a light theme is lifted to Arc's default light half.
         let lifted = SpaceThemeVariants.light(key: ["#0000F2"], intensity: 0.5, noise: 0)
@@ -303,7 +304,7 @@ struct SpaceThemeAppearanceTests {
     func greysStayNeutralInTheDark(swatch: [String], appearance: String) throws {
         for colours in [swatch, swatch + ["#000000"]] {
             let dark = SpaceThemeVariants.theme(key: colours, intensity: 0.5, noise: 0, appearance: appearance).resolved(systemDark: true)
-            #expect(dark.isDark)
+            if appearance == "auto" { #expect(dark.isDark) }
             for hex in dark.colors + [try #require(dark.accent)] {
                 let c = try #require(HexColor.components(hex))
                 #expect(max(c.r, c.g, c.b) - min(c.r, c.g, c.b) < 1.5 / 255, "\(colours) → \(hex)")
@@ -324,18 +325,34 @@ struct SpaceThemeAppearanceTests {
         }
     }
 
-    /// A dark gradient bakes the slider into its stops: more intensity, more of the colour; the
-    /// editor reads the slider back from the saved stops (#392).
+    /// Auto's dark half bakes the slider into a gradient's stops: more intensity, more of the colour
+    /// over neutral grey. Before, the dark half ignored the slider (#392).
     @Test(.bug("https://github.com/VictorKildahl/cra/issues/392"), arguments: [0.0, 0.3, 0.5, 0.8, 1.0])
     func darkGradientFollowsTheSlider(intensity: Double) throws {
         let key = ["#000000", "#26456B"]
-        let theme = SpaceThemeVariants.theme(key: key, intensity: intensity, noise: 0, appearance: "dark")
-        #expect(abs(SpaceThemeVariants.padIntensity(of: theme) - intensity) < 0.02)
-        let first = try #require(HexColor.components(theme.colors[0]))
+        func darkHalf(_ i: Double) -> SpaceTheme {
+            SpaceThemeVariants.theme(key: key, intensity: i, noise: 0, appearance: "auto").resolved(systemDark: true)
+        }
+        let first = try #require(HexColor.components(darkHalf(intensity).colors[0]))
         let a = SpaceTheme.solidAlpha(intensity: intensity)
         #expect(abs(first.r * 255 - (1 - a) * 94) <= 1, "black at the slider's opacity over neutral grey")
-        let more = SpaceThemeVariants.theme(key: key, intensity: min(1, intensity + 0.2), noise: 0, appearance: "dark")
-        if intensity < 1 { #expect((HexColor.luminance(more.colors[0]) ?? 1) < (HexColor.luminance(theme.colors[0]) ?? 0)) }
+        if intensity < 1 {
+            #expect((HexColor.luminance(darkHalf(min(1, intensity + 0.2)).colors[0]) ?? 1) < (HexColor.luminance(darkHalf(intensity).colors[0]) ?? 0))
+        }
+    }
+
+    /// Light and Dark keep every swatch as it is, as Arc does with its appearance set either way
+    /// (offline Arc 1.172, 12 Nov 2026: on Dark, white, red #F25E6B and pastel #F1D1EC were saved as
+    /// themselves and drawn as light sidebars with dark text; on Light, black stayed black with white
+    /// text). Cra darkened every colour on Dark and lifted dark ones to a pale shade on Light (#392).
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/392"), arguments: SpaceColorPresets.pages.flatMap(\.swatches), ["light", "dark"])
+    func lightAndDarkKeepThePickedColourAsArcDoes(swatch: [String], appearance: String) {
+        let theme = SpaceThemeVariants.theme(key: swatch, intensity: 0.4, noise: 0, appearance: appearance)
+        let colours = swatch.map { $0.uppercased() }
+        #expect(theme.colors == (colours.count == 1 ? colours + colours : colours) && theme.solid == (colours.count == 1))
+        #expect(theme.intensity == 0.4 && theme.appearance == appearance && !theme.followsSystem)
+        #expect(theme.isDark == ((HexColor.luminance(colours[0]) ?? 0) < 0.45))
+        #expect(theme.resolved(systemDark: false) == theme.resolved(systemDark: true))
     }
 
     /// No colour on the pad (the pad's − took the last one) is Arc's colourless theme: on Auto the

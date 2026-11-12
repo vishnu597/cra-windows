@@ -2,6 +2,7 @@ import CraCEFWin
 import CraCore
 import Foundation
 import WinAppSDK
+import WinSDK
 import WindowsFoundation
 
 /// The clipboard, Windows' Share window and the Save dialog (CraCEFWin.h, MARK: Shell): what
@@ -30,6 +31,8 @@ enum WinShell {
         }
     }
     private static var pendingShare: ShareRequest?
+    /// Watches the window a Share sheet opened over (`watchOwner`).
+    private static var ownerWatch: DispatcherQueueTimer?
 
     @discardableResult
     static func copy(_ text: String) -> Bool {
@@ -79,7 +82,9 @@ enum WinShell {
         default: outcome = .failed
         }
         switch ShareRetry.action(after: outcome, attempt: request.attempts) {
-        case .opened: finishShare(request, failed: false)
+        case .opened:
+            finishShare(request, failed: false)
+            watchOwner(request)
         case .failed: finishShare(request, failed: true)
         case .retry(let delay):
             guard let timer = try? request.dispatcher.createTimer() else {
@@ -97,6 +102,43 @@ enum WinShell {
                 finishShare(request, failed: true)
             }
         }
+    }
+
+    /// The sheet disables the window it opens over. When it goes without enabling it again, or
+    /// holds the front drawing nothing, the window would take no clicks or keys until Cra quits;
+    /// when it never shows, the Share button would seem to do nothing. ShareRetry.OwnerWatch
+    /// decides, every half second while the sheet may be up.
+    private static func watchOwner(_ request: ShareRequest) {
+        stopOwnerWatch()
+        guard let owner = HWND(bitPattern: request.owner), let timer = try? request.dispatcher.createTimer() else { return }
+        var watch = ShareRetry.OwnerWatch()
+        timer.interval = TimeSpan(duration: Int64(ShareRetry.ownerCheckInterval * 10_000_000))
+        timer.isRepeating = true
+        // Holds the request: Share already let go of it (finishShare).
+        timer.tick.addHandler { _, _ in
+            guard IsWindow(owner) == true, request.isValid() else { return stopOwnerWatch() }
+            let front = GetForegroundWindow() == GetAncestor(owner, UINT(GA_ROOT))
+            let hidden = !front && cra_foreground_draws_nothing() != 0
+            switch watch.next(ownerInFront: front, enabled: IsWindowEnabled(owner) == true, sheetHidden: hidden) {
+            case .wait: break
+            case .done: stopOwnerWatch()
+            case .enable:
+                print("Cra: Share left its window disabled; enabling it again")
+                _ = EnableWindow(owner, true)
+                stopOwnerWatch()
+            case .notShown:
+                print("Cra: Share reported success but no sheet showed")
+                stopOwnerWatch()
+                request.onFailure()
+            }
+        }
+        ownerWatch = timer
+        try? timer.start()
+    }
+
+    private static func stopOwnerWatch() {
+        try? ownerWatch?.stop()
+        ownerWatch = nil
     }
 
     private static func finishShare(_ request: ShareRequest, failed: Bool) {

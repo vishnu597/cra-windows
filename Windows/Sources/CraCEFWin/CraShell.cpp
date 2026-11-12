@@ -4,6 +4,7 @@
 #include "CraCEFWin.h"
 
 #include <windows.h>
+#include <dwmapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <wincodec.h>
@@ -199,8 +200,18 @@ extern "C" int cra_share_link_attempt(uintptr_t owner, const char *url, const ch
         if (FAILED(result)) return ShareFailed("DataRequested registration", result);
         g_shareWindows.insert(window);
     }
+    // The sheet opens only over the window in front; a toast's click may have just handed the
+    // front elsewhere.
+    HWND root = GetAncestor(window, GA_ROOT);
+    if (root && GetForegroundWindow() != root) SetForegroundWindow(root);
     result = interop->ShowShareUIForWindow(window);
     return FAILED(result) ? ShareFailed("ShowShareUIForWindow", result, true) : 1;
+}
+
+extern "C" int cra_foreground_draws_nothing(void) {
+    HWND front = GetForegroundWindow();
+    DWORD cloaked = 0;
+    return front && SUCCEEDED(DwmGetWindowAttribute(front, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked ? 1 : 0;
 }
 
 extern "C" int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count) {

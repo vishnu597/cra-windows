@@ -56,6 +56,9 @@ public final class CraApp: SwiftApplication {
             MessageLoop.finish()
         }
         onMain {
+            // Unbuffered, so "Cra:" lines reach a redirected stdout even when the process ends
+            // without flushing (PR #37's PC test saw none).
+            setvbuf(stdout, nil, _IONBF, 0)
             CoreLog.fault = { print("Cra fault: \($0)") }
             let clock = WinScheduler(queue: dispatcher)
             let deleted = DeletedProfiles(directory: WinPaths.supportDir, chromiumCache: WinPaths.chromiumCache)

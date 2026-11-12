@@ -63,6 +63,7 @@ let package = Package(
                 .linkedLibrary("gdiplus"),  // the Peek's round buttons (CraOverlay.cpp)
                 .linkedLibrary("advapi32"),  // the registry (the round buttons' tips follow the apps' theme)
                 .linkedLibrary("winsqlite3"),  // Windows' SQLite (importing passwords and sign-ins, CraData.cpp)
+                .linkedLibrary("dwmapi"),  // DwmGetWindowAttribute (a Share sheet that draws nothing)
             ]
         ),
         // Every Chromium subprocess (renderer, GPU, utility) runs this executable.
