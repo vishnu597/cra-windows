@@ -93,8 +93,13 @@ public enum AESGCM {
         }
 
         var bytes: [UInt8] {
-            (0..<8).map { UInt8(truncatingIfNeeded: hi >> UInt64(56 - 8 * $0)) }
-                + (0..<8).map { UInt8(truncatingIfNeeded: lo >> UInt64(56 - 8 * $0)) }
+            var out = [UInt8](repeating: 0, count: 16)
+            for i in 0..<8 {
+                let shift = UInt64(56 - 8 * i)
+                out[i] = UInt8(truncatingIfNeeded: hi >> shift)
+                out[8 + i] = UInt8(truncatingIfNeeded: lo >> shift)
+            }
+            return out
         }
 
         static func ^ (a: Block, b: Block) -> Block { Block(hi: a.hi ^ b.hi, lo: a.lo ^ b.lo) }

@@ -28,7 +28,9 @@ public enum SHA256Hash {
             for t in 0..<64 {
                 let s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)
                 let ch = (e & f) ^ (~e & g)
-                let t1 = hh &+ s1 &+ ch &+ k[t] &+ w[t]
+                var t1 = hh &+ s1
+                t1 = t1 &+ ch &+ k[t]
+                t1 = t1 &+ w[t]
                 let s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)
                 let maj = (a & b) ^ (a & c) ^ (b & c)
                 let t2 = s0 &+ maj
@@ -38,7 +40,14 @@ public enum SHA256Hash {
             h[0] = h[0] &+ a; h[1] = h[1] &+ b; h[2] = h[2] &+ c; h[3] = h[3] &+ d
             h[4] = h[4] &+ e; h[5] = h[5] &+ f; h[6] = h[6] &+ g; h[7] = h[7] &+ hh
         }
-        return h.flatMap { v in (0..<4).map { UInt8(truncatingIfNeeded: v >> UInt32(24 - 8 * $0)) } }
+        var out: [UInt8] = []
+        for v in h {
+            out.append(UInt8(truncatingIfNeeded: v >> 24))
+            out.append(UInt8(truncatingIfNeeded: v >> 16))
+            out.append(UInt8(truncatingIfNeeded: v >> 8))
+            out.append(UInt8(truncatingIfNeeded: v))
+        }
+        return out
     }
 
     private static let k: [UInt32] = [
