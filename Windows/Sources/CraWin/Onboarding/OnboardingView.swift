@@ -301,7 +301,7 @@ final class OnboardingView {
         body.children.append(paragraph("Pick the colour that feels right for your space. You can change it later from the space’s menu."))
         let row = StackPanel()
         row.orientation = .horizontal
-        row.spacing = 10
+        row.spacing = 5
         row.margin = Thickness(left: 0, top: 28, right: 0, bottom: 0)
         for (i, theme) in SpaceTheme.presets.enumerated() {
             let swatch = swatch(theme, index: i)
@@ -321,13 +321,20 @@ final class OnboardingView {
         dot.background = UI.brush(theme.colors.last ?? theme.colors.first ?? "#808080")
         dot.borderBrush = UI.brush(theme.colors.first ?? "#808080")
         dot.borderThickness = Thickness(left: 5, top: 5, right: 5, bottom: 5)
+        // The ring is drawn by a Border of its own: the button's own border belongs to its
+        // pointer-over and pressed states (PR #38's PC test saw it grey).
+        let ring = Border()
+        ring.child = dot
+        ring.padding = Thickness(left: 2, top: 2, right: 2, bottom: 2)
+        ring.borderBrush = on ? Self.ring : UI.clear
+        ring.borderThickness = Thickness(left: 2, top: 2, right: 2, bottom: 2)
+        ring.cornerRadius = CornerRadius(topLeft: 21, topRight: 21, bottomRight: 21, bottomLeft: 21)
         let button = Button()
-        button.content = dot
-        button.padding = Thickness(left: 3, top: 3, right: 3, bottom: 3)
+        button.content = ring
+        button.padding = Thickness(left: 0, top: 0, right: 0, bottom: 0)
         button.background = UI.clear
-        button.borderBrush = on ? Self.ring : UI.clear
-        button.borderThickness = Thickness(left: 2, top: 2, right: 2, bottom: 2)
-        button.cornerRadius = CornerRadius(topLeft: 22, topRight: 22, bottomRight: 22, bottomLeft: 22)
+        button.borderThickness = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        button.cornerRadius = CornerRadius(topLeft: 21, topRight: 21, bottomRight: 21, bottomLeft: 21)
         button.clickMode = .release
         try? AutomationProperties.setName(button, "Theme colour \(index + 1)\(on ? ", chosen" : "")")
         button.click.addHandler { [weak self] _, _ in
@@ -343,9 +350,11 @@ final class OnboardingView {
     private func showOutro() {
         let t = title("Welcome to your new\nhome on the internet", size: 32, top: 70)
         t.horizontalAlignment = .center
+        t.textAlignment = .center
         body.children.append(t)
         let tip = paragraph("Ctrl+T opens the command bar: type to search, open a tab or run any command.")
         tip.horizontalAlignment = .center
+        tip.textAlignment = .center
         body.children.append(tip)
         setButtons(primary: "Start browsing", back: false, centred: true) { [weak self] in self?.finish() }
     }

@@ -1282,7 +1282,15 @@ final class BrowserWindow {
         let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment)
         let sources = folders.map { f in WindowsImportSource.available(in: f).map { OnboardingView.Source(source: $0, profiles: $0.profiles(in: f)) } } ?? []
         view.importData = { [weak self] source, credentials in
-            self?.importData(source, credentials: credentials) ?? .failed("")
+            guard let self else { return .failed("") }
+            let outcome = self.importData(source, credentials: credentials)
+            // Showing the imported space brings this window forward; the card takes the
+            // keyboard back so Return still presses Continue (PR #38's PC test).
+            _ = try? self.dispatcher.tryEnqueue { [weak self] in
+                guard let self, let window = self.onboardingWindow, window.isVisible else { return }
+                window.show { [weak self] in self?.onboarding?.focus() }
+            }
+            return outcome
         }
         view.pinCandidates = { [weak self] source in
             guard let self else { return (Onboarding.presetPins, []) }
