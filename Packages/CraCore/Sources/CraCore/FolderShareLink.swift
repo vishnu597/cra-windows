@@ -96,7 +96,7 @@ public enum FolderShareLink {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         guard let json = try? encoder.encode(wire),
-              let deflated = try? (json as NSData).compressed(using: .zlib) as Data
+              let deflated = RawDeflate.compress(json)
         else { return nil }
         return prefix + base64URL(deflated)
     }
@@ -106,7 +106,7 @@ public enum FolderShareLink {
     public static func folder(from link: String) -> Folder? {
         guard link.hasPrefix(prefix),
               let data = data(base64URL: String(link.dropFirst(prefix.count))),
-              let json = try? (data as NSData).decompressed(using: .zlib) as Data,
+              let json = RawDeflate.decompress(data),
               let wire = try? JSONDecoder().decode(Wire.self, from: json), wire.v == version
         else { return nil }
         let folder = Folder(title: clip(wire.t) ?? "Folder", items: (wire.i ?? []).compactMap(node))

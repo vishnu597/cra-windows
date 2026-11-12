@@ -423,7 +423,7 @@ types for Windows became `DiaSettingsPane`, `DiaSettingsNavigation` and `DiaSett
 | 9b6877e | Live folder plugins' helper sandbox profile (#353) | Mac only (macOS sandbox). ➖ |
 | ba49acf, ebce13c, ea617f9 | Sync: later bundles apply by themselves; repairs (#352, #378) | Sync row; Windows has no sync. ❌ |
 | 068df70, 5e02b46 | Extension windows over a full-screen Cra; two displays and full-screen Spaces (#351, #354) | Mac only (macOS Spaces). ➖ |
-| e020f1d, d31a84f, 109c697, 9dd665f, b980028, 1f88af4 | Picked tabs: Arc's menu, Copy URLs, Share N Items; Share Folder… links; the "Send this Folder" warning (#356, #357) | Sidebar multi-selection row (`PickedTabsMenu`, `FolderShareLink`). Windows has no multi-selection. ❌ |
+| e020f1d, d31a84f, 109c697, 9dd665f, b980028, 1f88af4 | Picked tabs: Arc's menu, Copy URLs, Share N Items; Share Folder… links; the "Send this Folder" warning (#356, #357) | Sidebar multi-selection row (`PickedTabsMenu`, `FolderShareLink`; its links are raw DEFLATE, which `RawDeflate` packs and reads off Apple platforms). Windows has no multi-selection. ❌ |
 | 2a0ee52 | Switch to Light/Dark Mode turns the browser too (#362) | Website appearance row; Windows has no appearance commands yet. ❌ |
 | 8f9af14, c0981c0, fccc893, 43afe0e | Peek grows from web-component links (#359); ⌘-click Expand loads in the source tab (#380); Peek buttons rise and press (#385); ⌘T in a Peek (#379) | Peek row (`PeekExpand`, `PeekControlLook`). Windows has none of these yet. ❌ |
 | eda6089, cba9995 | Copy URL glyph animates link → checkmark → link (#361); a Copy URL scenario (#322) | `CopyCheck`, `CopyCheckAnimation.swift`; Windows' Copy URL button doesn't animate. ❌ |

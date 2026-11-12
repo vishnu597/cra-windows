@@ -86,7 +86,7 @@ struct FolderShareLinkTests {
         #expect(back.title.hasSuffix("…"))
     }
 
-    private func deflate(_ data: Data) throws -> Data { try (data as NSData).compressed(using: .zlib) as Data }
+    private func deflate(_ data: Data) throws -> Data { try #require(RawDeflate.compress(data)) }
     private func base64URL(_ data: Data) -> String {
         data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")

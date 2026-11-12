@@ -195,7 +195,7 @@ public struct SharedBoost: Codable, Equatable, Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         guard let json = try? encoder.encode(self),
-              let deflated = try? (json as NSData).compressed(using: .zlib) as Data
+              let deflated = RawDeflate.compress(json)
         else { return nil }
         return FolderShareLink.base64URL(deflated)
     }
@@ -219,7 +219,7 @@ public struct SharedBoost: Codable, Equatable, Sendable {
         }
         // A whole link is at most 64 KB, well past the longest boost.
         guard packed.count <= 65_536, let data = FolderShareLink.data(base64URL: String(packed)),
-              let json = try? (data as NSData).decompressed(using: .zlib) as Data, json.count <= 262_144
+              let json = RawDeflate.decompress(data, limit: 262_144)
         else { return nil }
         return from(json: json)
     }
