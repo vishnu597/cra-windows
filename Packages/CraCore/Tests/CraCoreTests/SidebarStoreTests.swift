@@ -348,8 +348,10 @@ struct SidebarStoreTests {
         let b = f.store.createTab(url: "https://b.test/")
         f.clock.advance(by: 1)
         f.store.selectTab(a.id)
-        _ = f.store.createTab(url: "https://never.test/", select: false)
-        #expect(f.store.recentTabs(in: f.space.id, limit: 5) == [a.id, b.id])
+        let background = f.store.createTab(url: "https://later.test/", select: false)
+        // Upstream 5a93a4c (#394): a tab opened in the background is next after the current one,
+        // as Arc's ⌃Tab after a ⌘-click.
+        #expect(f.store.recentTabs(in: f.space.id, limit: 5) == [a.id, background.id, b.id])
         #expect(f.store.recentTabs(in: f.space.id, limit: 1) == [a.id])
     }
 
