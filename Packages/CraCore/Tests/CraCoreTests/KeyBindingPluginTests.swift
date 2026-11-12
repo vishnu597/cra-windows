@@ -23,7 +23,7 @@ struct KeyBindingPluginTests {
         registry.setPluginActions([plugin])
         #expect(registry.action(plugin.id)?.shortcuts == [chord], "an unloaded plugin's overrides are preserved")
         let synced = KeyChord("k", .control)
-        file.saveNow([plugin.id: [synced], tab.id: [chord]])
+        file.saveNow(KeyBindingOverrides(shortcuts: [plugin.id: [synced], tab.id: [chord]]))
         registry.reloadOverrides()
         #expect(registry.action(plugin.id)?.shortcuts == [synced])
         #expect(registry.action(tab.id)?.shortcuts == [chord])
