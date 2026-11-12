@@ -47,6 +47,11 @@ Embedded Framework, so sites and Chrome extensions work as they do in Chrome.
   On an Intel Mac, download <a href="https://github.com/VictorKildahl/cra/releases/latest/download/Cra-Intel.dmg">Cra-Intel.dmg</a> instead.
 </p>
 
+<p align="center">
+  Or with Homebrew, on either kind of Mac:<br>
+  <code>brew install --cask victorkildahl/tap/cra</code>
+</p>
+
 ## Coming from Arc
 
 | Arc feature | Cra |
@@ -68,11 +73,11 @@ Embedded Framework, so sites and Chrome extensions work as they do in Chrome.
 | Private windows | ✅ |
 | Arc's keyboard shortcuts | ✅ |
 | Import from Arc | ✅ |
-| Easels | Not yet |
-| Boosts | Not yet |
+| Easels | ✅ |
+| Boosts | ✅ |
 | Peek | ✅ |
-| Notes | Not yet |
-| Arc Max | Tidy Tabs only, on the Mac's Apple Intelligence; nothing goes to a server |
+| Notes | Left out: Arc itself no longer makes new Notes |
+| Arc Max | Tidy Tabs, Tidy Tab Titles, Tidy Downloads and 5-Second Previews, on the Mac's Apple Intelligence; nothing goes to a server |
 
 The [roadmap](https://crabrowser.app/roadmap) lists what's next.
 

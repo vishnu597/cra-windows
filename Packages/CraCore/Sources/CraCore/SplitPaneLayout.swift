@@ -11,11 +11,7 @@ public struct SplitPaneLayout {
     public struct Pane: Equatable {
         public let id: UUID
         public var factor: CGFloat
-
-        public init(id: UUID, factor: CGFloat) {
-            self.id = id
-            self.factor = factor
-        }
+        public init(id: UUID, factor: CGFloat) { self.id = id; self.factor = factor }
     }
 
     public struct Result: Equatable {
@@ -38,13 +34,12 @@ public struct SplitPaneLayout {
     public enum Constants {
         /// Gap between two pane cards; measured on Arc 1.170 at 2x: 20 px.
         public static let gap: CGFloat = 10
-        /// Smallest pane along the main axis.
-        public static let minimumPaneLength: CGFloat = 200
+        /// Smallest pane along the main axis: Arc's minimumPaneWidth, 220 pt (1.172.2, the panes an
+        /// Expand Current Split leaves at factor 0, in windows 1200 and 1728 pt wide). Stacked, a pane
+        /// above a divider counts the divider in it (`minimumLengths`).
+        public static let minimumPaneLength: CGFloat = 220
         /// The handle reacts a little outside the visible gap (Arc: draggerHandleHitTargetOutset).
         public static let handleHitOutset: CGFloat = 4
-        /// Add/remove pane transition. Arc lays the new pane out within a single
-        /// frame (window recording at 27 fps, 24 Oct 2026); 0 = no transition.
-        public static let transitionDuration: TimeInterval = 0
         /// Arc's View ▸ Add Split View stops at four panes ("Cannot Add New Pane").
         public static let maximumPanes = 4
     }
@@ -55,6 +50,7 @@ public struct SplitPaneLayout {
     public var backingScaleFactor: CGFloat = 2
     public var gap: CGFloat = Constants.gap
     public var minimumPaneLength: CGFloat = Constants.minimumPaneLength
+
     /// y grows downward (Windows, a flipped NSView): stacked panes start at y = 0. AppKit's
     /// default (false) puts the first stacked pane at the top, the largest y.
     public var flipped = false
@@ -66,6 +62,16 @@ public struct SplitPaneLayout {
         self.containerSize = containerSize
         self.backingScaleFactor = backingScaleFactor
         self.flipped = flipped
+    }
+
+    /// Arc's View ▸ Expand Current Split (1.172.2, measured 11 Nov 2026): the focused pane takes
+    /// everything the others leave, and every other pane drops to the minimum. Arc stores it as the
+    /// split's width factors (`itemWidthFactors` 1 and 0) and the layout's minimum does the rest, so
+    /// it is not a mode: it shows in one frame, a second Expand changes nothing, expanding another
+    /// pane swaps them, and a divider drag or a double-click on it takes the split out of it.
+    public static func expanding(_ id: UUID, in ids: [UUID]) -> [UUID: CGFloat] {
+        guard ids.contains(id) else { return [:] }
+        return Dictionary(uniqueKeysWithValues: ids.map { ($0, $0 == id ? 1 : 0) })
     }
 
     /// Equal shares for panes without a stored factor; the stored ones keep
@@ -105,17 +111,17 @@ public struct SplitPaneLayout {
         let fsum = factors.reduce(0, +)
         if fsum <= 0 { factors = Array(repeating: 1 / CGFloat(n), count: n) } else { factors = factors.map { $0 / fsum } }
         var lengths = factors.map { $0 * total }
-        let minLen = min(minimumPaneLength, total / CGFloat(n))
+        let mins = minimumLengths(total: total)
         for _ in 0..<n {
             var deficit: CGFloat = 0
             var flexible: [Int] = []
             for i in 0..<n {
-                if lengths[i] < minLen { deficit += minLen - lengths[i]; lengths[i] = minLen } else { flexible.append(i) }
+                if lengths[i] < mins[i] { deficit += mins[i] - lengths[i]; lengths[i] = mins[i] } else { flexible.append(i) }
             }
             guard deficit > 0, !flexible.isEmpty else { break }
-            let flexSum = flexible.reduce(0) { $0 + lengths[$1] - minLen }
+            let flexSum = flexible.reduce(0) { $0 + lengths[$1] - mins[$1] }
             for i in flexible {
-                let share = flexSum > 0 ? (lengths[i] - minLen) / flexSum : 1 / CGFloat(flexible.count)
+                let share = flexSum > 0 ? (lengths[i] - mins[i]) / flexSum : 1 / CGFloat(flexible.count)
                 lengths[i] -= deficit * share
             }
         }
@@ -125,6 +131,7 @@ public struct SplitPaneLayout {
             let y = flipped ? start : containerSize.height - end
             return CGRect(x: 0, y: y, width: cross, height: max(0, end - start))
         }
+
         var cursor: CGFloat = 0
         for (i, pane) in panes.enumerated() {
             let start = snap(cursor)
@@ -141,6 +148,18 @@ public struct SplitPaneLayout {
         return result
     }
 
+    /// Each pane's smallest length along the main axis. Side by side every pane keeps the minimum.
+    /// Stacked, Arc counts the divider below a pane in its minimum (each stacked pane carries its own
+    /// bottom handle): in a 1064 pt column an expanded middle pane left 210 above it and 220 below.
+    /// With no room for the minimum, every pane gets an equal share.
+    func minimumLengths(total: CGFloat) -> [CGFloat] {
+        let n = panes.count
+        guard n > 0 else { return [] }
+        guard minimumPaneLength <= total / CGFloat(n) else { return Array(repeating: max(0, total / CGFloat(n)), count: n) }
+        guard orientation == .vertical else { return Array(repeating: minimumPaneLength, count: n) }
+        return (0..<n).map { $0 == n - 1 ? minimumPaneLength : max(0, minimumPaneLength - gap) }
+    }
+
     /// Move the divider after pane `index` by `delta` points along the main
     /// axis, respecting minimum sizes; returns the new factors. Snaps to the
     /// centre when two panes would end up within `snapDistance` of equal.
@@ -150,11 +169,14 @@ public struct SplitPaneLayout {
         let horizontal = orientation == .horizontal
         let total = (horizontal ? containerSize.width : containerSize.height) - gap * CGFloat(n - 1)
         guard total > 0 else { return (Dictionary(uniqueKeysWithValues: panes.map { ($0.id, $0.factor) }), false) }
-        var lengths = panes.map { $0.factor * total }
-        let minLen = min(minimumPaneLength, total / CGFloat(n))
+        // From the lengths on screen: an expanded split stores 0 for its small panes, which show at
+        // the minimum, so the divider moves from there instead of jumping.
+        let shown = compute().factors
+        var lengths = panes.map { (shown[$0.id] ?? $0.factor) * total }
+        let mins = minimumLengths(total: total)
         var d = delta
-        if lengths[index] + d < minLen { d = minLen - lengths[index] }
-        if lengths[index + 1] - d < minLen { d = lengths[index + 1] - minLen }
+        if lengths[index] + d < mins[index] { d = mins[index] - lengths[index] }
+        if lengths[index + 1] - d < mins[index + 1] { d = lengths[index + 1] - mins[index + 1] }
         lengths[index] += d
         lengths[index + 1] -= d
         var snapped = false

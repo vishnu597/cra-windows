@@ -8,9 +8,13 @@ $root = Split-Path -Parent $PSScriptRoot
 $vendor = Join-Path $root 'vendor'
 New-Item -ItemType Directory -Force $vendor | Out-Null
 
-# Same Chromium as the macOS app.
+# Same Chromium as the macOS app, when Spotify publishes it. Spotify has stock CEF builds only:
+# a version upstream builds itself (156.0.27 pairs CEF's 8078 head with Chromium 156.0.8078.96,
+# upstream f7b1ba4) has no Windows download, so Windows stays on $stockPin, the newest stock
+# build, until it does. Clear $stockPin once Spotify has the Mac's version.
+$stockPin = '156.0.26+g8ea0c73+chromium-156.0.8078.88'
 $pin = Select-String -Path (Join-Path $root '..\scripts\fetch-cef.sh') -Pattern 'CEF_VERSION="\$\{CEF_VERSION:-(.+)\}"'
-$cefVersion = if ($env:CEF_VERSION) { $env:CEF_VERSION } else { $pin.Matches[0].Groups[1].Value }
+$cefVersion = if ($env:CEF_VERSION) { $env:CEF_VERSION } elseif ($stockPin) { $stockPin } else { $pin.Matches[0].Groups[1].Value }
 $name = "cef_binary_${cefVersion}_windows64_minimal"
 $cef = Join-Path $vendor 'cef'
 if (-not (Test-Path (Join-Path $cef 'Release\libcef.dll'))) {

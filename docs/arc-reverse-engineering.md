@@ -171,6 +171,18 @@ Legend: [O] observed in shipped artifact or data file, [I] inference, [U] unknow
   lands between pixels at 1x). Cra strokes it with a CAShapeLayer (SidebarSymbols.closeMark); an NSImage drawn
   the same way rendered thinner and off-centre at 1x. New Tab's plus fits SF plus 14.5 medium at both scales,
   in the label's colour. The New Space plus is a custom square-ended glyph (14 pt, 2 pt stroke).
+- [S] ⌘T in a Peek and hover in the bar (12 Nov 2026, Arc 1.172.2's Swift field metadata, `__swift5_fieldmd` of the
+  arm64 slice; GitHub #379, #382). A Peek is a `LittleBrowserWindow` with `presentModally` / `modalState`, shown by
+  the same `LittleWindowViewController` as Little Arc (`presentedModally`, its own `commandBarInstanceID` and
+  `commandBarViewStateInstance`). The bar's `CommandBarDestinationType` is `overrideCurrentTab(showCurrentURL:)`,
+  `createNewTab` or `noop`. Which one ⌘T gives in a Peek isn't in the metadata, and no Peek was opened live (it
+  needs a click in a pinned tab). Little Arc's ⌘T is ⌘L (Arc 1.168, live, above). Cra (#379, its own until Arc is
+  checked): ⌘T in a Peek opens the browser window's New Tab bar, with its tabs; ⌘L edits the Peek; a Little Window
+  keeps ⌘T as ⌘L (CraCore `CommandBarOpening`; scenario peek-command-t).
+  The row view `CommandBar.CommandBarSuggestionRowView` keeps `isHovered` and a `trackingArea`, and its `Theme` has
+  a `hoveredColor` (asset `CommandBarRowHoverBackgroundColor`) beside the selection colour, so hover in Arc's bar
+  is its own fill and not the selection. Cra's hover selects the row, and since #382 only after the pointer moves
+  from where it was when the rows last changed (CraCore `HoverGate`). Not done: Arc's separate hover fill.
 
 ## Key bindings (StorableKeyBindings.json + strings)
 - [O] Action = {identifier, name}; binding = {keyEquivalent, deviceIndependentModifierFlags}, priority, typeTravelTriggers;
@@ -674,6 +686,18 @@ LittleWindowController (LittleTooltip); hover is tracked by AppKit with an activ
 tracking area because SwiftUI's onHover sleeps while the Chrome page window is the key
 window.
 
+Arc 1.172.1 (build 90370), re-measured on 10 Nov 2026 from 2x window captures
+(`screencapture -l`, colours read from the PNGs' pixels) by kKr1Xx (GitHub #329, #330, PR #334):
+- the strip is a gradient, not #0C091C: #242438 at the left end of a 1185 pt window, #26243A,
+  #292839 and #2C2439 between, #312339 at the right end, identical after switching spaces. The
+  pill is a lighter wash over it (about #38394A on the left, #43394B on the right, white at
+  9–10 %). The traffic lights are grey discs (about #6A6A74) until the pointer is over the
+  group, with the window in front;
+- the pill reads the host only (`cra-measure.lvh.me` for `http://cra-measure.lvh.me:47110/page?e=link1`),
+  and for a page that isn't served over https an open padlock (orange, strokes about #E93700) on a
+  22 pt tile, 4 pt in from the pill's left and top, orange at about 10 %, replaces the magnifier;
+  while a first response is awaited the magnifier is back. Cra: `LittleAddress` (CraCore).
+
 ### Live re-fit against Victor's full-screen screenshots (24 Oct, 20:21)
 
 Victor's side-by-side screenshots (Cra and Arc both at 1728×1084, each with the other
@@ -809,9 +833,27 @@ Arc 1.172 binary (otool/llvm-objdump on the arm64 slice, 8 Nov, #246):
 - [O static] Minimize is per site (`minimizeEnabled` in its PiP config) and asks Chromium to leave PiP;
   `offscreen` is a separate "stash" past the screen edge. Cra has neither.
 - [O static] Scrubber: 5 pt capsule (15 pt drag area) 8 pt above the bottom (4 when tiny), white over
-  white 30 %; dragging upwards slows seeking by 2^round(dy / 60 pt), down to 1/16. Cra has none yet.
+  white 30 %; dragging upwards slows seeking by 2^round(dy / 60 pt), down to 1/16. Cra draws it
+  (`PictureInPictureScrubber` in CraCore, 12 Nov) for a video with an end, and a press goes to that
+  spot. [I] The side insets (12 pt tiny, 16 otherwise, as the other controls) and the press-to-seek
+  are not from the binary. Cra's band leaves the bottom 8 pt to the window's resize edge.
+  [O static] (12 Nov, PR #384 review) Arc's `BasicScrubber` (module PictureInPicture) keeps
+  `dragStartTime`, `dragStartLocation`, `relativeTranslation`, `totalTranslation`,
+  `wasPlayingAtDragBegin`, `_scrubSpeed`, `barHeight`, `draggableHeight`, `_hovered`; a
+  `ScrubSpeedLabel` view sits with `PlayControls`, and the per-site config has `_scrubEnabled`. Cra
+  pauses a playing video while the scrubber is held and plays it on after (from
+  `wasPlayingAtDragBegin`). [I] The relative translations suggest a drag moves from where the video
+  was rather than jumping to the press; whether a plain press seeks, and the speed label's words
+  and look, are not settled: Arc's hover controls don't show while a script drives the pointer with
+  Arc in the background, and its PiP window hides when Arc is made active.
 Cra follows the limits, the scrim, the fade, the insets and the Back to Tab words
 (`PictureInPictureLayout` in CraCore) and keeps its 782×440-on-1728×1117 opening size.
+Double click (11 Nov, reported by a user): a double click on Arc's window returns to the video's tab.
+[O live] Arc 1.172.2, 12 Nov (PR #383 review): a real double click (cliclick) on a 242×136 PiP window
+of a playing file:// video took the window away and the page's video played on; a single click on
+the same window just before did nothing. Cra (`PictureInPictureGesture.returnsToTab`): the second click of a double click that stayed
+a click, anywhere outside the buttons, does what Back to Tab does; `cra.log` gets `pip: double click,
+back to tab`.
 Centre controls (8 Nov, GitHub #262, from the #246 reporter's Arc crops): play/pause only, glyph
 about 23.5 pt, at 224 and 277 pt wide; the ±15 pair in ~31 pt circles and a 37–40 pt play/pause at
 396 and 801 pt, so the skips arrive with the small size class (280 pt). Cra: play 28 pt symbol
@@ -914,6 +956,38 @@ descriptions and frames) at window widths 1400 → 926 (Arc's minimum), plus win
   profile per side). Pins before ↻ is from the non-split bar (ten pins, ↻ kept); the offline copy loads no
   extensions (`--load-extension` is ignored).
 
+### Expand Current Split (Arc 1.172.2, live, 11 Nov 2026)
+Victor's running Arc (1.172.2 refuses a second instance, and an ad-hoc re-signed copy aborts in CloudKit
+at launch, so no offline copy): a File ▸ Blank Window (it gets a space of its own, nothing synced), a split
+of three local colour pages, driven through AX menu presses with the command bar's field set over AX,
+pane frames read from the AXWebAreas, window recorded with ScreenCaptureKit at ~80 fps. Window 1728×1084,
+sidebar hidden, content 1708 pt wide.
+- [O] Where: View ▸ Expand Current Split, after Separate Page from Split View (MainMenu.nib: action
+  `expandSplitViewPane`, command-bar keywords "Expand; Expand Split View; Maximize"). No shortcut. The pane
+  toolbar's Split View Menu doesn't have it (Move Left/Right, Add Right/Left Split, Separate Tab from
+  Split, Convert to Vertical Split View, Share Split View…). The binary posts
+  `maximizeFocusedSplitViewNotificationToken` / `maximizeCurrentSplitViewPane:`.
+- [O] What it does: the focused pane takes the content area and every other pane drops to 220 pt. Two
+  panes: 849 | 849 → 220 | 1478. Three: 220 | 1248 | 220 whichever pane is focused. The split stays a
+  split: every pane keeps its bar (the small ones with the essentials), the focused one its ring.
+- [O] How it's kept: as the split's width factors. StorableSidebar.json had `itemWidthFactors`
+  [a, 0, b, 0, c, 1] after expanding c, so 220 is Arc's minimumPaneWidth applied to a factor of 0. It
+  follows that a narrower window keeps the small pane at 220 (window 1200: 950 | 220, back at 1728:
+  1478 | 220).
+- [O] Animation: none. One recording frame shows 849 | 849, the next (≈13 ms later) 220 | 1478.
+- [O] Getting back: there is no un-expand. The menu title never changes and a second Expand changes
+  nothing. Expanding another pane (⌃⇧1 to focus it first) swaps them: 1478 | 220. Otherwise the divider
+  (drag, or the double-click reset recovered from `handleDraggerDoubleClickGesture:`, not pressed here).
+- [O] Stacked (Convert to Vertical Split View, middle pane expanded, 1064 pt tall): 210 | 614 | 220. The
+  pane above a divider counts the 10 pt divider in its 220 (each stacked pane carries its own
+  SplitViewBottomDraggerHandleView); the bottom pane has 220 of its own.
+- [O] Add Split View on an expanded split (focus on the 1478 pane): the new pane takes a third of the
+  focused pane's room (979 | 220 | 489, the new one at the end). Not built: Cra adds panes its own way.
+- Cra: SplitPaneLayout moved into CraCore; `expanding(_:in:)` gives 1 and 0, the minimum is Arc's 220 (was
+  200), stacked panes above a divider keep 210, and a divider drag starts from the lengths on screen.
+  MainWindowController.expandSplitPane stores the factors (`setSplitWidthFactors`, like a drag), no
+  animation. `cra://debug?paneLengths=<label>` logs the pane lengths; scenario expand-current-split.
+
 ### Pinned splits and the split menu (Arc 1.171, 30 Oct)
 Observed live on a throwaway Today split (example.com | example.org), archived afterwards.
 - [O] Tabs ▸ Pin Tab (⌘D) with a pane focused pins the WHOLE split (appended to Pinned); the item then reads
@@ -1007,7 +1081,8 @@ Observed live on a throwaway Today split (example.com | example.org), archived a
   `sandbox-exec` (deny network-outbound ip/tcp/udp) `…/MacOS/Arc --no-sandbox`. Without `--no-sandbox` the
   GPU process dies (nested seatbelt) and Arc never orders its windows in. Traps: cfprefsd ignores the fake
   home, so the copy writes the REAL company.thebrowser.Browser domain (back it up, restore after); `open -a
-  Arc` while the copy runs launches the real Arc; File ▸ New Window over AX opens a window.
+  Arc` while the copy runs launches the real Arc; File ▸ New Window over AX opens a window. Arc 1.172.2
+  (10 Nov 2026) refuses to start while another Arc runs, so this needs the user's Arc quit first.
   "Unnamed" means no title AND no icon: a space with an emoji shows "Space 1" and keeps its header,
   however the defaults key is set. Drop `customInfo.iconType` too and Arc hides the header by itself.
   `topBarURLEnabled` (real domain) puts the URL field in the sidebar; the favorites card closes over AX
@@ -1036,7 +1111,50 @@ Observed live on a throwaway Today split (example.com | example.org), archived a
   (white ~0.32 on the light theme), everything inside drops to 50%. A drop puts the tab in as the first tile; the
   × hides the card. Both change the layout in one frame (60 fps recording), no slide.
 - [O] A multi-tab selection's menu has no Add to Favorites (Copy Links, Share 2 Items…, Change Icon…, Mute, Open
-  in Split View, Duplicate, Move to, New Folder with 2 Items, Archive Tabs…).
+  in Split View, Duplicate, Move to, New Folder with 2 Items, Archive Tabs…). Issue #356's screenshot of two
+  Today tabs, in sections: Open in Split View, Duplicate | Copy URLs ⇧⌘C, Share 2 Items… | Move to ›, New Folder
+  with 2 Items | Change Icon › (dimmed), Mute | Archive Tabs. Cra: PickedTabsMenu.
+- [O strings] Arc 1.17x binary: Share N Items… strings: "Generating Link...", the toast "Copied Shared URL" (live it said "Copied Folder URL")
+  ("Letting user know that the sharable URL has been copied"; `itemsToShare`); Move to is "Menu Item that shows a
+  user's root spaces in a submenu" (SidebarMenu+MoveMenu.swift, which also has "Move selected items to a new folder
+  in a subspace"); the archive row is "Archive sidebar items"; Copy links/item links as Markdown exist as titles.
+- [O] Arc 1.17x live, 11 Nov 2026 (Victor's Arc, read-only: ⌘-click, right-click, AX read, AXCancel). Two Today
+  tabs: Copy Links, Share 2 Items… | Change Icon… (dimmed), Mute (dimmed, nothing playing) | Open in Split View,
+  Duplicate, Move to ›, New Folder with 2 Items | Archive Tabs, Archive Tabs Below (dimmed). No ⇧⌘C on Copy
+  Links any more. Move to ›: every space, ✓ on the picks' own, ──, New Space…. With a pinned tab added (3 picks):
+  Copy Links, Share 3 Items… | Open in Split View, Move to ›, New Folder with 3 Items | Archive Items. AX also
+  lists Archive Other Tabs and Archive Tabs Above in the Today menu, which are not drawn (hidden rows).
+- [O] Same Arc, with five throwaway example.com tabs (opened through Little Arc ▸ Open in Victor, archived after):
+  - The "pinned tab" of the short menu above was an Easel ("Test", `easelID` in StorableSidebar.json). An Easel among
+    the picks gives the short menu and Archive Items; a real pinned tab doesn't.
+  - Pinned tab + Today tab, right-clicked on the pinned row: the full tab menu, ending in Archive Tabs (no Archive
+    Tabs Below). Archive Tabs then archived both at once, the pinned one too, no confirmation and no toast.
+  - Five Today picks: the full menu, Open in Split View shown but dimmed, Share 5 Items…, New Folder with 5 Items.
+  - Share 2 Items… opens a sheet over the window, not a toast: envelope badge, "Send this Folder to anyone, on any
+    browser.", "Anyone with this link can view your Folder. Viewers won't receive future updates and this permalink
+    cannot be deleted.", a "Never show me this again." checkbox, Cancel (ESC) and Copy Link to Folder (↩). Cancel
+    pressed; the link was not made (it would be a permanent arc.net page showing the user's display name).
+  - A plain click on a picked row that is also the open tab starts renaming it.
+- [O strings] The warning is Arc's Dialogs.SheetWindow (`showDialogSheetDeprecated(message:buttonTitle:icon:
+  cancelButtonText:suppressionButtonText:informativeText:)`), "Alert title on privacy confirmation window for sharing
+  tab collections": "Send this <type> to anyone, on any browser." with the type "Folder" for a folder and for picked
+  tabs alike; the checkbox is "Toggle for showing the shared collections privacy dialogue". Arc also has
+  "<type> currently private." and "Viewers need their own access to any site in this <type> that is unshared or
+  requires authentication." (not seen).
+- [O] The sheet at 2x (card 560 × 308 pt, #161C2F): envelope badge 62 × 49.5 pt at 48.5, 44.5 (fill #302F5C, 4 pt
+  #6362A3 border with ~5 pt corners, 4 pt round-capped V flap, a 15 pt #6D6C96 postmark with two thin motion
+  lines); title ink 120.5–138 from x 49; message 14 pt #888B98, ink 149.5 and 167.5, 18 pt pitch, wraps at 463 pt;
+  checkbox 16 pt #2D3243 rounded square at 49.5, 195.5, label 13 pt #DBDCDF from x 79.5; buttons 243–281.5 tall
+  38.5, Cancel 237–346.5 and Copy Link to Folder 354.5–532 (blue #3339F1). Cra: AppDialog.shareLink (`older`
+  layout, ShareEnvelopeIcon, DialogCheckbox) lands within 0.5 pt everywhere (SwiftUI snaps the text rows to whole
+  points); Arc's title runs ~3 pt wider.
+- [O] Arc 1.17x live, 12 Nov 2026 (Victor's Arc, throwaway tabs, settings exported before and diffed after):
+  - Ticked, the checkbox is Display P3 #397CF7 with a 2 pt white check; ticking it and pressing Cancel saves
+    nothing (no defaults key changed, the sheet came back on the next Share).
+  - Copy Link to Folder copies `https://arc.net/folder/<UUID>` and the toast says "Copied Folder URL" (top
+    right), for picked tabs too; no "Generating Link..." was seen. The page is titled "2 Items" with "A Folder
+    from <display name>" under it and the two links. Cra: FolderShareLink.picked titles its page "N Items".
+  - With a picked tab playing sound, Mute is enabled; after Mute the row says Unmute.
 - [?] Not measured: the drag-over fill on a dark theme, coloured dark themes (the star's colour there), 1x.
 - Cra: FavoritesEmptyCard, dismissed per favorites container (WindowPrefs.favoritesEmptyStateDismissed, since
   Cra's favorites are per space). Badge, title, subtitle and × land within 1 px of Arc's at 2x. The dashed line
@@ -1333,6 +1451,16 @@ so test pages must not use it). Live HID clicks and hovers at 1x, plus a static 
   on the open one. Nested rows indent 16 pt (favicon 26 → 42, text 45 → 61) and their fill starts after it.
 - [O live, 100 fps] The minus makes the row jump to scale 0.9 at once and spring back to 1 in ~0.24 s without
   overshoot (left edge 10 px in at 1x, back by 1.11 s): a critically damped spring, ω ≈ 14 (stiffness 196, damping 28).
+
+### Pressing a sidebar row (Arc 1.172.1, 11 Nov 2026, static: method lists and disassembly)
+
+- [O] Rows: `SidebarBouncyClickCell.performBounceAnimation(isPressedIn:)` on `SelectableCellView` (tabs, splits,
+  New Tab, easels). A `CASpringAnimation` on `transform` to scale 0.992 about the centre, damping ratio 0.5,
+  response 0.2, held while pressed. Tabs and splits press only on `clickCount == 1`; New Tab on every press.
+  Folder and section headers don't press.
+- [O] Favorites: `AppTrayItemViewAppKit.isPressed`, the same spring to 0.99 on every press, the whole tile.
+- [I] Nothing found springs a row back when a press becomes a drag; Cra does it when the drag starts.
+- Cra: CraCore SidebarRowPress, `NSView.springPress`.
 
 ### Backdrop-layer blur for light vibrant themes (25 Oct 2026, final)
 
@@ -1657,6 +1785,95 @@ search results) or cosmetic ad slots; requests from service workers and extensio
   and `_usesCustomDrawing` (returns NO); no active-appearance override. Cra keeps its buttons coloured while
   inactive by overriding AppKit's private `_hasActiveAppearanceForStandardWindowButton:` (checked on a test window).
 
+## Arc Settings window (Arc 1.172.2 build 90755, 11 and 12 Nov 2026)
+
+First measurement of Arc's own Settings window (GitHub #372); until then Cra's was Dia's (next section). Arc ▸ Settings… opened
+through the menu with Accessibility, tabs switched with `AXPress`, 1728 × 1117 pt display, dark and light. Frames, strings and
+fonts from the accessibility tree (fonts through `AXAttributedStringForRange`), window captures with `screencapture -l` (size
+checked: 2736 × 2600 px for 684 × 650 pt), colours from the PNG's raw bytes (Display P3), motion from ScreenCaptureKit
+recordings of Arc's windows other than the browser window. No page content was captured. Keys and behaviour of the rows come
+from the binary (static strings, metadata and its key table; nothing run), marked [binary].
+
+- [O] The window is **684 × 650 pt, fixed**: zoom and minimise are off, no tab resizes it. It opens at x 522, y 119 (centred across, near
+  the top) and **always on the first tab**, not the one used last (closed on Shortcuts, reopened on the first). The title bar shows the
+  tab's name, centred and dimmed; traffic lights are 16 pt at x 8, 31, 54, y 8. [binary] The frame autosave name is
+  `company.browser.Settings.FrameAutosaveName`, the panes (`ArcPreferencePane`) are account, general, max, profiles, keyBindings,
+  links, advanced, staff, appIcon.
+- [O] **Tabs**, in a toolbar 56 pt tall (y 32–88): a glyph over the name, buttons 55 pt wide (Shortcuts 63, Advanced 64, labels 12 pt)
+  with 1 pt gaps, the group (464 pt) centred. In order: Account (named after the user), General, Profiles, Max, Links, Shortcuts, Icon,
+  Advanced. The chosen tab is a pill 55 × 47 with a 7 pt corner and its glyph and name in the system blue: `(38, 37, 65)` with a
+  hairline in dark, white with a soft shadow in light. A hairline under the toolbar. [binary] Glyphs: Account
+  `person.crop.square.filled.and.at.rectangle` (18 pt medium), Profiles `person`, Shortcuts `keyboard`, Advanced
+  `slider.horizontal.3`, General and Links are bundled 24 × 24 template PDFs.
+- [O] The body is 562 pt tall (y 88–650) and scrolls (Max, Links, Icon, Advanced do); the Shortcuts list and the Icon list scroll inside
+  it. Side margin 64 pt, first card 20 pt below the toolbar, cards 556 pt wide, a 1 pt border, corner ≈ 5.5 pt (buttons 5.75, the window
+  ≈ 15; fitted to the corner pixels), 10 pt inside a row, hairlines between rows, 9 pt between cards. Switches 36 × 16 pt, 10 pt from the
+  card's edge; buttons 24 pt tall. Rows with a switch are 36 pt (pitch 37), with a 24 pt control 44. Text is the system font: 13 pt for
+  rows and body, 11 pt for sub-text and counts, 12 pt for a shortcut's description, 14 pt semibold for a shortcut's name and the icons'
+  names, 11 pt semibold "CURRENT ICON".
+- [O] Colours (raw P3 bytes, dark / light): window and toolbar `(31, 30, 53)` / `(255, 255, 255)`; the hairline under the tabs
+  `(35, 35, 35)` / `(230, 230, 230)`; card `(34, 33, 56)` / `(251, 251, 251)`; card border and separators `(56, 55, 76)` /
+  `(226, 226, 226)`; buttons `(45, 44, 66)` / `(239, 239, 239)`; pop-ups `(48, 47, 67)` / `(236, 236, 236)`; switch on `(17, 125, 253)` /
+  `(0, 118, 245)`; a chosen profile row `(32, 38, 67)` / `(237, 244, 255)`; Max banner `(51, 60, 255)` in both; Links picture
+  `(222, 126, 133)` / `(255, 161, 164)`. The window follows the system appearance.
+- [O] Motion: opening is the standard AppKit scale-in (first frame already 98.8 % of the size, full after 5 frames ≈ 100 ms, opacity
+  steady), closing 3 frames (scale to ≈ 89 %, opacity 89 → 44 → 10 → 4 %); **a tab switch is instant** (one frame changes, no fade,
+  no resize); a sheet opens in ≈ 240 ms with the window behind it darkening and closes in ≈ 210 ms. Cra's window has the same
+  opening, closing and instant switch.
+- [O] **General**: "Automatically update my Arc" ⓘ, "Warn before quitting" (card), "Previews" with Previews Settings… and "Manage your
+  default search engine, Auto-Archive, and downloads in Profile Settings." with Profile Settings… (card). Previews Settings… is a 422 pt
+  sheet "Show Arc Previews:" with seven checkboxes: Arc Folders, Google Calendar, Google Mail, Outlook Calendar, Outlook Mail, Recent
+  pages on Linear, Notion, and Figma, Notion Calendar. [binary] keys `folderPreviewEnabled`, `calendarPreviewEnabled`,
+  `gmailPreviewEnabled`, `outlookCalendarPreviewEnabled`, `outlookEmailPreviewEnabled`, `recentPagesPreviewEnabled`, `cronPreviewEnabled`
+  (Notion Calendar). Recent pages read the local history of notion.so, linear.app, figma.com and atlassian.net/wiki (no API);
+  Notion Calendar shows Google Calendar's preview on calendar.notion.so; Outlook is OAuth with Microsoft Graph (GitHub #376).
+  Arc 1.172.2's main binary, recent pages: `Previews/RecentPagesFetcher.swift` `search(domain:tidyTitleConfiguration:browserContextID:)`
+  (per profile, titles through Tidy Tab Titles), left out: `notion.so/samlauthcallback`, `…/externalintegrationauthcallback`,
+  `…/googlepopupcallback`, `…/oauth2callback`, `figma.com/files/recent`. Empty lines "Recent Linear projects and issues appear
+  here.", "Recent Notion docs appear here.", "Recent Figma files appear here.", "Recent Confluence pages appear here."; the ＋ opens
+  linear.app/new, notion.so/new, figma.com/new, confluence.new. The card itself wasn't seen (no accounts); Cra's (CraCore
+  RecentPagesPreview) lists favicon, title and age in the Gmail card's style, on favorites and pinned tabs.
+  Notion Calendar has no fetcher of its own in the binary (only `calendar.notion.so`/`.com` and `…/event/create`): its card is
+  the Google Calendar preview. Outlook's empty mail line shares Gmail's string. Cra reads Outlook without Arc's Graph sign-in:
+  CraCore OutlookPreview borrows the sign-in headers of a hidden Outlook page's own `/owa/service.svc` requests (FindItem,
+  GetCalendarView).
+- [O] **Profiles**: a line on profiles, a list on the left ("Your Profiles", "Default — 5 Spaces", + − and rename under it, 205 pt wide)
+  and the chosen profile's cards on the right: Search engine, Manage search (Search Settings…), Include search engine suggestions ·
+  Archive tabs after (12 hours (default), 24 hours, 7 days, 30 days), New documents (——, Confluence Page, Google Doc, Notion Page, Word
+  Doc), Download location (Downloads, Other…, Ask every time) · "Your Data and Settings": Privacy and Security, Passwords, Credit Cards,
+  Notifications, Clear Browsing Data (24 pt coloured tiles, arrows). [binary] New documents is `defaultNoteDocumentApp`, a per-profile
+  map, and feeds the command bar's "New Google Doc" and the like (`doc.new`, `app.notion.com/new`, `word.new`, `make.page`; GitHub #375).
+- [O] **Max**: a banner (blue, the word and flowers, a wavy bottom edge), "Let Arc do more for you with Max…", a card "Enable Max" with
+  a button and "Automatically enable future Arc Max features", then a card of six rows with a picture each (Tidy Tabs, Instant Links,
+  5-Second Previews, Tidy Tab Titles, Tidy Downloads, ChatGPT in the Command Bar) and "Max features require that we send data to
+  our AI partners.". [binary] The button has no key of its own: it reads Turn Off Max with every feature on, Turn On All with some,
+  Turn On Max with none, and a press sets them all; the per-feature keys are `tidyTabsEnabled`, `instantLinksEnabled`,
+  `hoverCardsEnabled`, `renamePinnedTabsEnabled`, `renameDownloadsEnabled`, `gptSiteSearchEnabled`, and the auto switch is
+  `arcMaxAutoOptInEnabled`.
+- [O] **Links**: a 684 × 135 picture (a Little Arc, rose, wavy bottom edge), "Little Arc is a smaller, simpler Arc window…", a card of
+  "Open Little Arc when I press ⌥⌘N in any app", "Open Little Arc when clicking on links with ⌥⌘ held", "Links from other apps open in
+  Little Arc" and "Archive Little Arcs after:", a rule, "Peek is a way to preview a link…", a card of the two Peek switches (the second
+  with the note "This only affects Favorites and Pinned tabs"), a rule, and a card "Choose where links open inside Arc." ⓘ with Air Traffic
+  Control…. [binary] the ⌥⌘ switch is `optionCommandClickLittleArcEntryPointEnabled`; the click itself isn't measured (GitHub #373).
+- [O] **Shortcuts**: "Start with the basics" and a button "Learn the Essential Shortcuts", a card with a field ("Type a feature name or
+  shortcut (like “Command E”)", which also finds by keys: "command e" → Open Extensions) over one flat list "Default Shortcuts" by name
+  (110 rows here, rows 48 pt, the keys on white 64 × 24 caps, `---` for none), and on the right two 64 pt key caps, "Custom Shortcuts"
+  or the chosen action's name and description, "Reset Shortcut to Default" and a "…" menu (Remove Shortcut, Reset All Shortcuts,
+  Extension Shortcuts…). An action that has a shortcut also has a pop-up Prefer Websites / Use Both / Prefer Arc ("When shortcuts
+  conflict, Arc wins.") [binary] `priority` = `low` / `promptAfterConsumedByWebView` / `overrideWebView` (GitHub #374).
+- [O] **Icon**: a radio list of the alternate icons (64 pt picture, 14 pt name, "CURRENT ICON" under the chosen one, rows 81 pt): The
+  Original Arc, Candy Arc by Dmitry Novikov, Hologram, Neon, Fluted Glass, Schoolbook, Colorful. [binary] They unlock by inviting
+  friends ("Refer %d friend(s) to unlock"); a remote flag opens them all.
+- [O] **Advanced**: three cards of switches on 20 pt coloured tiles — "Play Arc sound effects", "Haptic feedback when reordering tabs" ·
+  "When opening Arc, restore windows from previous session", "Allow window dragging from the top of webpages", "Show full URL when
+  Toolbar is enabled", "Enable Shared Quotes when highlighting text." · "Enable Picture in Picture when you leave a video tab", "Allow
+  websites to get your theme data", "Enable Boosts on websites you visit" — then More Settings… (`arc://settings`), Reset Translated-site
+  Prompts (`resetTranslateSettings`) and Export Data (a Markdown file of every Space and tab, "Arc Data Export.md").
+- [O] **Account**: the user's card, "Account" with the email, "Sync Sidebar", "Gift Arc to a Friend". Cra has no account; its sync is the
+  first tab.
+- Cra's window is Arc's since GitHub #372; Tabs, Privacy, Extensions, Plugins and Performance, which Arc has no tab for, are Cra's own:
+  Privacy and Extensions after Advanced, the rest inside General, Extensions and Advanced.
+
 ## Dia Settings window (Dia 1.54.2, 25 Oct 2026)
 
 Evidence: window-id captures (`screencapture -l`) and the accessibility tree of Dia's own
@@ -1883,6 +2100,19 @@ Method: `strings`, `otool -oV` with relative-method-list selectors resolved by h
 (`__swift5_types` → field descriptors) of the arm64 slices of `Arc` and `ArcCore.framework`. No runtime capture of
 Arc's popup this time, so geometry is not measured.
 
+- [O, Arc 1.172.2, 11 Nov 2026, arm64 disassembly + Objective-C metadata] `BrowserExtensionWindow`'s Swift
+  initializer at `0x100108374` calls `setCollectionBehavior:` with `0x100` at `0x100108534`:
+  `.fullScreenAuxiliary`. The selector stub at `0x103664220` reads the selector reference at `0x1045483c8`.
+  The window is an ordinary `NSWindow`, not a nonactivating panel. Shared window configuration at
+  `0x1002c71f0` also has paths that set `.fullScreenAuxiliary`, clear `.fullScreenPrimary` and add
+  `.moveToActiveSpace` (`0x2`). [U] The particular shared-configuration path used by Bitwarden's separate
+  unlock window, and its live Space membership, were not measured. `ADKApplication.didCreateNewBrowser:`
+  (`0x1004bc9b4`) wraps the browser and passes it to a Swift delegate through an indirect call.
+  Read again in the review of #351: the stub's selector reference resolves to `setCollectionBehavior:`, and the
+  shared path at `0x1002c7290`–`0x1002c72c8` ORs `0x100`, ANDs out `0x80` and ORs `0x2`, in that order. Cra does
+  the three only for a window that opens over a full-screen Cra: Chromium never takes a `.fullScreenAuxiliary`
+  window full screen (`gfx::SetNSWindowCanFullscreen` returns early), so over a windowed Cra the window stays
+  as Chrome made it (scenario `extension-popup-own-fullscreen`).
 - [O] ArcCore's browser delegate hands the toolbar popup to the Swift shell as web contents:
   `browser:didOpenExtensionPopup:webContents:`, `browser:didResizeExtensionPopup:size:`,
   `browser:didCloseExtensionPopup:` (`ADKClientLive.BrowserExtensionsPopUpManager`). The window state keeps
@@ -2754,6 +2984,13 @@ curves fitted per frame. "p" = Library reveal progress, 0 = space, 1 = Library o
   1044 pt Spaces page; measured 1/834, 1/870, 1/808). A space-to-space swipe measured 0.49 pt per px (one take).
 - [O] The sidebar widens during the drag, not at commit: width = 347 + (Lib − 347) × p (347→417 at p 1; 1044 pt
   for a Spaces page), the web page column shrinking with it. Library open → swipe out mirrors it exactly.
+- [O AX, Arc 1.172.2, kKr1Xx on #340] The page card keeps its width with the Library open: 1728 pt window, 264 pt
+  tab sidebar, card x 264 w 1454; Library ▸ Spaces (5 spaces, 1536 pt) x 1536 w 1454; Archived Tabs (417 pt)
+  x 417 w 1454. It moves with the Library's right edge and past the window's, which cuts it off, so the page is
+  never laid out again for a narrow column. Cra follows it (`LibraryWidth.page`); the "column shrinking" above
+  and the 56 pt column below are the slice of the page that shows. [U] the in-between frames of a swipe, the
+  Library opened with the sidebar hidden (Cra keeps the whole card's width) and a tab sidebar wider than 417
+  (Cra lets the page fill what the Library leaves).
 - [O] The space's own content fades, alpha ≈ max(0, 1 − 2p) (row contrast 1.00/0.60/0.29/0.08/0 at p 0/0.2/0.36/
   0.46/0.5), and shrinks a little: scale ≈ 1 − 0.1 p about a point near (417 pt, window mid-height) [I, fitted from
   the selected row, favourites card and traffic-light positions]. The traffic lights travel with that content and
@@ -2874,6 +3111,26 @@ popover driven by AX (the chevron is `openInSpaceExpander`, the rows are AXButto
   next Little Window follows the window used last again, so a link from another app doesn't open in a space (and its
   sign-ins) picked earlier; Air Traffic Control's Default (Little Window + space) sets that for good (CraCore
   `LittleWindowTarget`; scenario little-window-space-pick).
+
+### The ⌘O menu row (Arc 1.172.2, Victor's Arc, 11 Nov 2026)
+
+Little Arcs opened with `open -a Arc https://example.com/?cra-open-in…`, the menu bar read over AX with and without
+one in front, the Tabs menu opened over AX and captured, ⌘O posted to Arc's pid.
+- [O static] MainMenu.nib has one row for it, `openTabIn`, titled "Open Little Arc or Peek in" (the name Settings ▸
+  Shortcuts lists as "Open Little Arc or Peek in…", ⌘O), with no command bar keywords. The nib has no row for
+  ⇧⌘O (`showLittleArcOpenInMenu` is a key binding only) or for closing every Little Arc.
+- [O AX] With a Little Arc in front the row is in **Tabs**, after Pin Tab and before New Folder…, titled
+  "Open in Victor" (the space the Little Arc's own "Open in , Victor, ⌘O" button names), with that space's emoji
+  as its image, ⌘O, no ellipsis. With the browser window in front the row isn't in the menu at all, enabled or not.
+  The Window menu has none of the Little Arc rows either way (only the "Little Arc — <title>" window entry).
+- [O AX] ⌘O moved the page at once: the Little Arc closed and the browser window on Victor showed
+  example.com as its selected tab. No space picker; that is the ⌄ / ⇧⌘O.
+- [O AX] The browser window's command bar has no row for it: "Open in" and "Peek in" gave only the search row,
+  history and search suggestions.
+- Peek: the nib's name says the row serves a Peek too. Not opened live (a Peek needs a click in a pinned tab).
+- Cra: `TabsMenu` (CraCore) has the row's place, title and when it shows. Window ▸ Open Little Window in Space is
+  gone, and the action is "Open Little Window or Peek in…" under Tabs in Settings ▸ Shortcuts. ⌘O from a Peek
+  expands it into the parent window's space (scenario little-window-open-in-row).
 
 ## ⌘Return in the command bar and closed folders that keep their tab (Arc 1.171, 2 Nov 2026, issue #85)
 
@@ -3289,6 +3546,23 @@ event with `shiftClickModalEntryPointEnabled` set for the run, AX frames and 60 
   shows it, so the page waits hidden (contentView.isHidden), not transparent.
 - Cra: PeekLayout (CraCore) has the geometry; PeekBarView and PeekControlsPanel (PeekChrome.swift) the card's bar
   and the buttons; MainWindowController.setPeekVeil fades the page; ShinyToast.Action.share the button.
+- [S, 12 Nov, GitHub #385] The buttons' hover and press, from Arc 1.172.2's arm64 code (no symbols: the body
+  witness of `ModalButtonStyle.ButtonView: View`, found through the conformance's resilient witnesses, then lldb
+  on the file). `ModalV2ControlButton` uses `ModalButtonStyle` (fields `buttonFill`, `buttonAccent`; its
+  `ButtonView` holds `isPressed` and `@State isHovered`). The body is: the label in the accent, padding 8, clipped to
+  the capsule, on the fill with `.shadow(color: .black.opacity(isHovered ? 0.3 : 0.2), radius: isHovered &&
+  !isPressed ? 6 : 4, x: 0, y: 1)`, `.offset(y: isHovered ? -1 : 0)`, `.animation(.spring(response: 0.15,
+  dampingFraction: 0.95), value: isHovered)`, `.onHover`, `.scaleEffect(isPressed ? 0.95 : 1)` about the centre,
+  `.animation(.spring(response: 0.28, dampingFraction: 0.63), value: isPressed)`. The fill doesn't change.
+  `ModalControlState.dismissButtonScale` (a `@Published` CGFloat) scales the Close button in
+  `ModalV2ControlsViewSwiftUI` on `.spring(response: 0.25, dampingFraction: 0.8)`, but its key path pattern is
+  used only by that read and its own accessor thunks: nothing in 1.172.2 writes it, so ⌘W doesn't animate the
+  button in Arc. Not seen live (Arc runs one instance; a Peek needs a click in Victor's Arc).
+- Cra (#385): PeekControlLook (CraCore) has those values and springs as Core Animation takes them (stiffness
+  (2π / response)², damping 4π · fraction / response); PeekControlButton draws its fill, shadow and glyph on its
+  own layers so the press can scale about the centre. Past Arc, at the reporter's request: ⌘W and ⌘O press their
+  button (PeekControl.pressed(byAction:)) for 0.15 s on the press spring while the action runs at once. Close's
+  closing picture, taken within 80 ms, carries the pressed button; Expand's Peek is gone that frame.
 - [O, 4 Nov] Which links peek, with both Links settings on (`modalEnabled` and
   `shiftClickModalEntryPointEnabled` set for the run, the sidebar reset before each run), HID clicks on a
   lab page at 127.0.0.1 in a pinned tab: a link to localhost peeked, plain or target=_blank; a link to
@@ -3341,6 +3615,32 @@ event with `shiftClickModalEntryPointEnabled` set for the run, AX frames and 60 
     a card inside the window under its floating sidebar. Cra now stacks the floating sidebar above the Peek's
     windows; cra://debug?peekCatcher reads `floating=above|below|none` from the window server's order.
 
+### A Peek's favicon on its favorite tile (Arc 1.172.2, 12 Nov 2026, GitHub #381, static)
+- [S] The favorite tile's model, `AppItem` (and its unnamed sibling with `childItems`), has
+  `badgeIcon: NSImage?` next to the pinned row's `modalIcon: NSImage?` (`__swift5_fieldmd`, arm64 slice).
+  `AppTrayItemViewAppKit` keeps a `badgeView: AppTrayItemBadgeView?` (file
+  AppTray/AppTrayItemBadgeView_AppKit.swift), an NSView with one lazy `iconView` (NSImageView). The
+  tiles' unread mark is a different thing (`AppTrayItemOverlay.badge: NSColor`, a dot). The reporter
+  saw Arc put the peeked page's favicon there while a Peek from the favorite is open.
+- [S] Geometry, from AppTrayItemViewAppKit's `layout` (0x101d19b3c): the badge's frame is
+  (width − 10 − 6, −4, 20, 20) in the flipped tile, so it sticks out 4 pt past the top and the right edge;
+  its layer gets anchor (0.5, 0.5) and the same frame again.
+- [S] AppTrayItemBadgeView: `layout` puts the icon at (midX − 8, midY − 8, 16, 16), backing-aligned
+  (NSAlignAllEdgesNearest). `updateLayer`: masksToBounds NO, corner radius 6, continuous corners,
+  background the asset colour `FullOpacityBackgroundPrimary` (ARCClients_BaseAssets: sRGB white, black in
+  Dark Aqua), shadow black, opacity 0.25, radius 4, offset (0, 1.5). The tile adds it with
+  `setImage:` on the icon view and animates `transform` (from scale 0.1 about the centre) and `opacity`
+  with a CASpringAnimation built from response 0.4 and damping ratio 0.6 (stiffness (2π/0.4)², damping
+  4π·0.6/0.4), both ways.
+- Not seen live: Arc 1.172.2 runs one instance, and opening a Peek from a favorite needs a real click in
+  Victor's own Arc. Cra: FavoritePeekBadge (SpaceColumnView.swift), fed from SidebarUIState.peekBadges, the
+  same entries the pinned row's badge reads, so it stays while the Peek waits and goes with it.
+  cra://debug?favoriteBadges reads it; scenario favorite-peek-badge.
+- Cra trap: on macOS 26 setting an NSView's `layer.cornerRadius` turns `clipsToBounds` on, which cut the
+  badge to the tile's rounded corner. The badge turns it off after its radius; the tile turns it off only
+  while it wears a badge, since `layer.render(in:)` (component snapshots) draws an unclipped corner radius
+  without anti-aliasing.
+
 ### Peek grows out of the link (Arc 1.171, 6 Nov 2026, GitHub #204, offline Arc)
 The reporter recorded Arc 1.172.1 growing the card out of the clicked link. 1.172.0/1.172.1 only moved Chromium
 (appcast notes: "no other changes"), so this was measured on 1.171 with a lab page on 127.0.0.1: two 68 × 31 pt
@@ -3365,9 +3665,12 @@ links, A near the top left and B near the bottom right, real HID Shift-clicks (`
 - Cra: PeekLayout.opening / closing / content / column (CraCore) sample the motion; PeekTransition plays it as
   Core Animation keyframes at 120 Hz. MainWindowController.peekSource finds the link under the pointer (else
   the focused link) with a script in Cra's isolated world and cuts its picture out of Chromium's screenshot,
-  within 90 ms; without one (or in a WebKit tab) the card grows from the whole area and fades itself, as from
-  Arc's page-sized link. Closing asks where the link is now (the page may have scrolled) and goes back there;
-  out to the whole area when it's gone. Recorded the same way in a test copy: the card's left edge went .65,
+  within 90 ms. The script looks inside open shadow roots (Reddit's post links, GitHub #359). When it finds no
+  link but a mouse button went down on the page under a second ago (a closed shadow root, another site's
+  frame, a page too busy to answer in time), the card grows from a 20 pt square at the click, fading itself,
+  and closes back there (PeekLayout.origin). With neither (or in a WebKit tab) the card grows from the whole
+  area and fades itself, as from Arc's page-sized link. Closing asks where the link is now (the page may have
+  scrolled) and goes back there; out to the whole area when it's gone. Recorded the same way in a test copy: the card's left edge went .65,
   .77, .84, .91, .93, .98 of the way a frame apart (Arc .60, .77, .85, .91, .95, .97), its bottom edge .34,
   .59, .71, .80, .87, .91 (Arc .31, .54, .73, .82, .89, .94), and it closed back into the link.
 
@@ -3572,6 +3875,52 @@ Arc Max's renameDownloads: a finished download is renamed on disk and a card abo
   (the old name's baseline as far from the bottom as the label's cap top from the top), and the card stays while the
   pointer is on it, then for what was left of its 8 s but at least 3 s. On a dark space the label and the old name are #929BFF, not
   Arc's #343BD1, which reads at 2.6:1 on the card (PR #197, Quinn Battersby; Victor, 5 Nov 2026).
+
+## 5-Second Previews (Arc 1.171, 10 Nov 2026, Arc's binary + Victor's Arc: Hacker News, Google, example.com; 2x, 60 fps)
+
+Arc Max's 5-Second Previews are hover cards inside Arc: the HoverCards module (HoverCardsController,
+HoverCardWindow, HoverCardViewModel), pref `hoverCardsEnabled` (1 in Victor's Arc), remote flags
+`hoverCardsLLMDelayInterval` and `hoverCardsShareEnabled`. Arc's server still answered.
+- [B] Settings text: "Instant summaries appear when you hover over links on [certain websites.](…) Or hold Shift
+  while hovering to preview any link."
+- [B] Sites (`HoverCardsSupportedDomain`): google.com, x.com / twitter.com, news.ycombinator.com, each with its links:
+  `.title .titleline > a` (HN story titles); `[data-testid=tweetText] a[role=link][target=_blank]`,
+  `[data-testid='card.wrapper'] a[role=link]`, `a[role=link][rel='nofollow noreferrer'][target=_blank]` (X);
+  `g-section-with-header a [role=heading]`, and `#search a`, `#tvcap a`, `#topstuff a`, `#botstuff a` (Google).
+- [O] Which hovers: an HN story title and a Google organic result open a card; HN's "comments" link and a Google
+  side-panel link don't; a link on example.com doesn't. Shift must be held as the pointer reaches the link
+  (pressing it while on a link does nothing). With Shift, example.com's iana.org link got the answer card, and HN's
+  "comments" link (same site) got the small card: the page's title in bold and its address without the scheme.
+- [B] Prompt (HoverCardViewModel.loadSummary): "As a concise and helpful summarizer, create a glanceable "answer card"
+  containing the most important information from the webpage. Capture the tone, perspective and POV of the writer."
+  JSON `Response {blocked, quickSummary? (3-8 words), details: Detail[] (2-4)}`, `Detail {label ("Price:", "Story:", …),
+  icon (an SF Symbol name), info (5-10 words)}`, the page between `<webpage>` tags, the user's Google search as
+  `userQuestion`, "Write responses … in <language>". `blocked` shows "No preview available".
+- [O] Timing: a loading card 0.97–1.2 s after the pointer comes to rest (300 × 52 pt, two grey bars 7 pt thick and
+  15 pt apart); it grows down from its top edge from about a tenth of its height in 0.25 s, opaque from its second or
+  third frame. The answer streams in (rows fade in as they come, the card grows down) over the next 1–3 s. Leaving the
+  link closes it at once unless the pointer is on the card: it squashes toward its top edge to about a third, still
+  nearly opaque, and fades at the end, in 0.14 s. With no room under the link it hangs above it.
+- [O] Card: 300 pt wide, 12 pt corners. The page's picture (og:image) fills a 100 pt banner; a page without one gets no
+  banner. The quick summary in bold 13 pt white, 15 pt margins; a row per detail: the model's SF Symbol in white at
+  about 40 %, the text at 39 pt, bold label + regular info, 13 pt on 18.5 pt lines, 6 pt between rows. A 32 pt grey
+  share button with a faint rim, its centre 24 pt from the right and 25 pt from the bottom. The fill is the space's dark
+  tooltip tone at about 90 % (#322c15 over Hacker News's page in a beige space; TooltipTones gives #302913). It hangs
+  6 pt under the link, 7 pt left of the link's start. The small card: 300 × 86 pt, title on 16 pt lines, 10 pt above
+  the address.
+- [O] Share button: a dark menu at the click, Copy as Text (doc.on.doc), Copy as Image (photo.on.rectangle),
+  Share ▸ (the share services). Copy as Text puts plain text and flat RTFD on the pasteboard: the quick summary, a line
+  per detail led by an emoji for its symbol (trophy 🏆, video 📹, pencil ✏️, paperplane ✈️), "AI Summary by Arc Browser",
+  the link. Copy as Image is a 3x TIFF of the card in light: 304 pt wide, the picture at its own aspect inset 2 pt with
+  8 pt corners, #191B1F text, #BBBBBC symbols, a dashed #CFD0FB line (4 pt on, 6 off, a 3 pt gap first) and a 50 pt
+  #F6F6FF footer with the favicon and host left and "Arc Browser" bold right, both #9A9AB3.
+- Cra (LinkSummaryPolicy, LinkSummaryPrompt, LinkSummaryCardLayout, LinkSummaryShare in CraCore; LinkSummaryService,
+  LinkSummaryPreview, LinkSummaryShareImage): all of the above, on the Mac's Apple Intelligence model with Arc's
+  prompt and schema (streamed). The page script checks Arc's selectors on the hovered link. Chromium fetches the page in
+  the tab's profile only once a card opens, never for hosts on the Mac or the local network, upgraded to https with
+  Always use secure connections, never in incognito spaces. Differences that stay: "Cra" in place of Arc's name in
+  the copies; the emoji table is Cra's (Arc's isn't readable; it matches the four Arc produced); the model writes
+  its own answers. Settings ▸ Max ▸ 5-Second Previews, off by default like Arc Max.
 
 ## Little Arc over a full-screen app (Arc 1.171, 5 Nov 2026, issue #186, Victor's Arc + a test full-screen app)
 
@@ -3780,6 +4129,20 @@ Read from the arm64 slice's Swift field metadata (`__swift5_fieldmd`, case and f
   address; WebKit pages save WKWebView's interactionState. Saved a second after a load, when the tab is hidden
   and at quit. `MainWindowController.goBack` takes ⌘[, the toolbars and the menu; the mouse button is
   Chromium's. Readouts `cra://debug?back=<label>`, `cra://debug?scroll=<label>`.
+- [O disasm] The two-finger swipe (Arc 1.172, 12 Nov 2026, GitHub #370, static only: a real swipe can't be
+  synthesised). Arc uses Chromium's HistorySwiper (ArcCore has it and `ChromeRenderWidgetHostViewMacDelegate`),
+  but its `canNavigateInDirection:onWindow:` (arm64 0x43326a8) and `navigateInDirection:onWindow:` (0x4332784)
+  first ask the page's NavigationController and, when it can't move, call `arc::WebContentsUIDelegate::
+  CanExternallyNavigate` / `WillExternallyNavigate` (0x44b38a8 / 0x44b3d08, through `delegate_wrapper.h`
+  InvokeSync / InvokeAsync). In Arc.app those reach `ADK.WebContentChromium webContents:canExternallyNavigate:` /
+  `willExternallyNavigate:`, and `WebContentFrameAction` has `canExternallyNavigate(direction:response:)` and
+  `onNavigateExternally(ArcNavigationDirection)`: the app decides a swipe the page can't take. Stock Chromium
+  only asks the page (`chrome::CanGoBack`). So a swipe back on a link's tab with no history goes where Back
+  goes (closing it, `navigateBackToReferrer`); the mouse button never goes through the swiper.
+- Cra (#370): `ChromiumHistorySwipe` replaces the same two methods; when Chromium's answer is no for Back it
+  asks `BackToReferrer.swipeBack` for the tab whose page view it is, and at the end closes the tab to its
+  referrer. Forward stays Chromium's. Readout `cra://debug?swipeBack=<label>[&go=1]` calls the page's real
+  delegate (scenario `swipe-back`).
 
 ## Sidebar width and the narrow header (Arc 1.17x, 9 Nov 2026, GitHub #287)
 - [O disasm] `WindowLayoutController.handleSidebarResizePanGestureRecognizer:` (arm64, 0x100221030): the new
@@ -3863,7 +4226,7 @@ ScreenCaptureKit region recorder that also drives the pointer and logs each move
 Reference: `strings` and Swift field metadata on the arm64 binary, `assetutil` on ARCUI's Assets.car,
 and lldb's disassembler for constants, with Objective-C calls resolved through selector metadata.
 Visual references: paired YouTube Music footage in dark spaces and light-theme screenshots,
-10 Nov 2026. Full-window coverage at both 1x and 2x is still pending.
+10 Nov 2026; live Arc 1.172.2 against a Cra test copy at 1x and 2x, 11–12 Nov 2026 (below).
 
 - [O static] The top-apps item state has `shouldShowMusicalAnimation`, and `AppTrayItemViewAppKit` a lazy
   `musicIconAnimationView`: an `ARCUI.ParticleNSView` (ParticlesView.swift), a `CAEmitterLayer` filled from a
@@ -3874,7 +4237,9 @@ Visual references: paired YouTube Music footage in dark spaces and light-theme s
   matches when its host is one of them, ends in "." + one of them, or has one among its dot-separated labels.
   youtube.com is not there.
 - [I] The flag is "the tab plays audio and its URL is a music site" (`_isAudible` and `browserIsPlayingAudio`
-  exist; where they meet the list wasn't traced). [U] Whether a muted tab keeps its notes. Cra shows none.
+  exist; where they meet the list wasn't traced). [O live, 1.172.2] A muted tab keeps its notes: more than
+  10 s after muting (mini player showing the struck-through speaker) new notes still rose. So the flag
+  follows Chromium's audible state, which a mute doesn't clear.
 - [O static] `ParticleTemplate.musicNotes` is two cells that differ in image and birth rate: `MusicSprite1`
   (one eighth note) 1.4 a second, `MusicSprite2` (two notes under a beam) 1.0. Both: lifetime 2, lifetimeRange
   0, scale 0, scaleRange 0.2, scaleSpeed 1, alphaRange 0.15, alphaSpeed −0.5, emissionLongitude π/2,
@@ -3897,10 +4262,10 @@ Visual references: paired YouTube Music footage in dark spaces and light-theme s
   `FavoritesGridView` keeps the overlays above the tiles; a split emits from its first eligible playing
   pane. The pager mask allows 8 pt above the top row, following the still; empty columns keep their
   original clipping.
-- Cra policy choices: require an exact music host or its subdomain, current sound playback and an
-  unmuted tab; hide notes with Reduce Motion on. Notes follow the immediate sound callback so pausing
-  removes them before the speaker's 2 s recently-audible hold expires. Arc's full trigger is inferred
-  above; its muted-tab and Reduce Motion behavior remain unverified.
+- Cra policy choices: require an exact music host or its subdomain and current sound playback, muted
+  or not, as Arc does. Notes follow the immediate sound callback so pausing removes them before the
+  speaker's 2 s recently-audible hold expires. Reduce Motion doesn't stop them (Arc's don't stop either,
+  below).
 - [O capture, 10 Nov] Paired dark-theme footage (12.32 s, Arc left, CraDev right) shows notes above
   each music icon, growing softer and fading under the URL field. The grids have different tile
   counts, so widths differ. Live pause/resume was checked in CraDev.
@@ -3914,9 +4279,30 @@ Visual references: paired YouTube Music footage in dark spaces and light-theme s
   `cra://debug?musicNotes=`. It covers a non-music host, an idle music favorite, playing, muting,
   unmuting, pausing, quick resuming and the emitter's offset. Paused readouts poll for one second,
   before the speaker's hold expires, to allow Chromium's asynchronous sound event to arrive.
-- Pending: full-window coverage at both 1x and 2x and the remaining states in
-  [release-checklist.md](release-checklist.md#sidebar-tabs-and-the-command-bar). The captures provide
-  qualitative comparisons; exact particle timing and display-scale coverage remain unverified.
+- Live comparison, 11–12 Nov 2026. Arc 1.172.2 refuses a second instance while one runs ("Arc is
+  already open. Only one instance of Arc can be opened at a time"), so the offline copy of "One space"
+  no longer works beside the user's Arc. A clone with another bundle id dies in CloudKit once re-signed
+  ad hoc and is killed by code signing when it isn't. Arc was therefore the user's own: a new window,
+  www.nts.live's live stream (Mac output muted; the audible state doesn't depend on it), made a favorite
+  with the command bar's "Favorite Tab" and removed with "Unfavorite Tab" afterwards. As the fifth favorite
+  at 264 pt it sat in row 2 (three columns), so the notes rose over the tile above. Cra was a test copy
+  with six favorites (two on music hosts mapped to a local tone page), row 2 playing too. Both windows were
+  1280 × 800 on a CGVirtualDisplay at 1x and at 2x, recorded with ScreenCaptureKit at 30 fps, 5–6 s per
+  take, light and dark spaces. Statistics per take: a per-pixel median as background, note pixels
+  differing by more than 14/255.
+- [O live] What matches, at 1x and 2x: the emitter on the icon's top edge, rows above drawn over (notes
+  cross the tile above), the fan opening upwards, notes gone by about 44 pt above the icon's centre, the
+  same rise of glyph size with height (1x medians 3, 4, 6, 11, 11, 14, 14 pt in 4 pt bands from the
+  emitter; Cra 3, 5, 7, 13, 12, 14, 15 pt) and the same fade of peak ink with height (dark, 1x: Arc
+  116 → 28, Cra 128 → 33 over 2–34 pt). In Arc's light space notes are faint (about 32 pt² of note
+  pixels per frame against 124 pt² in its dark space), in line with Cra's 30 % black ink.
+- [O live] Pause: the notes go within 0.2 s of the stream stopping and come back on resuming, as in Cra.
+  Mute: they stay (above). Reduce Motion (System Settings ▸ Accessibility ▸ Motion, on for 5 s, then
+  off): unchanged, 32.0 pt² of notes per frame with it on against 32.4 before and 31.8 after.
+- [U] Density and spread: Cra showed about 3.7–4.2 notes per frame and a fan about 50 pt wide, Arc
+  2.6–3.1 and about 36 pt. Each take holds only some 14 births (2.4 a second for 6 s) and Arc's leaned
+  left in one take and right in another, so this is within sampling noise; the cell values are the
+  same. A longer Arc take would settle it.
 
 ## Full screen: the page edge to edge, the sidebar over it (Arc 1.172.1, 10 Nov 2026, GitHub #315, offline Arc on a fake home)
 Offline Arc, View ▸ Enter Full Screen and View ▸ Hide Sidebar over AX, the pointer moved with cliclick; screen
@@ -3938,7 +4324,7 @@ screen on a click.
   `FloatingSidebarGeometry.mayReveal` lets the edge reveal over a full-screen page; the floating panel draws
   its stand-in lights only outside full screen. `cra://debug?windowState` reports the card's insets
   (`card=l,b,r,t rRadius fills=0|1`); `fullscreen-hidden-sidebar.scenario` checks all three states. Cra's
-  panel still sits 8 pt in (Arc 5), as before.
+  panel sat 8 pt in (Arc 5) until #350 (11 Nov), now 5.
 
 ## Page translation (Arc 1.17x, 10 Nov 2026, GitHub #310, strings + offline Arc, dark mode, 1x, AX)
 - [O static] Arc draws its own translate UI (Translation/TranslateFeature, TranslateBubblePopoverView) on Chromium's
@@ -3967,3 +4353,232 @@ screen on a click.
   content clipped the body's edges). Chromium
   offers translation only with a Google API key (release builds' CRA_GOOGLE_API_KEY); dev builds show no button.
 
+## Page-top window dragging (Arc 1.172.2, build 90755, 10 Nov 2026, arm64 static analysis)
+
+- [O static] `WindowContentViewController` installs an `ARCUI.WindowContentGrabber` when
+  `contentWindowDraggingEnabled` changes to true; its delegate also decides whether grabbing is allowed.
+- [O static] The grabber's eligibility helper at `0x100b21f24` compares `NSCursor.current` with
+  `NSCursor.arrow` using NSObject equality, then combines that result with the delegate's permission.
+  Its `hitTest:` path at `0x100b21c54` and `mouseDragged:` path at `0x100b2210c` call this helper before
+  `performWindowDragWithEvent:`. Text, pointing-hand and resize cursors therefore fail this check.
+- [O static] Layout helper `0x100412cf4` makes the grabber's frame start at x = 0 with
+  width = content width minus 14 pt (`fmov d1, #-14` at `0x100412f68`). The frame stored at
+  layout offset `0xf0` is applied to `grabberView` by `setFrame:` at `0x100412988`.
+  The rightmost 14 pt therefore stay outside the grabber even with an arrow cursor, leaving the
+  vertical scrollbar to the page. Cra reserves the same strip through `PageTopDrag.trailingInset`.
+- [I] This path distinguishes page actions by their cursor, rather than by a list of DOM element tags.
+  An element that forces the ordinary arrow does not receive the same exclusion as a text or link cursor.
+- Cra: `WindowContentGrabber` lets the press reach the page immediately, checks the cursor again before
+  starting a system drag of the browser window, and leaves the window's native resize edge band free.
+  The existing 56 pt page band is still `PageTopDrag.band`; no new live Arc measurements were made here.
+
+- [O AppKit probe, 10 Nov 2026] On a 1000 × 700 pt titled, resizable full-size-content window,
+  `_resizeDirectionForMouseLocation:` reports a corner resize 8 pt inward from both the top and right
+  edges. A uniform 3 pt inset therefore misses part of the rounded corner's target.
+  [Chromium's frame-view handler](https://chromium.googlesource.com/chromium/src/+/master/components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm)
+  checks this same AppKit method before moving the window (`-1` means no resize). Cra's
+  `WindowDragRegion` now uses that check in the owner window's coordinates, with the 3 pt inset
+  only as a fallback when the selector is unavailable.
+
+- [O Cra runtime, 10 Nov 2026] The remaining page-corner drag bypassed both the page grabber
+  and `CraWindow.performDrag`: `windowWillMove` arrived through AppKit's
+  `NSAppInstallWindowWillDragEventMonitor`. Changing movement flags during `sendEvent` did not stop it.
+  Chromium's original `BridgedContentView` excludes its bounds from server-side titlebar dragging through
+  [`_opaqueRectForWindowMoveWhenInTitlebar`](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/components/remote_cocoa/app_shim/bridged_content_view.mm).
+  Cra leaves that container behind when embedding the page, so `WindowContentGrabber` now preserves the exclusion.
+  A native AppKit drag-region query reproduces the unwanted corner region before attachment, excludes it with
+  the grabber attached, and restores it after detachment. The user confirmed the corner fix in CraDev.
+
+- [O static, 11 Nov 2026, the same build, read again for the review of #335] `WindowContentGrabber` overrides
+  only `hitTest:` and `mouseDragged:`: no `mouseDown:` or `mouseUp:`, no stored event and nothing replayed. On a
+  left press over a window with content `hitTest:` returns nil, so the page gets the press at once, and the
+  grabber only notes whether the press was eligible (`dragState = .beganInValidState`). On the first eligible
+  drag event it calls `performWindowDragWithEvent:` with no distance threshold (Cra keeps its 3 pt slop), then a
+  local monitor swallows the drags and the release. The delegate's permission is asked on the press only; on a
+  drag the test is the arrow cursor alone.
+- [O static] The band's far edge is 60 pt in the controller's view (`60 − y`, y the bar's bottom edge: 0 with no
+  bar). Measured on 11 Nov: 60 pt into the page with no bar, 28 under the toolbar (below).
+- [O Cra, real pointer events, 11 Nov 2026] On #335's build, toolbar hidden: an arrow drag in the band moved the
+  window and the page saw the press; a click reached a button there; a drag over text selected it; the right
+  14 pt and a press 130 pt down stayed with the page; the window's top-right corner resized. On the build
+  before it, the text drag, the right strip and the corner all moved the window.
+- [O Cra, real pointer events, 11 Nov 2026] On an inactive Cra the press finds a stale cursor (`NSApp.isActive` false and
+  `NSCursor.current` whatever Cra set when it was last in front), so an arrow drag in the band moved the window only
+  2 times in 4. Such a drag also ends with two `leftMouseUp` events 3 ms apart, and the page took the second for a
+  click on what the drag started on. Cra now leaves the cursor out for a press on an inactive Cra or the press that
+  brings it to the front (`PageTopDrag.cursorIsCurrent`), and keeps every release after a window drag from the page:
+  7 drags in 7 moved the window, and a drag starting on a button no longer pressed it. [U] Arc's own behaviour on an
+  inactive window: its grabber makes the same cursor test, not measured.
+- [O live, Arc 1.172.2 and Cra side by side, real pointer, 11 Nov 2026, #363] Same 1300 × 640 window at 40,440 on the
+  2x built-in display, a local page whose top 64 pt row holds a text field, a button with the arrow cursor, one with
+  the pointing hand and blank space; the page logs every press, release and click by its distance from its top, the
+  window's frame is read over AX after each gesture (rig in build/issue-363-rig). Drags are 60 × 30 pt over 250 ms.
+  - Band: toolbar hidden (card 10 pt below the window's top), drags 57, 58 and 59 pt into the page moved the window,
+    60 and 61 didn't. Toolbar shown (page 42 pt down, under the 32 pt bar), 25–27 pt moved it, 28–30 didn't. Both fit
+    `60 − bar`: the band ends 60 pt below the card's top, and the grabber works under the toolbar too. The 7 Nov
+    "56 pt, 58 no" was off by a few points; Cra had 56 and no band under a bar.
+  - Start: the first drag event starts the window drag, however small: 1, 2 and 3 pt glides (several events) moved the
+    window 0–2 pt, and the window lagged the pointer by the first event's movement (a 60 pt drag moved it 59). A
+    single 5 pt drag event moved nothing. Cra waited for 3 pt and moved the window from the press.
+  - Release: after a window drag the page gets the release and a click (a drag that starts on the arrow-cursor
+    button clicks it). Cra swallowed the release, so a click that slipped 5 pt on the button moved the window and
+    never clicked: the "lost click" of #363 on 0.1.40.
+  - Same in both: clicks 1–20 pt down on any control reach the page; a drag on the text field selects text and one
+    on the pointing-hand button stays with the page; the right 7 pt stay with the page, 20 pt in moves; a click in the
+    10 pt margin above the card does nothing, a drag there moves the window and a double-click zooms it; a
+    double-click in the band goes to the page.
+  - Inactive window (a windowless app in front): Arc's page gets no event from a first click anywhere, 4, 100 or 200
+    pt down; a drag in the band moves the window. That is Arc not taking the first click at all, not the grabber.
+    Cra passes a first click to the page; left as is (window-wide, not the band).
+- Cra (11 Nov 2026): `PageTopDrag.band(barHeight:)` = 60 − the card's bar (`WindowContentGrabber.barHeight`); the
+  grabber starts the drag on the first drag event, from that event's point; the page gets the release unless the
+  press brought Cra forward (the two releases above). [U] Arc's split panes and its 40 pt developer bar: the same
+  `60 − y` rule read statically, not measured.
+
+## The hidden sidebar from past the window's edge (Arc 1.172.2, 11 Nov 2026, GitHub #350, live Arc, real pointer at 120 fps)
+
+The reporter's recording (60 fps, 2x): a pointer thrown out past the left edge of a window that stands
+clear of the screen's edge, 95 pt out and then to the screen's edge 154 pt out, brings the sidebar out,
+and it stays while the pointer is out there. Cra revealed only in its 14 pt strip.
+
+Measured on Arc with the sidebar hidden (View ▸ Hide Sidebar), a 264 pt sidebar, the window at x 420,
+y 120, 1100 × 800, a local page in the tab. One tool drove the pointer (HID mouse-moved events, 4 ms
+steps) and read the window's frames (ScreenCaptureKit, 1x, 120 fps) on one clock; coordinates below are
+points from the window's left edge (negative = outside) and from its top. Names in the binary:
+`offLeftEdgeZoneRect`, `innerLeftEdgeZoneRect`, `innerTopLeftEdgeZoneRect`,
+`floatingSidebarOuterLeftEdgeHoverState`, `HoverRegionTracker` (ARCUI), and a region enum with
+`offLeftEdge`, `windowTrafficLightRegion`, `innerLeftEdge`, `innerTopLeftEdge`, `sidebar`.
+
+- [O] Thrown from the page to x −100 (80 ms), at rest there: out, first frame 135–160 ms after the pointer
+  stopped (nine runs). It stays out while the pointer moves beside the window (y 200 to 400).
+- [O] Out with the pointer at rest at x −3, −20, −60, −150 and −250; not at −270, −290, −300, −330 or −410.
+  A sidebar that is out, the pointer moving left at 150 pt/s: it starts back in with the pointer at −257
+  (Arc takes ~35 ms to react, so it let go at about −252). The zone is ~256 pt wide: the sidebar's width
+  less its 8 pt margin. [U] other sidebar widths.
+- [O] Up and down, at x −50 and −100: out when the pointer leaves the window at y 45, 60, 740, 792; not at
+  y 8, 15 or 30. Out, moving up at 50 pt/s it starts back in at y 30; moving down at 150 pt/s at y 823
+  (23 pt under the window). So Arc's zone runs from ~32 pt under the window's top to ~17 pt under its
+  bottom: the sidebar's height, set ~24 pt low. Cra uses the window's own height.
+- [O] Only a pointer that comes out of the window counts. One that reaches the zone from above (x −100,
+  y −60 to 400), from below (x −60, y 900 to 400) or from further left (a jump from −350 to −100, then
+  nudged and moved on to −150) brings nothing out in 1–2 s. From x −60 on to −2 it does come out: the
+  window still gets mouse-moved events 2–4 pt outside its frame, where the 5 pt strip's rule holds
+  (the "2–4 pt outside" measured on 29 Oct).
+- [O] The wait. A pointer that stops: ~145–160 ms after its last move (thrown to −10, −40 or −100, a jump
+  with no move after it, 300 pt/s stopped at −10: 142 ms). One that keeps moving outward at 100, 200, 300,
+  600 or 1500 pt/s: 218–227 ms after it crossed the edge, every time, wherever it was by then (x −22 to
+  −200). Stopped at −40 after 131 ms outside: 231 ms after crossing. So the wait starts over while the
+  pointer moves, but only for its first ~75 ms outside. In the strip, stopped at x 3: 147 ms.
+- [O] Out 40 pt and in again to x 60 within 30 ms: nothing. Thrown to −300 or on to −410: nothing.
+- [O] Above the window's top (x −100, y −60) the sidebar leaves; back beside the window it stays in.
+- [O] The reveal and the hide are the curves fitted on 9 Nov (#293): right edge per frame 9, 39, 72, 107,
+  139, 193, 214, 231, 244, 254, 262, 267, 270, 272, peak 274, rest 270; back in within ~0.1 s.
+- [O] Nothing came out from the window's top-left corner (x 3–400, y 3–60, 0.7 s each), whatever
+  `innerTopLeftEdge` and `windowTrafficLightRegion` are for.
+- [O] Out with the pointer at rest at x −100, another app brought to the front (activated, no click): the
+  sidebar starts back in 85 ms later and stays in while the pointer moves on beside the window.
+- [U] A second display left of the window; a window in full screen; two windows side by side.
+- Cra: `FloatingSidebarGeometry.isOffLeftEdge` (the sidebar's width less its margin, beside the window)
+  and `FloatingSidebarOffEdge` (CraCore): armed by a sample over the window or in its strip, the wait
+  `offEdgeRest` (0.085 s) from the pointer's last move or `offEdgeLongestWait` (0.15 s) from leaving the
+  window, whichever ends first (three and five looks of the 30 Hz poll after the first); `shouldHide` keeps a sidebar that is out while the pointer is in the zone.
+  The 30 Hz poll feeds it (`FloatingSidebarController.pointerSample`); the sidebar stages during the wait
+  as it does in the strip. When Cra stops being the active app the poll stops, so a sidebar the pointer
+  keeps out from beside the window is sent away then (`resignedActive`).
+- [O Cra, the same tool and plans, a 322 pt sidebar] Before: nothing comes out past the edge (thrown to
+  −100, jumped there, 200–1500 pt/s exits), and a 100 pt/s exit flashes the sidebar 86 pt out and back.
+  After: out 131–156 ms after a thrown pointer's last move (Arc 135–160) and 212–240 ms after the edge for
+  one that keeps moving (Arc 218–231); stays beside the window, leaves above it, nothing from above, below
+  or further left, nothing for out-and-back; gone 28 ms after another app comes to the front. Kept
+  apart from Arc: the zone is the window's height (Arc's sits ~24 pt lower), and a 100 pt/s exit comes out
+  from the 10 pt strip 60 ms after the edge (Arc's 5 pt strip lets it pass: 220 ms). The reveal's frames
+  are Arc's one frame ahead, as on 9 Nov, but never past the resting edge: the panel ended there, so the
+  spring's 1.5 % overshoot (Arc: 274 for 270) was cut off.
+- [O 1x frames, the same run] Arc's floating sidebar rests ~5.5 pt inside the window (a 264 pt one from
+  x 5.5 to 269.5, its top at y 5.5; "5 pt in" in full screen on 10 Nov) and the page starts 10 pt in. At
+  the reveal's peak the whole sidebar is 4 pt further right (x 9.5 to 273.5), so its left edge stops at
+  the page's edge and only the window's own margin shows beside it. Its stand-in traffic lights are
+  centred at x 24.8, 47.3, 70, y ~29 of the window.
+- Victor, trying the fix: "the sidebar shoots out too far, I can see some pixels of the background when
+  it is most to the right". [O Cra, 2x frames of the scripted reveal, `cra://debug?floatingSidebar=1`] The
+  sidebar rested 8 pt in and the 9 Nov spring swung it 6.4 pt (2 % of 325), so at the peak the page showed
+  from x 10 to ~13 left of it for three frames, and its right side was cut off at the panel's end while
+  the shadow swung on.
+- [O] Arc's reveal refitted on 27 of today's reveals (right edge per frame, the end of the motion weighted
+  4×, each run's start free within 12 ms; the same result from four starting points, rms 4.8 pt): stiffness
+  1134, damping 54, initial velocity 9.1. It lands at 115 ms, peaks at 274.15 at 146 ms (1.54 %) and reads
+  271 again at 214 ms; Arc's frames read 274 from 136 to 154 ms and 271 again at 198 ms. The 9 Nov spring
+  (759, 46.3, 23.3) peaks at 275.4 and is back at 271 only at 238 ms.
+- Cra now: `FloatingSidebarGeometry.margin` 5 (the stand-in lights land on 25, 29), the leave boundary kept
+  81 pt past the sidebar's width (`leaveSlack` 76) and the zone beside the window 8 pt narrower than the
+  sidebar (`offEdgeShortfall`). `FloatingSidebarSpring` (CraCore) is Arc's spring up to Arc's 270 pt of
+  travel; for a wider sidebar the damping goes up just enough to keep the swing at Arc's 4.2 pt (54.9 for
+  333 pt), so the sidebar's left edge peaks at 9.2 pt, short of the page at 10, whatever its width. [U]
+  whether Arc's own swing grows with a wider sidebar. The panel is the swing + 2 pt wider while the
+  spring runs and ends at the resting edge again once it settles.
+- [O Cra after, the same 2x capture] Right edge at rest 325.0, peak 329.0, back at 325 within ~0.1 s of the
+  peak; in no frame does the page show left of the sidebar.
+- Victor, with the window zoomed to the screen: "when I hover to reveal it, the shadow that the Cra window
+  drops disappears. Arc's shadow is there all the time." [O Cra, real hover, screen captures] With the
+  window at 0, 33, 1728 × 1084 the band above its top edge (the window's shadow, seen through the menu
+  bar) goes from dark (0x58 down to 0x33) to flat 0x6c and the black 1 px outline goes, along the whole
+  edge, for as long as the sidebar is out; in a window standing clear of the menu bar nothing changes. The
+  click-through panel that carries the sidebar's soft shadow reached `shadowPad` past the sidebar, 11 pt
+  above the window (8 pt since #293), so it lay under the menu bar, and macOS gives the menu bar its frosted
+  backing over any window beneath it. Cra: both floating panels are cut to the window's frame
+  (`panelFrame`, `shadowPanelFrame`); what reached past it was masked by the window's outline already
+  (#341).
+
+## Copy URL confirmed in place (Arc 1.172.2, 11 Nov 2026, GitHub #361, Victor's Arc, ~115 fps window recordings)
+
+Window recordings (ScreenCaptureKit, one window, no cursor) of AX presses and one real click, on the normal
+toolbar's 24 pt "Copy Current URL" glyph (12 pt link), the sidebar URL field's `copyLinkButton` (30 pt box, 14 pt
+link, toolbar hidden with ⇧⌘D), a Little Arc's link icon and the developer bar's Copy Link.
+
+- [O static] `CommandBarPlaceholderButtonsView` (the sidebar URL field's buttons) holds a `CopyLinkViewModel`
+  { isCopied, foregroundColor, activeColor, copyToken, isSidebarAnchored, isSidebarHovered, isShowingMenu };
+  ARCUI's `TranslucentButtonIconAnimation` has a `CopyLinkIcon` beside ReloadIcon and PlusMenuIcon.
+- [O] A click on the toolbar glyph or the sidebar's Copy Link: the link shrinks about its centre and fades
+  (gone by ~0.10 s); from ~0.17 s a checkmark in the glyph's ink draws itself from the short leg's end to the
+  long leg's tip (whole by ~0.31 s) while fading in (opaque by ~0.38 s); it holds until ~1.10 s, un-draws back
+  to its short leg over ~0.16 s, and the link springs back from ~0.55 at ~1.26 s, overshooting to ~1.14
+  (sidebar) / ~1.17 (toolbar) at ~+0.13 s and settling by ~+0.45 s. The checkmark's ink is a square 0.83 of
+  the link's point size (20 px at 2x for the 12 pt link, 24 px for the 14 pt one) on the glyph's centre,
+  stroke ~1.6 pt. The hover fill stays as it was; nothing lifts or casts a shadow.
+- [O] The "Copied Current URL" toast shows with it (top right of the page). ⇧⌘C and Edit ▸ Copy URL show only
+  the toast and leave the glyph alone, with the pointer over the sidebar field or not; so do a Little Arc's
+  link icon and the developer bar's Copy Link (which never animate).
+- Cra: CraCore `CopyCheck` (the numbers), `NSImageView.playCopyCheck` (CopyCheckAnimation.swift), played by
+  the sidebar URL field's Copy Link and `ToolbarURLButton.copyFromGlyph`; not by ⇧⌘C, the Little Window or
+  the developer bar.
+
+## ⌘W in the Settings window (Arc 1.172.2, build 90755, 11 Nov 2026, PR #364, arm64 static analysis)
+
+- [O] `Settings.SettingsWindowController` (an `NSWindowController`) implements `closeCurrentItem:`, the
+  action behind Arc's ⌘W (File ▸ Close Tab), next to `doCommandBySelector:`, `copyAction:` and
+  `supplementalTargetForAction:sender:` (`otool -oV` on the arm64 slice, selector refs resolved through
+  `__objc_methname`). Its window class is `Settings.UserInteractionPausableWindow`.
+  [I] With Settings key, ⌘W reaches Settings first and closes it; the browser window behind keeps its tab.
+  Same pattern as `BrowserExtensionWindowController.closeCurrentItem:` (extension windows).
+- Cra: `AppDelegate.perform(_:)` sends Close Tab and Close Window to Settings while it's in front
+  (`settingsInFront`); with a sheet up on Settings nothing closes. Scenario `settings-close-shortcut`.
+
+## Permission requests (Arc 1.172.2, 12 Nov 2026, GitHub #371, a Little Arc asking for MIDI, 2x window capture)
+- [O static] `PermissionRequests/PermissionRequestPopoverView.swift` and `PermissionRequestDialogView`. Strings:
+  "Allow %@ to access your %@?" (the site's title, else "this website"; the type's `displayName`, e.g. "local
+  network", "MIDI devices"), own sentences for notifications, multiple downloads, storage, idle detection and
+  mailto ("Make %@ your default mail app?"), "Click the lock to change this any time", "Button to deny permission".
+- [O] Not a sheet and no arrow: a card over the page's top left corner, 12 pt in from the page's left edge and
+  12 pt under the toolbar. The page and the window stay usable while it is up.
+- [O] Card 232 pt wide, 126 pt tall with a two-line question, #050627, ~10 pt corners, a soft shadow (about
+  25 % black, 8 pt blur, 3 pt down). Badge 24 pt (#090D4F, 4 pt corners, the `info` glyph in #ECEDFF) 16 pt in,
+  20 pt down. Question 13 pt semibold white from 48 pt in, 16 pt lines, centred on the badge. "Click the 🔒 to
+  change this any time" 11 pt medium white, 16 pt in, 8 pt under the question. Buttons 96 × 32 pt, 8 pt apart,
+  16 pt from the sides, 22 pt under the hint, 16 pt above the bottom, 5 pt corners, 13 pt semibold labels: Not
+  Now (no fill, a 1 pt #2A2B47 lip) on the left, Allow (#434BDF, a 1 pt #232441 lip) on the right.
+- Not measured: hover and pressed colours, light mode, where the card sits in a main window with the sidebar,
+  what Not Now saves.
+- Cra (#371): `PermissionPopover` (a child panel over the tab's `webArea`, the Little Window's page), Arc's
+  layout and colours. A tab switch takes it down unanswered and it asks again when the tab is back
+  (`PermissionAsk.stepsAside`). Cra keeps its own question ("<origin> wants to …", locked by #137 and #286).
+  `cra://debug?permissionCard[=<button>]`, scenario permission-card.

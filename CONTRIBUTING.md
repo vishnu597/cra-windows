@@ -17,9 +17,10 @@ you can send. Code is welcome too, within the few rules below.
   when it ships, when it's declined, or when it's still under 5 upvotes after 60 days
   (`scripts/ideas-housekeeping.py`, weekly); one labelled `planned` stays open. What makes
   a good one is under [Features Arc never had](#features-arc-never-had).
-- **No cloud AI.** Arc Max-style features (summaries, LLM search, anything that needs an
-  API key or sends pages away) are out of scope. The one exception is Tidy Tabs, which runs
-  on the Mac's own Apple Intelligence model and only shows when that is turned on.
+- **No cloud AI.** Arc Max-style cloud features (anything that needs an
+  API key or sends pages away) are out of scope. The exception is features powered by the Mac's
+  own on-device Apple Intelligence model (Tidy Tabs, Tidy Tab Titles, Tidy Downloads, 5-Second Previews),
+  which only show when Apple Intelligence is turned on and never send anything off the Mac.
 - **English only, for now.** Like Arc, the interface isn't translated: keeping every
   language in step with a UI that changes most days is more than one maintainer can carry.
   Web pages and Chromium's own dialogs already follow the system language. If you'd like
@@ -97,6 +98,9 @@ hooks and how to run a test instance next to your daily Cra.
    the PR. Releases are cut by the maintainer.
 
 [docs/reviewing.md](docs/reviewing.md) lists what a review checks, so you can check it first.
+
+A Boost for the gallery on crabrowser.app/boosts needs no Swift: one `boost.json` in
+[boosts/](boosts/README.md), which says what a gallery Boost may do and how to send one.
 
 ## Chromium and CEF
 

@@ -4,10 +4,10 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 2bf4f8f -->
-Upstream reviewed through **2bf4f8f** (VictorKildahl/cra main, 10 Nov 2026), the 91 commits
-after 9161e2d triaged under Waiting in upstream. Upstream sync #8 carries them into the fork
-after #31; the Windows gaps below remain explicit rather than inheriting the Mac's status.
+<!-- upstream-reviewed: b517a00 -->
+Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
+after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
+the Windows gaps below remain explicit rather than inheriting the Mac's status.
 
 **Status:** ✅ on Windows · 🟡 partly · 🔜 in review · ❌ not yet · ➖ Mac only, or replaced by a
 Windows counterpart
@@ -24,8 +24,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|--:|--:|--:|--:|--:|
 | Window, pages and toolbar | 5 | 4 | 0 | 15 | 1 |
 | Sidebar | 3 | 7 | 0 | 18 | 0 |
-| Command bar and shortcuts | 1 | 4 | 0 | 3 | 0 |
-| Split view | 1 | 1 | 0 | 1 | 0 |
+| Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
+| Split view | 1 | 1 | 0 | 2 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 1 | 1 | 0 | 4 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 0 | 0 | 5 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 3 |
 | System integration and release | 3 | 2 | 0 | 9 | 4 |
-| **All** | 22 | 31 | 0 | 81 | 10 |
+| **All** | 22 | 31 | 0 | 83 | 10 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -109,6 +109,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Command bar: tabs, archive, history, domains, actions, inline completion, ⌘Return background tab, Tab on the empty field lists actions (#195) | 🟡 [#8] [#9] [#24] | `CommandBarController.swift`, `CommandBarView.swift`, `CommandTextField.swift`, `SearchSuggestLoader.swift` | `SuggestionEngine`, `CommandBarDedupe`, `CommandBarGlyph`, `TypedURL`, `RelativeTime`, `ActionSearchScope`, `CommandBarTones` | Windows has the shared ranking and actions scope. `WinSuggestLoader` repeats the Mac's loader on FoundationNetworking; move it to CraCore. Missing: upstream 3bd548d's Arc sizing/row and badge tones, the theme glow and scope bounce, Alt+Return split, `checkForUpdates`, and cab6d40's current-space-only setting. |
 | Search suggestions, Site Search with Tab, % tab search, Chromium's engines | 🟡 [#9] [#13] | `SearchEngines.swift` | `SearchSuggestions`, `SiteSearch`, `TabSearchScope` | Windows reads Cra's engine setting; the Mac also reads Chromium's engine list (SQLite). Upstream d55e7a0 adds a search engine per space and cab6d40 can restrict tab results to that space; the Windows caller must use the shared engine/scope decisions. |
 | Shortcuts in `keybindings.json`, Settings ▸ Shortcuts | ✅ [#15] | `KeyBindings.swift`, `ShortcutsPane.swift`, `KeyboardLayoutCharacters.swift` | `KeyBindingDefaults`, `KeyBindingRegistry`, `KeyChord`, `KeyChord+Windows` | Since upstream 370ca1a (#212) the Mac matches by the character the layout types and falls back to the key's ANSI place (`KeyChord.match`); Windows matches virtual keys, which already follow the layout. Windows' table is `KeyBindingDefaults.windowsShortcuts`; a command joins it when Windows performs it (`parity.py report` lists the rest, each named in its feature's row). |
+| Who gets a shortcut's keys while a page wants them: Prefer Cra, Use Both, Prefer Websites (#374); search by keys | ❌ | `ShortcutsPane.swift`, `AppDelegate.swift`, `CraCEF.mm` | `ShortcutPriority`, `ShortcutSearch`, `KeyBindingRegistry` | Upstream 115e806. keybindings.json carries each action's priority on its chords (`KeyBindingOverrides`), and Windows' registry reads and keeps it already; Windows still takes its keys at one point (before the page) and has no pop-up for it. |
 | Help menu: Essential Keyboard Shortcuts card (`essentialShortcuts`), Reveal Cra Data (`revealData`), Copy Cra Info (`copyAppInfo`), Open Task Manager (`taskManager`), Cast… (`cast`) | ❌ | `EssentialShortcutsWindow.swift`, `AppDelegate.swift` | `KeyBindingDefaults` | Upstream a6b5d41, d729895, d110dc6. Task Manager and Cast are Chrome's own pages. |
 | Recent-tab switcher on ⌃Tab (`recentTab`, `recentTabBackward`) | ❌ | `TabSwitcher.swift`, `TabSwitcherView.swift` | `SidebarStore` | Ctrl+Tab cycles sidebar order on Windows until this lands. |
 | Context menus show shortcut glyphs | 🟡 | `SidebarMenus.swift` | `KeyBindings` | WinUI menu items take KeyboardAcceleratorTextOverride. |
@@ -122,6 +123,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Up to four panes, dragger, add, close, separate, flip, cycle, split menu | ✅ [#11] | `PaneCardView.swift`, `SplitDraggerHandleView.swift`, `SplitPaneLayout.swift` | `SplitPaneLayout` | |
 | Pane controls on focus and hover, focus ring, rename a split, pinned and favorite splits | 🟡 | `PaneCardView.swift`, `SidebarRowViews.swift` | `SidebarStore` | Windows has the layout and the menu; the per-pane bar, ring and rename are missing. |
 | Switch to Split View 1–4 (`splitPaneN`), Open in Split View and Add Split View on the tab menu, a tab dropped on a pinned tab makes a pinned split (#180) | ❌ | `MainWindowController.swift`, `SidebarMenus.swift` | `SidebarStore` (`createSplit(inPlace:)`, `combineIntoSplit`) | Upstream 56a5232, b2955ba. The drop waits for drag and drop. |
+| Expand Current Split (`expandSplitPane`): the focused pane takes the window, the others keep Arc's 220 pt minimum | ❌ | `MainWindowController.swift`, `SplitPaneTransition.swift` | `SplitPaneLayout` | Upstream 9629fd1. `SplitPaneLayout.expanding` and the 220 pt minimum are shared and already lay Windows' panes out; Windows needs the command and the menu item. |
 
 ## Little Windows, Peek and the Library
 
@@ -199,7 +201,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Settings window, back and forward, panes listed by `SettingsPane.windowsPanes` | 🟡 [#14] | `SettingsWindowController.swift`, `SettingsKit.swift`, `SettingsArt.swift`, `SettingsPictures.swift` | `SettingsNavigation`, `SettingsMetrics` | Windows has General, Tabs, Profiles and Shortcuts. Panes not on Windows yet: `links`, `max`, `privacy`, `extensions`, `plugins`, `performance`, `advanced`. Upstream d34987a/b4c20de add inset selection, pane clipping, descriptive rows and layout pictures; Windows needs those visual refinements. The #31 PC test still showed clipped Back/Forward focus outlines; keyboard reactivation needs a separate focused reproduction. |
+| Settings window, back and forward, panes listed by `DiaSettingsPane.windowsPanes` | 🟡 [#14] | `SettingsWindowController.swift`, `SettingsKit.swift`, `MemberCardView.swift`, `SettingsArt.swift`, `SettingsPictures.swift` | `DiaSettingsNavigation`, `DiaSettingsMetrics`, `SettingsTab`, `MemberCard`, `MaxMasterSwitch`, `TranslateReset` | Windows has General, Tabs, Profiles and Shortcuts. Panes not on Windows yet: `links`, `max`, `privacy`, `extensions`, `plugins`, `performance`, `advanced`. Upstream d34987a/b4c20de add inset selection, pane clipping, descriptive rows and layout pictures; Windows needs those visual refinements. The #31 PC test still showed clipped Back/Forward focus outlines; keyboard reactivation needs a separate focused reproduction. Upstream 80cdfe7/caaa884 (#372) moved the Mac to Arc 1.172.2's window: 684 × 650 pt with ten tabs in a toolbar (`SettingsTab`), a member card first. Windows still draws Dia's sidebar window (its CraCore types are now `Dia*`); next: follow the tab toolbar. |
 | General | 🟡 [#14] [#29] | `GeneralPane.swift`, `AppIconPicker.swift` | | Windows has default-browser registration and Open at login. #31's PC test verified title-bar icons on browser, Settings and Little Windows; taskbar-button appearance remains unverified. Missing: the app icon picker, including upstream's Violet choice and 72 pt tiles (b454fdb, 5e5a220, 41deeb9). |
 | Tabs | 🟡 [#14] | `TabsPane.swift` | `SidebarModel`, `AddressBarPlacement` | New Tab placement, single-space header, cleanup, Peek, external links and the #31 Air Traffic Control sheet are present. Missing: address-bar position (3d560c2), current-space-only search (cab6d40), sleeping, shared favorites, background-tab preference, Little Window archive time and upstream's descriptive/pictured layout. |
 | Links | 🟡 [#31] | `LinksPane.swift`, `AirTrafficControlView.swift` | `LinkRouting`, `AirTrafficControl` | Upstream b4c20de moves Little Windows, Peek, foreground-link preference and Air Traffic Control out of Tabs into Settings ▸ Links. Windows keeps its implemented rows under Tabs; it does not list a Links pane yet. |
@@ -393,6 +395,57 @@ shared models arriving in the merge do not make their Windows UI or integration 
 | 6d6ede8 | Capture a Peek's page inside that Peek (#320) | Capture row (`CaptureAccess.swift`, window capture extensions); Windows Peek-specific capture integration remains. |
 | cd8f3f5 | Copy every picked sidebar tab's URL, one per line (#322) | Copy URL/sidebar selection rows; Windows multi-selection and multi-link copy remain. |
 | cbb5753 | Automatic PiP is a per-site switch (#326) | Site Control Center/PiP rows; Windows needs the switch with PiP support. |
+
+Upstream sync #9 merged the 80 commits after 2bf4f8f (72bfc8f to b517a00). Conflicts: upstream moved
+`SplitPaneLayout` into CraCore beside the fork's copy (merged, keeping Windows' `flipped` layout and
+divider hits), gave keybindings.json priorities (the CraCore registry now stores `KeyBindingOverrides`),
+and replaced the Mac's Dia-style Settings window with Arc's tab toolbar (the fork's CraCore Settings
+types for Windows became `DiaSettingsPane`, `DiaSettingsNavigation` and `DiaSettingsMetrics`).
+
+| Commit | What | Windows |
+|---|---|---|
+| 72bfc8f, bf2878d, f9319aa, 61f209d | Little Window menus act on its page; Arc 1.172.1's gradient strip and host-only pill with an http padlock (#329, #330); ⌥⌘N's compact card at the top right (#337); Open in ⌘O on the Tabs menu | Little Windows row (`LittleAddress`, `LittleCard`, `LittleWindowTrigger`, `TabsMenu`). Windows' strip is still 1.168's flat navy and ⌥⌘N opens a full window. ❌ |
+| f7b1ba4, f4ddb16, 9d8749d, afe4417 | CEF 156.0.27 (Chromium 156.0.8078.96); release and CEF-update tooling | 156.0.27 is upstream's own build (CEF's 8078 head on Chromium .96, with 11 security fixes over .88); Spotify has no Windows download of it, so `fetch-deps.ps1`'s `$stockPin` keeps Windows on stock 156.0.26 (Chromium .88). Next: build CEF for Windows with Cra's patches (also needed for H.264/AAC), or follow Spotify's next stock release. 🟡 |
+| 3e3a82b | Fingerprinting protection switch in Settings ▸ Privacy (a CEF patch) | Privacy pane row; Windows has no Privacy pane and the patch isn't in Windows' CEF. ❌ |
+| 2b067f9, e2ba4eb, f2503d4, 7ad6b2f, f46364a | Space dock right-click opens the space menu (#339); floating and hidden sidebar reveal details (#341, #350) | Hidden-sidebar and space menu rows (`SpaceMenuLayout`, `SpaceMenuIcon.swift`, `FloatingSidebarGeometry`, now in CraCore upstream). Windows has no hidden sidebar yet. ❌ |
+| ba67d78, 9a62558 | Edit the address in place in the sidebar instead of the command bar (#344) | `SidebarAddressEdit`; Windows has no sidebar address field option. ❌ |
+| 50adbd4 | A screenshot app's pointer over a page picks the main window (#346) | Mac only (macOS screenshot picker): `WindowContentGrabber.swift`, `ScreenshotPick`. ➖ |
+| 9ea5240 | 5-Second Previews: Arc Max hover cards on Apple Intelligence (#324) | Arc Max row (`LinkSummary`, `LinkSummaryCard`, `LinkSummaryService.swift`, `LinkSummaryPreview.swift`, `LinkSummaryShareImage.swift`); needs an on-device model on Windows. ❌ |
+| 3d6548c | A double-click on a pinned tab's favicon goes back to the pinned URL (#345) | Pinned tab extras row (`PinnedIconClick`). ❌ |
+| 241cc8c | One click adds Cra's MCP server to Claude Code, Cowork, Codex, Cursor and others | Agents row (`MCPAgentSetup`, `MCPAgentInstaller.swift`, `MCPAgentTiles.swift`); Windows has no Agents server yet. ❌ |
+| b58b69d | The Library pushes the page past the window's edge instead of narrowing it (#340) | Library row; Windows still narrows the page. ❌ |
+| 3a60bd3, 95f020f | chrome:// tabs open without their saved history (a crash at launch, #325) | Windows restores tabs through CraCore's store; the history guard is in the Mac's `BrowserManager.swift`. Check on the PC. |
+| 5887873, 7143532, 0fdf7df, 4d2961d, 37efb05 | Page-top dragging: a 60 pt band, the page gets presses at once, under the toolbar too (#335, #363) | Page-top drag row (`PageTopDrag`, `PageWindowStart`, `PageWindowStart+AppKit.swift`). ❌ |
+| d24295c, ad9fd40 | View Source opens the page's source in a new tab (#348) | `ViewSource`, `PageCommands.swift`; Windows' View Source still opens Chromium's own window. ❌ |
+| 60eb2c7 | DevTools in a Little Window and a Peek dock beside the page (#348) | DevTools row (`DevToolsPlaceholder`, `DevToolsWindowChrome.swift`); Windows docks DevTools in the browser window only. 🟡 |
+| 5eca911 | The picked app icon stays in ⌘-Tab and the Dock (#319) | Mac only: `ChromiumDockTile.swift`. ➖ |
+| 52e8ef7 | Extension icons from their 2x file; install prompts over Cra's window (#349) | Extensions rows (`ExtensionIcons`). ❌ |
+| 9b6877e | Live folder plugins' helper sandbox profile (#353) | Mac only (macOS sandbox). ➖ |
+| ba49acf, ebce13c, ea617f9 | Sync: later bundles apply by themselves; repairs (#352, #378) | Sync row; Windows has no sync. ❌ |
+| 068df70, 5e02b46 | Extension windows over a full-screen Cra; two displays and full-screen Spaces (#351, #354) | Mac only (macOS Spaces). ➖ |
+| e020f1d, d31a84f, 109c697, 9dd665f, b980028, 1f88af4 | Picked tabs: Arc's menu, Copy URLs, Share N Items; Share Folder… links; the "Send this Folder" warning (#356, #357) | Sidebar multi-selection row (`PickedTabsMenu`, `FolderShareLink`; its links are raw DEFLATE, which `RawDeflate` packs and reads off Apple platforms). Windows has no multi-selection. ❌ |
+| 2a0ee52 | Switch to Light/Dark Mode turns the browser too (#362) | Website appearance row; Windows has no appearance commands yet. ❌ |
+| 8f9af14, c0981c0, fccc893, 43afe0e | Peek grows from web-component links (#359); ⌘-click Expand loads in the source tab (#380); Peek buttons rise and press (#385); ⌘T in a Peek (#379) | Peek row (`PeekExpand`, `PeekControlLook`). Windows has none of these yet. ❌ |
+| eda6089, cba9995 | Copy URL glyph animates link → checkmark → link (#361); a Copy URL scenario (#322) | `CopyCheck`, `CopyCheckAnimation.swift`; Windows' Copy URL button doesn't animate. ❌ |
+| f5751d6, 537dc09 | ⌘W closes Settings, not the tab behind it (#364) | Windows Settings is its own window: Ctrl+W there should close it. Check on the PC. |
+| 2a43142, deb7808 | Blocked pop-ups: a button with Chrome's list, Open All and Always Allow (#357) | New blocked pop-ups row (`BlockedPopups`, `BrowserManager+BlockedPopups.swift`, a CEF patch). ❌ |
+| 7ee415b, dd2c4e4, e9e4b7d | Homebrew cask, README, Find and Replace skipped | Nothing for Windows. |
+| 747ad0a | Music notes keep floating when muted or with Reduce Motion (#303) | Music notes row. ❌ |
+| 72a30bf | Sidebar rows and Favorites tiles push in while pressed (#367) | `SidebarRowPress`; Windows rows don't press in. ❌ |
+| 7665a0f | Logi Options+ Back/Forward gestures (#369) | Mouse buttons row. Check on the PC whether a mouse's Back and Forward buttons already reach Windows' pages through Chromium. ❌ |
+| 8d1f2b9, 761153e | Zap with a confirm popover and a shelf (`ZapShelf.swift`, `BoostZap`); Boosts gallery links (`SharedBoost`, `BoostInstall.swift`) | Boosts row. ❌ |
+| e4b7447 | Easels: Arc's colours, picker, menus, undo, link cards and live captures | Easels row (`EaselHistory`, `EaselLinkMetadata`, `EaselObjects`, `EaselSnap`, `EaselCards.swift`, `EaselLivePage.swift`, `EaselServices.swift`). ❌ |
+| 8ad3f9e | A two-finger swipe back closes a link's tab to the one it came from (#370) | `ChromiumHistorySwipe.swift`; Windows has no swipe back. Back itself already does it (`BackToReferrer`). 🟡 |
+| e18f093, 84accc5 | Settings: Show full URL, More Settings…, Reset Translated-site Prompts; ⌥⌘-click opens a Little Window (#373) | Settings and Little Windows rows (`TranslateReset`, `TranslatedSitePrompts.swift`, `LittleWindowTrigger`). ❌ |
+| 8f146f3 | Command bar rows under a still pointer leave the top row selected (#382) | Command bar row (`HoverGate`, `CommandBarOpening`). Check Windows' bar on the PC. |
+| 9ce8012 | Permission requests in Arc's card at the page's top left (#371) | Permission prompts row (`PermissionPopover.swift`, `ChromiumDialog`, `ChromiumDialogs.swift`). Windows still uses its own prompt. 🟡 |
+| c810a20 | A Peek from a favorite badges the tile with the page's favicon (#381) | Favorites row. ❌ |
+| 80cdfe7, caaa884 | Settings: Arc's tab toolbar window, member card, Share Cra (#372, #377) | Settings window row (`SettingsTab`, `MemberCard`, `MemberCardView.swift`, `MaxMasterSwitch`). ❌ |
+| a866227, f052e7c | Picture in Picture: double click returns to the tab (#383); Arc's scrubber (#384) | Picture in Picture row (`PictureInPictureScrubber`). ❌ |
+| b478731 | Profiles: the per-profile "New documents" app and its command bar command (#375) | Profiles row (`NewDocumentApp`); CraCore's `SuggestionEngine` already offers the command once a profile has the setting. ❌ |
+| fb6d039, b517a00 | Previews on favorites and pinned tabs: Linear, Notion, Figma, Confluence, Outlook and Notion Calendar (#376) | Favorite previews row (`RecentPagesPreview`, `OutlookPreview`, `OutlookClient.swift`). ❌ |
+| 115e806 | Shortcuts: who gets the keys, Prefer Cra, Use Both or Prefer Websites (#374) | New shortcut priority row (`ShortcutPriority`, `ShortcutSearch`). ❌ |
+| 9629fd1 | Expand Current Split (`expandSplitPane`) | New Expand Current Split row (`SplitPaneTransition.swift`). ❌ |
 
 ## Keeping this current
 

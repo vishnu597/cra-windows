@@ -78,8 +78,13 @@ static NSHashTable<CraBrowser*>* g_allBrowsers = nil;
 /// Closed tabs whose page stays alive until its downloads end (see -[CraBrowser close]).
 static NSMutableSet<CraBrowser*>* g_parkedBrowsers = nil;
 static void (^g_strayPageHandler)(NSString*, NSString*) = nil;
+static NSRect (^g_pageWindowStartHandler)(NSSize) = nil;
 static CraBrowser* (^g_extensionTabHandler)(NSString*, NSString*, BOOL, CraBrowser*) = nil;
 static BOOL (^g_appLinkHandler)(CraBrowser*, NSString*, BOOL) = nil;
+// Test hook (cra://debug?nextPageMenuCommand=): the next page context menu runs this Chromium command
+// instead of showing, as if it had been picked; -1 when none is pending.
+static int g_nextPageMenuCommand = -1;
+static void (^g_viewSourceHandler)(CraBrowser*, NSString*) = nil;
 // The last click (left mouse-up) or Return in any window, for the download Chromium makes of an
 // Option-clicked link (#298): where it landed and the keys held. Set in -[CraApplication sendEvent:].
 static __weak NSWindow* g_lastPressWindow = nil;
@@ -105,6 +110,19 @@ static void CraNoteLastPress(NSEvent* event) {
     g_lastPressView = view;
     g_lastPressModifiers = event.modifierFlags;
     g_lastPressTime = event.timestamp;
+}
+
+// The page's last click (or Return), for a callback Chromium makes a moment after it: the keys it was
+// made with (AppKit's flags) and its age in seconds, or -1 when the last one wasn't in this page.
+// Chromium's page view, in this page's window: in its card (EmbeddedPages moves it out of Chrome's
+// window) or in that window. Split panes share a window; the first pane to ask takes the click.
+static NSTimeInterval CraLastPressInPage(CraBrowser* o, NSEventModifierFlags* modifiers) {
+    NSWindow* window = g_lastPressWindow;
+    NSView* view = g_lastPressView;
+    BOOL inWindow = window && (window == o.containerView.window || window == o.hostWindow);
+    BOOL inPage = view && ([view isDescendantOf:o.containerView] || (inWindow && CraIsInPageView(view)));
+    *modifiers = inPage ? g_lastPressModifiers : 0;
+    return inPage && g_lastPressTime >= 0 ? NSProcessInfo.processInfo.systemUptime - g_lastPressTime : -1;
 }
 
 // Downloads whose save panel was cancelled (#190): cancelled on their next update, never shown.
@@ -218,6 +236,8 @@ static CraClient* AsCraClient(CefClient* c) {
 @property (nonatomic) BOOL isAudible;
 - (void)audibleChanged:(BOOL)audible;
 - (void)requestPictureInPictureInFrame:(CefRefPtr<CefFrame>)frame automatic:(BOOL)automatic x:(int)x y:(int)y;
+/// The key press that lends the page user activation, for a frame that has a video to show.
+- (void)nudgeUserActivation;
 - (void)adoptBrowser:(CefRefPtr<CefBrowser>)browser;
 - (void)devToolsBrowserCreated:(CefRefPtr<CefBrowser>)browser;
 - (void)devToolsBrowserClosed;
@@ -317,6 +337,32 @@ static void HideStrayWindow(NSWindow* window) {
     [window orderOut:nil];
 }
 
+// Whether one of Cra's windows fills the screen on the Space the user is looking at.
+static BOOL FullScreenWindowOnActiveSpace(NSWindow* except) {
+    for (NSWindow* window in NSApp.windows) {
+        if (window != except && window.visible && (window.styleMask & NSWindowStyleMaskFullScreen) && window.onActiveSpace) return YES;
+    }
+    return NO;
+}
+
+// An extension's own window (Bitwarden's vault unlock prompt) that opens over a full-screen Cra
+// joins that Space as a full-screen auxiliary. As an ordinary window it opened on a desktop and
+// macOS switched there. Arc's windows take the same three steps (set .fullScreenAuxiliary, clear
+// .fullScreenPrimary, add .moveToActiveSpace: docs/arc-reverse-engineering.md), and so does
+// Chromium's SetCanAppearInExistingFullscreenSpaces. Only over a full-screen Cra, because an
+// auxiliary window can't go full screen itself: Chromium leaves .fullScreenPrimary off it
+// (gfx::SetNSWindowCanFullscreen), -toggleFullScreen: then does nothing, and Chromium waits for
+// that transition for good, so chrome.windows.update({state: 'fullscreen'}) reports a full screen
+// that never came and the window's close is never finished. Over a windowed Cra the window stays
+// as Chrome made it and can still fill the screen.
+static void JoinFullScreenSpace(NSWindow* window) {
+    NSWindowCollectionBehavior behavior = window.collectionBehavior;
+    behavior &= ~(NSWindowCollectionBehaviorPrimary | NSWindowCollectionBehaviorFullScreenPrimary
+                  | NSWindowCollectionBehaviorFullScreenAllowsTiling | NSWindowCollectionBehaviorCanJoinAllSpaces);
+    behavior |= NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace;
+    window.collectionBehavior = behavior;
+}
+
 // The Chromium profile folder a browser's pages use: "Default", "Profile <id>", nil off the record.
 static NSString* ProfileFolderName(CefRefPtr<CefBrowser> browser) {
     CefRefPtr<CefRequestContext> context = browser->GetHost()->GetRequestContext();
@@ -342,6 +388,7 @@ public:
         // Chrome's window exists by the first navigation (not yet in OnAfterCreated).
         NSWindow* window = ((__bridge NSView*)browser->GetHost()->GetWindowHandle()).window;
         if (window && !(window.styleMask & NSWindowStyleMaskFullSizeContentView)) {
+            if (FullScreenWindowOnActiveSpace(window)) JoinFullScreenSpace(window);
             windows_[browser->GetIdentifier()] = browser;
             if (!g_extensionWindows) g_extensionWindows = [NSHashTable weakObjectsHashTable];
             [g_extensionWindows addObject:window];
@@ -513,11 +560,28 @@ static void ApplyWebsiteAppearance(CefRefPtr<CefRequestContext> context) {
     if (context->GetChromeColorSchemeMode() != mode) context->SetChromeColorScheme(mode, 0);
 }
 
+static bool g_fingerprintingProtection = false;
+/// Cra's own pref, registered on every profile below and read by Cra's Chromium
+/// (fingerprinting-protection.patch): pages get a seed for the profile and launch, and Blink
+/// noises canvas, WebGL and offline audio readback with it. Chrome pushes a change to open pages.
+static const char kFingerprintingProtection[] = "cra.fingerprinting_protection";
+
+static void ApplyFingerprintingProtection(CefRefPtr<CefRequestContext> context) {
+    if (!context) return;
+    CefRefPtr<CefValue> value = CefValue::Create();
+    value->SetBool(g_fingerprintingProtection);
+    CefString error;
+    if (!context->SetPreference(kFingerprintingProtection, value, error)) {
+        NSLog(@"CraCEF: %s: %s", kFingerprintingProtection, error.ToString().c_str());
+    }
+}
+
 static void ApplyProfilePreferences(CefRefPtr<CefRequestContext> context) {
     ApplyWebsiteAppearance(context);
     ApplyWebRTCPolicy(context);
     HideDownloadBubble(context);
     ApplyHttpsOnly(context);
+    ApplyFingerprintingProtection(context);
 }
 
 static const char kNotificationBlocksCleared[] = "cra.notification_blocks_cleared";
@@ -620,6 +684,8 @@ static NSString* SecureDNSPreference(const char* name) {
     return NSStringFromCef(value->GetString());
 }
 
+static void (^g_profileLoadedHandler)(NSString*) = nil;
+
 /// Profiles other than the global Default one get the same preferences once they load,
 /// then create the browsers that waited for them.
 class ProfileContextHandler : public CefRequestContextHandler {
@@ -632,6 +698,10 @@ public:
         ObserveExtensionSettings(context);
         if (!g_readyProfiles) g_readyProfiles = [NSMutableSet set];
         [g_readyProfiles addObject:path_];
+        if (auto loaded = g_profileLoadedHandler) {
+            NSString* path = path_;
+            dispatch_async(dispatch_get_main_queue(), ^{ if (!g_quitting) loaded(path); });
+        }
         NSArray<CraBrowser*>* waiting = [g_waitingForProfile[path_] copy];
         [g_waitingForProfile removeObjectForKey:path_];
         for (CraBrowser* b in waiting) [b createNow];
@@ -684,6 +754,7 @@ public:
         CefRefPtr<CefValue> no = CefValue::Create();
         no->SetBool(false);
         registrar->AddPreference(kNotificationBlocksCleared, no);
+        registrar->AddPreference(kFingerprintingProtection, no);
     }
 
     CefRefPtr<CefClient> GetDefaultClient() override {
@@ -1431,6 +1502,7 @@ public:
         }
         // Another app's address (spotify:) opens no tab: Cra asks "Open <app>?" over this page.
         if (g_appLinkHandler && g_appLinkHandler(o, NSStringFromCef(target_url), user_gesture)) return true;
+        if (OpensLittleWindow(o, target_url, target_disposition, user_gesture)) return true;
         if (OpensSplitPane(o, target_url, target_disposition, user_gesture)) return true;
         // A target=_blank link the user clicked (Shift-clicked: a new window) may open in a
         // Peek; window.open with features (a sign-in popup) is CEF_WOD_NEW_POPUP and stays one.
@@ -1491,8 +1563,11 @@ public:
         RunPageScript(frame, "pip",
             "(function(send){"
             "var cur=null;function playing(v){send('pip:play'+(v.paused||v.ended?0:1));}"
-            "function watch(v){cur=v;playing(v);v.addEventListener('play',function(){if(cur===v)playing(v);});"
-            "v.addEventListener('pause',function(){if(cur===v)playing(v);});v.addEventListener('ended',function(){if(cur===v)playing(v);});}"
+            // "pip:time:<seconds>:<duration>" feeds the scrubber; duration 0 is a stream with no end.
+            "function time(v){send('pip:time:'+v.currentTime+':'+(isFinite(v.duration)?v.duration:0));}"
+            "function watch(v){cur=v;playing(v);time(v);v.addEventListener('play',function(){if(cur===v)playing(v);});"
+            "v.addEventListener('pause',function(){if(cur===v)playing(v);});v.addEventListener('ended',function(){if(cur===v)playing(v);});"
+            "['timeupdate','durationchange','seeked','loadedmetadata'].forEach(function(n){v.addEventListener(n,function(){if(cur===v)time(v);});});}"
             "document.addEventListener('enterpictureinpicture',function(e){send('pip:1');watch(e.target);},true);"
             "document.addEventListener('leavepictureinpicture',function(){cur=null;send('pip:0');},true);"
             "if(document.pictureInPictureElement){send('pip:1');watch(document.pictureInPictureElement);}})");
@@ -1533,6 +1608,15 @@ public:
                 o.isPictureInPicturePlaying = playing;
                 if ([o.delegate respondsToSelector:@selector(browser:didChangePictureInPicturePlayback:)])
                     [o.delegate browser:o didChangePictureInPicturePlayback:playing];
+            } else if (v == "want") {
+                // A frame has a video to put in Picture in Picture: only now does the page get
+                // the key press that lends it user activation (see PictureInPictureScript).
+                if (!o.isInPictureInPicture) [o nudgeUserActivation];
+            } else if (v.compare(0, 5, "time:") == 0) {
+                double position = 0, duration = 0;
+                if (sscanf(v.c_str() + 5, "%lf:%lf", &position, &duration) == 2 &&
+                    [o.delegate respondsToSelector:@selector(browser:didChangePictureInPictureTime:duration:)])
+                    [o.delegate browser:o didChangePictureInPictureTime:position duration:duration];
             } else if (v.compare(0, 3, "err") == 0) {
                 NSLog(@"CraCEF: Picture in Picture %s", v.c_str());
             }
@@ -1601,7 +1685,15 @@ public:
         if (!frame->IsMain()) return;
         CraBrowser* o = owner_;
         if (!o) return;
-        o.currentURL = NSStringFromCef(url);
+        // A source page (View Source, a typed view-source: address) reports the address it shows the
+        // source of. Chrome and Arc show view-source: in front of it, and the tab keeps it, so a
+        // relaunch opens the source again rather than the page (#348).
+        std::string address = url.ToString();
+        if (CefRefPtr<CefNavigationEntry> entry = browser->GetHost()->GetVisibleNavigationEntry()) {
+            std::string shown = entry->GetDisplayURL().ToString();
+            if (shown.rfind("view-source:", 0) == 0) address = shown;
+        }
+        o.currentURL = [NSString stringWithUTF8String:address.c_str()] ?: @"";
         [o.delegate browser:o didChangeURL:o.currentURL];
     }
 
@@ -1654,6 +1746,22 @@ public:
             NSString* state = args->GetSize() > 0 ? NSStringFromCef(args->GetString(0)) : @"{}";
             if (o && [o.delegate respondsToSelector:@selector(browser:didChangeTranslateState:)])
                 [o.delegate browser:o didChangeTranslateState:state];
+            return true;
+        }
+        // Pop-ups Chromium's blocker holds back: ids and URLs (scripts/cef-patches/blocked-popups.patch).
+        if (message->GetName() == "Cra.popups") {
+            CefRefPtr<CefListValue> args = message->GetArgumentList();
+            NSMutableArray<NSNumber*>* ids = [NSMutableArray array];
+            NSMutableArray<NSString*>* urls = [NSMutableArray array];
+            if (args->GetSize() > 1 && args->GetType(0) == VTYPE_LIST && args->GetType(1) == VTYPE_LIST) {
+                CefRefPtr<CefListValue> idList = args->GetList(0), urlList = args->GetList(1);
+                for (size_t i = 0; i < idList->GetSize() && i < urlList->GetSize(); i++) {
+                    [ids addObject:@(idList->GetInt(i))];
+                    [urls addObject:NSStringFromCef(urlList->GetString(i))];
+                }
+            }
+            if (o && [o.delegate respondsToSelector:@selector(browser:didChangeBlockedPopups:urls:)])
+                [o.delegate browser:o didChangeBlockedPopups:ids urls:urls];
             return true;
         }
         if (message->GetName() == "Cra.activate") {
@@ -1720,6 +1828,13 @@ public:
         FinishAgentPermission();
         CraBrowser* o = owner_;
         if (!o || !frame->IsMain()) return false;
+        // The boost gallery's Open in Cra (cra-boost:) in a same-tab link: Cra asks about the boost
+        // itself (BoostInstall) instead of Chrome's "Open Cra?" handing it to whichever Cra macOS picks.
+        std::string target = request->GetURL().ToString();
+        if (g_appLinkHandler && target.compare(0, 10, "cra-boost:") == 0) {
+            g_appLinkHandler(o, NSStringFromCef(request->GetURL()), user_gesture && !is_redirect);
+            return true;
+        }
         if (OpensPeek(o, request, user_gesture, is_redirect)) return true;
         // A page Cra shows in another engine (ProtectedMediaSites, WebKit for DRM services):
         // cancelled before the request goes out, so a sign-in's one-time code isn't spent here.
@@ -1736,6 +1851,22 @@ public:
         return false;
     }
 
+    // Arc's ⌥⌘-click opens the link in a Little Window (Settings ▸ Links). Chromium 156 reports a ⌘⌥-click
+    // as its split view click (and an older one as a ⌘-click, a background tab) after the click, so the
+    // keys are the click's own, as an Option-click's download reads them (#298); the keys held when this
+    // callback arrives may already be up, or held for the next click. LittleWindowTrigger decides.
+    static bool OpensLittleWindow(CraBrowser* o, const CefString& target_url, WindowOpenDisposition disposition,
+                                  bool user_gesture) {
+        if (!user_gesture || (disposition != CEF_WOD_NEW_SPLIT_VIEW && disposition != CEF_WOD_NEW_BACKGROUND_TAB)
+            || ![o.delegate respondsToSelector:@selector(browser:opensLittleWindowForURL:clickModifiers:clickAge:)]) return false;
+        NSEventModifierFlags modifiers = 0;
+        NSTimeInterval age = CraLastPressInPage(o, &modifiers);
+        if (![o.delegate browser:o opensLittleWindowForURL:NSStringFromCef(target_url)
+                  clickModifiers:modifiers clickAge:age]) return false;
+        g_lastPressTime = -1;  // one click, one window
+        return true;
+    }
+
     bool OpensPeek(CraBrowser* o, CefRefPtr<CefRequest> request, bool user_gesture, bool is_redirect) {
         if (!user_gesture || is_redirect) return false;
         cef_transition_type_t tt = request->GetTransitionType();
@@ -1748,6 +1879,7 @@ public:
                           WindowOpenDisposition target_disposition, bool user_gesture) override {
         CraBrowser* o = owner_;
         if (!o) return false;
+        if (OpensLittleWindow(o, target_url, target_disposition, user_gesture)) return true;
         if (OpensSplitPane(o, target_url, target_disposition, user_gesture)) return true;
         // Shift-click (Chrome: a new window).
         if (user_gesture && target_disposition == CEF_WOD_NEW_WINDOW
@@ -1829,6 +1961,13 @@ public:
                         CefRefPtr<CefContextMenuParams>, CefRefPtr<CefMenuModel>,
                         CefRefPtr<CefRunContextMenuCallback> callback) override {
         CraBrowser* o = owner_;
+        if (g_nextPageMenuCommand >= 0 && !windowless_) {
+            int command = g_nextPageMenuCommand;
+            g_nextPageMenuCommand = -1;
+            NSLog(@"Cra page menu runs command %d", command);
+            callback->Continue(command, EVENTFLAG_NONE);
+            return true;
+        }
         if (!windowless_ && !o.suppressesContextMenu) return false;
         callback->Cancel();
         return true;
@@ -1965,6 +2104,14 @@ public:
                 if ([o.delegate respondsToSelector:@selector(browser:requestsCaptureOfImageAt:)])
                     [o.delegate browser:o requestsCaptureOfImageAt:NSMakePoint(params->GetXCoord(), params->GetYCoord())];
                 return true;
+            // View Page Source and View Frame Source: Chrome's own command made a tab of the page itself
+            // (or none) in Cra, so both go where ⌥⌘U goes, a view-source: tab in front (#348).
+            case IDC_VIEW_SOURCE:
+            case IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE:
+                if (!g_viewSourceHandler) return false;
+                g_viewSourceHandler(o, NSStringFromCef(command_id == IDC_VIEW_SOURCE ? params->GetPageUrl()
+                                                                                     : params->GetFrameUrl()));
+                return true;
             // Chrome's Inspect: Cra's DevTools (docked in the card, DevToolsToggle) on that element.
             case IDC_CONTENT_CONTEXT_INSPECTELEMENT:
             case kMenuInspectElement:
@@ -2007,16 +2154,10 @@ public:
         CraBrowser* o = owner_;
         if (!o || ![o.delegate respondsToSelector:@selector(browser:opensSplitForDownloadURL:clickModifiers:clickAge:)])
             return true;
-        // Chromium's page view, in this page's window: in its card (EmbeddedPages moves it out of
-        // Chrome's window) or in that window. Split panes share a window; the first pane to
-        // download takes the click.
-        NSWindow* window = g_lastPressWindow;
-        NSView* view = g_lastPressView;
-        BOOL inWindow = window && (window == o.containerView.window || window == o.hostWindow);
-        BOOL inPage = view && ([view isDescendantOf:o.containerView] || (inWindow && CraIsInPageView(view)));
-        NSTimeInterval age = inPage && g_lastPressTime >= 0 ? NSProcessInfo.processInfo.systemUptime - g_lastPressTime : -1;
+        NSEventModifierFlags modifiers = 0;
+        NSTimeInterval age = CraLastPressInPage(o, &modifiers);
         if (![o.delegate browser:o opensSplitForDownloadURL:NSStringFromCef(url)
-                  clickModifiers:inPage ? g_lastPressModifiers : 0 clickAge:age]) return true;
+                  clickModifiers:modifiers clickAge:age]) return true;
         g_lastPressTime = -1;  // one click, one pane
         return false;
     }
@@ -2209,13 +2350,49 @@ private:
 // MARK: - Chrome-style hosting (Views). One frameless Chrome window per page; the
 // shell attaches it as a child window over the content card.
 
+// Where and how Chromium showed each new page or DevTools window, before Cra attached it:
+// cra://debug?pageWindows= (#354). `away` counts the ones shown off every Cra window on screen,
+// `animated` the ones macOS animates in and out.
+static NSInteger g_pageWindowsShown = 0, g_pageWindowsShownAway = 0, g_pageWindowsShownAnimated = 0;
+
+static void NotePageWindowShown(NSWindow* page) {
+    if (!page) return;
+    g_pageWindowsShown++;
+    if (page.animationBehavior != NSWindowAnimationBehaviorNone) g_pageWindowsShownAnimated++;
+    NSPoint centre = NSMakePoint(NSMidX(page.frame), NSMidY(page.frame));
+    BOOL anyCraWindow = NO;
+    for (NSWindow* w in NSApp.windows) {
+        // Not another page's own window, a panel attached to a window, or a stray one made unseeable.
+        if (w == page || !w.isVisible || w.parentWindow || w.alphaValue == 0 || [CraCEFRuntime isPageWindow:w]) continue;
+        if (NSPointInRect(centre, w.frame)) return;
+        anyCraWindow = YES;
+    }
+    if (anyCraWindow) g_pageWindowsShownAway++;
+}
+
+// Chromium makes a page's window in the top left corner of the primary display and would show it
+// there. A window shown on a display brings that display to a desktop, so with Cra on a second
+// display, each new page pulled the primary one off another app's full-screen Space (#354). The
+// app says where it starts instead: on the Cra window in use.
+static void PlaceNewPageWindow(CefRefPtr<CefWindow> window) {
+    NSWindow* page = ((__bridge NSView*)window->GetWindowHandle()).window;
+    if (!page) return;
+    NSRect frame = g_pageWindowStartHandler ? g_pageWindowStartHandler(page.frame.size) : NSZeroRect;
+    if (!NSIsEmptyRect(frame)) [page setFrame:frame display:NO];
+    // Ordered out as soon as it shows (a tab opened behind), a window plays macOS's closing
+    // animation, which the window server draws beside the primary display: that switched it too.
+    page.animationBehavior = NSWindowAnimationBehaviorNone;
+}
+
 class CraDevToolsWindowDelegate : public CefWindowDelegate {
 public:
     CraDevToolsWindowDelegate(CraBrowser* owner, CefRefPtr<CefBrowserView> view) : owner_(owner), view_(view) {}
     void OnWindowCreated(CefRefPtr<CefWindow> window) override {
         window->AddChildView(view_);
+        PlaceNewPageWindow(window);
         window->Show();
         NSView* v = (__bridge NSView*)window->GetWindowHandle();
+        NotePageWindowShown(v.window);
         if (CraBrowser* o = owner_) [o.delegate browser:o didCreateDevToolsView:v];
     }
     bool IsFrameless(CefRefPtr<CefWindow> window) override { return true; }
@@ -2295,10 +2472,12 @@ public:
     void OnWindowCreated(CefRefPtr<CefWindow> window) override {
         window->AddChildView(view_);
         if (CefRefPtr<CefView> toolbar = view_->GetChromeToolbar()) toolbar->SetVisible(false);
+        PlaceNewPageWindow(window);
         g_showingPageWindow++;
         window->Show();
         g_showingPageWindow--;
         NSView* v = (__bridge NSView*)window->GetWindowHandle();
+        NotePageWindowShown(v.window);
         if (CraBrowser* o = owner_) [o hostWindowCreated:v.window];
     }
     bool IsFrameless(CefRefPtr<CefWindow> window) override { return true; }
@@ -2630,6 +2809,10 @@ class CraDevToolsObserver : public CefDevToolsMessageObserver {
 }
 
 - (BOOL)hasDevTools { return _browser ? _browser->GetHost()->HasDevTools() : NO; }
+- (NSWindow*)devToolsWindow {
+    if (!_devToolsBrowser) return nil;
+    return ((__bridge NSView*)_devToolsBrowser->GetHost()->GetWindowHandle()).window;
+}
 
 - (void)loadURL:(NSString*)url {
     // An address asked for now wins over the saved list still waiting to go in.
@@ -2647,6 +2830,23 @@ class CraDevToolsObserver : public CefDevToolsMessageObserver {
 - (void)goBack { if (_browser) _browser->GoBack(); }
 - (void)goForward { if (_browser) _browser->GoForward(); }
 - (void)reload { if (_browser) _browser->Reload(); }
+
+// Chrome keys the setting by the page that opens the pop-up (PopupBlocker's opener URL).
+- (BOOL)popupsAllowed {
+    if (!_browser) return NO;
+    CefRefPtr<CefRequestContext> context = _browser->GetHost()->GetRequestContext();
+    CefString url = _browser->GetMainFrame()->GetURL();
+    return context && context->GetContentSetting(url, url, CEF_CONTENT_SETTING_TYPE_POPUPS) == CEF_CONTENT_SETTING_VALUE_ALLOW;
+}
+
+- (void)setPopupsAllowed:(BOOL)allowed {
+    if (!_browser) return;
+    CefRefPtr<CefRequestContext> context = _browser->GetHost()->GetRequestContext();
+    CefString url = _browser->GetMainFrame()->GetURL();
+    if (!context || url.empty()) return;
+    context->SetContentSetting(url, url, CEF_CONTENT_SETTING_TYPE_POPUPS,
+                               allowed ? CEF_CONTENT_SETTING_VALUE_ALLOW : CEF_CONTENT_SETTING_VALUE_DEFAULT);
+}
 - (void)reloadIgnoringCache { if (_browser) _browser->ReloadIgnoreCache(); }
 - (void)stopLoading { if (_browser) _browser->StopLoad(); }
 - (void)exitFullscreen { if (_browser) _browser->GetHost()->ExitFullscreen(true); }
@@ -2791,9 +2991,12 @@ class CraDevToolsObserver : public CefDevToolsMessageObserver {
 //
 // Chromium only lets a page enter Picture in Picture while it holds a user
 // activation, which clicks in Cra's own UI never give the page. Cra therefore
-// first sends the page a harmless key (F19: no page or Chromium shortcut
-// listens to it), which the renderer counts as an interaction, then runs the
-// request once `navigator.userActivation` reports active. `x`/`y` (view DIPs,
+// sends the page a harmless key (F19: no page or Chromium shortcut listens to
+// it), which the renderer counts as an interaction, and the frame runs the
+// request once `navigator.userActivation` reports active. The key goes only to
+// a page that may have a video to show: one making sound when its tab is left,
+// or one whose frame reports a video ("pip:want"). The activation also lets
+// the page open pop-ups for a few seconds (#357). `x`/`y` (view DIPs,
 // -1 for none) pick the video under a context-menu click; otherwise the
 // playing, largest video wins. Automatic requests (leaving the tab) take only
 // an audible, playing video of some size: muted ones are hover previews
@@ -2810,6 +3013,7 @@ static NSString* PictureInPictureScript(BOOL automatic, int x, int y) {
         "if(x>=0){v=c.filter(function(e){var r=e.getBoundingClientRect();return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom;}).sort(function(a,b){return area(a)-area(b);})[0]||null;}"
         "if(!v){c.sort(function(a,b){return ((b.paused?0:1)-(a.paused?0:1))||(area(b)-area(a));});v=c[0];}"
         "var go=function(){v.requestPictureInPicture().then(function(){send('pip:ok');}).catch(function(e){send('pip:err '+e.name+': '+e.message);});};"
+        "send('pip:want');"
         "var n=0;var t=setInterval(function(){if((navigator.userActivation&&navigator.userActivation.isActive)||++n>20){clearInterval(t);go();}},50);"
         "}catch(e){send('pip:err '+e);}})", automatic ? 1 : 0, x, y];
 }
@@ -2862,7 +3066,11 @@ static NSView* FindRenderWidgetHostView(NSView* root) {
         if (!automatic) [self exitPictureInPicture];
         return;
     }
-    [self nudgeUserActivation];
+    // Leaving a tab takes only a video that plays aloud, so the key press goes at once to a page
+    // making sound, while it is still on screen to get it. Any other page gets it only when one
+    // of its frames reports a video to show ("pip:want", HandlePageMessage): the activation also
+    // lets a page open pop-ups for a few seconds, and leaving any tab handed one out (#357).
+    if (automatic && self.isAudible) [self nudgeUserActivation];
     double zoom = pow(1.2, _browser->GetHost()->GetZoomLevel());  // view DIPs → CSS px
     NSString* hit = PictureInPictureScript(automatic, x < 0 ? -1 : (int)(x / zoom), y < 0 ? -1 : (int)(y / zoom));
     NSString* any = PictureInPictureScript(automatic, -1, -1);
@@ -2885,6 +3093,18 @@ static NSView* FindRenderWidgetHostView(NSView* root) {
     if (!_browser) return;
     NSString* js = [NSString stringWithFormat:@"(function(){var v=document.pictureInPictureElement;if(!v)return;"
                     "var t=v.currentTime+(%f);if(isFinite(v.duration))t=Math.min(t,v.duration);v.currentTime=Math.max(0,t);})();", seconds];
+    std::vector<CefString> ids;
+    _browser->GetFrameIdentifiers(ids);
+    for (const auto& id : ids) {
+        CefRefPtr<CefFrame> f = _browser->GetFrameByIdentifier(id);
+        if (f && f->IsValid()) f->ExecuteJavaScript(CefStringFromNS(js), f->GetURL(), 0);
+    }
+}
+
+- (void)seekPictureInPictureTo:(double)seconds {
+    if (!_browser) return;
+    NSString* js = [NSString stringWithFormat:@"(function(){var v=document.pictureInPictureElement;if(!v||!isFinite(v.duration))return;"
+                    "v.currentTime=Math.max(0,Math.min(%f,v.duration));})();", seconds];
     std::vector<CefString> ids;
     _browser->GetFrameIdentifiers(ids);
     for (const auto& id : ids) {
@@ -2922,7 +3142,6 @@ static NSView* FindRenderWidgetHostView(NSView* root) {
     }
 }
 - (void)print { if (_browser) _browser->GetHost()->Print(); }
-- (void)viewSource { if (_browser) _browser->GetMainFrame()->ViewSource(); }
 - (BOOL)runChromeCommand:(NSString*)name {
     if (!_browser) return NO;
     int command = cef_id_for_command_id_name(name.UTF8String);
@@ -3177,6 +3396,16 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
     }
     if (g_incognitoContext && g_incognitoReady) ApplyHttpsOnly(g_incognitoContext);
 }
++ (void)setFingerprintingProtectionEnabled:(BOOL)enabled {
+    if (enabled == g_fingerprintingProtection) return;
+    g_fingerprintingProtection = enabled;
+    if (!g_contextInitialized || g_quitting) return;
+    ApplyFingerprintingProtection(CefRequestContext::GetGlobalContext());
+    for (auto& [path, context] : g_profileContexts) {
+        if ([g_readyProfiles containsObject:@(path.c_str())]) ApplyFingerprintingProtection(context);
+    }
+    if (g_incognitoContext && g_incognitoReady) ApplyFingerprintingProtection(g_incognitoContext);
+}
 + (void)setBlockedDomains:(NSArray<NSString*>*)domains {
     auto* set = new cra_blocker::DomainSet();
     set->reserve(domains.count);
@@ -3274,10 +3503,17 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
 + (BOOL)anotherInstanceWasNotified { return g_alreadyRunning; }
 + (void)setRelaunchHandler:(void (^)(NSArray<NSString*>*))handler { g_relaunchHandler = [handler copy]; }
 + (void)setStrayPageHandler:(void (^)(NSString*, NSString*))handler { g_strayPageHandler = [handler copy]; }
++ (void)setPageWindowStartHandler:(NSRect (^)(NSSize))handler { g_pageWindowStartHandler = [handler copy]; }
 + (void)setExtensionTabHandler:(CraBrowser* (^)(NSString*, NSString*, BOOL, CraBrowser*))handler {
     g_extensionTabHandler = [handler copy];
 }
 + (void)setAppLinkHandler:(BOOL (^)(CraBrowser*, NSString*, BOOL))handler { g_appLinkHandler = [handler copy]; }
++ (void)setViewSourceHandler:(void (^)(CraBrowser*, NSString*))handler { g_viewSourceHandler = [handler copy]; }
++ (BOOL)runNextPageMenuCommand:(NSString*)name {
+    int command = cef_id_for_command_id_name(name.UTF8String);
+    g_nextPageMenuCommand = command > 0 ? command : -1;
+    return command > 0;
+}
 + (void)setDownloadDestinationHandler:(void (^)(NSString*, NSString*, void (^)(NSString*)))handler { g_downloadDestinationHandler = [handler copy]; }
 
 + (BOOL)controlDownload:(uint32_t)identifier action:(CraDownloadControl)action {
@@ -3298,6 +3534,10 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
 }
 
 + (void)floatOverFullScreenSpaces:(NSWindow*)window { FloatOverFullScreenSpaces(window); }
++ (NSString*)pageWindowsReadout {
+    return [NSString stringWithFormat:@"shown=%ld away=%ld animated=%ld", (long)g_pageWindowsShown, (long)g_pageWindowsShownAway,
+                                      (long)g_pageWindowsShownAnimated];
+}
 
 + (void)runMessageLoop { CefRunMessageLoop(); }
 + (void)quitMessageLoop { CraQuitMessageLoop(); }
@@ -3365,6 +3605,28 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
         return NO;
     }
     return YES;
+}
++ (BOOL)resetPreference:(NSString*)name forProfile:(NSString*)profilePath {
+    if (!g_contextInitialized || g_quitting) return NO;
+    if (profilePath.length && ![g_readyProfiles containsObject:profilePath]) return NO;
+    CefRefPtr<CefRequestContext> context = profilePath.length ? ProfileContext(profilePath) : CefRequestContext::GetGlobalContext();
+    CefString cefName = CefStringFromNS(name);
+    if (!context || !context->CanSetPreference(cefName)) return NO;
+    CefString error;
+    // No value: CEF clears the pref, so it reads as its registered default.
+    if (!context->SetPreference(cefName, nullptr, error)) {
+        NSLog(@"CraCEF: %@: %s", name, error.ToString().c_str());
+        return NO;
+    }
+    return YES;
+}
++ (NSInteger)loadStateOfProfile:(NSString*)profilePath {
+    if (!profilePath.length) return g_contextInitialized ? 2 : 1;
+    if ([g_readyProfiles containsObject:profilePath]) return 2;
+    return g_profileContexts.count(profilePath.UTF8String) ? 1 : 0;
+}
++ (void)setProfileLoadedHandler:(void (^)(NSString*))handler {
+    g_profileLoadedHandler = [handler copy];
 }
 + (void)setExtensionSettingsChangeHandler:(void (^)(void))handler {
     g_extensionSettingsHandler = [handler copy];

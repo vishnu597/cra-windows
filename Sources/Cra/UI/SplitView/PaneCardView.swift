@@ -12,6 +12,7 @@ final class PaneCardView: NSView {
     let toolbarHost: NSView
     /// Where the Chromium view lives (or where the page window is positioned).
     let webArea = NSView()
+    let pageTopGrabber = WindowContentGrabber()
     /// Hairline under the toolbar when the pane has no page (Arc draws it on the tinted card).
     private let hairline = NSView()
     /// The card behind the toolbar, in the toolbar's colour. A card with a page paints nothing else:
@@ -27,6 +28,17 @@ final class PaneCardView: NSView {
     }
     /// The shell lays the page windows out again when the bar's height changes.
     var onToolbarHeightChange: (() -> Void)?
+    /// Arc's Zap shelf (BoostZap): a bar under the page, which ends above it.
+    var bottomBar: NSView? {
+        didSet {
+            guard bottomBar !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let bottomBar { addSubview(bottomBar) }
+            needsLayout = true
+            onToolbarHeightChange?()
+        }
+    }
+    var bottomBarHeight: CGFloat { bottomBar == nil ? 0 : CGFloat(BoostZap.shelfHeight) }
     /// Arc's developer bar (PaneToolbarView): its colour behind the bar, and its 40 pt height.
     var developerBar: NSColor? {
         didSet {
@@ -97,6 +109,7 @@ final class PaneCardView: NSView {
             if shadowView.superview !== superview { superview.addSubview(shadowView, positioned: .below, relativeTo: self) }
         } else {
             shadowView.removeFromSuperview()
+            pageTopGrabber.removeFromSuperview()
         }
         syncShadow()
     }
@@ -193,7 +206,9 @@ final class PaneCardView: NSView {
         toolbarBackground.frame = toolbarHost.frame
         hairline.frame = NSRect(x: 0, y: b.height - th - 1, width: b.width, height: 1)
         hairline.isHidden = hasPage || transparent || th == 0
-        webArea.frame = NSRect(x: 0, y: 0, width: b.width, height: max(0, b.height - th))
+        let bh = bottomBarHeight
+        webArea.frame = NSRect(x: 0, y: bh, width: b.width, height: max(0, b.height - th - bh))
+        bottomBar?.frame = NSRect(x: 0, y: 0, width: b.width, height: bh)
         // The page window rounds the card's corners itself. Its stand-in fill keeps 1 pt clear of
         // every rounded edge: the same radius on the inset rect stays at least 1 pt inside the
         // page's curve, so the page's edge pixels only ever blend with the gradient behind the card.

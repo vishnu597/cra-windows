@@ -81,7 +81,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: Windows/vendor/cef
-          key: cef-windows64-${{ hashFiles('scripts/fetch-cef.sh') }}
+          key: cef-windows64-${{ hashFiles('scripts/fetch-cef.sh', 'Windows/scripts/fetch-deps.ps1') }}
 
       # The WinUI projections take about 12 minutes to compile from scratch.
       # Restored and saved as separate steps so a failed build still saves what it compiled.

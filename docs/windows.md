@@ -16,7 +16,9 @@ toolchain for Windows (6.1+) and the Windows App Runtime 1.7:
 
 `Windows/scripts/fetch-deps.ps1` reads the Chromium version from `scripts/fetch-cef.sh`, so
 both apps run the same Chromium. It uses Spotify's stock CEF build for now (no H.264/AAC,
-none of `scripts/cef-patches`).
+none of `scripts/cef-patches`). When the Mac pins a CEF that upstream builds itself, which
+Spotify doesn't publish, `$stockPin` in that script holds Windows on the newest stock build:
+156.0.26 (Chromium 156.0.8078.88) while the Mac runs 156.0.27 on Chromium 156.0.8078.96.
 
 ## Rules
 
@@ -119,9 +121,9 @@ Ctrl+Shift+- closes one, a click into a pane focuses it, and the split's sidebar
 split menu.
 
 Settings: Ctrl+, (or "Settings…" in the command bar) opens Dia's Settings window, an AppWindow
-whose XAML island covers it all (no pages in it). CraCore's `SettingsPane`, `SettingsNavigation`
-and `SettingsMetrics` give it the Mac's panes, back/forward history and measurements. It lists
-the panes whose features Windows has (`SettingsPane.windowsPanes`): General, with "Open Cra at
+whose XAML island covers it all (no pages in it). CraCore's `DiaSettingsPane`, `DiaSettingsNavigation`
+and `DiaSettingsMetrics` give it the Mac's panes, back/forward history and measurements. It lists
+the panes whose features Windows has (`DiaSettingsPane.windowsPanes`): General, with "Open Cra at
 login" (a value in the user's Run key, cleared from Task Manager's StartupApproved flag when
 turned on), and Tabs, with the new-tab, single-space and tab cleanup rows. It follows the
 system's light or dark mode and accent colour.

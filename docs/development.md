@@ -60,8 +60,13 @@ Settings ▸ General ▸ Sync keeps `sidebar.json`, `settings.json` (minus each 
 (`Documents/Cra` in the app's iCloud Documents container; docs/release.md says how the signed
 build gets the entitlement) or through a folder a file provider syncs: `SettingsSyncService`
 writes them with a `manifest.json` into a `Cra` folder there and applies a newer bundle another
-Mac wrote (`SettingsSync` in CraCore decides). `sync.json` in the data folder holds the location
-and the last bundle written or applied. To try it on one Mac, run a second instance on another
+Mac wrote (`SettingsSync` in CraCore decides). A file still downloading is waited for; files
+from different writes (hashes that don't match the manifest, #378) are waited for one to two
+minutes (`SyncMixWait`), then the Mac writes a whole bundle again; a file the manifest names that
+is gone with no placeholder is put right the same way, after one minute on the Mac that wrote the
+manifest and ten on another. A Mac that hasn't synced in the folder yet never writes over another
+Mac's bundle: it waits for that Mac, then asks. A newer Cra's bundle is never written over. `cra://debug?sync=<label>` logs what the last look found. `sync.json` in the data
+folder holds the location and the last bundle written or applied. To try it on one Mac, run a second instance on another
 `CRA_DATA_DIR` with `CRA_SYNC_DEVICE=<name>` (a Mac is known in the folder by a hash of its
 hardware UUID, which two instances share);
 `CRA_SYNC_ICLOUD_DIR=<folder>` makes both treat that folder as the iCloud container.
@@ -117,6 +122,14 @@ to Markdown or `docs/` alone runs nothing.
 - `scripts/test-folder-glyph.sh`: the standalone folder component's real AppKit layers and image
   pixels: emblems follow the front panel's perspective, keep their colors and proportions, and
   update at 1x/Retina. No CEF or visible window; coverage uses the same harness as `scripts/test.sh`.
+- `scripts/test-window-content-grabber.sh`: the page-top grabber on AppKit windows:
+  clicks reach the page immediately, non-arrow cursors keep the gesture, native resize edges and rounded corners stay free,
+  a child page's drag starts in its browser window's coordinates, and the page stays outside WindowServer's native drag region.
+- `scripts/test-link-summary-share.sh`: 5-Second Previews' Copy as Image (`LinkSummaryShareImage`)
+  against Arc's own copy of a card: size at 3x, the picture's inset, the dashed line's pattern and place,
+  the footer colour.
+- `scripts/test-link-summary-panel.sh`: 5-Second Previews' card window (`LinkSummaryPanel`) off screen with
+  a stub service: the loading card, the answer growing in under the link, the small card above its link, closing.
 - `scripts/test-music-notes.sh`: the production note sprites over fixed white and black backgrounds
   at 1x and 2x, checking light-theme contrast and the dark-theme tint without CEF or a visible window.
 - `scripts/test-live-folder-plugins.sh`: the real `CraPluginHost` (sandboxed JavaScriptCore) and
@@ -131,9 +144,15 @@ to Markdown or `docs/` alone runs nothing.
   turning into an × on its spring.
 - `scripts/test-easel-canvas.sh`: the real `EaselSheetView` in an off-screen window, driven with
   synthetic mouse and key events: one click picks a text block, a double click edits it, Return and
-  Escape end editing, Delete removes it, its size pill follows a drag. Then `EaselBrowser` against
-  a stub `CraBrowser`: Peek's opaque canvas, and the clear page and dark bar it reports to the tab
-  that takes it over with ⤢.
+  Escape end editing, Delete removes it, its size pill follows a drag. Undo and Redo, copy and
+  paste, the object and canvas menus, the colour picker, a pasted address as a link card, the
+  alignment guides and a live capture (through a fake `EaselLive`); every kind of item drawn into
+  an sRGB bitmap and its pixels compared with Arc's colours. Then `EaselBrowser` against a stub
+  `CraBrowser`: Peek's opaque canvas, the clear page and dark bar it reports to the tab that takes
+  it over with ⤢, and the capture menu's New Easel and Send To… writing their easel files.
+  `Tests/Scenarios/easel.scenario` checks the rest in the app: `cra://debug?easelLive=<s>` (a
+  capture's live page draws onto its card), `easelLink=<url>` (a link card reads its page),
+  `easelDraw=1` and `easelPick=<n>` (the picker and the object menu).
 - `scripts/test-perf.sh`: the performance recorder on a real main run loop: injected stalls,
   hang files with a `sample` stack, the session marker, ownership, the recording switch
   ([performance.md](performance.md)).
@@ -246,6 +265,14 @@ from their Chrome window into the card, like Arc and Dia, and the Chrome window 
 empty, click-through and never key. Pages go back into their window while DevTools is open.
 `CRA_EMBED_PAGES=0` (or `defaults write dk.kildahl.cra embedPages -bool NO`) keeps pages in
 their own child windows, the hosting before 0.1.17, for comparing the two.
+
+DevTools are a Chromium window too, made 10 pt square in a corner of the screen. Whoever owns
+the page hangs it over the page's area and lays the page's window over the room the docked
+frontend leaves (`DevToolsPlaceholder` in CraCore, `DevToolsWindowChrome`): `MainWindowController`
+for a pane, `LittleWindowController` for a Little Window and a Peek (#348).
+`cra://debug?inspectAt=x,y` is Inspect in the page's right-click menu (`&target=little` for the
+newest Little Window or Peek) and `cra://debug?devToolsShown=<label>` logs where each Little
+Window's DevTools are.
 
 ### Cleaning up after test copies
 

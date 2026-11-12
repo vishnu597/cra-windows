@@ -50,27 +50,33 @@ public final class KeyBindingRegistry {
     public private(set) var actions: [KeyAction]
     @ObservationIgnored private let defaults: [KeyAction]
     @ObservationIgnored private var pluginActions: [KeyAction] = []
-    @ObservationIgnored private let overridesFile: JSONStore<[String: [KeyChord]]>
+    @ObservationIgnored private let overridesFile: JSONStore<KeyBindingOverrides>
     /// Every override the file holds, also for actions this table lacks (the Mac's file read on
-    /// Windows, an action a later version drops): saving keeps them.
-    private var overrides: [String: [KeyChord]]
+    /// Windows, an action a later version drops): saving keeps them. The shortcuts and who gets
+    /// each one's keys (#374). Observed, so the Shortcuts pane's pop-up follows a pick.
+    private var overrides: KeyBindingOverrides
 
     /// `defaults` is the platform's table (KeyBindingDefaults.mac or .windows).
-    public init(defaults: [KeyAction], file: JSONStore<[String: [KeyChord]]>) {
+    public init(defaults: [KeyAction], file: JSONStore<KeyBindingOverrides>) {
         self.defaults = defaults
         actions = defaults
         overridesFile = file
-        overrides = file.load(or: { [:] })
+        overrides = file.load(or: { KeyBindingOverrides() })
         apply()
     }
 
-    private func apply() {
+    /// The platform's table with the plugins' commands after New Folder, before any override.
+    private var defaultActions: [KeyAction] {
         var table = defaults
         let insertion = table.firstIndex(where: { $0.id == "newFolder" }).map { $0 + 1 } ?? table.count
         table.insert(contentsOf: pluginActions, at: insertion)
-        actions = table.map { a in
+        return table
+    }
+
+    private func apply() {
+        actions = defaultActions.map { a in
             var a = a
-            if let o = overrides[a.id] { a.shortcuts = o }
+            if let o = overrides.shortcuts[a.id] { a.shortcuts = o }
             return a
         }
     }
@@ -85,7 +91,7 @@ public final class KeyBindingRegistry {
 
     /// A sync document changed the shortcut overrides on disk.
     public func reloadOverrides() {
-        overrides = overridesFile.load(or: { [:] })
+        overrides = overridesFile.load(or: { KeyBindingOverrides() })
         apply()
         NotificationCenter.default.post(name: .craKeyBindingsChanged, object: nil)
     }
@@ -99,16 +105,28 @@ public final class KeyBindingRegistry {
     }
 
     public func setShortcuts(_ shortcuts: [KeyChord], for id: String) {
-        overrides[id] = shortcuts
+        overrides.shortcuts[id] = shortcuts
         overridesFile.save(overrides)
         apply()
         NotificationCenter.default.post(name: .craKeyBindingsChanged, object: nil)
     }
 
-    public func isOverridden(_ id: String) -> Bool { overrides[id] != nil }
+    public func isOverridden(_ id: String) -> Bool { overrides.shortcuts[id] != nil || overrides.priorities[id] != nil }
 
+    /// Who gets the action's keys while a page wants them too (Settings ▸ Shortcuts, #374).
+    public func priority(of id: String) -> ShortcutPriority { overrides.priority(for: id) }
+
+    public func setPriority(_ priority: ShortcutPriority, for id: String) {
+        let current = action(id)?.shortcuts ?? []
+        let defaults = defaultActions.first { $0.id == id }?.shortcuts ?? []
+        overrides.setPriority(priority, for: id, current: current, defaults: defaults)
+        overridesFile.save(overrides)
+    }
+
+    /// Reset Shortcut to Default: the keys and who gets them.
     public func resetShortcuts(for id: String) {
-        overrides[id] = nil
+        overrides.shortcuts[id] = nil
+        overrides.priorities[id] = nil
         overridesFile.save(overrides)
         apply()
         NotificationCenter.default.post(name: .craKeyBindingsChanged, object: nil)
@@ -116,7 +134,7 @@ public final class KeyBindingRegistry {
 
     /// Settings ▸ Shortcuts ▸ Reset All Shortcuts.
     public func resetOverrides() {
-        overrides = [:]
+        overrides = KeyBindingOverrides()
         overridesFile.saveNow(overrides)
         apply()
         NotificationCenter.default.post(name: .craKeyBindingsChanged, object: nil)

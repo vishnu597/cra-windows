@@ -45,6 +45,21 @@ enum SidebarMenus {
         NSPasteboard.general.setString(string, forType: .string)
     }
 
+    /// UserDefaults key: "Never show me this again." was ticked on the share warning.
+    static let skipsShareWarningKey = "skipsShareLinkWarning"
+
+    /// Arc asks before it makes a share link (AppDialog.shareLink): Copy Link to Folder goes on,
+    /// Cancel or Escape stops; ticking "Never show me this again." and going on skips it from then on.
+    private static func confirmShare(over window: NSWindow?, _ share: @escaping () -> Void) {
+        guard !UserDefaults.standard.bool(forKey: skipsShareWarningKey), let window = window ?? AppDialog.parentWindow else { share(); return }
+        let dialog = AppDialog.shareLink()
+        dialog.present(over: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            if dialog.isSuppressed { UserDefaults.standard.set(true, forKey: skipsShareWarningKey) }
+            share()
+        }
+    }
+
     // MARK: Tab groups
 
     /// Arc's Tab Group Context Menu: one item, "Remove header" (the tabs stay, loose).
@@ -60,14 +75,7 @@ enum SidebarMenus {
         let store = list.store, ui = list.ui, actions = list.actions
         let id = m.id
         let menu = menu()
-        let group = list.closeGroup(for: id)
-        if group.count > 1 {
-            folderItems(menu, ui.group(for: id, in: store), list: list)
-            menu.addItem(.separator())
-            add(menu, "Close \(group.count) Tabs") { list.closeTabs(group) }
-            add(menu, "Deselect All") { ui.clearPicks() }
-            return menu
-        }
+        if list.closeGroup(for: id).count > 1 { return picked(ui.group(for: id, in: store), clicked: id, list: list) }
         guard let item = store.item(id), let tab = item.tab else { return menu }
         if m.pinned {
             add(menu, action: "pinTab", "Unpin Tab") { store.unpinTab(id) }
@@ -144,6 +152,87 @@ enum SidebarMenus {
         return menu
     }
 
+    /// The menu on a tab that is one of several picked with ⌘/⇧-click (#356): Arc's rows for every
+    /// pick at once, from PickedTabsMenu. `ids` are the picks in sidebar order, `clicked` the row.
+    static func picked(_ ids: [UUID], clicked: UUID, list: SpaceListView) -> NSMenu {
+        let store = list.store, ui = list.ui, actions = list.actions
+        let menu = menu()
+        let tabs = ids.compactMap { id in store.item(id)?.tab.map { (id, $0) } }
+        let picks = PickedTabsMenu.Picks(count: ids.count, anyEasel: tabs.contains { Easel.id(fromURL: $0.1.url) != nil },
+                                         clickedInToday: !store.isPinned(clicked),
+                                         allMuted: !tabs.isEmpty && tabs.allSatisfy { $0.1.muted },
+                                         anySound: tabs.contains { $0.1.muted || ui.audibleTabIDs.contains($0.0) },
+                                         anyInSplit: ids.contains { store.splitContaining($0) != nil })
+        for (i, section) in PickedTabsMenu.shown(for: picks).enumerated() {
+            if i > 0 { menu.addItem(.separator()) }
+            for row in section {
+                let title = PickedTabsMenu.title(row, for: picks), enabled = PickedTabsMenu.isEnabled(row, for: picks)
+                switch row {
+                case "copyLinks":
+                    // What ⇧⌘C copies with tabs picked (#322): each link without trackers, one per line.
+                    add(menu, title) {
+                        copy(CleanURL.links(tabs.map { $0.1.url }))
+                        actions.showToast("Copied item links")
+                    }
+                case "share":
+                    // Arc's Share N Items… copied an arc.net folder link ("Copied Folder URL"); Cra's link
+                    // carries the picks after its #, as Share Folder… does (FolderShareLink, #357).
+                    let link = FolderShareLink.url(for: FolderShareLink.picked(ids.compactMap(store.item)))
+                    add(menu, title, enabled: link != nil) {
+                        guard let link else { return }
+                        confirmShare(over: list.window) {
+                            copy(link)
+                            actions.showToast("Copied Folder URL")
+                        }
+                    }
+                case "mute":
+                    add(menu, title, enabled: enabled) {
+                        for (id, _) in tabs {
+                            store.setMuted(id, !picks.allMuted)
+                            actions.performAction("muteTab:\(id)")
+                        }
+                    }
+                case "openInSplitView":
+                    add(menu, title, enabled: enabled) {
+                        guard let split = store.createSplit(with: ids) else { return }
+                        ui.clearPicks()
+                        store.selectTab(store.paneID(for: ids[0], in: split) ?? ids[0], window: ui.windowID)
+                    }
+                case "duplicate":
+                    add(menu, title) { for id in ids { _ = store.duplicateTab(id) } }
+                case "moveTo":
+                    // Arc: the spaces, the picks' own checked, then New Space… (which takes them along).
+                    let sub = submenu(menu, title)
+                    let own = store.spaceID(ofItem: ids[0])
+                    for s in store.orderedSpaces {
+                        add(sub, s.labeled, on: s.id == own) {
+                            guard s.id != own else { return }
+                            for id in ids { store.moveTab(id, toSpace: s.id, window: ui.windowID) }
+                            ui.clearPicks()
+                        }
+                    }
+                    sub.addItem(.separator())
+                    add(sub, "New Space…") { actions.newSpaceWith(ids) }
+                case "newFolder":
+                    add(menu, title) { ui.renamingID = store.createFolder(with: ids).id }
+                case "archive":
+                    // Arc archives every pick, pinned ones too, without asking; a Today tab goes as ⌘W does.
+                    add(menu, title) {
+                        let open = store.selectedTabID(window: ui.windowID)
+                        for id in ids.filter({ $0 != open }) + ids.filter({ $0 == open }) {
+                            if store.isPinned(id) { store.archiveTab(id, reason: .manual) } else { actions.closeTab(id) }
+                        }
+                        ui.clearPicks()
+                    }
+                default:
+                    // Change Icon… and Archive Tabs Below: dimmed, as Arc draws them for several tabs.
+                    add(menu, title, enabled: enabled) {}
+                }
+            }
+        }
+        return menu
+    }
+
     /// The pinned URL's items on pinned tabs and favorites (#54), beside Rename… since they edit
     /// the same item. Arc puts them in an Edit Pinned Page submenu; Cra lists them flat, as
     /// Anoninz suggested on PR #55. Replace is greyed out while the tab is on its pinned page.
@@ -191,6 +280,18 @@ enum SidebarMenus {
             ui.renamingID = f.id
         }
         iconColor(menu, item, list: list)
+        menu.addItem(.separator())
+        // Arc's Share Folder… copied an arc.net link ("Copied Folder URL"); Cra's link carries the
+        // folder after its #, so nothing is stored anywhere (FolderShareLink, #357).
+        let link = FolderShareLink.url(for: FolderShareLink.folder(item) { store.children(of: $0) })
+        let toast = list.actions.showToast
+        add(menu, "Share Folder…", enabled: link != nil) {
+            guard let link else { return }
+            confirmShare(over: list.window) {
+                copy(link)
+                toast("Copied Folder URL")
+            }
+        }
         menu.addItem(.separator())
         add(menu, "Delete Folder (archives tabs)") { store.deleteFolder(id) }
         return menu

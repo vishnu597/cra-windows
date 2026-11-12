@@ -34,8 +34,8 @@ struct KeyBindingsTests {
         #expect(mac["moveTabToSpace9"]?.shortcuts == [Self.chord("9", [.command, .control])])
         #expect(mac["clearBrowsingData"]?.symbol == "trash")
         #expect(mac["newWindow"]?.inCommandBar == false)
-        // 105 built-in commands, four split-pane actions and 27 numbered tab/space actions.
-        #expect(KeyBindingDefaults.mac.count == 105 + 4 + 27)
+        // 106 built-in commands, four split-pane actions and 27 numbered tab/space actions.
+        #expect(KeyBindingDefaults.mac.count == 106 + 4 + 27)
     }
 
     /// Windows' table names only actions the Mac has, in the Mac's order, and its keys don't

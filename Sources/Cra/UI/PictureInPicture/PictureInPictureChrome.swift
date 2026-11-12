@@ -6,6 +6,8 @@ struct PictureInPictureActions {
     var backToTab: () -> Void
     var togglePlayback: () -> Void
     var skip: (Double) -> Void = { _ in }
+    /// Go to this many seconds from the video's start (the scrubber).
+    var seek: (Double) -> Void = { _ in }
     var close: () -> Void
 }
 
@@ -29,6 +31,10 @@ final class PictureInPictureChrome {
     var actions: PictureInPictureActions?
     var isPlaying = false {
         didSet { for o in overlays.values { o.controls.isPlaying = isPlaying } }
+    }
+    /// Where the video is and how long it is, in seconds, for the scrubber (0 long: no scrubber).
+    var time: (position: Double, duration: Double) = (0, 0) {
+        didSet { for o in overlays.values { o.controls.setTime(position: time.position, duration: time.duration) } }
     }
     /// The page's host, centred in the top bar (Arc's; Chrome's own strip stays hidden, #246).
     var address = "" {
@@ -66,6 +72,7 @@ final class PictureInPictureChrome {
         overlays[ObjectIdentifier(window)] = overlay
         overlay.controls.isPlaying = isPlaying
         overlay.controls.address = address
+        overlay.controls.setTime(position: time.position, duration: time.duration)
         window.addChildWindow(overlay, ordered: .above)
         overlay.orderFront(nil)
         let center = NotificationCenter.default
@@ -163,6 +170,25 @@ final class PictureInPictureChrome {
             }
             w.setFrameOrigin(origin)
             view.dropped()
+        }
+    }
+
+    /// `cra://debug?pipSeek=<0…1>`: the scrubber pressed that far along and let go.
+    func debugSeek(_ fraction: Double) {
+        for o in overlays.values { o.controls.debugScrub(CGFloat(fraction)) }
+    }
+
+    /// `cra://debug?pipClick=<n>`: the overlay pressed and let go in its lower left quarter (clear
+    /// of the buttons) as the last click of `n` quick ones, the way AppKit sends a double click.
+    func debugClick(_ count: Int) {
+        for o in overlays.values {
+            guard let view = o.contentView as? PictureInPictureOverlayView else { continue }
+            let at = NSPoint(x: o.frame.width / 4, y: o.frame.height / 4)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let e = NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: o.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: 1) else { continue }
+                if type == .leftMouseDown { view.mouseDown(with: e) } else { view.mouseUp(with: e) }
+            }
         }
     }
 
@@ -423,7 +449,14 @@ final class PictureInPictureOverlayView: NSView {
         } else {
             updateCursor(event)
         }
-        guard g.isDragging else { return }
+        guard g.isDragging else {
+            // A double click on the video goes back to its tab, as in Arc.
+            if event.type == .leftMouseUp, g.returnsToTab(clickCount: event.clickCount) {
+                CraLog.note("pip: double click, back to tab")
+                PictureInPictureChrome.shared.actions?.backToTab()
+            }
+            return
+        }
         if g.edge != .none {
             // Chromium owns the window's bounds; say so if it kept another size than the one asked.
             let asked = requested.map { $0.size == target.frame.size ? "" : " (asked \(Self.size($0)))" } ?? ""

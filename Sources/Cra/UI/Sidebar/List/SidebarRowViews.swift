@@ -262,6 +262,9 @@ final class SidebarGlyphButton: NSView {
         turnsOnPress = animated && symbol == "arrow.clockwise"
     }
 
+    /// Arc's link → checkmark → link after a click on Copy Link (GitHub #361).
+    func playCopyCheck(glyphSize: CGFloat) { glyph.playCopyCheck(glyphSize: glyphSize) }
+
     func setGlyph(_ image: NSImage?, help: String) {
         shownSymbol = nil
         glyph.image = image
@@ -533,6 +536,31 @@ struct DropDecor: Equatable {
     }
 }
 
+@MainActor
+extension NSView {
+    /// Arc moves the layer's anchor to its centre; AppKit owns a layer-backed view's anchor, so the
+    /// transform carries the centre instead.
+    func springPress(_ down: Bool, scale s: Double) {
+        guard let layer else { return }
+        var to = CATransform3DIdentity
+        if down {
+            let a = layer.anchorPoint
+            let c = CGPoint(x: bounds.width * (0.5 - a.x), y: bounds.height * (0.5 - a.y))
+            to = CATransform3DTranslate(CATransform3DScale(CATransform3DMakeTranslation(c.x, c.y, 0), s, s, 1), -c.x, -c.y, 0)
+        }
+        let spring = CASpringAnimation(keyPath: "transform")
+        spring.fromValue = NSValue(caTransform3D: layer.presentation()?.transform ?? CATransform3DIdentity)
+        spring.toValue = NSValue(caTransform3D: to)
+        spring.mass = 1
+        spring.stiffness = SidebarRowPress.stiffness
+        spring.damping = SidebarRowPress.damping
+        spring.duration = spring.settlingDuration
+        spring.fillMode = .forwards
+        spring.isRemovedOnCompletion = !down
+        layer.add(spring, forKey: "press_bounce")
+    }
+}
+
 // MARK: - Row base
 
 @MainActor
@@ -679,9 +707,21 @@ class SidebarRowView: NSView {
     /// The item a combine preview draws as the drop's target.
     var itemIDForCombine: UUID { if case .item(let id) = key { return id }; return UUID() }
 
+    var pressRow: SidebarRowPress.Row { .other }
+    private var pushedIn = false
+
+    private func push(in down: Bool) {
+        guard down != pushedIn else { return }
+        pushedIn = down
+        springPress(down, scale: SidebarRowPress.scale(pressRow))
+    }
+
     // Clicks act on release (SwiftUI's tap); a press that moves 3 pt starts the row's drag.
     override func mouseDown(with event: NSEvent) {
+        // A pinned tab's Previews card goes at once, as a favorite's does.
+        FavoritePreviewCard.shared.cancel(self)
         press = (event, convert(event.locationInWindow, from: nil))
+        if SidebarRowPress.pushesIn(pressRow, clickCount: event.clickCount) { push(in: true) }
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -689,10 +729,12 @@ class SidebarRowView: NSView {
         let q = convert(event.locationInWindow, from: nil)
         guard hypot(q.x - p.point.x, q.y - p.point.y) > 3 else { return }
         press = nil
+        push(in: false)
         if let id = dragItemID(at: p.point) { list?.beginDrag(id, from: self, event: p.event) }
     }
 
     override func mouseUp(with event: NSEvent) {
+        push(in: false)
         guard let p = press else { return }
         press = nil
         click(event, at: p.point)
@@ -809,6 +851,8 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
     private var renameOld: NSTextField?
     private var renameSparkles: CALayer?
     private var renameBright = false
+
+    override var pressRow: SidebarRowPress.Row { .tab }
 
     override init(key: SpaceListView.RowKey, list: SpaceListView, colors: SidebarColors) {
         super.init(key: key, list: list, colors: colors)
@@ -1338,19 +1382,26 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         // A click on the row (not the field) ends a rename, so it can never get stuck.
         if m.editing { commitRename() }
         // Arc: the favicon of a pinned tab away from its page takes it back there and opens it;
-        // with ⌘ the page moves out to a new Today tab first (GitHub #139).
-        if canReset, iconRegion.contains(point) {
+        // with ⌘ the page moves out to a new Today tab first (GitHub #139). A double-click there
+        // goes back once and doesn't rename the tab now at home (#345).
+        let action = PinnedIconClick.action(clickCount: event.clickCount, onIcon: iconRegion.contains(point), navigatedAway: canReset,
+                                            command: event.modifierFlags.contains(.command), previousWentBack: list.ui.iconWentBack == m.id)
+        list.ui.iconWentBack = action.wentBack ? m.id : nil
+        switch action {
+        case .separateFromPinnedTab:
             setOverIcon(false)
-            if event.modifierFlags.contains(.command) {
-                list.actions.separatePinnedTab(m.id)
-            } else {
-                list.actions.resetPinnedTab(m.id)
-                list.ui.clearPicks(anchor: m.id)
-                list.store.selectTab(m.id, window: list.ui.windowID)
-            }
-            return
+            list.actions.separatePinnedTab(m.id)
+        case .backToPinnedPage:
+            setOverIcon(false)
+            CraLog.note("pinned icon: back to pinned URL")
+            list.actions.resetPinnedTab(m.id)
+            list.ui.clearPicks(anchor: m.id)
+            list.store.selectTab(m.id, window: list.ui.windowID)
+        case .nothing:
+            CraLog.note("pinned icon: a double-click's second press stays home")
+        case .row:
+            list.clickTab(m.id, event: event)
         }
-        list.clickTab(m.id, event: event)
     }
 
     override func contextMenu(at point: NSPoint) -> NSMenu? {
@@ -1624,6 +1675,8 @@ final class SplitRowView: SidebarRowView, NSTextFieldDelegate, ArcTooltipTarget 
         return b
     }()
     private var shownButtons: SidebarClose.SplitButtons?
+
+    override var pressRow: SidebarRowPress.Row { .split }
 
     override init(key: SpaceListView.RowKey, list: SpaceListView, colors: SidebarColors) {
         super.init(key: key, list: list, colors: colors)
@@ -2090,6 +2143,8 @@ final class NewTabRowView: SidebarRowView {
     /// What a click opens while ⌘ is held over the row with text on the clipboard; nil reads New Tab.
     private var paste: ClipboardPaste?
     private var pasteCheck: Task<Void, Never>?
+
+    override var pressRow: SidebarRowPress.Row { .newTab }
 
     override init(key: SpaceListView.RowKey, list: SpaceListView, colors: SidebarColors) {
         super.init(key: key, list: list, colors: colors)

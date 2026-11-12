@@ -22,6 +22,9 @@ if [ "${1:-}" != core ]; then
   suite "Extension popup candidate" scripts/test-extension-popup-candidate.sh
   suite "Extension popup window" scripts/test-extension-popup-window.sh
   suite "Peek dismiss panel" scripts/test-peek-dim-panel.sh
+  suite "Window content grabber" scripts/test-window-content-grabber.sh
+  suite "5-Second Previews copy" scripts/test-link-summary-share.sh
+  suite "5-Second Previews card" scripts/test-link-summary-panel.sh
   suite "Capture overlay" scripts/test-capture-overlay.sh
   suite "Dialogs" scripts/test-dialogs.sh
   suite "Sidebar creation menu" scripts/test-sidebar-creation-menu.sh
@@ -37,6 +40,7 @@ if [ "${1:-}" != core ]; then
   suite "Perf recorder" scripts/test-perf.sh
   suite "MCP transport" scripts/test-mcp-transport.sh
   suite "CEF download" python3 Tests/test_cef_download.py
+  suite "CEF update check" python3 Tests/test_cef_update_check.py
   suite "Lint" scripts/lint.py
 fi
 

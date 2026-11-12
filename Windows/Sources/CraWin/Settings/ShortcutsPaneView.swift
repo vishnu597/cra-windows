@@ -42,7 +42,7 @@ final class ShortcutsPaneView {
     init(bindings: KeyBindingRegistry, palette: SettingsPalette) {
         self.bindings = bindings
         self.palette = palette
-        let inset = Double(SettingsMetrics.shortcutsInset)
+        let inset = Double(DiaSettingsMetrics.shortcutsInset)
         root.margin = Thickness(left: inset, top: inset, right: 20.5, bottom: Self.bottom)
         root.rowDefinitions.append(UI.row(UI.auto))
         root.rowDefinitions.append(UI.row(UI.auto))
@@ -50,7 +50,7 @@ final class ShortcutsPaneView {
         root.children.append(top)
         let body = Grid()
         body.margin = Thickness(left: 0, top: Self.gap, right: 0, bottom: 0)
-        body.columnDefinitions.append(UI.column(UI.pixels(Double(SettingsMetrics.shortcutsListWidth))))
+        body.columnDefinitions.append(UI.column(UI.pixels(Double(DiaSettingsMetrics.shortcutsListWidth))))
         body.columnDefinitions.append(UI.column(UI.pixels(15)))
         body.columnDefinitions.append(UI.column(UI.star))
         let list = makeList()
@@ -108,12 +108,12 @@ final class ShortcutsPaneView {
     /// Dia's list card is the window colour with a hairline outline (not the filled card).
     private func makeList() -> UIElement {
         let card = Border()
-        let corner = Double(SettingsMetrics.cardCorner)
+        let corner = Double(DiaSettingsMetrics.cardCorner)
         card.cornerRadius = CornerRadius(topLeft: corner, topRight: corner, bottomRight: corner, bottomLeft: corner)
         card.borderThickness = Thickness(left: 1, top: 1, right: 1, bottom: 1)
         card.borderBrush = palette.hairline
         // The window doesn't resize: the card reaches the pane's bottom inset.
-        card.height = Double(SettingsMetrics.windowSize.height - SettingsMetrics.toolbarHeight - SettingsMetrics.shortcutsInset)
+        card.height = Double(DiaSettingsMetrics.windowSize.height - DiaSettingsMetrics.toolbarHeight - DiaSettingsMetrics.shortcutsInset)
             - Self.searchHeight - Self.gap - Self.bottom
         let scroll = ScrollViewer()
         scroll.horizontalScrollBarVisibility = .disabled
@@ -222,7 +222,7 @@ final class ShortcutsPaneView {
             title.verticalAlignment = .bottom
             title.margin = Thickness(left: 10, top: 0, right: 0, bottom: 4)
             let header = Border()
-            header.height = Double(SettingsMetrics.shortcutsRowHeight)
+            header.height = Double(DiaSettingsMetrics.shortcutsRowHeight)
             header.child = title
             rows.children.append(header)
             for action in group.actions {
@@ -261,7 +261,7 @@ final class ShortcutsPaneView {
             _ = button.resources.insert("ButtonBackgroundPointerOver", Self.selectionFill)
             _ = button.resources.insert("ButtonBackgroundPressed", Self.selectionFill)
         }
-        button.height = Double(SettingsMetrics.shortcutsRowHeight)
+        button.height = Double(DiaSettingsMetrics.shortcutsRowHeight)
         button.horizontalAlignment = .stretch
         button.horizontalContentAlignment = .stretch
         button.cornerRadius = CornerRadius(topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0)

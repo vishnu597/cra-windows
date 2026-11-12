@@ -334,7 +334,47 @@ itself, and ninja recompiles nearly everything (about 2½ hours on the M2 Max). 
 major needs a fresh checkout as well. Then test `build/Cra.app`, commit `scripts/fetch-cef.sh`, close the
 issue and tag a release.
 
-## Later
+**A release ships the newest CEF.** Pushing a `vX.Y.Z` tag from Claude Code runs
+`scripts/check-cef-release-hook.sh` (in `.claude/settings.json`), and `scripts/release.sh` (so the
+Release workflow too) runs `scripts/check-cef-update.sh --check` before it builds. Both stop the
+release when Spotify's index lists a newer stable CEF than `fetch-cef.sh` pins; the hook also
+stops it when the pinned `CEF_RELEASE` lacks the arm64 or the Intel archive. The Chromium version
+decides first: a CEF on a newer Chromium is an update whatever its own number, and a later CEF on
+the same Chromium is one too. A later CEF on an *older* Chromium is not, since building it would take
+Chromium back. That happens when Cra pins CEF's branch head on a newer Chromium patch than Spotify
+built (156.0.27 on .96, while Spotify's 156.0.28 is on .88, #355). For such a CEF, look at its
+CEF-only commits with `gh api repos/chromiumembedded/cef/compare/<ours>...<theirs>`.
+`CRA_ALLOW_OLD_CEF=1` ships the pinned CEF anyway, for an urgent fix while the new one builds.
+In CI that's the repository variable `CRA_ALLOW_OLD_CEF` = `1` (Settings → Secrets and variables →
+Actions → Variables, or `gh variable set CRA_ALLOW_OLD_CEF --body 1`), which the Release workflow
+passes to `release.sh`. Delete it once the release is out, so the next one is checked again. It also
+fits a newer CEF on the same Chromium that changes nothing on macOS (check the compare above).
 
-- **Homebrew.** A cask (`brew install --cask cra`) pointing at the DMG and
-  `SHA256SUMS.txt`.
+## Homebrew
+
+```sh
+brew install --cask victorkildahl/tap/cra
+```
+
+The cask lives in [VictorKildahl/homebrew-tap](https://github.com/VictorKildahl/homebrew-tap)
+(`Casks/cra.rb`). It installs `Cra.dmg` or `Cra-Intel.dmg` from the tagged release, so it
+depends on the asset names in [Cutting a release](#cutting-a-release) and on
+`SHA256SUMS.txt` listing both DMGs. Naming the tap in full makes Homebrew trust it, so
+there's no `brew trust` step.
+
+A release needs nothing extra. The tap's `bump-cra.yml` runs every hour, and when
+`releases/latest` has a newer tag it reads that release's `SHA256SUMS.txt`, rewrites the
+version and both checksums and commits. Run it at once with
+`gh workflow run bump-cra.yml -R VictorKildahl/homebrew-tap`. The cask says
+`auto_updates true`, so `brew upgrade` leaves installed copies to Sparkle. Check a cask edit
+with `brew style` and `brew audit --cask --strict --online victorkildahl/tap/cra`.
+
+Someone who installed from the DMG first gets "there is already an App at
+'/Applications/Cra.app'"; `--adopt` takes that copy over when it's the same version.
+
+**Homebrew's own list.** `brew install --cask cra` needs the cask in
+[Homebrew/homebrew-cask](https://github.com/Homebrew/homebrew-cask). Its audit
+(`brew audit --cask --new --online`) wants the repository to be 30 days old, which
+VictorKildahl/cra is from 23 November 2026. It meets the star bar for a cask its own author
+sends (225). Once that's merged, Homebrew's autobump follows the `livecheck` block, the
+tap's workflow can go, and the docs switch to `brew install --cask cra`.
