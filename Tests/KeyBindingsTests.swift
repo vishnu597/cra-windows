@@ -25,7 +25,6 @@ enum KeyBindingsTests {
             expect(Array(ids[(folder + 1)...(folder + 2)]) == [github.id, jira.id], "right after New Folder, in the plugins' order")
         } else { expect(false, "New Folder is a built-in action") }
 
-        let command: NSEvent.ModifierFlags = .command
         let commandOption: NSEvent.ModifierFlags = [.command, .option]
         let chord = Shortcut("j", commandOption)
         registry.setShortcuts([chord], for: jira.id)
@@ -58,6 +57,7 @@ enum KeyBindingsTests {
     /// saved on the action's chords in keybindings.json, kept through a synced reload, gone on Reset.
     @MainActor
     static func priorities(_ registry: KeyBindingRegistry, file: URL) {
+        let command: NSEvent.ModifierFlags = .command
         expect(registry.priority(of: "closeTab") == .preferCra && registry.priority(of: "find") == .preferWebsites,
                "reserved shortcuts prefer Cra, the rest websites")
         registry.setPriority(.preferWebsites, for: "closeTab")
