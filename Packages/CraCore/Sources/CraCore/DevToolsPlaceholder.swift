@@ -1,6 +1,8 @@
+// CGFloat, CGPoint, CGSize and CGRect come from Foundation off Apple platforms (Windows, Linux).
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+import Foundation
 
 /// The room Chrome's docked DevTools frontend leaves for the page it inspects. The frontend fills
 /// the page's whole area (a pane's body in the browser window, the page area of a Little Window or

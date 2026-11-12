@@ -1,6 +1,8 @@
+// CGFloat, CGPoint, CGSize and CGRect come from Foundation off Apple platforms (Windows, Linux).
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+import Foundation
 
 /// Whether a mouse-entered or mouse-moved over a list counts as hover. A list that opens or
 /// changes under a pointer that hasn't moved (⌘T's bar ordering in under it, rows arriving, the

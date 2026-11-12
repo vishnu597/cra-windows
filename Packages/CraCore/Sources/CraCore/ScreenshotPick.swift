@@ -1,6 +1,8 @@
+// CGFloat, CGPoint, CGSize and CGRect come from Foundation off Apple platforms (Windows, Linux).
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+import Foundation
 
 /// The window a screenshot app takes when it captures "the window under the pointer" (#346).
 ///

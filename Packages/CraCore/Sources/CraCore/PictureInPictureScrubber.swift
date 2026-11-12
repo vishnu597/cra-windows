@@ -1,6 +1,8 @@
+// CGFloat, CGPoint, CGSize and CGRect come from Foundation off Apple platforms (Windows, Linux).
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+import Foundation
 
 /// The scrubber on the Picture in Picture window, as in Arc 1.172: a 5 pt capsule along the
 /// bottom, white over white 30 %, that shows how far the video is and seeks on a drag. A drag

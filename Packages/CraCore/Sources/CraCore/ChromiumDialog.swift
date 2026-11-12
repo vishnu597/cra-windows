@@ -1,6 +1,8 @@
+// CGFloat, CGPoint, CGSize and CGRect come from Foundation off Apple platforms (Windows, Linux).
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+import Foundation
 
 /// Chromium's window-modal dialogs: the extension install prompt, the prompt to remove one, the
 /// one that turns an extension back on after it asks for more. Chromium shows each as a sheet on

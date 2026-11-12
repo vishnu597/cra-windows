@@ -1,6 +1,8 @@
+// CGFloat, CGPoint, CGSize and CGRect come from Foundation off Apple platforms (Windows, Linux).
 #if canImport(CoreGraphics)
 import CoreGraphics
 #endif
+import Foundation
 
 /// Where a new page's window is first shown (GitHub #354). Every page is a Chromium window of its
 /// own, which Chromium shows before Cra lays it over the window the page is for. Left to Chromium
@@ -32,11 +34,13 @@ public enum PageWindowStart {
     /// back. nil with no window to show it on (none made yet): Chromium's place then.
     public static func frame(_ size: CGSize, among windows: [Window]) -> CGRect? {
         let windows = windows.filter { !$0.frame.isEmpty }
-        guard let host = windows.first(where: { $0.isInUse && $0.isOnScreen })
-            ?? windows.first(where: \.isOnScreen)
-            ?? windows.first(where: \.isInUse)
-            ?? windows.first else { return nil }
-        return CGRect(x: (host.frame.midX - size.width / 2).rounded(), y: (host.frame.midY - size.height / 2).rounded(),
-                      width: size.width, height: size.height)
+        // One candidate at a time: Swift 6.1 on Linux and Windows times out type-checking the ?? chain.
+        let inUseOnScreen: Window? = windows.first { $0.isInUse && $0.isOnScreen }
+        let onScreen: Window? = windows.first { $0.isOnScreen }
+        let inUse: Window? = windows.first { $0.isInUse }
+        guard let host = inUseOnScreen ?? onScreen ?? inUse ?? windows.first else { return nil }
+        let x: CGFloat = (host.frame.midX - size.width / 2).rounded()
+        let y: CGFloat = (host.frame.midY - size.height / 2).rounded()
+        return CGRect(x: x, y: y, width: size.width, height: size.height)
     }
 }
