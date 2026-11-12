@@ -108,34 +108,34 @@ enum WinShell {
     /// lost the front to Cra itself), the window would take no clicks or keys until Cra quits.
     /// ShareRetry.ownerCheck decides, every half second while the sheet may be up.
     private static func watchOwner(_ request: ShareRequest) {
-        try? ownerWatch?.stop()
-        ownerWatch = nil
+        stopOwnerWatch()
         guard let owner = HWND(bitPattern: request.owner), let timer = try? request.dispatcher.createTimer() else { return }
         var look = 0, seen = false, suspected = false
         timer.interval = TimeSpan(duration: Int64(ShareRetry.ownerCheckInterval * 10_000_000))
         timer.isRepeating = true
         timer.tick.addHandler { _, _ in
             look += 1
-            func stop() {
-                try? ownerWatch?.stop()
-                ownerWatch = nil
-            }
-            guard IsWindow(owner) == true else { return stop() }
+            guard IsWindow(owner) == true else { return stopOwnerWatch() }
             let enabled = IsWindowEnabled(owner) == true
             if !enabled { seen = true }
             let front = GetForegroundWindow() == GetAncestor(owner, UINT(GA_ROOT))
             switch ShareRetry.ownerCheck(ownerInFront: front, enabled: enabled, sheetSeen: seen, suspected: suspected, look: look) {
             case .wait: suspected = false
             case .suspect: suspected = true
-            case .done: stop()
+            case .done: stopOwnerWatch()
             case .enable:
                 print("Cra: Share left its window disabled; enabling it again")
                 _ = EnableWindow(owner, true)
-                stop()
+                stopOwnerWatch()
             }
         }
         ownerWatch = timer
         try? timer.start()
+    }
+
+    private static func stopOwnerWatch() {
+        try? ownerWatch?.stop()
+        ownerWatch = nil
     }
 
     private static func finishShare(_ request: ShareRequest, failed: Bool) {
