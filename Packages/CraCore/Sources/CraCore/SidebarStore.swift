@@ -2247,7 +2247,8 @@ public final class SidebarStore {
     // MARK: Spaces
 
     @discardableResult
-    public func createSpace(title: String, emoji: String, symbol: String? = nil, theme: SpaceTheme? = nil, focus: Bool = true) -> Space {
+    public func createSpace(title: String, emoji: String, symbol: String? = nil, iconImage: Data? = nil, theme: SpaceTheme? = nil,
+                            focus: Bool = true) -> Space {
         let id = UUID()
         let favorites = SidebarItem.container(.favorites(spaceID: id))
         let pinned = SidebarItem.container(.pinned(spaceID: id))
@@ -2257,7 +2258,7 @@ public final class SidebarStore {
         items[today.id] = today
         let t = theme ?? SpaceTheme.presets[spaceOrder.count % SpaceTheme.presets.count]
         let space = Space(id: id, title: title, emoji: emoji, theme: t, favoritesContainerID: favorites.id,
-                          pinnedContainerID: pinned.id, todayContainerID: today.id, createdAt: clock.now, symbol: symbol)
+                          pinnedContainerID: pinned.id, todayContainerID: today.id, createdAt: clock.now, symbol: symbol, iconImage: iconImage)
         spaces[id] = space
         spaceOrder.append(id)
         if settings.sharedFavorites { shareFavorites() }

@@ -142,6 +142,12 @@ public struct SpaceTheme: Codable, Equatable {
     public static func solidAlpha(intensity: Double) -> Double { 0.19 + 0.55 * max(0, min(1, intensity)) }
 
     public var isDark: Bool {
+        // Light and Dark from the theme editor keep a picked colour as it is, as Arc does, so its own
+        // lightness picks the text (#392). Presets, imports and Auto's dark half have no pad colours;
+        // Auto's light half has them lifted, so it still reads light.
+        if appearance == "dark" || appearance == "light", let key, !key.isEmpty {
+            return (colors.first.flatMap(HexColor.luminance) ?? 1) < 0.45
+        }
         if appearance == "dark" { return true }
         if appearance == "light" { return false }
         // auto: judge by the first color's luminance

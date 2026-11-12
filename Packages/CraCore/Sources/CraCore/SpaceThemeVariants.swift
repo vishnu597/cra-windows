@@ -15,8 +15,8 @@ public enum SpaceThemeVariants {
             return t
         }
         switch appearance {
-        case "light": t = light(key: key, intensity: intensity, noise: noise)
-        case "dark": t = dark(key: key, intensity: intensity, noise: noise)
+        case "light": t = picked(key: key, intensity: intensity, noise: noise, appearance: "light")
+        case "dark": t = picked(key: key, intensity: intensity, noise: noise, appearance: "dark")
         default: t = SpaceTheme(light: light(key: key, intensity: intensity, noise: noise), dark: dark(key: key, intensity: intensity, noise: noise))
         }
         t.key = key
@@ -38,7 +38,7 @@ public enum SpaceThemeVariants {
         }
     }
 
-    /// The half shown while macOS is light, from the pad's colours: the colours themselves (Arc
+    /// Auto's half shown while macOS is light, from the pad's colours: the colours themselves (Arc
     /// saves a colour picked in Light as that colour), lifted to Arc's default light half (HSL
     /// lightness 0.9, #8389FF → #C8CAFF) when they would read as a dark theme. One colour is Arc's
     /// one-dot theme (`blendedSingleColor`), a flat fill like an imported one (ArcThemeImport).
@@ -50,7 +50,7 @@ public enum SpaceThemeVariants {
         return t
     }
 
-    /// The half shown while macOS is dark, from the pad's colours. A colour dark enough for a dark
+    /// Auto's half shown while macOS is dark, from the pad's colours. A colour dark enough for a dark
     /// theme stays itself, as Arc keeps every picked colour (offline Arc 1.172, 12 Nov 2026: black,
     /// #1A1A1A, #333333 and navy were saved as themselves); a lighter one keeps its hue at HSL
     /// lightness ≈ 0.064, as Arc's default dark half does (#8389FF → #01021F). Arc draws them over a
@@ -80,17 +80,15 @@ public enum SpaceThemeVariants {
         (HexColor.luminance(hex) ?? 1) < 0.45 ? hex.uppercased() : shade(hex, lightness: 0.064)
     }
 
-    /// The intensity the editor's slider had for a theme it built: a dark gradient bakes it into its
-    /// colours (`dark`), so it's read back from the first stop; any other theme keeps it.
-    public static func padIntensity(of theme: SpaceTheme) -> Double {
-        guard theme.appearance == "dark", !theme.solid, theme.dark == nil, let key = theme.key, key.count > 1,
-              let out = theme.colors.first.flatMap(HexColor.components),
-              let base = HexColor.components(darkTone(key[0])) else { return theme.intensity }
-        let g = neutralGrey / 255
-        let pairs = [(base.r, out.r), (base.g, out.g), (base.b, out.b)]
-        guard let (b, o) = pairs.max(by: { abs($0.0 - g) < abs($1.0 - g) }), abs(b - g) > 0.03 else { return theme.intensity }
-        let a = (o - g) / (b - g)
-        return max(0, min(1, (a - 0.19) / 0.55))
+    /// Light or Dark, as Arc draws a picked colour on either appearance (offline Arc 1.172, 12 Nov
+    /// 2026): the pad's colours as they are, one colour Arc's one-dot fill, at the slider's intensity.
+    /// Arc lightens and darkens nothing: a light colour is a light sidebar with dark text and a dark
+    /// one a dark sidebar with white text, on Light and Dark alike (SpaceTheme.isDark, #392). Only
+    /// Auto's halves are lifted or darkened (`light`, `dark`), so an Auto space follows macOS (#155).
+    public static func picked(key: [String], intensity: Double, noise: Double, appearance: String) -> SpaceTheme {
+        var t = SpaceTheme(colors: key.map { $0.uppercased() }, intensity: intensity, noise: noise, appearance: appearance, accent: key.first?.uppercased())
+        if t.colors.count == 1 { t.colors.append(t.colors[0]); t.solid = true }
+        return t
     }
 
     /// The colour's HSL hue and saturation at another lightness.

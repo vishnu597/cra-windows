@@ -848,6 +848,20 @@ Arc 1.172 binary (otool/llvm-objdump on the arm64 slice, 8 Nov, #246):
   Arc in the background, and its PiP window hides when Arc is made active.
 Cra follows the limits, the scrim, the fade, the insets and the Back to Tab words
 (`PictureInPictureLayout` in CraCore) and keeps its 782×440-on-1728×1117 opening size.
+Size and displays (12 Nov, the maintainer's decision; not Arc's numbers): Cra's window can grow to
+the display's whole visible frame, not Arc's 61.7 % of the screen's width. It always rests on one
+display: let go across two, it slides onto the one most of it is on; dragged to another display, it
+takes the same share of that display's width; a display unplugged or changed, it goes back onto one
+(`PictureInPictureLayout.rest`). Past the screen's edge it still springs into the corner (#332).
+[U] A user reports that Arc shows the window on one display at a time during a drag and moves it
+back when it is let go out of bounds; not observed here. `cra.log`: `pip: onto one display, …`.
+Chromium's cap (Chromium 156 `VideoOverlayWindowViews::UpdateMaxSize`, read in the source, 12 Nov):
+Chromium keeps its own maximum of 80 % of the work area. It cuts the window down to it when that
+maximum changes (the window's display changes, or its work area does), each side on its own, and
+when the video's natural size changes (`CalculateAndUpdateWindowBounds`, in the video's shape). A
+size set from AppKit is otherwise left alone. Cra puts its own size back after either cut
+(`PictureInPictureLayout.undoingChromiumCap`, scenario `pip-full-display`); `cra.log`:
+`pip: Chromium cut …`. A swipe onto another display takes the same share of its width as a drag.
 Double click (11 Nov, reported by a user): a double click on Arc's window returns to the video's tab.
 [O live] Arc 1.172.2, 12 Nov (PR #383 review): a real double click (cliclick) on a 242×136 PiP window
 of a playing file:// video took the window away and the page's video played on; a single click on
@@ -3457,13 +3471,17 @@ properties {URL:…}`) on a local server that answers after 40 s; window capture
 - [O fit] Arc's default dark half (non-vibrant, intensity 0.8): its top stop is 0.63 of #01021F (α for 0.8 in the
   one-colour recipe) over a neutral grey #5E5E5E (~94), within 1/255. The ~27 % over purple #2B2632 that
   ArcThemeImport uses was fitted on that purple theme alone and is locked for Arc imports (#155 tests).
-- Cra (#392): the editor's dark half (Auto while macOS is dark, or Dark) keeps a colour that already reads dark
+- Cra (#392): Light and Dark keep the pad's colours as they are, as Arc does on either appearance (one colour
+  Arc's one-colour fill, a gradient at the slider's intensity); the colour's own lightness picks the text
+  (`SpaceTheme.isDark` judges an editor-built Light or Dark theme by its first colour), so black on Light is a
+  dark sidebar and a pastel on Dark a light one. Only Auto (Cra only, #155) lifts and darkens: its light half
+  lifts a dark colour to HSL lightness 0.9, its half for a dark Mac keeps a colour that already reads dark
   (luminance < 0.45) as itself and darkens a lighter one to HSL lightness 0.064 in its hue (Arc's default pair,
-  #8389FF → #01021F), and draws them neutral: one colour as Arc's one-colour fill at the slider's intensity
-  (`solid`), a gradient opaque at that opacity over #5E5E5E. Before, every dark half went ~73 % over #2B2632 and
-  ignored the slider, so black came out #2F2A36. Cra still darkens light colours where Arc keeps them light: Cra's
-  Dark and Auto promise a dark look (#155). Pinned by `greysStayNeutralInTheDark`, `darkColoursKeepTheirOwnTone`
-  and `darkGradientFollowsTheSlider`.
+  #8389FF → #01021F), drawn neutral: one colour as Arc's one-colour fill at the slider's intensity, a gradient
+  opaque at that opacity over #5E5E5E. Before, every dark half went ~73 % over #2B2632 and ignored the slider
+  (black came out #2F2A36), Dark darkened every colour and Light lifted dark ones. Pinned by
+  `greysStayNeutralInTheDark`, `darkColoursKeepTheirOwnTone`, `darkGradientFollowsTheSlider` and
+  `lightAndDarkKeepThePickedColourAsArcDoes`.
 
 ## The theme editor's presets and commit (Arc 1.171, 4 Nov 2026, issue #170, asset catalog + strings)
 - [O static] The swatches are named colours in `ARCClients_BaseAssets.bundle`'s Assets.car (`assetutil --info`),
@@ -3950,6 +3968,59 @@ HoverCardWindow, HoverCardViewModel), pref `hoverCardsEnabled` (1 in Victor's Ar
   Always use secure connections, never in incognito spaces. Differences that stay: "Cra" in place of Arc's name in
   the copies; the emoji table is Cra's (Arc's isn't readable; it matches the four Arc produced); the model writes
   its own answers. Settings ▸ Max ▸ 5-Second Previews, off by default like Arc Max.
+
+## Ask on Page (Arc 1.173.1, 12 Nov 2026, GitHub #393, static only: strings, Swift field metadata, disassembly; Arc not launched)
+
+Arc Max's Ask on Page is Arc's find bar as a SwiftUI card: the FindInPage reducer holds the find state and the chat,
+the AskInPage module the model call; with the pref on, WindowContentViewController shows `AskInPageHostingView`
+instead of the AppKit `FindInPageView`. Tags as above; [B?] read off disassembly without a decompiler.
+- [B] Settings ▸ Max: `MaxSettingsUnit.askOnPage`, "Press Command + F on any page to ask a question and let Max answer
+  it for you in seconds." (1.173.1 says *Press*; no hold timer or threshold exists, though older Arc's text and the
+  reporter's picture say "Hold down"). Defaults key `askOnPageEnabled`; remote flag `ask-in-page-enabled`; LLM feature
+  `ask_in_page`. The `askOnPage…` hint/upsell keys belong to Dia's assistant code in the same binary.
+- [B] State: `FindInPage.State { text, numMatches?, activeMatchOrdinal?, quotesSearched: [String: loading|found|notFound],
+  isInConversation, messages, fractionOfContextUsed?, … }`; actions onQueryUpdated, onDidClickFindQuote,
+  onDidUpdateChat(messages:fractionRead:), onDidRequestNext/PreviousResult, onShouldResetToFindInPage, onDidAskLLM.
+- [B] The field: placeholder "Find in page…" on a page it can't ask about (`isValidAskPage` false), "Ask a question…" in a
+  conversation, else "Find or ask…". Typing finds (count "%lld/%lld", ↑ `arrow.up`, ↓ `arrow.down`, "No matches"); an
+  "Ask" button sends the text. ⌘F inside the field goes back to Arc (`CommandFTextField`, tag 1).
+- [B] Page text: the page's HTML through WebPageSnapshot (SwiftSoup) without `script, style, link, svg`, `[aria-hidden=true]`,
+  `nav, [aria-role=navigation], footer, header, [aria-role=banner], form, option` and alert/dialog roles, preferring
+  `[itemprop=mainEntity], article, #content, .reviews-content`. Budget: min(context tokens, 16000) × 3 characters less the
+  rules, the examples and 200; cut with "…"; `fractionRead` = cut / whole drives "This page was long, so I read the first
+  N%." (subheadline bold, primary 0.5). 49 characters or fewer: "Sorry, I can’t read this type of page."; an error: "Sorry,
+  I encountered an error".
+- [B] Prompt: the rules ("You will be acting as a research assistant… citations … using <excerpt> tags … RULES 1–8 …
+  Respond in {lang}."), the examples (solar, NYC Brooklyn, privacy policy, summary), "WEBPAGE CONTEXT FOR OUR DIALOGUE:"
+  with `<url>…</title>` (sic), `<current-date>`, `<title>`, `<content>`, then "</content>\nBEGIN DIALOGUE\n" and the
+  question. [B?] Older turns read "[Older messages hidden]". Full text in AskOnPagePrompt.
+- [B] Answer: split at `<excerpt>` into parts; a quote (trimmed of `"'“”`) in body text at primary 0.8 on a 2 pt rule at
+  primary 0.1, selectable, with "Find on Page" + `arrow.forward` (system 11 bold, hover in timingCurve(0.25, 0.1, 0.25, 1)
+  0.2 s) under it, which runs Chromium's find on the quote; not found: `exclamationmark.triangle.fill` "Quote not found.
+  Make sure it’s accurate!". The question in body bold in the space's theme colour; while waiting a redacted "Loading
+  Content" row pulses easeInOut 0.8 s. "According to the page:" and the bold term are the model's.
+- [B] Numbers: card max width 400; conversation scrolls past 450 with fades at its edges; close button 18 pt on
+  ultraThinMaterial, corner 6, 9 from top and trailing; appears with spring(0.4, 0.75, 0.1) [B?]; input row spacing 8,
+  padding 12, field padding 6; Ask in callout semibold, padding 6 × 12.
+- [?] Not read: whether Return finds or asks, the card's placement, corner, shadow and background, the theme colours,
+  fade heights. The purple border in the reporter's picture is the Arc window in a purple space, not part of the card.
+- [O] Live Arc 1.173.1 (12 Nov 2026, Victor's Arc, Blank Window on Wikipedia): Ask on Page is gone. Settings ▸ Max lists
+  Tidy Tabs, Instant Links, 5-Second Previews, Tidy Tab Titles, Tidy Downloads and ChatGPT in the Command Bar, no Ask on
+  Page row, though `askOnPageEnabled` is 1; ⌘F opens the plain dark find bar ("Find in page…", "NOT FOUND", no Ask). The
+  remote flag `ask-in-page-enabled` is presumably off. So the only look at the card is the reporter's capture of an older
+  Arc (#393, light, lavender space, apple.com's iOS 17 page), which Cra was matched to at the same width: a nearly opaque
+  white card (#FAFAFB-ish), 18 pt margins, about 17 pt between parts and 12 pt above Find on Page, a plain ✕ about 12 pt
+  level with the question, and at the bottom one grey band (corner ~8, 6 pt in from the card) holding the field and a
+  full-colour Ask button (~46 × 26 pt) that shows while the field is still empty.
+- Cra (AskOnPagePolicy, AskOnPagePrompt, AskOnPageReply in CraCore; AskOnPageService, AskOnPageCard): Arc's card in
+  ⌘F's panel, Arc's prompt on the Mac's Apple Intelligence model (rules and examples as the session's instructions),
+  Arc's budget less 600 tokens kept for the answer, checked with the model's own token count where macOS has it
+  (26.4) and cut again if a page still doesn't fit. The page text comes from a script in Cra's isolated world that
+  skips Arc's parts and hidden ones. Cra's choices where Arc's weren't readable: Return goes to the next match while the
+  text is on the page and asks otherwise (always asks in a conversation); Find on Page tries the quote's first sentence
+  and first eight words when the whole quote isn't on the page (a footnote mark between sentences, the model's slips);
+  the model's echo of the dialogue ("BEGIN DIALOGUE", "Human: …", or the question as asked) is dropped; the card sits
+  where the find bar does, 10 pt in, with a 10 pt corner. Settings ▸ Max ▸ Ask on Page, off by default.
 
 ## Little Arc over a full-screen app (Arc 1.171, 5 Nov 2026, issue #186, Victor's Arc + a test full-screen app)
 
