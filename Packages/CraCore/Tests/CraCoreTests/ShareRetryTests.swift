@@ -35,4 +35,18 @@ struct ShareRetryTests {
         #expect(ShareRetry.action(after: .busy, attempt: 7) == .failed)
         #expect(ShareRetry.action(after: .busy, attempt: 0) == .failed)
     }
+
+    /// PR #36's PC test: a Little Window stayed disabled after its Share sheet went away when Cra
+    /// came to the front; its Close and Ctrl+W did nothing until Cra quit.
+    @Test func aWindowLeftDisabledBehindAGoneSheetIsEnabledAgain() {
+        func check(front: Bool, enabled: Bool, seen: Bool = true, suspected: Bool = false, look: Int = 3) -> ShareRetry.OwnerCheck {
+            ShareRetry.ownerCheck(ownerInFront: front, enabled: enabled, sheetSeen: seen, suspected: suspected, look: look)
+        }
+        #expect(check(front: true, enabled: false) == .suspect, "the sheet may be about to show over it")
+        #expect(check(front: true, enabled: false, suspected: true) == .enable, "still so half a second later: stuck")
+        #expect(check(front: false, enabled: false) == .wait, "the sheet is in front")
+        #expect(check(front: true, enabled: true) == .done, "the sheet closed as it should")
+        #expect(check(front: true, enabled: true, seen: false, look: 1) == .wait, "the sheet may not be up yet")
+        #expect(check(front: false, enabled: true, seen: false, look: ShareRetry.ownerCheckLimit) == .done, "looking stops")
+    }
 }
