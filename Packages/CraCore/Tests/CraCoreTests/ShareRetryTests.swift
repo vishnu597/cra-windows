@@ -36,17 +36,42 @@ struct ShareRetryTests {
         #expect(ShareRetry.action(after: .busy, attempt: 0) == .failed)
     }
 
+    /// Runs `looks` through a fresh watch: the verdicts, in order.
+    private func verdicts(_ looks: [(front: Bool, enabled: Bool, hidden: Bool)]) -> [ShareRetry.OwnerWatch.Verdict] {
+        var watch = ShareRetry.OwnerWatch()
+        var out: [ShareRetry.OwnerWatch.Verdict] = []
+        for look in looks { out.append(watch.next(ownerInFront: look.front, enabled: look.enabled, sheetHidden: look.hidden)) }
+        return out
+    }
+
     /// PR #36's PC test: a Little Window stayed disabled after its Share sheet went away when Cra
     /// came to the front; its Close and Ctrl+W did nothing until Cra quit.
     @Test func aWindowLeftDisabledBehindAGoneSheetIsEnabledAgain() {
-        func check(front: Bool, enabled: Bool, seen: Bool = true, suspected: Bool = false, look: Int = 3) -> ShareRetry.OwnerCheck {
-            ShareRetry.ownerCheck(ownerInFront: front, enabled: enabled, sheetSeen: seen, suspected: suspected, look: look)
-        }
-        #expect(check(front: true, enabled: false) == .suspect, "the sheet may be about to show over it")
-        #expect(check(front: true, enabled: false, suspected: true) == .enable, "still so half a second later: stuck")
-        #expect(check(front: false, enabled: false) == .wait, "the sheet is in front")
-        #expect(check(front: true, enabled: true) == .done, "the sheet closed as it should")
-        #expect(check(front: true, enabled: true, seen: false, look: 1) == .wait, "the sheet may not be up yet")
-        #expect(check(front: false, enabled: true, seen: false, look: ShareRetry.ownerCheckLimit) == .done, "looking stops")
+        let sheet = (front: false, enabled: false, hidden: false)
+        let stuck = (front: true, enabled: false, hidden: false)
+        #expect(verdicts([sheet, stuck]) == [.wait, .wait], "the sheet may be about to show over it")
+        #expect(verdicts([sheet, stuck, stuck]) == [.wait, .wait, .enable], "still so half a second later")
+        #expect(verdicts([sheet, (front: true, enabled: true, hidden: false)]) == [.wait, .done], "closed as it should")
+    }
+
+    /// PR #37's PC test: the sheet took the front but drew nothing (alpha 0), and the browser
+    /// window stayed disabled under it with nothing to close.
+    @Test func aWindowUnderASheetThatDrawsNothingIsEnabledAgain() {
+        let hidden = (front: false, enabled: false, hidden: true)
+        let shown = (front: false, enabled: false, hidden: false)
+        #expect(verdicts(Array(repeating: hidden, count: ShareRetry.hiddenLimit)).last == .enable)
+        #expect(!verdicts(Array(repeating: hidden, count: ShareRetry.hiddenLimit - 1)).contains(.enable), "its fade-in")
+        #expect(!verdicts([hidden, hidden, shown] + Array(repeating: shown, count: 20)).contains(.enable), "a sheet that draws stays")
+    }
+
+    /// PR #37's PC test: once Windows Share was wedged, it reported success and showed nothing,
+    /// so the Share button seemed to do nothing at all.
+    @Test func aShareThatNeverShowsSaysSo() {
+        let idle = (front: true, enabled: true, hidden: false)
+        #expect(verdicts(Array(repeating: idle, count: ShareRetry.shownDeadline)).last == .notShown)
+        #expect(!verdicts(Array(repeating: idle, count: ShareRetry.shownDeadline - 1)).contains(.notShown))
+        let elsewhere = (front: false, enabled: true, hidden: false)
+        #expect(!verdicts(Array(repeating: elsewhere, count: 40)).contains(.notShown), "another app took the front: no toast")
+        #expect(verdicts(Array(repeating: elsewhere, count: ShareRetry.ownerCheckLimit)).last == .done, "looking stops")
     }
 }

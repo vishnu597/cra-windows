@@ -104,29 +104,32 @@ enum WinShell {
         }
     }
 
-    /// The sheet disables the window it opens over; when it goes without enabling it again (it
-    /// lost the front to Cra itself), the window would take no clicks or keys until Cra quits.
-    /// ShareRetry.ownerCheck decides, every half second while the sheet may be up.
+    /// The sheet disables the window it opens over. When it goes without enabling it again, or
+    /// holds the front drawing nothing, the window would take no clicks or keys until Cra quits;
+    /// when it never shows, the Share button would seem to do nothing. ShareRetry.OwnerWatch
+    /// decides, every half second while the sheet may be up.
     private static func watchOwner(_ request: ShareRequest) {
         stopOwnerWatch()
         guard let owner = HWND(bitPattern: request.owner), let timer = try? request.dispatcher.createTimer() else { return }
-        var look = 0, seen = false, suspected = false
+        var watch = ShareRetry.OwnerWatch()
         timer.interval = TimeSpan(duration: Int64(ShareRetry.ownerCheckInterval * 10_000_000))
         timer.isRepeating = true
+        // Holds the request: Share already let go of it (finishShare).
         timer.tick.addHandler { _, _ in
-            look += 1
-            guard IsWindow(owner) == true else { return stopOwnerWatch() }
-            let enabled = IsWindowEnabled(owner) == true
-            if !enabled { seen = true }
+            guard IsWindow(owner) == true, request.isValid() else { return stopOwnerWatch() }
             let front = GetForegroundWindow() == GetAncestor(owner, UINT(GA_ROOT))
-            switch ShareRetry.ownerCheck(ownerInFront: front, enabled: enabled, sheetSeen: seen, suspected: suspected, look: look) {
-            case .wait: suspected = false
-            case .suspect: suspected = true
+            let hidden = !front && cra_foreground_draws_nothing() != 0
+            switch watch.next(ownerInFront: front, enabled: IsWindowEnabled(owner) == true, sheetHidden: hidden) {
+            case .wait: break
             case .done: stopOwnerWatch()
             case .enable:
                 print("Cra: Share left its window disabled; enabling it again")
                 _ = EnableWindow(owner, true)
                 stopOwnerWatch()
+            case .notShown:
+                print("Cra: Share reported success but no sheet showed")
+                stopOwnerWatch()
+                request.onFailure()
             }
         }
         ownerWatch = timer

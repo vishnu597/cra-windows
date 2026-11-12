@@ -4,6 +4,7 @@
 #include "CraCEFWin.h"
 
 #include <windows.h>
+#include <dwmapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <wincodec.h>
@@ -205,6 +206,38 @@ extern "C" int cra_share_link_attempt(uintptr_t owner, const char *url, const ch
     if (root && GetForegroundWindow() != root) SetForegroundWindow(root);
     result = interop->ShowShareUIForWindow(window);
     return FAILED(result) ? ShareFailed("ShowShareUIForWindow", result, true) : 1;
+}
+
+namespace {
+
+bool DrawsNothing(HWND window) {
+    if (!(GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_LAYERED)) return false;
+    BYTE alpha = 255;
+    DWORD flags = 0;
+    return GetLayeredWindowAttributes(window, nullptr, &alpha, &flags) && (flags & LWA_ALPHA) && alpha == 0;
+}
+
+BOOL CALLBACK FindSilentCoreWindow(HWND child, LPARAM found) {
+    wchar_t name[64] = {};
+    GetClassNameW(child, name, 64);
+    if (wcscmp(name, L"Windows.UI.Core.CoreWindow") == 0 && DrawsNothing(child)) {
+        *reinterpret_cast<bool *>(found) = true;
+        return FALSE;
+    }
+    return TRUE;
+}
+
+}  // namespace
+
+extern "C" int cra_foreground_draws_nothing(void) {
+    HWND front = GetForegroundWindow();
+    if (!front) return 0;
+    DWORD cloaked = 0;
+    if (SUCCEEDED(DwmGetWindowAttribute(front, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return 1;
+    if (DrawsNothing(front)) return 1;
+    bool found = false;
+    EnumChildWindows(front, FindSilentCoreWindow, reinterpret_cast<LPARAM>(&found));
+    return found ? 1 : 0;
 }
 
 extern "C" int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count) {

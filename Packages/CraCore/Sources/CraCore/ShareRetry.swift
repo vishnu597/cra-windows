@@ -16,30 +16,60 @@ public enum ShareRetry {
     }
 
     /// Windows' Share sheet disables the window it opens over and enables it again when it closes.
-    /// When the sheet goes another way (it lost the front to Cra itself, PR #36's PC test) the
-    /// window stays disabled: its buttons and keys do nothing until Cra quits. After a Share
-    /// opens, Cra looks every `ownerCheckInterval` seconds, for `ownerCheckLimit` looks: a window
-    /// that is in front yet disabled has no sheet over it any more, so it is enabled again.
+    /// It can go wrong three ways (PR #36's and #37's PC tests): it lost the front to Cra and left
+    /// the window disabled; it took the front but drew nothing (a layered window at alpha 0) with
+    /// the window disabled under it; or it reported success and never showed. After a Share
+    /// opens, Cra looks every `ownerCheckInterval` seconds, for `ownerCheckLimit` looks.
     public static let ownerCheckInterval = 0.5
     public static let ownerCheckLimit = 1_200
+    /// Looks before a Share that never disabled its window, with Cra still in front, counts as
+    /// not shown: 4 seconds.
+    public static let shownDeadline = 8
+    /// Looks a sheet in front may draw nothing before its window is enabled again: 3 seconds
+    /// (its opening fade takes well under one).
+    public static let hiddenLimit = 6
 
-    public enum OwnerCheck: Equatable {
-        /// The sheet is still up (or the window is fine but may still get one): look again.
-        case wait
-        /// In front and disabled once: the sheet may be just about to show. Look again.
-        case suspect
-        /// The window is back and works: stop looking.
-        case done
-        /// In front and disabled two looks running: enable it, then stop.
-        case enable
-    }
+    public struct OwnerWatch: Equatable {
+        public enum Verdict: Equatable {
+            /// The sheet is up, or may still come: look again.
+            case wait
+            /// The sheet closed as it should, or looking took long enough: stop.
+            case done
+            /// The window is in front yet disabled two looks running, or under a sheet that
+            /// draws nothing: enable it and stop. A real sheet would have enabled it itself.
+            case enable
+            /// Nothing showed: say Share failed and stop.
+            case notShown
+        }
 
-    /// What one look finds. `ownerInFront`: the window is the foreground window; `enabled`: it
-    /// takes input; `sheetSeen`: it has been disabled (the sheet was up) since Share opened;
-    /// `suspected`: the last look said `.suspect`.
-    public static func ownerCheck(ownerInFront: Bool, enabled: Bool, sheetSeen: Bool, suspected: Bool, look: Int) -> OwnerCheck {
-        if ownerInFront && !enabled { return suspected ? .enable : .suspect }
-        if ownerInFront && enabled && sheetSeen { return .done }
-        return look >= ownerCheckLimit ? .done : .wait
+        public private(set) var look = 0
+        private var sheetSeen = false
+        private var suspected = false
+        private var hiddenLooks = 0
+
+        public init() {}
+
+        /// One look. `ownerInFront`: the window is the foreground window; `enabled`: it takes
+        /// input; `sheetHidden`: the foreground window is a sheet that draws nothing.
+        public mutating func next(ownerInFront: Bool, enabled: Bool, sheetHidden: Bool) -> Verdict {
+            look += 1
+            if !enabled { sheetSeen = true }
+            if ownerInFront {
+                hiddenLooks = 0
+                if !enabled {
+                    if suspected { return .enable }
+                    suspected = true
+                    return .wait
+                }
+                suspected = false
+                if sheetSeen { return .done }
+                if look >= ShareRetry.shownDeadline { return .notShown }
+            } else {
+                suspected = false
+                hiddenLooks = !enabled && sheetHidden ? hiddenLooks + 1 : 0
+                if hiddenLooks >= ShareRetry.hiddenLimit { return .enable }
+            }
+            return look >= ShareRetry.ownerCheckLimit ? .done : .wait
+        }
     }
 }
