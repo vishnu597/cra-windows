@@ -111,7 +111,7 @@ extension SidebarStore {
 
         // A source profile's spaces go on the Cra profile of its name; the rest stay on Default.
         for sp in plan.spaces {
-            let space = createSpace(title: freeTitle(sp.title), emoji: sp.emoji, theme: sp.theme, focus: false)
+            let space = createSpace(title: freeTitle(sp.title), emoji: sp.emoji, symbol: sp.symbol, theme: sp.theme, focus: false)
             if let source = sp.profile {
                 let folder = result.profiles.folders[source.folder] ?? importedProfile(named: source.name).directoryName
                 result.profiles.folders[source.folder] = folder

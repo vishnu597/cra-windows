@@ -87,16 +87,18 @@ public enum AskOnPagePolicy {
 }
 
 /// What the model is asked: Arc's rules and examples (AskInPageChat), the page between Arc's
-/// tags, then the dialogue. Arc sends it all as one message; here the rules and examples are the
-/// session's instructions and the rest its prompt.
+/// tags, then the question. Arc sends it all as one message, the conversation written into it as
+/// "BEGIN DIALOGUE", "Human: …", "Assistant: …". Here the rules and examples are the session's
+/// instructions, the page goes with the first question, and each question and answer is a turn of
+/// its own. The on-device model, given Arc's dialogue as text, writes a dialogue back: made-up
+/// "Human:" questions, or the last answer again word for word (#417).
 public enum AskOnPagePrompt {
     public static func rules(language: String) -> String {
         """
         You will be acting as a research assistant. I will give you the content of a webpage, and you will concisely answer \
         questions from a human using information from that page. You will provide citations for all answers using <excerpt> tags.
 
-        When I write BEGIN DIALOGUE you will enter this role, and all further input from the "Human:" will be from a user \
-        seeking answers about a webpage.
+        \(userLine)
 
         RULES:
         1. stay in your role throughout the dialogue
@@ -111,6 +113,11 @@ public enum AskOnPagePrompt {
         8. You may perform translations, summaries or other textual transformations for the user if asked.
         """
     }
+
+    /// In place of Arc's "When I write BEGIN DIALOGUE you will enter this role, and all further input
+    /// from the "Human:" will be from a user seeking answers about a webpage." The on-device model
+    /// takes that as the shape of its answer and writes a dialogue (#417).
+    public static let userLine = "After the page, each message is a question from a user seeking answers about the webpage."
 
     /// Arc's examples. Its privacy-policy one links an Arc page; Cra's links a placeholder address.
     public static let examples = """
@@ -148,26 +155,48 @@ public enum AskOnPagePrompt {
         }
     }
 
-    /// How many earlier answers stay in the prompt; older ones read "[Older messages hidden]", as
+    /// How many earlier answers are sent again; older ones read "[Older messages hidden]", as
     /// Arc's do, so a long conversation leaves the page room.
     public static let keptAnswers = 2
+    public static let hiddenAnswer = "[Older messages hidden]"
 
-    /// The dialogue after the page: earlier turns, then the question.
-    public static func dialogue(turns: [Turn], question: String) -> String {
-        var lines = ["BEGIN DIALOGUE"]
-        for (i, turn) in turns.enumerated() {
-            let hidden = i < turns.count - keptAnswers
-            lines.append("Human: \(turn.question)")
-            lines.append("Assistant: \(hidden ? "[Older messages hidden]" : turn.answer)")
+    /// One turn the model already took: what it was asked and what it answered.
+    public struct Exchange: Equatable, Sendable {
+        public var prompt: String
+        public var response: String
+        public init(prompt: String, response: String) {
+            self.prompt = prompt
+            self.response = response
         }
-        lines.append(turns.isEmpty ? question : "Human: \(question)")
-        return lines.joined(separator: "\n")
     }
 
-    /// The prompt: Arc's page context (it closes <url> with </title>, kept), then the dialogue.
-    public static func prompt(url: String, title: String?, date: String, text: String, turns: [Turn], question: String) -> String {
+    /// What the model gets: the turns before, then the prompt it answers now. The page goes with
+    /// the conversation's first question, so it comes before every answer that quotes it.
+    public struct Conversation: Equatable, Sendable {
+        public var earlier: [Exchange]
+        public var prompt: String
+    }
+
+    /// Arc's page context (it closes <url> with </title>, kept).
+    public static func context(url: String, title: String?, date: String, text: String) -> String {
         "WEBPAGE CONTEXT FOR OUR DIALOGUE:\n<url>\(url)</title>\n<current-date>\(date)</current-date>\n<title>\(title ?? "")</title>\n<content>\n\(text)\n</content>\n"
-            + dialogue(turns: turns, question: question)
+    }
+
+    public static func conversation(url: String, title: String?, date: String, text: String, turns: [Turn], question: String) -> Conversation {
+        let page = context(url: url, title: title, date: date, text: text)
+        let earlier = turns.enumerated().map { i, turn in
+            Exchange(prompt: i == 0 ? page + turn.question : turn.question,
+                     response: i < turns.count - keptAnswers ? hiddenAnswer : turn.answer)
+        }
+        return Conversation(earlier: earlier, prompt: turns.isEmpty ? page + question : question)
+    }
+
+    /// What is sent besides the page and the instructions: the questions and the answers kept.
+    public static func dialogue(turns: [Turn], question: String) -> String {
+        let earlier = turns.enumerated().flatMap { i, turn in
+            [turn.question, i < turns.count - keptAnswers ? hiddenAnswer : turn.answer]
+        }
+        return (earlier + [question]).joined(separator: "\n")
     }
 
     /// Room left for the answer, in tokens. Arc asks for up to 4,096 from a far bigger model; the
@@ -331,12 +360,65 @@ public enum AskOnPageReply {
 /// The card's theme colour (Arc's WindowTheme palette, read at run time there): the question, the
 /// Ask button. Arc's capture on a lavender space shows a mid purple; here it is the space's colour
 /// at a readable strength, kept to its hue. A grey space gets Max's blue.
-public enum AskOnPageTone {
-    public static func accent(themeHex: String, dark: Bool) -> (r: Double, g: Double, b: Double) {
+///
+/// The card follows macOS, not the space (its panel isn't in the space's shell), so a light space
+/// on a dark Mac has a dark card (#408). Both questions are made, the card picks by its own
+/// appearance, and each one reads at least 4.5:1 (WCAG AA) on its card: a colour too dark for the
+/// dark card is lifted, then washed toward white; one too light for the light card is darkened.
+/// The Ask button carries white text, so it takes the light card's question in both appearances.
+public struct AskOnPageTone {
+    public typealias RGB = (r: Double, g: Double, b: Double)
+
+    public static let minimumContrast = 4.5
+    /// The card's grey in each appearance (it is 96–97 % opaque over the page).
+    public static func card(dark: Bool) -> Double { dark ? 0.16 : 0.985 }
+
+    public let questionOnLight: RGB
+    public let questionOnDark: RGB
+    /// The Ask button's fill, under white text.
+    public var button: RGB { questionOnLight }
+
+    public func question(dark: Bool) -> RGB { dark ? questionOnDark : questionOnLight }
+
+    public init(themeHex: String) {
         let c = HexColor.components(themeHex) ?? (0.5, 0.5, 0.5)
-        let (h, s, _) = hsb(c.r, c.g, c.b)
-        if s < 0.08 { return dark ? (0.47, 0.50, 1) : (0.22, 0.24, 1) }
-        return rgb(h: h, s: max(s, dark ? 0.45 : 0.55), v: dark ? 0.92 : 0.62)
+        var (h, s, _) = Self.hsb(c.r, c.g, c.b)
+        var light = (s: max(s, 0.55), v: 0.62), dark = (s: max(s, 0.45), v: 0.92)
+        if s < 0.08 {
+            // Max's blue: (0.22, 0.24, 1) on light, (0.47, 0.50, 1) on dark.
+            (h, s, _) = Self.hsb(0.22, 0.24, 1)
+            light = (s, 1)
+            dark = (Self.hsb(0.47, 0.50, 1).1, 1)
+        }
+        let lightCard = Self.card(dark: false), darkCard = Self.card(dark: true)
+        questionOnLight = Self.readable(h: h, s: light.s, v: light.v, on: (lightCard, lightCard, lightCard), lighter: false)
+        questionOnDark = Self.readable(h: h, s: dark.s, v: dark.v, on: (darkCard, darkCard, darkCard), lighter: true)
+    }
+
+    /// WCAG 2 contrast ratio of two sRGB colours (1 to 21).
+    public static func contrast(_ a: RGB, _ b: RGB) -> Double {
+        let (x, y) = (luminance(a), luminance(b))
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+    }
+
+    static func luminance(_ c: RGB) -> Double {
+        func lin(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b)
+    }
+
+    /// The hue at s, v, stepped until it reads on bg: lighter raises v, then lowers s (toward
+    /// white); darker lowers v (toward black). Both ends always read on the card's greys.
+    static func readable(h: Double, s: Double, v: Double, on bg: RGB, lighter: Bool) -> RGB {
+        var s = s, v = v
+        while true {
+            let c = rgb(h: h, s: s, v: v)
+            if contrast(c, bg) >= minimumContrast { return c }
+            if lighter {
+                if v < 1 { v = min(1, v + 0.01) } else if s > 0 { s = max(0, s - 0.01) } else { return c }
+            } else {
+                if v > 0 { v = max(0, v - 0.01) } else { return c }
+            }
+        }
     }
 
     static func hsb(_ r: Double, _ g: Double, _ b: Double) -> (Double, Double, Double) {

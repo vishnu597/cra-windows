@@ -2225,9 +2225,15 @@ public final class SidebarStore {
         }
     }
 
-    public func clearToday(_ sid: UUID? = nil) {
+    /// Arc's Clear on Today (`TodayClear`): the tab each window has on screen in this space and
+    /// the tabs in `playing` (the speaker's audible set) stay, with the split or group they're in.
+    public func clearToday(_ sid: UUID? = nil, playing: Set<UUID>) {
         guard let space = spaces[sid ?? focusedSpaceID] else { return }
-        for t in tabs(under: space.todayContainerID) { archiveTab(t.id, reason: .clear) }
+        let selected = Set(prefs.windows.compactMap { $0.selectedTabPerSpace[space.id] })
+        let rows = children(of: space.todayContainerID).map { r in
+            TodayClear.Row(id: r.id, tabs: r.isTab ? [r.id] : tabs(under: r.id).map(\.id))
+        }
+        for t in TodayClear.archived(rows, selected: selected, playing: playing) { archiveTab(t, reason: .clear) }
     }
 
     /// Today tabs idle longer than the threshold are archived (Arc:
@@ -2323,7 +2329,9 @@ public final class SidebarStore {
     /// (Arc logs it as "Space turned into folder"). Live folders fill themselves, so they go with it.
     @discardableResult
     public func exportSpace(_ id: UUID, intoFolderIn target: UUID) -> SidebarItem? {
-        guard id != target, let space = spaces[id], let dest = spaces[target], spaceOrder.count > 1 else { return nil }
+        // Incognito tabs never move into a saved space, nor out of their window (#413).
+        guard id != target, !isIncognito(space: id), !isIncognito(space: target), let space = spaces[id], let dest = spaces[target],
+              spaceOrder.count > 1 else { return nil }
         let folder = createFolder(named: space.title, in: dest.pinnedContainerID, index: 0)
         let moving = ((isProfileList(space.favoritesContainerID) ? [] : [space.favoritesContainerID]) + [space.pinnedContainerID, space.todayContainerID])
             .flatMap { children(of: $0) }
@@ -2423,9 +2431,10 @@ public final class SidebarStore {
         touch()
     }
 
-    /// Pages already open in the space load again in the new profile (BrowserManager).
+    /// Pages already open in the space load again in the new profile (BrowserManager). An
+    /// incognito space takes none: its pages load off the record whatever it names (#413).
     public func setProfile(_ profileID: UUID?, forSpace id: UUID) {
-        guard var s = spaces[id], s.profileID != profileID, profileID == nil || profile(profileID) != nil else { return }
+        guard var s = spaces[id], !isIncognito(space: id), s.profileID != profileID, profileID == nil || profile(profileID) != nil else { return }
         let previousProfiles = Dictionary(uniqueKeysWithValues: liveFolders.map { ($0.id, profileDirectoryName(item: $0.id)) })
         // Arc: favorites belong to the profile. The space shows its new profile's list and takes
         // nothing along; the old list stays with the old profile, shown or not. A favorite open in

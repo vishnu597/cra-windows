@@ -60,6 +60,7 @@ enum StoreTests {
         try arcItemListedTwice()
         try arcLiveFolderImportsLive()
         try arcSpaceWithoutAnIconImportsAsADot()
+        try arcSpaceIconTabGlyphImports()
         littleWindowProfile()
         tidyTabs()
         pinHook()
@@ -73,6 +74,7 @@ enum StoreTests {
         tornOffTabMovesToABlankWindow()
         tornOffTabKeepsItsProfile()
         archiveTabsBelow()
+        clearTodayKeepsSelectedAndPlaying()
         allFoldersExpanded()
         dropIntoFolderGoesOnTop()
         revealInSidebar()
@@ -80,6 +82,7 @@ enum StoreTests {
         openLinkInSplit()
         backToReferrer()
         recentTabsTakeBackgroundTabs()
+        incognitoSpaceKeepsItsContext()
         print("Store: \(checks) checks passed")
     }
 
@@ -940,6 +943,35 @@ enum StoreTests {
         let store = AppComposition(clock: ManualScheduler()).store
         let ids = store.apply(plan, includeArchive: false, includeSettings: false).spaceIDs
         expect(ids.first.flatMap { store.space($0) }?.icon == SpaceIcon.none, "the imported space has no icon, a dot in the dock (#252)")
+        for id in ids { store.deleteSpace(id) }
+    }
+
+    /// An Arc space with a glyph from the Icon tab of Arc's picker (`iconType.icon`, e.g. "star")
+    /// imports with the SF Symbol in the same slot of Cra's Icon tab, not 🗂️, so nobody picks it
+    /// again. A name Cra has no symbol for (Arc's "github") still gets 🗂️.
+    @MainActor
+    private static func arcSpaceIconTabGlyphImports() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Arc/StorableSidebar.json")
+        var root = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as! [String: Any]
+        var sidebar = root["sidebar"] as! [String: Any]
+        var containers = sidebar["containers"] as! [[String: Any]]
+        let main = containers.firstIndex { $0["spaces"] != nil }!
+        var spaces = containers[main]["spaces"] as! [Any]
+        for (title, icon) in [("Home", "star"), ("Work", "github")] {
+            let i = spaces.firstIndex { ($0 as? [String: Any])?["title"] as? String == title }!
+            var space = spaces[i] as! [String: Any]
+            space["customInfo"] = ["iconType": ["icon": icon]]
+            spaces[i] = space
+        }
+        containers[main]["spaces"] = spaces
+        sidebar["containers"] = containers
+        root["sidebar"] = sidebar
+        let plan = try ArcImporter.plan(sidebar: JSONSerialization.data(withJSONObject: root))
+
+        let store = AppComposition(clock: ManualScheduler()).store
+        let ids = store.apply(plan, includeArchive: false, includeSettings: false).spaceIDs
+        let icons = ids.map { store.space($0)?.icon }
+        expect(icons == [.symbol("star.fill"), .emoji("🗂️")], "Arc's Icon-tab star imports as Cra's star, an unknown glyph as 🗂️ (\(icons))")
         for id in ids { store.deleteSpace(id) }
     }
 
@@ -2516,6 +2548,54 @@ enum StoreTests {
                "and land in the archive")
         store.archiveTabsBelow(pinned.id)
         expect(store.item(pinned.id) != nil, "a pinned tab archives nothing below it (Arc offers it on Today tabs only)")
+        expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
+    }
+
+    /// An incognito window's pages all load in one off-the-record context, whatever profile its
+    /// space would name, so the space takes no profile; and Export into Folder can't carry its
+    /// tabs into a saved space (#413).
+    // promise: #413
+    @MainActor
+    private static func incognitoSpaceKeepsItsContext() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let work = store.createProfile(name: "Work")
+        let home = store.createSpace(title: "Home", emoji: "🏠").id
+        let incognito = store.addIncognitoWindow(frame: nil)
+        let sid = incognito.focusedSpaceID!
+        let secret = store.createTab(url: "https://example.com/secret", window: incognito.id)
+        store.setProfile(work.id, forSpace: sid)
+        expect(store.space(sid)?.profileID == nil, "an incognito space takes no profile")
+        expect(store.exportSpace(sid, intoFolderIn: home) == nil, "an incognito space doesn't export into a saved space")
+        expect(store.isIncognito(item: secret.id) && store.spaceID(ofItem: secret.id) == sid, "its tab stays in the incognito window")
+        expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
+    }
+
+    /// Arc's Clear on Today ("Clear unselected Today tabs"): the tab on screen and a tab playing
+    /// sound stay; a split stays whole with them.
+    // promise: #406
+    @MainActor
+    private static func clearTodayKeepsSelectedAndPlaying() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.createSpace(title: "Clear", emoji: "🧹").id
+        let today = store.space(sid)!.todayContainerID
+        let a = store.createTab(url: "https://a.example/", in: sid, select: false, parent: today, index: 0)
+        let video = store.createTab(url: "https://video.example/", in: sid, select: false, parent: today, index: 1)
+        let c = store.createTab(url: "https://c.example/", in: sid, select: false, parent: today, index: 2)
+        let d = store.createTab(url: "https://d.example/", in: sid, select: false, parent: today, index: 3)
+        let split = store.createSplit(with: [c.id, d.id])!
+        let shown = store.createTab(url: "https://shown.example/", in: sid, parent: today, index: 3)
+        expect(store.selectedTabID == shown.id, "set up: the last tab is on screen")
+        store.clearToday(sid, playing: [video.id])
+        expect(store.children(of: today).map(\.id) == [video.id, shown.id],
+               "Clear keeps the tab on screen and the one playing sound, and archives the rest")
+        expect(store.item(split.id) == nil && store.item(a.id) == nil, "the split and the idle tab are archived")
+
+        let e = store.createTab(url: "https://e.example/", in: sid, select: false, parent: today, index: 2)
+        let f = store.createTab(url: "https://f.example/", in: sid, select: false, parent: today, index: 3)
+        let paneSplit = store.createSplit(with: [e.id, f.id])!
+        store.selectTab(f.id)
+        store.clearToday(sid, playing: [])
+        expect(store.children(of: today).map(\.id) == [paneSplit.id], "a split with the selected pane stays whole")
         expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
     }
 

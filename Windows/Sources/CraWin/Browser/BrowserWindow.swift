@@ -1217,8 +1217,19 @@ final class BrowserWindow {
     // MARK: Import
 
     private func makeImportDialog() {
-        importDialog.onImport = { [weak self] source, credentials in self?.runImport(source, credentials: credentials) }
+        importDialog.onImport = { [weak self] source, credentials, extensions in
+            self?.runImport(source, credentials: credentials, extensions: extensions)
+        }
         importDialog.onCancel = { [weak self] in self?.hideImportDialog() }
+        importDialog.extensionsOf = { [weak self] source in
+            guard let self, let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment),
+                  let userData = source.userData(in: folders) else { return ([], []) }
+            return (ExtensionImport.candidates(inUserData: userData), self.installedExtensionIDs())
+        }
+        importDialog.onHeightChange = { [weak self] height in
+            self?.importDialogHeight = height
+            self?.placeImportDialog()
+        }
         do {
             importWindow = try FloatingWindow(owner: window, content: importDialog.root)
             importWindow?.onClose = { [weak self] in self?.hideImportDialog() }
@@ -1241,10 +1252,11 @@ final class BrowserWindow {
     }
 
     /// Adds the browser's plan to the sidebar, shows its first space and says what came over.
-    /// With `credentials`, its passwords and sign-ins are staged for the next launch and the card
-    /// stays up to say so (the Mac's Passwords and Sign-ins tiles).
-    private func runImport(_ source: WindowsImportSource, credentials: Bool) {
-        switch importData(source, credentials: credentials) {
+    /// With `credentials`, its passwords and sign-ins are staged for the next launch, and
+    /// `extensions` are copied into Cra's folder; then the card stays up to say so (the Mac's
+    /// Passwords, Sign-ins and Extensions tiles).
+    private func runImport(_ source: WindowsImportSource, credentials: Bool, extensions: [ExtensionImport.Candidate] = []) {
+        switch importData(source, credentials: credentials, extensions: extensions) {
         case .failed(let error):
             hideImportDialog()
             showToast(error)
@@ -1259,8 +1271,10 @@ final class BrowserWindow {
     }
 
     /// The import itself, for Import from Another Browser and the onboarding: the plan into the
-    /// sidebar (its first space shown) and, with `credentials`, the passwords and sign-ins staged.
-    private func importData(_ source: WindowsImportSource, credentials: Bool) -> OnboardingView.ImportOutcome {
+    /// sidebar (its first space shown), with `credentials` the passwords and sign-ins staged, and
+    /// `extensions` copied into Cra's Extensions folder (as Extensions/<id>, loaded from the next start).
+    private func importData(_ source: WindowsImportSource, credentials: Bool,
+                            extensions: [ExtensionImport.Candidate] = []) -> OnboardingView.ImportOutcome {
         guard let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment) else {
             return .failed("Could not import from \(source.name)")
         }
@@ -1281,7 +1295,30 @@ final class BrowserWindow {
             report = read.report
             if !CredentialImport.stage(read.credentials, profiles: profiles) { report.failed = true }
         }
-        return .done(summary: summary, credentials: report.summary(from: source.name))
+        var copied = 0, failed: [String] = []
+        for e in extensions {
+            do {
+                try ExtensionImport.copy(e.folder, id: e.id, into: WinPaths.extensions)
+                copied += 1
+            } catch {
+                print("import: \(e.id) couldn't be copied: \(error)")
+                failed.append(e.name)
+            }
+        }
+        if copied > 0 { ExtensionList.shared.needsRestart = true }
+        let details = [report.summary(from: source.name), ExtensionImport.summary(imported: copied, failed: failed)].compactMap { $0 }
+        return .done(summary: summary, credentials: details.isEmpty ? nil : details.joined(separator: " "))
+    }
+
+    /// Every extension ID Cra has: installed in any of its profiles (turned off too), or waiting in
+    /// its Extensions folder for the next start.
+    private func installedExtensionIDs() -> Set<String> {
+        let paths: [String?] = [nil] + store.profiles.map { store.profilePath(profile: $0.id) }
+        var ids = Set(ExtensionFolders.loadable(in: WinPaths.extensions).map(\.lastPathComponent))
+        for path in paths {
+            for e in ExtensionList.shared.entries(profilePath: path, chromiumCache: store.chromiumCache) { ids.insert(e.id) }
+        }
+        return ids
     }
 
     // MARK: Onboarding

@@ -15,6 +15,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private(set) var browsers: BrowserManager!
     private(set) var shell: ShellView!
     private var commandPanel: CommandBarPanel!
+    /// The ⌘T bar's panel while it is open: where a scripted key press goes (cra://debug?key=…).
+    var openCommandPanel: NSWindow? { commandBar.isOpen ? commandPanel : nil }
     private var commandHost: CommandBarView!
     let tabSwitcher = TabSwitcher()
     private let tabSwitcherPanel = TabSwitcherPanel()
@@ -60,6 +62,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private var slowResponses: [UUID: SlowResponseNotice] = [:]
     private var slowResponseToastTab: UUID?
     private var slowResponseCheck: ScheduledWork?
+    /// releaseHiddenFrames, HiddenFrameRelease.afterPageChange after the last page change.
+    private var frameReleaseAfterChange: ScheduledWork?
     private var commandObserving = false
     /// Closed for good (another window stayed open): it no longer follows the store.
     private var isTornDown = false
@@ -477,6 +481,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         commandBar.onCommit = { [weak self] s, typed, mode in self?.handleCommit(s, typed: typed, mode: mode) }
         commandBar.onOpenInBackground = { [weak self] s, typed in self?.openInBackground(s, typed: typed) ?? false }
         commandBar.onOpenInSplit = { [weak self] s, typed in self?.openInSplit(s, typed: typed) ?? false }
+        commandBar.onInstantLinks = { [weak self] phrase, engine in self?.runInstantLinks(phrase, engine: engine) }
         commandBar.onClose = { [weak self] in self?.hideCommandPanel() }
         commandBar.onNoticeSettings = { [weak self] in self?.app.showSettingsWindow(on: .profiles) }
         commandBar.onNoticeLearnMore = { [weak self] in self?.openTab(Self.privacyPage) }
@@ -607,6 +612,27 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         l.dragEnded(id, at: screenPoint, operation: [])
     }
 
+    /// `cra://debug?dropLink`: a link from a page or another app let go on the focused space's list
+    /// (#419), from a pasteboard holding what Mail or a page's link drag holds: its address and,
+    /// with `name`, its text. It goes through the drop's own pasteboard read, placement and tab.
+    func testDropLink(_ url: String, name: String?, before text: String?) {
+        func list(in v: NSView) -> SpaceListView? {
+            if let l = v as? SpaceListView, l.spaceID == focusedSpaceID { return l }
+            return v.subviews.lazy.compactMap { list(in: $0) }.first
+        }
+        guard let l = window?.contentView.flatMap(list(in:)) else { CraLog.note("dropLink: no list"); return }
+        let pb = NSPasteboard(name: .init("dk.kildahl.cra.test-drop-link"))
+        defer { pb.releaseGlobally() }
+        pb.clearContents()
+        let item = NSPasteboardItem()
+        item.setString(url, forType: .URL)
+        if let name { item.setString(name, forType: .urlName) }
+        pb.writeObjects([item])
+        guard let link = SpaceListView.link(on: pb) else { CraLog.note("dropLink: refused \(url)"); return }
+        guard let point = l.testDropPoint(before: text) else { CraLog.note("dropLink: no row with \(text ?? "")"); return }
+        CraLog.note("dropLink: \(l.dropLink(link, drop: l.resolve(dragged: SidebarListDrop.link, at: point)) ? "opened" : "refused") \(link.url)")
+    }
+
     /// `cra://debug?pickedMenu=<n>`: picks the focused space's first n listed tabs, as ⌘-click does,
     /// and logs the menu a right-click on the first one opens (#356): "|" between rows, "──" for a
     /// separator, "▸" after a submenu, " (off)" after a dimmed row. `run` picks the row (or a submenu's
@@ -636,6 +662,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             if item.isSeparatorItem { return "──" }
             return item.title + (item.submenu != nil ? " ▸" : "") + (item.isEnabled ? "" : " (off)")
         }.joined(separator: "|")
+    }
+
+    /// `cra://debug?spaceMenu=<label>`: logs the menu a right-click on the open space's header
+    /// opens, rows as menuReadout writes them (#413: no Set Profile in an incognito window).
+    func testSpaceMenu(label: String) {
+        var headers: [SpaceHeaderView] = []
+        func collect(_ v: NSView) {
+            if let h = v as? SpaceHeaderView, !h.isHiddenOrHasHiddenAncestor { headers.append(h) }
+            v.subviews.forEach(collect)
+        }
+        window?.contentView.map(collect)
+        guard let menu = headers.first?.makeSpaceMenu() else { CraLog.note("space menu \(label): no header"); return }
+        CraLog.note("space menu \(label): \(Self.menuReadout(menu))")
     }
 
     /// `cra://debug?favoriteMenu=<n>`: logs the menu a right-click on the n-th favorite tile opens
@@ -1255,6 +1294,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// Attaches the visible tabs' Chrome windows over their pane areas, hides the others.
     func browserManagerPageWindowsChanged(focus: Bool) {
         guard let window else { return }
+        frameReleaseAfterChange?.cancel()
+        frameReleaseAfterChange = app.composition.clock.after(HiddenFrameRelease.afterPageChange) { [weak self] in
+            guard let self else { return }
+            self.frameReleaseAfterChange = nil
+            self.releaseHiddenFrames(now: self.app.composition.clock.now)
+        }
         // A focus still waiting for its page to embed is stale once pages change without one.
         if !focus { embedFocusTab = nil }
         ensureOverlayPanel()
@@ -1376,7 +1421,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             return .init(id: rt.tabID, hiddenAt: at, releasedFor: rt.hiddenFrameReleasedFor)
         }
         guard let window else { return }
-        for id in HiddenFrameRelease.due(hidden, visible: visible.count, now: now) {
+        let pass = HiddenFrameRelease.pass(HiddenFrameRelease.due(hidden, visible: visible.count, now: now).filter { id in
+            guard let w = browsers.runtime(for: id)?.hostWindow else { return false }
+            return !w.isVisible && w.parent == nil && !releasingFrames.contains(id)
+        })
+        if pass.more {
+            frameReleaseAfterChange?.cancel()
+            frameReleaseAfterChange = app.composition.clock.after(0.25 + HiddenFrameRelease.passGap) { [weak self] in
+                guard let self else { return }
+                self.frameReleaseAfterChange = nil
+                self.releaseHiddenFrames(now: self.app.composition.clock.now)
+            }
+        }
+        for id in pass.now {
             guard let rt = browsers.runtime(for: id), let w = rt.hostWindow, !w.isVisible, w.parent == nil,
                   !releasingFrames.contains(id) else { continue }
             rt.hiddenFrameReleasedFor = rt.hiddenAt
@@ -3834,6 +3891,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         }
     }
 
+    /// Shift-Return on a search in the bar (Instant Links, #407): the row, the plan and the results go to
+    /// the space this window shows.
+    private func runInstantLinks(_ phrase: String, engine: ChromiumSearchEngine) {
+        InstantLinksService.shared.run(phrase: phrase, space: focusedSpaceID, engine: engine, store: store,
+                                       host: .init(windowID: windowID, load: { [weak self] id in self?.browsers.ensureRuntime(for: id) }),
+                                       asNewTab: sidebarUI.newTabPlaceholderActive)
+    }
+
     /// ⌘Return in the bar (Arc): the row's page in a new background tab, the current tab staying
     /// in front; an open tab's row opens its address again rather than switching (GitHub #85).
     private func openInBackground(_ s: Suggestion?, typed: String) -> Bool {
@@ -4040,8 +4105,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         shell.findHost.isHidden = enabled
         askOnPage.view.isHidden = !enabled
         let theme = focusedSpace.theme.shown
-        let c = AskOnPageTone.accent(themeHex: theme.accent ?? theme.colors.first ?? "#DDDDDD", dark: theme.isDark)
-        askOnPage.setAccent(c)
+        // Not theme.isDark: the card follows macOS, so it makes a question for each appearance (#408).
+        askOnPage.setTone(themeHex: theme.accent ?? theme.colors.first ?? "#DDDDDD")
         let tab = browsers.visibleTabID
         askOnPage.pageChanged(tab: tab, url: tab.flatMap { store.item($0)?.tab?.url }.flatMap(URL.init(string:)))
         refitFindPanel()

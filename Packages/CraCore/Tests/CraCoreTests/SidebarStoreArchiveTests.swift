@@ -98,15 +98,19 @@ struct SidebarStoreArchiveTests {
         #expect(f.store.archive.isEmpty)
     }
 
+    /// Arc's Clear (upstream #406): Today's tabs go to the archive, except the one on screen and
+    /// the ones playing sound; pinned tabs stay.
     @Test func clearingTodayArchivesItsTabs() {
         let f = StoreFixture()
         let pinned = f.store.createTab(url: "https://pinned.test/", pinned: true)
-        f.store.createTab(url: "https://a.test/")
-        f.store.createTab(url: "https://b.test/")
-        f.store.clearToday()
-        #expect(f.today().isEmpty && f.pinned() == [pinned.id])
-        #expect(f.store.archive.count == 2 && f.store.archive.allSatisfy { $0.reason == .clear })
-        f.store.clearToday(UUID())
+        let a = f.store.createTab(url: "https://a.test/")
+        let b = f.store.createTab(url: "https://b.test/")
+        let c = f.store.createTab(url: "https://c.test/")
+        f.store.selectTab(a.id)
+        f.store.clearToday(playing: [c.id])
+        #expect(Set(f.today()) == [a.id, c.id] && f.pinned() == [pinned.id])
+        #expect(f.store.archive.map(\.id) == [b.id] && f.store.archive.allSatisfy { $0.reason == .clear })
+        f.store.clearToday(UUID(), playing: [])
     }
 
     @Test func idleTodayTabsArchiveThemselves() {

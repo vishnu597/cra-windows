@@ -43,9 +43,10 @@ struct AskOnPageTests {
         #expect(rules.contains("7. Respond in Danish."))
         #expect(rules.contains("using an <excerpt> tag on its own line"))
         #expect(AskOnPagePrompt.instructions(language: "English").contains("EXAMPLES OF RESPONSES FOR A HYPOTHETICAL WEBPAGE:"))
-        let p = AskOnPagePrompt.prompt(url: "https://apple.com/ios", title: "iOS 17", date: "12/11/2026, 18:00",
-                                       text: "React with your hands.", turns: [], question: "How do reactions work?")
-        #expect(p == """
+        let c = AskOnPagePrompt.conversation(url: "https://apple.com/ios", title: "iOS 17", date: "12/11/2026, 18:00",
+                                             text: "React with your hands.", turns: [], question: "How do reactions work?")
+        #expect(c.earlier.isEmpty)
+        #expect(c.prompt == """
         WEBPAGE CONTEXT FOR OUR DIALOGUE:
         <url>https://apple.com/ios</title>
         <current-date>12/11/2026, 18:00</current-date>
@@ -53,23 +54,46 @@ struct AskOnPageTests {
         <content>
         React with your hands.
         </content>
-        BEGIN DIALOGUE
         How do reactions work?
         """)
     }
 
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/417")) func theModelIsNotToldToWriteADialogue() {
+        // Arc's "When I write BEGIN DIALOGUE … the "Human:"" made the on-device model write a dialogue
+        // of its own: made-up questions, or the answer before word for word.
+        let instructions = AskOnPagePrompt.instructions(language: "English")
+        #expect(!instructions.contains("BEGIN DIALOGUE"))
+        #expect(!instructions.contains("\"Human:\""))
+        #expect(instructions.contains(AskOnPagePrompt.userLine))
+    }
+
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/417")) func aFollowUpIsItsOwnTurnAfterThePage() {
+        // The reporter's conversation: the first answer stays a turn of its own, the follow-up is
+        // asked alone, and no text says "Human:" or "Assistant:" for the model to carry on.
+        let first = AskOnPagePrompt.Turn(question: "why el salvador succeed?",
+                                         answer: "It cannot be determined from the page.\n<excerpt>The real measure of success.</excerpt>")
+        let c = AskOnPagePrompt.conversation(url: "https://example.com/haiti", title: "Haiti", date: "13/11/2026, 12:00",
+                                             text: "The real measure of success.", turns: [first],
+                                             question: "Summarize the key points of this entire article in detailed bullet points.")
+        #expect(c.prompt == "Summarize the key points of this entire article in detailed bullet points.")
+        #expect(c.earlier == [.init(prompt: AskOnPagePrompt.context(url: "https://example.com/haiti", title: "Haiti", date: "13/11/2026, 12:00",
+                                                                     text: "The real measure of success.") + "why el salvador succeed?",
+                                    response: first.answer)])
+        let sent = ([c.prompt] + c.earlier.flatMap { [$0.prompt, $0.response] }).joined(separator: "\n")
+        for framing in ["BEGIN DIALOGUE", "Human:", "Assistant:"] { #expect(!sent.contains(framing)) }
+    }
+
     @Test func followUpsKeepTheLastAnswersAndHideOlderOnes() {
         let turns = (1...3).map { AskOnPagePrompt.Turn(question: "q\($0)", answer: "a\($0)") }
-        #expect(AskOnPagePrompt.dialogue(turns: turns, question: "q4") == """
-        BEGIN DIALOGUE
-        Human: q1
-        Assistant: [Older messages hidden]
-        Human: q2
-        Assistant: a2
-        Human: q3
-        Assistant: a3
-        Human: q4
-        """)
+        let c = AskOnPagePrompt.conversation(url: "u", title: nil, date: "d", text: "page", turns: turns, question: "q4")
+        let page = AskOnPagePrompt.context(url: "u", title: nil, date: "d", text: "page")
+        #expect(c.earlier == [
+            .init(prompt: page + "q1", response: "[Older messages hidden]"),
+            .init(prompt: "q2", response: "a2"),
+            .init(prompt: "q3", response: "a3"),
+        ])
+        #expect(c.prompt == "q4")
+        #expect(AskOnPagePrompt.dialogue(turns: turns, question: "q4") == "q1\n[Older messages hidden]\nq2\na2\nq3\na3\nq4")
     }
 
     @Test func budgetIsArcsLessTheAnswersRoom() {
@@ -188,11 +212,47 @@ struct AskOnPageTests {
 struct AskOnPageToneTests {
     @Test func theSpacesHueAtAReadableStrength() {
         // Arc's lavender space (#B9A3D9-ish) gives a mid purple: blue and red over green.
-        let purple = AskOnPageTone.accent(themeHex: "#B9A3D9", dark: false)
+        let purple = AskOnPageTone(themeHex: "#B9A3D9").questionOnLight
         #expect(purple.b > purple.r && purple.r > purple.g)
         #expect(max(purple.r, purple.g, purple.b) == 0.62)
-        let grey = AskOnPageTone.accent(themeHex: "#DDDDDD", dark: false)
-        #expect(grey.r == 0.22 && grey.b == 1)
-        #expect(max(AskOnPageTone.accent(themeHex: "#B9A3D9", dark: true).b, 0) == 0.92)
+        let grey = AskOnPageTone(themeHex: "#DDDDDD").questionOnLight
+        #expect(abs(grey.r - 0.22) < 0.005 && abs(grey.g - 0.24) < 0.005 && abs(grey.b - 1) < 0.005)
+        // On the dark card the same purple is light and keeps its hue.
+        let onDark = AskOnPageTone(themeHex: "#B9A3D9").questionOnDark
+        #expect(onDark.b > onDark.r && onDark.r > onDark.g && onDark.b >= 0.92)
+    }
+
+    /// Every preset's colours and the hue wheel at several strengths, on both cards: the question
+    /// reads at WCAG AA, and so does the Ask button's white text. Before #408 the dark card showed
+    /// the light card's purple at 2–3:1, and a saturated blue space read 1.5:1 even on its own card.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/408")) func everyQuestionReadsOnItsCard() {
+        var swatches = SpaceTheme.presets.flatMap { [$0.accent].compactMap { $0 } + $0.colors }
+        swatches += ["#DDDDDD", "#000000", "#FFFFFF", "#C7CAFF", "#0000FF", "#FFFF00", "#00FF00", "#FF0000"]
+        for hue in stride(from: 0, to: 360, by: 15) {
+            for (s, v) in [(0.2, 0.9), (0.6, 0.6), (1.0, 1.0), (1.0, 0.3)] {
+                let c = AskOnPageTone.rgb(h: Double(hue) / 360, s: s, v: v)
+                swatches.append(String(format: "#%02X%02X%02X", Int(c.r * 255), Int(c.g * 255), Int(c.b * 255)))
+            }
+        }
+        let white: AskOnPageTone.RGB = (1, 1, 1)
+        for hex in swatches {
+            let tone = AskOnPageTone(themeHex: hex)
+            for dark in [false, true] {
+                let card = AskOnPageTone.card(dark: dark)
+                let ratio = AskOnPageTone.contrast(tone.question(dark: dark), (card, card, card))
+                #expect(ratio >= 4.5, "\(hex) on the \(dark ? "dark" : "light") card: \(ratio)")
+            }
+            #expect(AskOnPageTone.contrast(tone.button, white) >= 4.5, "Ask on \(hex)")
+        }
+    }
+
+    /// The reporter's case: a light space (Arc's lavender preset) with macOS dark. The dark card's
+    /// question is a light lavender, not the light card's purple.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/408")) func lightSpaceOnDarkMacGetsALightQuestion() {
+        let tone = AskOnPageTone(themeHex: "#C8CAFF")
+        let q = tone.questionOnDark
+        #expect(AskOnPageTone.luminance(q) > 0.25)
+        #expect(q.b > q.g)
+        #expect(AskOnPageTone.luminance(tone.questionOnLight) < 0.2)
     }
 }

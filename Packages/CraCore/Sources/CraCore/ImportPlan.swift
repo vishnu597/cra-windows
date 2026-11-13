@@ -36,6 +36,8 @@ public struct ImportedItem {
 public struct ImportedSpace {
     public var title: String
     public var emoji: String
+    /// An SF Symbol shown instead of `emoji` (then empty): Arc's Icon-tab glyphs.
+    public var symbol: String?
     public var theme: SpaceTheme?
     /// The space's own favorites (Arc: the top apps of the space's profile).
     public var favorites: [ImportedItem]
@@ -44,10 +46,11 @@ public struct ImportedSpace {
     /// The source browser's profile the space was on, when it is not Default (Arc, GitHub #131).
     public var profile: ImportedProfile?
 
-    public init(title: String, emoji: String, theme: SpaceTheme?, favorites: [ImportedItem] = [], pinned: [ImportedItem] = [],
+    public init(title: String, emoji: String, symbol: String? = nil, theme: SpaceTheme?, favorites: [ImportedItem] = [], pinned: [ImportedItem] = [],
                 today: [ImportedItem] = [], profile: ImportedProfile? = nil) {
         self.title = title
         self.emoji = emoji
+        self.symbol = symbol
         self.theme = theme
         self.favorites = favorites
         self.pinned = pinned
