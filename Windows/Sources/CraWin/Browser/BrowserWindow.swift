@@ -90,6 +90,8 @@ final class BrowserWindow {
     private var closing = false
     private var readyToClose = false
     private var closeTimer: WinAppSDK.DispatcherQueueTimer?
+    /// Tries the sidebar's keyboard focus again while the XAML is still loading (focusSidebar).
+    private var sidebarFocusRetry: WinAppSDK.DispatcherQueueTimer?
     /// Ctrl+,: one for the app, made the first time any window opens it, then hidden and shown
     /// again (over the window that asked).
     private static var settingsWindow: SettingsWindow?
@@ -224,6 +226,10 @@ final class BrowserWindow {
             store.createTab(url: Self.startPage, window: windowID)
         }
         refresh()
+        // A space with no tab selected shows no page, and show() hands the keyboard on only when
+        // the page changes. The window took the front before onFocus was set (HostWindow shows
+        // itself), so the sidebar takes the keys here; else Ctrl+T did nothing until a click.
+        if shownPage == nil { focusContent() }
     }
 
     /// "Cra", or the tab's title before it; a private window says so, as Chrome's do.
@@ -509,10 +515,38 @@ final class BrowserWindow {
         }
     }
 
-    /// Keys to the sidebar's XAML, so its shortcuts work with no page to take them.
+    /// Keys to the sidebar's XAML, so its shortcuts work with no page to take them. Right after
+    /// launch the XAML isn't laid out yet and the focus doesn't take: a window that opened on a
+    /// space with no tab selected took no keys, Ctrl+T included, until it was clicked. Then it's
+    /// tried again every 50 ms for up to a second, while the window is in front with nothing else
+    /// to take the keyboard.
     private func focusSidebar() {
+        try? sidebarFocusRetry?.stop()
+        sidebarFocusRetry = nil
         window.focusXAML()
-        _ = try? addressButton.focus(.programmatic)
+        if (try? addressButton.focus(.programmatic)) == true { return }
+        var tries = 0
+        let timer = try? dispatcher.createTimer()
+        timer?.interval = TimeSpan(duration: 50 * 10_000)
+        timer?.isRepeating = true
+        timer?.tick.addHandler { [weak self] _, _ in
+            guard let self else { return }
+            tries += 1
+            let inFront = GetForegroundWindow() == HWND(bitPattern: self.hwnd)
+            guard tries <= 20, inFront, !self.closing, self.shownPage == nil, self.libraryPage == nil,
+                  !self.commandBar.isOpen else {
+                try? self.sidebarFocusRetry?.stop()
+                self.sidebarFocusRetry = nil
+                return
+            }
+            self.window.focusXAML()
+            if (try? self.addressButton.focus(.programmatic)) == true {
+                try? self.sidebarFocusRetry?.stop()
+                self.sidebarFocusRetry = nil
+            }
+        }
+        sidebarFocusRetry = timer
+        try? timer?.start()
     }
 
     private func makeCommandBar() {

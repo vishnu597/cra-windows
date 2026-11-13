@@ -259,6 +259,10 @@ built release app with a test profile. Note anything that fails in the release's
   no Chrome window or "extension added" dialog shows, the keyboard stays with Cra, and Ctrl+E
   shows the extension's tile. Stock CEF reads the post-install window's tab when the install
   settles; Cra crashed when that window was already closed (PC test of PR #39).
+- **Windows keys with no tab selected:** with an isolated test profile, import a space from another
+  browser (it comes in with no tab selected), focus it, then quit and launch Cra again.
+  Without clicking, press Ctrl+T: the command bar opens. Cra's window takes the front before it
+  can hand the keyboard on, and the XAML isn't laid out yet (PC test of PR #42).
 - **Windows Share:** with an isolated test profile, assign Share a shortcut in Settings. In
   both a browser tab and a Little Window with the page focused, use that shortcut: Windows'
   Share panel opens for that page. Close the panel using its own Close X, then invoke Share
