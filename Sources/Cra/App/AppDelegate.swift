@@ -1021,6 +1021,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if dict["pageInsets"] != nil { CraLog.note(main.pageInsetsReadout()); return }
             // toolbar=out|in|sample|state: the floating toolbar (Settings ▸ Tabs), and where it is.
             if let command = dict["toolbar"] { CraLog.note(main.shell.debugToolbar(command)); return }
+            if let label = dict["findBar"] { CraLog.note(main.debugFindBar(label)); return }
             if dict["chromiumDialogs"] != nil { CraLog.note(ChromiumDialogs.readout()); return }
             if let label = dict["switcherWindows"] {
                 CraLog.note(SwitcherWindows.readout(label, main: main.window, little: littleWindows.compactMap(\.window))); return
@@ -1054,9 +1055,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     return
                 }
                 // clicks=2: a double-click there (a favorite's Back to Pinned Page, #264); mods=<modifier
-                // bits>: keys held through it (524288, Option: a link opens in Split View, #298).
+                // bits>: keys held through it (524288, Option: a link opens in Split View, #298);
+                // button=right: a right-click (Back's history menu, #416).
                 TestGesture.click(at: point, in: w, clicks: dict["clicks"].flatMap(Int.init) ?? 1,
-                                  modifiers: NSEvent.ModifierFlags(rawValue: dict["mods"].flatMap(UInt.init) ?? 0))
+                                  modifiers: NSEvent.ModifierFlags(rawValue: dict["mods"].flatMap(UInt.init) ?? 0),
+                                  right: dict["button"] == "right")
                 return
             }
             if let st = dict["status"] { main.browserManager(statusMessage: st, tabID: nil); return }
@@ -1545,6 +1548,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 return
             }
+            if let label = dict["historyMenu"] { CraLog.note(main.backForwardMenuReadout(label)); return }
             if let label = dict["back"] {
                 let today = store.tabs(under: store.focusedSpace(window: main.windowID).todayContainerID).count
                 CraLog.note("back \(label): selected=\(main.selectedTab?.tab?.url ?? "-") back=\(main.sidebarUI.canGoBack ? 1 : 0) today=\(today)")
@@ -1752,7 +1756,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 let tab = dict["tab"].flatMap(UUID.init(uuidString:)).flatMap { main.browsers.runtime(for: $0)?.browser }
                 let b = dict["target"] == "little" ? littleWindows.last?.browser : tab ?? main.currentBrowser
                 b?.sendDevToolsMethod(method, params: dict["params"] ?? "{}") { result, error in
-                    NSLog("Cra cdp %@ → %@", method, result ?? "error: \(error ?? "?")")
+                    CraLog.note("Cra cdp \(method) → \(result ?? "error: \(error ?? "?")")")
                 }
                 return
             }
@@ -1910,10 +1914,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 main.testDragEnded(tab.id, at: point)
                 return
             }
-            // dropLink=<url>[&name=<link text>][&before=<text>]: a link let go on the focused space's
-            // list, below the last row or on the row whose tab's URL holds the text (#419).
+            // dropLink=<url>[&name=<link text>][&before=<text>|&onto=<text>]: a link let go on the focused
+            // space's list, below the last row, or on the top or the middle of the row whose tab's URL
+            // holds the text (#419).
             if let url = dict["dropLink"] {
-                main.testDropLink(url, name: dict["name"], before: dict["before"])
+                main.testDropLink(url, name: dict["name"], row: dict["before"] ?? dict["onto"], onto: dict["onto"] != nil)
                 return
             }
             if dict["windows"] != nil {
@@ -2246,13 +2251,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// returning false lets CEF pass the key on to the menu bar (⌘Q, ⌘H…).
     func handleUnhandledKey(_ event: NSEvent) -> Bool {
         if undoClosedTab(event) { return true }
-        // Chromium hands a ⌘-key the page left alone back to the menu bar through its own
-        // window's command dispatcher (⌘C, ⌘V, ⌘A, ⌘Z exist only as Edit menu items). An
-        // embedded page sits in Cra's window, which has none, so it goes to the menu bar here,
-        // first: the menu runs the keys it shows, which AppKit fits to the keyboard layout
-        // (Turkish Q: Zoom In ⌘., Stop ⌘ç, Back ⌘ğ), the way the sidebar's keys go (GitHub #212).
-        if event.modifierFlags.contains(.command), let key = NSApp.keyWindow,
-           !key.responds(to: NSSelectorFromString("commandDispatcher")),
+        // Chromium's page view takes every key equivalent before the menu bar, ⌘ or not, and
+        // hands one the page left alone back to the menu bar through its own window's command
+        // dispatcher (⌘C, ⌘V, ⌘A, ⌘Z exist only as Edit menu items). An embedded page sits in
+        // Cra's window, which has none, so it goes to the menu bar here, first: the menu runs
+        // the keys it shows, which AppKit fits to the keyboard layout (Turkish Q: Zoom In ⌘.,
+        // Stop ⌘ç, Back ⌘ğ), the way the sidebar's keys go (GitHub #212). ⌃, ⌥ and F-keys too:
+        // a System Settings App Shortcut such as ⌃` for Hide/Show Sidebar is a menu key (#253).
+        if !event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty,
+           let window = event.window ?? NSApp.keyWindow,
+           !window.responds(to: NSSelectorFromString("commandDispatcher")),
            NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
             return true
         }
