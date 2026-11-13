@@ -189,7 +189,10 @@ struct KeyBindingsTests {
         let r = Self.registry(KeyBindingDefaults.windows, in: dir)
         let all = ShortcutsList.groups(in: r, query: "")
         #expect(all.map(\.title) == ["Cra", "File", "Edit", "View", "Spaces", "Tabs", "Archive", "Window"])  // Window: the Little Window actions
-        #expect(all.reduce(0) { $0 + $1.actions.count } == KeyBindingDefaults.windows.count)
+        // Commands outside the menus (Open Extensions, Manage Extensions) stay out, as on the Mac.
+        let listed = Set(ShortcutsList.sections.map(\.0))
+        #expect(all.reduce(0) { $0 + $1.actions.count } == KeyBindingDefaults.windows.filter { listed.contains($0.section) }.count)
+        #expect(!all.flatMap(\.actions).contains { $0.id == "openExtensions" })
         #expect(ShortcutsList.groups(in: r, query: "  SPLIT ").flatMap(\.actions).map(\.id)
             == ["addSplitView", "closeSplitPane", "separateFromSplit", "flipSplitOrientation", "nextSplitPane", "previousSplitPane"])
         #expect(ShortcutsList.groups(in: r, query: "nothing like this").isEmpty)
