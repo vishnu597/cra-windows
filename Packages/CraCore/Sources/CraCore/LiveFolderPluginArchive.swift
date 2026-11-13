@@ -5,6 +5,9 @@ import Darwin
 import Glibc
 #endif
 
+// Unpacks with /usr/bin/unzip on the Mac; the iOS app has no plugins. Linux and Windows keep it
+// for the ZIP checks that run before extraction (LiveFolderPluginArchiveValidationTests).
+#if !os(iOS)
 public final class LiveFolderPluginArchive {
     public let package: LiveFolderPluginPackage
     private let temporaryDirectory: URL
@@ -133,3 +136,4 @@ public final class LiveFolderPluginArchive {
         #endif
     }
 }
+#endif

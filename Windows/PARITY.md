@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: fca4564 -->
+<!-- upstream-reviewed: 56be95d -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -25,7 +25,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Window, pages and toolbar | 5 | 4 | 0 | 16 | 1 |
 | Sidebar | 3 | 7 | 0 | 18 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
-| Split view | 1 | 1 | 0 | 2 | 0 |
+| Split view | 1 | 1 | 0 | 3 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 1 | 1 | 0 | 5 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
@@ -35,8 +35,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Settings | 2 | 5 | 0 | 4 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
-| System integration and release | 3 | 2 | 0 | 9 | 5 |
-| **All** | 22 | 38 | 1 | 77 | 13 |
+| System integration and release | 3 | 2 | 0 | 9 | 6 |
+| **All** | 22 | 38 | 1 | 78 | 14 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -125,6 +125,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Pane controls on focus and hover, focus ring, rename a split, pinned and favorite splits | 🟡 | `PaneCardView.swift`, `SidebarRowViews.swift` | `SidebarStore` | Windows has the layout and the menu; the per-pane bar, ring and rename are missing. |
 | Switch to Split View 1–4 (`splitPaneN`), Open in Split View and Add Split View on the tab menu, a tab dropped on a pinned tab makes a pinned split (#180) | ❌ | `MainWindowController.swift`, `SidebarMenus.swift` | `SidebarStore` (`createSplit(inPlace:)`, `combineIntoSplit`) | Upstream 56a5232, b2955ba. The drop waits for drag and drop. |
 | Expand Current Split (`expandSplitPane`): the focused pane takes the window, the others keep Arc's 220 pt minimum | ❌ | `MainWindowController.swift`, `SplitPaneTransition.swift` | `SplitPaneLayout` | Upstream 9629fd1. `SplitPaneLayout.expanding` and the 220 pt minimum are shared and already lay Windows' panes out; Windows needs the command and the menu item. |
+| Drag a sidebar tab or a page's link onto the page to split it, on the side it's let go (#419) | ❌ | `PageDropRouter.swift`, `PageSplitDrop.swift`, `SplitDropRegionView.swift` | `SplitDropProposal` | Upstream 60cf686, 2908a25. `SplitDropProposal` picks the side and is shared; Windows needs drag and drop onto the CEF page and the region overlay. |
 
 ## Little Windows, Peek and the Library
 
@@ -255,6 +256,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | AppleScript with Arc's dictionary, JavaScript from Apple Events off by default (`allowAppleEventsJavaScript`) | ➖ | `AppleScripting.swift` | | macOS only (upstream de695e2). Windows' scripting goes through `cra://` (its own row). |
 | Keep Cra in the menu bar after quitting (#231) | ❌ | `MenuBarItem.swift` | `MenuBarMode` | Upstream 96c0255. Windows' counterpart is a notification-area icon that keeps Cra running. |
 | Open a Safari page handed off from an iPhone | ➖ | `AppDelegate+Handoff.swift` | | Upstream 4fd9b3e uses macOS Handoff/NSUserActivity. There is no direct Windows Handoff counterpart in this port. |
+| The iPhone app (Arc Search's design) and its Mac sync | ➖ | `iOS/Cra` | `MobileAI`, `MobileArchive`, `MobileBlockerNotices`, `MobileBlocklist`, `MobileBrowseForMe`, `MobileBrowseToggle`, `MobileChrome`, `MobileCoachMark`, `MobileDownloads`, `MobileFidget`, `MobileMotion`, `MobileOnboarding`, `MobilePageMenu`, `MobileSearchEngine`, `MobileSettings`, `MobileShareInbox`, `MobileSpaces`, `MobileSuggestions`, `MobileSummary`, `MobileSwipe`, `MobileSyncIntro`, `MobileTabCarousel`, `MobileTabs`, `MobileTranslate` | Upstream's iPhone app (iOS/, after Arc Search 1.49). Its decisions live in CraCore's Mobile folder and build on Linux and Windows too, but they serve the phone. Windows has nothing to port. |
 | Sync sidebar, settings and shortcuts through iCloud or a folder | ❌ | `SettingsSyncService.swift`, `SyncSection.swift` | `SettingsSync` | Upstream cae2918. Folder manifests, merge and conflict decisions are portable; Windows needs the folder chooser, file coordination/watching and settings UI. iCloud integration is Mac-specific. Sharing consent and MCP permissions do not sync. |
 | Agents in Cra: permissioned local MCP server and bridge | ❌ | `MCPServer.swift`, `MCPListener.swift`, `MCPConnection.swift`, `MCPPeer.swift`, `MCPInput.swift`, `MCPPage.swift`, `MCPTransfers.swift` | `MCPAgents`, `MCPAgentAids`, `MCPInputPlan`, `MCPProtocol`, `JSONNumber`, `MCPReferences`, `MCPSession`, `MCPUploadTarget` | Upstream 31187f8. Protocol/session/reference/input policies are shared. Windows needs transport/client identity, approval UI and native page/input/capture integration; this sync does not start an MCP listener on Windows. JavaScript and history access remain separate opt-ins in the model. |
 | Feature flags | ❌ | `FeatureFlags.swift` | | |
@@ -535,6 +537,19 @@ new CraCore files' CoreGraphics imports are guarded.
 | 30afd28 | Extensions see the page Cra has focused as the active tab (#414) | Toolbar and popups row (`ChromiumPageFocus.swift`); on Windows a popup's tabs.query doesn't see the Cra tab yet (patched CEF). ❌ |
 | c9e0134 | A ⌃, ⌥ or F-key App Shortcut works while a page has the keyboard (#253) | Mac only (macOS App Shortcuts). ➖ |
 | fca4564 | A space's emoji draws itself so macOS 27 doesn't cut it (#399) | Mac only (`EmojiLabel.swift`). ➖ |
+
+Upstream sync #16 merged the 71 commits after fca4564 (5aa1df1 to 56be95d), most of them the
+iPhone app. Conflicts: CLAUDE.md's layer table (both rows kept) and `addEmptyPane` (upstream's
+`title:` parameter, kept public). The new CraCore files' CoreGraphics imports are guarded, and
+`LiveFolderPluginArchive` is left out on iOS only, since its ZIP checks are tested on Linux and Windows.
+
+| Commit | What | Windows |
+|---|---|---|
+| 60cf686, 2908a25 | Drag a sidebar tab or a page's link onto the page to split it (#419) | New page split drop row (`SplitDropProposal`). ❌ |
+| 990cae0, 9cc14d3 | Ask on Page: quotes from the page, follow-ups, streaming; an answer that echoes the page is asked again (#417) | Ask on Page row. ➖ |
+| 20de2af | Instant Links: a Google /goto result opens its own page | Instant Links row. ➖ |
+| 56be95d and the other iPhone app commits | The iPhone app, its widgets and share extension, synced Spaces, CI's iPhone build | New iPhone app row (`Mobile*`). ➖ |
+| 2d7e110, docs commits | One repo for both apps: README, contributor docs, issue forms | Docs only. ➖ |
 
 ## Keeping this current
 
