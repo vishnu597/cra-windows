@@ -87,8 +87,7 @@ public struct MobileShareInbox: Codable, Equatable {
     public static func update<T>(in folder: URL, _ change: (inout MobileShareInbox) -> T) -> T? {
         let file = folder.appendingPathComponent(fileName)
         var result: T?
-        var error: NSError?
-        NSFileCoordinator().coordinate(writingItemAt: file, options: [], error: &error) { url in
+        func apply(_ url: URL) {
             var inbox = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder.inbox.decode(MobileShareInbox.self, from: $0) } ?? MobileShareInbox()
             let before = inbox
             result = change(&inbox)
@@ -96,6 +95,13 @@ public struct MobileShareInbox: Codable, Equatable {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try? data.write(to: url, options: .atomic)
         }
+        #if canImport(Darwin)
+        var error: NSError?
+        NSFileCoordinator().coordinate(writingItemAt: file, options: [], error: &error) { apply($0) }
+        #else
+        // Linux and Windows build CraCore too (no NSFileCoordinator there, and no share extension).
+        apply(file)
+        #endif
         return result
     }
 }
