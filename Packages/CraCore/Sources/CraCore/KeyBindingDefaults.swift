@@ -292,6 +292,11 @@ public enum KeyBindingDefaults {
             "setDefaultBrowser": [],
             // The Import dialog: Arc's and Chromium browsers' spaces, bookmarks and tabs (PR 10).
             "importData": [],
+            // Extensions: Arc's Open Extensions (the Site Control Center and its extension tiles)
+            // takes ⌘E's Ctrl+E, which Chrome gives its omnibox search Cra doesn't have; Manage
+            // Extensions is chrome://extensions.
+            "openExtensions": [KeyChord("e", ctrl)],
+            "manageExtensions": [],
         ]
         for n in 1...9 {
             table["item\(n)"] = [KeyChord("\(n)", ctrl)]
