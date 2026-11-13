@@ -17,6 +17,10 @@ final class ExtensionList {
         let isEnabled: Bool
         let folder: URL
         let manifest: ExtensionManifest
+        /// One of Cra's own folders (Settings ▸ Extensions ▸ Add Unpacked Extension…), loaded with
+        /// --load-extension: removing it deletes the folder. Else Chromium installed it (the Web
+        /// Store, chrome://extensions' Load unpacked) and removing goes through chrome://extensions.
+        var inCraFolder: Bool { ExtensionFolders.contains(folder, directory: WinPaths.extensions) }
 
         var launch: ExtensionLaunch.Extension {
             ExtensionLaunch.Extension(id: id, popupPath: manifest.popupPath, optionsPath: manifest.optionsPath, enabled: isEnabled)
@@ -25,6 +29,9 @@ final class ExtensionList {
 
     /// Called after a profile's extensions changed (an install, a switch, a removal).
     var onChange: [() -> Void] = []
+    /// Settings ▸ Extensions added or removed one of Cra's folders this session: Chromium reads
+    /// them at start-up, so a restart applies it.
+    var needsRestart = false
     /// Icons by "<folder>|<file>", decoded once.
     private var icons: [String: WriteableBitmap] = [:]
 
@@ -45,7 +52,9 @@ final class ExtensionList {
         let dir = profilePath.map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? chromiumCache.appendingPathComponent("Default", isDirectory: true)
         let settings = Self.liveSettings(profilePath: profilePath) ?? InstalledExtensions.settings(inProfile: dir)
-        return InstalledExtensions.installed(settings: settings, inProfile: dir).map {
+        // Cra's own folders load from the command line (ExtensionFolders.commandLineLocation).
+        let locations = InstalledExtensions.storeOrUnpacked.union([ExtensionFolders.commandLineLocation])
+        return InstalledExtensions.installed(settings: settings, inProfile: dir, locations: locations).map {
             Entry(id: $0.id, name: $0.manifest.name, isEnabled: $0.isEnabled, folder: $0.folder, manifest: $0.manifest)
         }
     }

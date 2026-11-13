@@ -38,6 +38,9 @@ final class SettingsWindow {
     var onNewProfile: () -> Void = {}
     /// General ▸ Import from another browser: the browser window in use shows the Import dialog.
     var onImport: () -> Void = {}
+    /// Extensions ▸ Remove… and Open Chrome's Extension Manager: the page in a tab of the browser
+    /// window in use.
+    var onOpenURL: (String) -> Void = { _ in }
 
     init(store: SidebarStore) throws {
         self.store = store
@@ -56,6 +59,11 @@ final class SettingsWindow {
         appWindow.closing.addHandler { [weak self] _, args in
             args?.cancel = true
             self?.hide()
+        }
+        // An install, switch or removal elsewhere while the Extensions pane shows: its rows follow.
+        ExtensionList.shared.onChange.append { [weak self] in
+            guard let self, self.shownPane == .extensions else { return }
+            self.syncPane()
         }
         refresh()
     }
@@ -254,6 +262,10 @@ final class SettingsWindow {
         case .tabs:
             built = SettingsPanes.tabs(store: store, palette: palette) { [weak self] button in self?.airTrafficControl.show(from: button) }
         case .profiles: built = SettingsPanes.profiles(store: store, palette: palette) { [weak self] in self?.onNewProfile() }
+        case .extensions:
+            built = SettingsPanes.extensions(store: store, palette: palette, owner: { [weak self] in
+                self.map { UInt($0.appWindow.id.value) } ?? 0
+            }) { [weak self] url in self?.onOpenURL(url) }
         case .shortcuts:
             let view = ShortcutsPaneView(bindings: WinKeyBindings.shared, palette: palette)
             built = SettingsPaneContent(element: view.root) { view.render() }

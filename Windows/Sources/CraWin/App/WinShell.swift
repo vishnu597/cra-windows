@@ -174,4 +174,13 @@ enum WinShell {
         guard chosen != 0 else { return nil }
         return String(cString: buffer)
     }
+
+    /// Windows' folder picker; the chosen folder, nil if cancelled.
+    static func pickFolder(owner: UInt, title: String) -> URL? {
+        let capacity = 4096
+        var buffer = [CChar](repeating: 0, count: capacity)
+        let chosen = title.withCString { t in cra_pick_folder_dialog(owner, t, &buffer, capacity) }
+        guard chosen != 0 else { return nil }
+        return URL(fileURLWithPath: String(cString: buffer), isDirectory: true)
+    }
 }

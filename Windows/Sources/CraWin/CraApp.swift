@@ -157,6 +157,9 @@ public final class CraApp: SwiftApplication {
         // Passwords and sign-ins an import staged go in while no Chromium has the profile open
         // (another Cra holding it keeps them waiting).
         CredentialImport.applyPending(root: WinPaths.chromiumCache)
+        // Cra's own unpacked extensions (Settings ▸ Extensions), as Windows paths.
+        let folders = ExtensionFolders.loadable(in: WinPaths.extensions).map(WinPaths.native)
+        cra_cef_set_extension_folders(ExtensionFolders.commandLineValue(paths: folders) ?? "")
         let cache = WinPaths.chromiumCache.path
         let log = WinPaths.log.path
         return helper.withCString { h in
