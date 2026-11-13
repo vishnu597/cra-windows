@@ -233,6 +233,34 @@ final class WindowList: BrowserWindowHost {
         }
     }
 
+    /// A page Chromium opened in a window of its own (an extension's options page from
+    /// chrome://extensions, its chrome.tabs.create, its welcome page after an install): a tab in
+    /// the browser window used last, in a space on the profile it came from, and an options page
+    /// already open there is selected instead (ExtensionPagePlacement, the Mac's openExtensionPage).
+    func openExtensionPage(_ url: String, profile: String) {
+        guard let target = lastNormalWindow() else { return }
+        let page = { (u: String) in u.split(separator: "#", maxSplits: 1).first.map(String.init) ?? u }
+        let space = { [store] (id: UUID) in ExtensionPagePlacement.Space(id: id, profile: store.profileDirectoryName(space: id)) }
+        let open = store.allTabs().compactMap { [store] t -> (tab: UUID, space: UUID)? in
+            guard t.tab.map({ page($0.url) == page(url) }) == true, let sid = store.spaceID(ofItem: t.id) else { return nil }
+            return (t.id, sid)
+        }
+        let profilePath = store.profiles.first { $0.directoryName == profile }.flatMap { store.profilePath(profile: $0.id) }
+        let options = ExtensionList.shared.entries(profilePath: profilePath, chromiumCache: store.chromiumCache).contains { e in
+            e.manifest.optionsPath.map { page(url) == "chrome-extension://\(e.id)/\($0)" } ?? false
+        }
+        let placement = ExtensionPagePlacement.target(
+            focused: space(store.focusedSpaceID(window: target.windowID)),
+            spaces: store.orderedSpaces.filter { !store.isIncognito(space: $0.id) }.map { space($0.id) },
+            profile: profile, openTabs: open, singleton: options)
+        store.activeWindowID = target.windowID
+        switch placement {
+        case .select(let tab): store.selectTab(tab, window: target.windowID)
+        case .create(let sid): store.createTab(url: url, in: sid, select: true, window: target.windowID)
+        }
+        target.activate()
+    }
+
     /// Scripting and tests: every cra:// link, from any app.
     private static let allowsScripting = ProcessInfo.processInfo.environment["CRA_SCRIPTING_URLS"] == "1"
 

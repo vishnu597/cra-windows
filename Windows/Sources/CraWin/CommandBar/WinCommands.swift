@@ -44,6 +44,9 @@ enum WinGlyph {
         case "arrow.down.circle", "arrow.down.circle.fill": return "\u{E896}"  // Download
         case "archivebox", "archivebox.fill": return "\u{E7B8}"  // Archive
         case "square.on.square", "square.on.square.fill": return "\u{E8A9}"  // ViewAll
+        // Extensions (the Site Control Center's tiles, Manage Extensions).
+        case "puzzlepiece.extension", "puzzlepiece.extension.fill": return "\u{EA86}"  // Puzzle
+        case "plus": return "\u{E710}"  // Add
         default: return "\u{E721}"  // magnifyingglass
         }
     }

@@ -31,12 +31,12 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
 | Profiles, privacy and site data | 2 | 2 | 0 | 9 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
-| Extensions | 0 | 0 | 0 | 5 | 0 |
+| Extensions | 0 | 2 | 0 | 3 | 0 |
 | Settings | 2 | 4 | 0 | 5 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 4 |
 | System integration and release | 3 | 2 | 0 | 9 | 5 |
-| **All** | 22 | 34 | 1 | 80 | 12 |
+| **All** | 22 | 36 | 1 | 78 | 12 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -192,8 +192,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Install from the Chrome Web Store or a folder, Extensions menu (`openExtensions`, `manageExtensions`) | ❌ | `ExtensionStore.swift`, `ExtensionsMenu.swift`, `ExtensionLaunch.swift` | `ExtensionProfiles`, `ExtensionPagePlacement`, `ExtensionPageRetry`, `WebStoreInstalls` | Phase 2 items 12 and 13. `ExtensionLaunch.swift` is a known exception: move it. Upstream 3fe0c5b (#227): quitting while a Web Store install runs no longer crashes. |
-| Toolbar and pinned buttons, popups, badges, live icons | ❌ | `ExtensionActions.swift`, `ExtensionPopupWindow.swift`, `ExtensionPopupCandidate.swift` | `ExtensionActionState`, `ExtensionBadge`, `PinnedExtensions`, `PinnedExtensionGrid`, `ToolbarExtensionFit`, `DismissingClick`, `FirstClick` | The extension CEF patches (`extension-popup-browser-info.patch` and the others) need the Windows CEF build too. |
+| Install from the Chrome Web Store or a folder, Extensions menu (`openExtensions`, `manageExtensions`) | 🟡 [#39](https://github.com/vishnu597/cra-windows/pull/39) | `ExtensionStore.swift`, `ExtensionsMenu.swift` | `InstalledExtensions`, `ExtensionManifest`, `ExtensionLaunch`, `ExtensionPagePlacement`, `ExtensionProfiles`, `ExtensionPageRetry`, `WebStoreInstalls` | Stock CEF runs Web Store installs with Chrome's own dialog, content scripts and chrome://extensions (PC experiment, 12 Nov 2026). Windows lists each profile's installs live (`extensions.settings`) in the Site Control Center (Ctrl+E), and pages Chromium opens in windows of its own (options, welcome pages, `chrome.tabs.create`) become Cra tabs. Left: extensions from a folder and imported ones (`--load-extension`, `ExtensionProfiles`), the "Switch to Chrome" banner on the Web Store, external extensions other software registers for Chrome (they arrive turned off), popup-type `windows.create` windows (they open as tabs). Upstream 3fe0c5b (#227): quitting while a Web Store install runs no longer crashes. |
+| Toolbar and pinned buttons, popups, badges, live icons | 🟡 [#39](https://github.com/vishnu597/cra-windows/pull/39) | `ExtensionActions.swift`, `ExtensionPopupWindow.swift`, `ExtensionPopupCandidate.swift` | `ExtensionActionState`, `ExtensionBadge`, `PinnedExtensions`, `PinnedExtensionGrid`, `ToolbarExtensionFit`, `DismissingClick`, `FirstClick` | A Site Control Center tile opens the popup page in a card of its own (360 × 480, not sized to the page) or the options page (`ExtensionLaunch.popupWindow`); Chrome's action doesn't run, so a popup's "current tab" is itself. Left: pins, badges, live icons, Chrome's own action (the extension CEF patches, `extension-popup-browser-info.patch` and the others, need the Windows CEF build). |
 | Extension side panels (MetaMask) | ❌ | `ExtensionSidePanel.swift` | `ExtensionSidePanel` | |
 | Native messaging hosts (1Password and others) | ❌ | `NativeMessagingHosts.swift`, `ExtensionProtocolReply.swift` | `ExtensionProxyControl` | Windows reads hosts from the registry, not folders. Both files are Foundation only: move the shared part to CraCore. |
 | Settings ▸ Extensions | ❌ | `ExtensionsPane.swift` | | |
