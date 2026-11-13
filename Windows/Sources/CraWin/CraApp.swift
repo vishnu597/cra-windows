@@ -78,6 +78,7 @@ public final class CraApp: SwiftApplication {
             }
             observeGlobalShortcut(store: store, windows: windows)
             openLinksFromOtherApps(windows: windows)
+            openStrayPages(windows: windows)
             DefaultBrowser.updateRegistrationIfMoved()
             DefaultBrowser.registerScheme()
         }
@@ -102,6 +103,20 @@ public final class CraApp: SwiftApplication {
     }
 
     @MainActor private static var relaunched: (([String]) -> Void)?
+
+    /// Pages Chromium opens in windows of its own (an extension's options or welcome page)
+    /// become tabs (WindowList.openExtensionPage); Chrome's window is closed unseen.
+    @MainActor
+    private func openStrayPages(windows: WindowList) {
+        Self.strayPage = { [weak windows] url, profile in windows?.openExtensionPage(url, profile: profile) }
+        cra_cef_set_stray_page_handler(nil) { _, url, profile in
+            guard let url else { return }
+            let link = String(cString: url), folder = profile.map { String(cString: $0) } ?? "Default"
+            onMain { CraApp.strayPage?(link, folder) }
+        }
+    }
+
+    @MainActor private static var strayPage: ((String, String) -> Void)?
 
     /// This launch's arguments after the program; with `--single-argument` (Chrome's switch for
     /// a link from the shell), everything after it is one argument, spaces and quotes included,

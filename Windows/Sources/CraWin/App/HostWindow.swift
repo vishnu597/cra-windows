@@ -44,6 +44,8 @@ final class HostWindow {
     /// The window became the active one (a click, Alt+Tab, the taskbar): the store's active
     /// window follows it, as AppKit's key window does on the Mac.
     var onActivate: (() -> Void)?
+    /// Another window became the active one (an extension's popup closes then, as Chrome's do).
+    var onDeactivate: (() -> Void)?
     /// A move or resize by the user ended (its frame is then worth saving).
     var onMoveEnded: (() -> Void)?
     /// The window's own client area shows wherever no page and no XAML covers it: between split
@@ -312,7 +314,7 @@ final class HostWindow {
             return nil
         case Self.wmActivate:
             // WA_INACTIVE is 0; WA_ACTIVE and WA_CLICKACTIVE are not.
-            if wParam & 0xFFFF != 0 { onActivate?() }
+            if wParam & 0xFFFF != 0 { onActivate?() } else { onDeactivate?() }
             return nil
         case Self.wmExitSizeMove:
             onMoveEnded?()

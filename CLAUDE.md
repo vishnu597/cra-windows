@@ -60,5 +60,3 @@ touches it anyway, not as a side errand.
 - `Services/Import/`: the parsers for other browsers' files (Arc's, Chromium's bookmarks and
   sessions, and `apply` are in CraCore already). Tested on `Tests/Fixtures` by
   `scripts/test-store.sh`.
-- `UI/Windows/ExtensionLaunch.swift` and `Services/DevToolsToggle.swift`: policies, tested by
-  `scripts/test-policies.sh`.

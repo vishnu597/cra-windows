@@ -4,10 +4,11 @@ import UWP
 import WinUI
 
 /// Arc's Site Control Center (the Mac's SiteControlCenterView), in a window of its own under
-/// the sliders button at the end of the address pill: the four action buttons, the Settings
-/// switches Windows has (none yet: Developer Mode, ad blocking and Picture-in-Picture come
-/// later), a divider, and the footer with the connection state and the More menu. Extensions
-/// join it once Cra runs them on Windows. CraCore's SiteControlCenter decides what it shows.
+/// the sliders button at the end of the address pill: the four action buttons, the
+/// page's profile's extensions (a tile each, then "+"), the Settings switches Windows has (none
+/// yet: Developer Mode, ad blocking and Picture-in-Picture come later), a divider, and the
+/// footer with the connection state and the More menu. CraCore's SiteControlCenter decides what
+/// it shows.
 @MainActor
 final class SiteControlCenterView {
     private typealias M = SiteControlCenter.Metrics
@@ -16,6 +17,10 @@ final class SiteControlCenterView {
         var perform: (SiteControlCenter.Action) -> Void = { _ in }
         var more: (SiteControlCenter.MoreItem) -> Void = { _ in }
         var toggle: (SiteControlCenter.Setting) -> Void = { _ in }
+        /// An extension's tile: ExtensionLaunch decides what runs.
+        var runExtension: (String) -> Void = { _ in }
+        /// The "+" tile: the Chrome Web Store.
+        var addExtension: () -> Void = {}
         /// The connection pill: the page's certificate. nil without one.
         var showCertificate: (() -> Void)?
     }
@@ -28,6 +33,8 @@ final class SiteControlCenterView {
     /// Escape, as it closes Arc's popover.
     var onEscape: () -> Void = {}
     private var firstTile: Button?
+    /// The page's profile runs extensions: the More menu offers Manage and Add Extension.
+    private var showsExtensions = false
 
     init() {
         root.previewKeyDown.addHandler { [weak self] _, args in
@@ -43,9 +50,17 @@ final class SiteControlCenterView {
         _ = try? firstTile?.focus(.pointer)
     }
 
+    /// An extension's tile: its name (the tooltip) and its button icon.
+    struct ExtensionTile {
+        let id: String
+        let name: String
+        let icon: WriteableBitmap?
+    }
+
     /// Builds the contents for the page at `url`. `dark` is Windows' own light or dark mode, as
-    /// Arc's popover follows macOS rather than the space (#171).
-    func build(url: String, secure: Bool, rows: [SiteControlCenter.SettingRow], dark: Bool) {
+    /// Arc's popover follows macOS rather than the space (#171). `extensions`: the page's
+    /// profile's, in order; nil leaves the section out (a private window's page runs none).
+    func build(url: String, secure: Bool, rows: [SiteControlCenter.SettingRow], extensions: [ExtensionTile]?, dark: Bool) {
         let colors = Colors(dark: dark)
         root.children.clear()
         root.rowDefinitions.clear()
@@ -53,6 +68,8 @@ final class SiteControlCenterView {
         root.background = colors.background
         root.padding = Thickness(left: Double(M.inset), top: Double(M.top), right: Double(M.inset), bottom: Double(M.inset))
         var parts: [FrameworkElement] = [actionRow(colors)]
+        showsExtensions = extensions != nil
+        if let extensions { parts.append(extensionsSection(extensions, colors)) }
         if !rows.isEmpty { parts.append(settingsSection(rows, colors)) }
         parts.append(divider(colors))
         parts.append(footer(secure: secure, colors))
@@ -61,7 +78,7 @@ final class SiteControlCenterView {
             root.children.append(part)
             try? Grid.setRow(part, Int32(i))
         }
-        height = Double(M.height(extensions: nil, settingRows: rows.count))
+        height = Double(M.height(extensions: extensions?.count, settingRows: rows.count))
     }
 
     // MARK: Parts
@@ -93,6 +110,62 @@ final class SiteControlCenterView {
             row.children.append(b)
         }
         return row
+    }
+
+    /// "Extensions" and a 4-column grid of 48 × 32 tiles, the extensions' icons, then "+" (Arc).
+    private func extensionsSection(_ tiles: [ExtensionTile], _ colors: Colors) -> FrameworkElement {
+        let section = StackPanel()
+        section.margin = Thickness(left: 0, top: 0, right: 0, bottom: Double(M.afterExtensions))
+        let title = UI.text("Extensions", size: 12, color: colors.header)
+        title.fontWeight = UWP.FontWeight(weight: 600)
+        title.height = Double(M.sectionHeader)
+        section.children.append(title)
+        let grid = Grid()
+        grid.rowSpacing = Double(M.gap)
+        grid.columnSpacing = Double(M.gap)
+        for _ in 0..<4 { grid.columnDefinitions.append(UI.column(UI.pixels(Double(M.tile.width)))) }
+        var cells: [Button] = []
+        for tile in tiles {
+            let content: UIElement
+            if let icon = tile.icon {
+                content = UI.image(icon, size: 16)
+            } else {
+                let piece = FontIcon()
+                piece.glyph = WinGlyph.code("puzzlepiece.extension")
+                piece.fontSize = 14
+                piece.foreground = colors.text
+                content = piece
+            }
+            let id = tile.id
+            let b = UI.button(content, fill: UI.clear, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in
+                self?.actions.runExtension(id)
+            }
+            try? ToolTipService.setToolTip(b, tile.name)
+            try? AutomationProperties.setName(b, tile.name)
+            cells.append(b)
+        }
+        let plus = FontIcon()
+        plus.glyph = WinGlyph.code("plus")
+        plus.fontSize = 13
+        plus.foreground = colors.secondary
+        let add = UI.button(plus, fill: UI.clear, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in
+            self?.actions.addExtension()
+        }
+        try? ToolTipService.setToolTip(add, "Add Extension")
+        try? AutomationProperties.setName(add, "Add Extension")
+        cells.append(add)
+        for (i, b) in cells.enumerated() {
+            b.width = Double(M.tile.width)
+            b.height = Double(M.tile.height)
+            b.cornerRadius = CornerRadius(topLeft: 7, topRight: 7, bottomRight: 7, bottomLeft: 7)
+            Self.keepFill(b, UI.clear, hover: colors.action)
+            if i % 4 == 0 { grid.rowDefinitions.append(UI.row(UI.pixels(Double(M.tile.height)))) }
+            grid.children.append(b)
+            try? Grid.setRow(b, Int32(i / 4))
+            try? Grid.setColumn(b, Int32(i % 4))
+        }
+        section.children.append(grid)
+        return section
     }
 
     /// "Settings" and a row a switch: a circle with the switch's glyph, its title and state.
@@ -197,7 +270,7 @@ final class SiteControlCenterView {
     /// cut off at the edges of this small window).
     private func showMoreMenu() {
         var items: [SiteControlCenter.MoreItem?] = []
-        for (i, group) in SiteControlCenter.moreMenu(extensions: false).enumerated() {
+        for (i, group) in SiteControlCenter.moreMenu(extensions: showsExtensions).enumerated() {
             if i > 0 { items.append(nil) }
             items += group.map { $0 }
         }

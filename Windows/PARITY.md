@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 0b0b328 -->
+<!-- upstream-reviewed: f6a8736 -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -27,16 +27,16 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 1 | 1 | 0 | 2 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
-| Tabs and memory | 1 | 1 | 0 | 4 | 0 |
+| Tabs and memory | 1 | 1 | 0 | 5 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
 | Profiles, privacy and site data | 2 | 2 | 0 | 9 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
-| Extensions | 0 | 0 | 0 | 5 | 0 |
+| Extensions | 0 | 2 | 0 | 3 | 0 |
 | Settings | 2 | 4 | 0 | 5 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 4 |
 | System integration and release | 3 | 2 | 0 | 9 | 5 |
-| **All** | 22 | 34 | 1 | 79 | 12 |
+| **All** | 22 | 36 | 1 | 78 | 12 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -146,6 +146,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Auto-archive Today tabs after a set time | ✅ [#14] | `TabsPane.swift` | `SidebarModel` (`AutoArchiveThreshold`) | Upstream 2e8a659 adds 90/180 days and tolerant decoding of newer values. Windows' picker lists the shared cases, so the new thresholds arrive with the model; recheck the menu in the sync PC test. |
 | Tab freezing and sleeping, Tab Cleanup timers, calls stay awake | ❌ | `BrowserManager.swift` | `TabSleepPolicy`, `MemoryReclaim` | The policy is shared; Windows needs the CEF discard calls and the two Settings ▸ Tabs switches. Since upstream 135f794 (#214) the policy reads a `PageState` per page and says why it passed one over. Since upstream c09f3c3 (#237) critical memory pressure closes 9 pages a pass and each pass logs one line per way of closing (`TabSleepPolicy.PassLog`). |
+| Spare pages: a page made ahead for the next new tab, link or restored tab | ❌ | `SparePages.swift` | `SparePage` | Upstream 935cca1: CEF's window-making (~34 ms on the Mac) moves off the click. Windows makes each page on the click; its HWND cost is unmeasured. |
 | Mute a tab (`muteTab`), speaker icon, camera and microphone dot | 🟡 | `SidebarRowViews.swift` | `SidebarModel` | The bridge can mute; the sidebar shows no speaker yet. Upstream 4d9beb0, 7cd69db (#387): a muted tab stays muted on its next page and after a relaunch (`Tab.isMuted` in `sidebar.json`), and a favorite's menu has Mute / Unmute. Windows needs to re-apply the mute when a page is created. |
 | Open links in new tabs in the background | ❌ | `TabsPane.swift` | `LinkMenu` | |
 | Background tabs laid out at the pane's size, first seconds of a tab, hidden tabs give their GPU tiles back (#195) | ❌ | `BrowserManager.swift`, `PageProbe.swift`, `PageScript.swift` | `HiddenFrameRelease` | `PageScript.swift` is Foundation only: move it to CraCore. |
@@ -191,8 +192,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Install from the Chrome Web Store or a folder, Extensions menu (`openExtensions`, `manageExtensions`) | ❌ | `ExtensionStore.swift`, `ExtensionsMenu.swift`, `ExtensionLaunch.swift` | `ExtensionProfiles`, `ExtensionPagePlacement`, `ExtensionPageRetry`, `WebStoreInstalls` | Phase 2 items 12 and 13. `ExtensionLaunch.swift` is a known exception: move it. Upstream 3fe0c5b (#227): quitting while a Web Store install runs no longer crashes. |
-| Toolbar and pinned buttons, popups, badges, live icons | ❌ | `ExtensionActions.swift`, `ExtensionPopupWindow.swift`, `ExtensionPopupCandidate.swift` | `ExtensionActionState`, `ExtensionBadge`, `PinnedExtensions`, `PinnedExtensionGrid`, `ToolbarExtensionFit`, `DismissingClick`, `FirstClick` | The extension CEF patches (`extension-popup-browser-info.patch` and the others) need the Windows CEF build too. |
+| Install from the Chrome Web Store or a folder, Extensions menu (`openExtensions`, `manageExtensions`) | 🟡 [#39](https://github.com/vishnu597/cra-windows/pull/39) | `ExtensionStore.swift`, `ExtensionsMenu.swift` | `InstalledExtensions`, `ExtensionManifest`, `ExtensionLaunch`, `ExtensionPagePlacement`, `ExtensionProfiles`, `ExtensionPageRetry`, `WebStoreInstalls` | Stock CEF runs Web Store installs with Chrome's own dialog, content scripts and chrome://extensions (PC experiment, 12 Nov 2026). Windows lists each profile's installs live (`extensions.settings`) in the Site Control Center (Ctrl+E), and pages Chromium opens in windows of its own (options, welcome pages, `chrome.tabs.create`) become Cra tabs. Left: extensions from a folder and imported ones (`--load-extension`, `ExtensionProfiles`), the "Switch to Chrome" banner on the Web Store, an extension's open pages closing when it is turned off (they turn into a blank tab), external extensions other software registers for Chrome (they arrive turned off), popup-type `windows.create` windows (they open as tabs). Upstream 3fe0c5b (#227): quitting while a Web Store install runs no longer crashes. |
+| Toolbar and pinned buttons, popups, badges, live icons | 🟡 [#39](https://github.com/vishnu597/cra-windows/pull/39) | `ExtensionActions.swift`, `ExtensionPopupWindow.swift`, `ExtensionPopupCandidate.swift` | `ExtensionActionState`, `ExtensionBadge`, `PinnedExtensions`, `PinnedExtensionGrid`, `ToolbarExtensionFit`, `DismissingClick`, `FirstClick` | A Site Control Center tile opens the popup page in a card of its own (360 × 480, not sized to the page) or the options page (`ExtensionLaunch.popupWindow`); Chrome's action doesn't run, so a popup's "current tab" is itself (uBlock Origin Lite's popup says "not a website"). Left: pins, badges, live icons, Chrome's own action (the extension CEF patches, `extension-popup-browser-info.patch` and the others, need the Windows CEF build). |
 | Extension side panels (MetaMask) | ❌ | `ExtensionSidePanel.swift` | `ExtensionSidePanel` | |
 | Native messaging hosts (1Password and others) | ❌ | `NativeMessagingHosts.swift`, `ExtensionProtocolReply.swift` | `ExtensionProxyControl` | Windows reads hosts from the registry, not folders. Both files are Foundation only: move the shared part to CraCore. |
 | Settings ▸ Extensions | ❌ | `ExtensionsPane.swift` | | |
@@ -489,6 +490,16 @@ Upstream sync #12 merged the 2 commits after 4967f24, with no conflicts.
 |---|---|---|
 | 2165ca1 | The update warm-up runs the helper apps too | Auto-update row (`UpdatePrewarm`). ❌ |
 | 0b0b328 | A window manager's nil child window no longer crashes Cra (#391) | Mac accessibility (`DockedWindowAccessibility.swift`). ➖ |
+
+Upstream sync #13 merged the 4 commits after 0b0b328; `Tests/test-browser-manager.sh` conflicted
+(the fork's CraCore paths plus upstream's spare-page files).
+
+| Commit | What | Windows |
+|---|---|---|
+| ae7afb5 | Speed journeys on a real sidebar and real sites | Mac perf scripts. ➖ |
+| 935cca1 | Spare pages: a page made ahead for the next new tab (`SparePage`) | Spare pages row. ❌ |
+| 4ad54a1 | A sidebar tab switches on the press, not the release (`SidebarRowPress.selectsOnPress`) | Sidebar rows. ❌ |
+| f6a8736 | Space switches don't ask which window is under the pointer every frame | Mac only (AppKit hit testing). ➖ |
 
 ## Keeping this current
 

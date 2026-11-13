@@ -114,6 +114,8 @@ final class BrowserWindow {
     /// When the Site Control Center last closed because another window took the front: a press
     /// on the sliders right then is the click that closed it, and doesn't open it again.
     private var siteControlClosed = Date.distantPast
+    /// An extension's popup page (ExtensionLaunch.popupWindow), under the sliders.
+    private var extensionPopup: ExtensionPopup?
     private var toast: ToastView!
     /// A full-page capture is running.
     private var capturing = false
@@ -377,6 +379,7 @@ final class BrowserWindow {
         commandBar.close()
         hideFindBar()
         hideSiteControlCenter()
+        extensionPopup?.close()
         toast.hide()
         permissionWindow?.hide()
         for request in permissionQueue { request.answer(false) }
@@ -676,6 +679,9 @@ final class BrowserWindow {
         case "findNext": findNext(forward: true)
         case "findPrevious": findNext(forward: false)
         case "settings": openSettings()
+        // Arc's Open Extensions (⌘E on the Mac): the Site Control Center, its extension tiles.
+        case "openExtensions": toggleSiteControlCenter()
+        case "manageExtensions": store.createTab(url: SiteControlCenter.manageExtensionsURL, window: windowID)
         case "setDefaultBrowser": DefaultBrowser.makeDefault()
         case "importData": if !isIncognito { showImportDialog() }
         case "newWindow": host?.openNewWindow(incognito: false)
@@ -1391,6 +1397,11 @@ final class BrowserWindow {
     private func makeSiteControlCenter() {
         siteControl.ownerWindow = { [weak self] in self?.siteControlWindow?.hwnd ?? 0 }
         siteControl.onEscape = { [weak self] in self?.hideSiteControlCenter(refocus: true) }
+        // An install or a switch in chrome://extensions while it shows: its tiles follow.
+        ExtensionList.shared.onChange.append { [weak self] in
+            guard let self, self.siteControlShown else { return }
+            self.showSiteControlCenter()
+        }
         do {
             siteControlWindow = try FloatingWindow(owner: window, content: siteControl.root)
             // A click anywhere else closes it, as Arc's transient popover.
@@ -1425,6 +1436,8 @@ final class BrowserWindow {
             guard let self else { return }
             SiteControlCenter.toggle(setting, in: &self.store.settings, url: url)
         }
+        actions.runExtension = { [weak self] id in self?.runExtension(id) }
+        actions.addExtension = { [weak self] in self?.siteControlMore(.addExtension, url: url) }
         if ssl?.hasCertificate == true {
             actions.showCertificate = { [weak self] in
                 guard let self else { return }
@@ -1435,21 +1448,79 @@ final class BrowserWindow {
         siteControl.actions = actions
         // Windows has none of the three switches' features yet.
         siteControl.build(url: url, secure: secure, rows: SiteControlCenter.settingRows(store.settings, url: url, available: []),
-                          dark: WinAppearance.isDark)
+                          extensions: extensionTiles(scale: window.scale), dark: WinAppearance.isDark)
         // Under the sliders, its right edge at theirs, kept on the window.
         let scale = window.scale
         let width = Int32((Double(SiteControlCenter.Metrics.width) * scale).rounded())
         let height = Int32((siteControl.height * scale).rounded())
+        var corner = slidersCorner(host: host, scale: scale)
+        corner.x = max(0, corner.x - width)
+        siteControlWindow.place(origin: PointInt32(x: corner.x, y: corner.y), size: SizeInt32(width: width, height: height))
+        siteControlWindow.show { [weak self] in self?.siteControl.focus() }
+    }
+
+    /// Under the sliders, on screen: their right edge, 4 DIPs below them (where the Site Control
+    /// Center and an extension's popup hang).
+    private func slidersCorner(host: HWND, scale: Double) -> POINT {
         var corner = POINT(x: 0, y: 0)
         if let transform = try? sliders.transformToVisual(nil),
            let origin = try? transform.transformPoint(WindowsFoundation.Point(x: 0, y: 0)) {
             let right = (Double(origin.x) + sliders.actualWidth) * scale
             let bottom = (Double(origin.y) + sliders.actualHeight + 4) * scale
-            corner = POINT(x: max(0, Int32(right.rounded()) - width), y: Int32(bottom.rounded()))
+            corner = POINT(x: Int32(right.rounded()), y: Int32(bottom.rounded()))
         }
         _ = ClientToScreen(host, &corner)
-        siteControlWindow.place(origin: PointInt32(x: corner.x, y: corner.y), size: SizeInt32(width: width, height: height))
-        siteControlWindow.show { [weak self] in self?.siteControl.focus() }
+        return corner
+    }
+
+    // MARK: Extensions
+
+    /// The profile the page on screen runs in (its extensions are that profile's); nil is Default.
+    private var shownProfilePath: String? {
+        store.selectedTabID(window: windowID).flatMap { store.profilePath(item: $0) }
+    }
+
+    /// The Site Control Center's extension tiles: the page's profile's turned-on extensions, by
+    /// name. None in a private window, whose off-the-record profile runs none here.
+    private func extensionTiles(scale: Double) -> [SiteControlCenterView.ExtensionTile]? {
+        guard !isIncognito else { return nil }
+        let list = ExtensionList.shared
+        return list.enabled(profilePath: shownProfilePath, chromiumCache: store.chromiumCache).map {
+            SiteControlCenterView.ExtensionTile(id: $0.id, name: $0.name, icon: list.icon($0, points: 16, scale: scale))
+        }
+    }
+
+    /// A click on an extension's tile. Windows has no toolbar for Chrome's popup to hang from,
+    /// so the popup page opens in a card of its own, else its options page (ExtensionLaunch).
+    private func runExtension(_ id: String) {
+        hideSiteControlCenter()
+        guard !isIncognito else { return }
+        let profile = shownProfilePath
+        let available = ExtensionList.shared.entries(profilePath: profile, chromiumCache: store.chromiumCache).map(\.launch)
+        switch ExtensionLaunch.decide(id, available: available, hasPage: false) {
+        case .popupWindow(let url): openExtensionPopup(url, profilePath: profile)
+        case .openTab(let url): store.createTab(url: url, window: windowID)
+        case .nothing, .runAction: break
+        }
+    }
+
+    private func openExtensionPopup(_ url: String, profilePath: String?) {
+        extensionPopup?.close()
+        guard !closing, let window, let host = HWND(bitPattern: hwnd) else { return }
+        do {
+            let popup = try ExtensionPopup(url: url, profilePath: profilePath, owner: window,
+                                           corner: slidersCorner(host: host, scale: window.scale))
+            popup.onClose = { [weak self, weak popup] in
+                if self?.extensionPopup === popup { self?.extensionPopup = nil }
+            }
+            popup.openTab = { [weak self] link in
+                guard let self else { return }
+                self.store.createTab(url: link, select: true, window: self.windowID)
+            }
+            extensionPopup = popup
+        } catch {
+            print("Cra: an extension's popup could not open: \(error)")
+        }
     }
 
     /// `refocus`: the page takes the keyboard back if the popover had it (a click elsewhere

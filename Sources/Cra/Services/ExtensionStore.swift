@@ -450,21 +450,12 @@ final class ExtensionStore {
     }
 
     private static func entry(id: String, folder dir: URL, extensionID: String?) -> Entry? {
-        guard let data = try? Data(contentsOf: dir.appendingPathComponent("manifest.json")),
-              let m = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        func str(_ k: String) -> String { (m[k] as? String) ?? "" }
-        var title = ExtensionImporter.localized(str("name"), manifest: m, folder: dir)
-        if title.hasPrefix("__MSG_") { title = id }
-        let action = (m["action"] ?? m["browser_action"] ?? m["page_action"]) as? [String: Any]
-        let options = (m["options_ui"] as? [String: Any])?["page"] as? String ?? m["options_page"] as? String
-        // A path or {size: path} (React DevTools' grey "disabled" icon until a page uses React).
-        let actionIcons = action?["default_icon"] as? [String: String] ?? (action?["default_icon"] as? String).map { ["16": $0] }
-        let description = ExtensionImporter.localizedDescription(manifest: m, folder: dir)
-        return Entry(id: id, name: title.isEmpty ? id : title, version: str("version"), description: description, url: dir,
-                     extensionID: extensionID ?? chromiumID(key: m["key"] as? String, folder: dir),
-                     icon: actionIcons.flatMap { ExtensionImporter.icon(manifest: ["icons": $0], folder: dir, points: 16) }
-                        ?? ExtensionImporter.icon(manifest: m, folder: dir, points: 16),
-                     popupPath: (action?["default_popup"] as? String).flatMap { $0.isEmpty ? nil : $0 }, optionsPath: options)
+        guard let m = ExtensionManifest(folder: dir, fallbackName: id) else { return nil }
+        return Entry(id: id, name: m.name, version: m.version, description: m.description, url: dir,
+                     extensionID: extensionID ?? chromiumID(key: m.key, folder: dir),
+                     icon: m.actionIcons.flatMap { ExtensionImporter.icon(manifest: ["icons": $0], folder: dir, points: 16) }
+                        ?? ExtensionImporter.icon(manifest: ["icons": m.icons], folder: dir, points: 16),
+                     popupPath: m.popupPath, optionsPath: m.optionsPath)
     }
 
     /// Chromium's ID: the first 128 bits of SHA-256 over the manifest key (or the

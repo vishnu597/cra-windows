@@ -14,6 +14,8 @@
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <map>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -136,6 +138,51 @@ void HideDownloadBubble(CefRefPtr<CefRequestContext> context) {
     }
 }
 
+/// Set once Cra starts quitting: no more extension calls into Swift.
+bool g_quitting = false;
+
+// Cra's extension list (ExtensionList.swift) reads extensions.settings live. On disk it lags
+// ~10 s behind an install (Chromium batches its pref writes), so a just-installed extension
+// would be missing from the Site Control Center (the Mac's #43); the live pref is not.
+void *g_extensionsChangedContext = nullptr;
+CraExtensionsChangedHandler g_extensionsChangedHandler = nullptr;
+bool g_extensionsChangePending = false;
+
+class NotifyExtensionsChanged : public CefTask {
+public:
+    void Execute() override {
+        g_extensionsChangePending = false;
+        if (g_extensionsChangedHandler && !g_quitting) g_extensionsChangedHandler(g_extensionsChangedContext);
+    }
+private:
+    IMPLEMENT_REFCOUNTING(NotifyExtensionsChanged);
+};
+
+class ExtensionSettingsObserver : public CefPreferenceObserver {
+public:
+    void OnPreferenceChanged(const CefString &name) override {
+        // An install changes the pref several times in a row: one reload for all of them.
+        if (!g_extensionsChangedHandler || g_extensionsChangePending || g_quitting) return;
+        g_extensionsChangePending = true;
+        CefPostTask(TID_UI, new NotifyExtensionsChanged());
+    }
+private:
+    IMPLEMENT_REFCOUNTING(ExtensionSettingsObserver);
+};
+
+std::vector<CefRefPtr<CefRegistration>> g_extensionSettingsObservers;
+
+void ObserveExtensionSettings(CefRefPtr<CefRequestContext> context) {
+    static CefRefPtr<ExtensionSettingsObserver> observer = new ExtensionSettingsObserver();
+    if (!context) return;
+    if (CefRefPtr<CefRegistration> r = context->AddPreferenceObserver("extensions.settings", observer)) {
+        g_extensionSettingsObservers.push_back(r);
+    }
+}
+
+/// Named profiles whose request context has loaded: their preferences can be read.
+std::set<std::wstring> g_readyProfiles;
+
 /// The off-the-record profile private windows share (an empty cache path keeps cookies,
 /// storage and cache in memory), until the last of them closes (cra_cef_end_incognito_session).
 /// Its preferences get Cra's settings once it loads, as the Mac's IncognitoContext does.
@@ -159,8 +206,14 @@ CefRefPtr<CefRequestContext> IncognitoContext() {
 /// Default profile. CreateBrowser waits for a context still loading from disk.
 class ProfileContextHandler : public CefRequestContextHandler {
 public:
-    void OnRequestContextInitialized(CefRefPtr<CefRequestContext> context) override { HideDownloadBubble(context); }
+    explicit ProfileContextHandler(std::wstring path) : path_(std::move(path)) {}
+    void OnRequestContextInitialized(CefRefPtr<CefRequestContext> context) override {
+        HideDownloadBubble(context);
+        ObserveExtensionSettings(context);
+        g_readyProfiles.insert(path_);
+    }
 private:
+    std::wstring path_;
     IMPLEMENT_REFCOUNTING(ProfileContextHandler);
 };
 
@@ -173,7 +226,7 @@ CefRefPtr<CefRequestContext> ProfileContext(const std::wstring &path) {
     CefRequestContextSettings settings;
     CefString(&settings.cache_path) = path;
     settings.persist_session_cookies = true;
-    CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(settings, new ProfileContextHandler());
+    CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(settings, new ProfileContextHandler(path));
     g_profileContexts[path] = context;
     return context;
 }
@@ -1167,9 +1220,143 @@ private:
     IMPLEMENT_REFCOUNTING(CraClient);
 };
 
+// Browsers Chromium makes through its own UI rather than through Cra: an extension's options
+// page opened from chrome://extensions, its chrome.tabs.create or chrome.windows.create, or the
+// welcome page an extension opens once it is installed. CEF gives them GetDefaultClient();
+// without one they appear in a stock Chrome window with a tab strip and an omnibox (PC
+// experiment, 12 Nov 2026: one opened after every Web Store install). Cra takes the page as one
+// of its own tabs and closes Chrome's browser, whose window it hides first (StrayBrowserClient
+// in CraCEF.mm). Popup-type windows (windows.create({type: "popup"})) go the same way for now:
+// Windows can't tell them from tabbed ones as the Mac does.
+void *g_strayPageContext = nullptr;
+CraStrayPageHandler g_strayPageHandler = nullptr;
+
+/// The Chromium profile folder a browser runs in: "Profile <id>" for a named one, else "Default".
+std::string ProfileFolderName(CefRefPtr<CefBrowser> browser) {
+    CefRefPtr<CefRequestContext> context = browser->GetHost()->GetRequestContext();
+    std::wstring path = context ? context->GetCachePath().ToWString() : std::wstring();
+    while (!path.empty() && (path.back() == L'\\' || path.back() == L'/')) path.pop_back();
+    size_t slash = path.find_last_of(L"\\/");
+    std::wstring name = slash == std::wstring::npos ? path : path.substr(slash + 1);
+    if (name.rfind(L"Profile ", 0) != 0) return "Default";
+    return CefString(name).ToString();
+}
+
+class DeliverStrayPage : public CefTask {
+public:
+    DeliverStrayPage(std::string url, std::string profile) : url_(std::move(url)), profile_(std::move(profile)) {}
+    void Execute() override {
+        if (g_strayPageHandler && !g_quitting) g_strayPageHandler(g_strayPageContext, url_.c_str(), profile_.c_str());
+    }
+private:
+    std::string url_, profile_;
+    IMPLEMENT_REFCOUNTING(DeliverStrayPage);
+};
+
+class StrayBrowserClient : public CefClient, public CefLifeSpanHandler, public CefRequestHandler {
+public:
+    CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
+    CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
+
+    void OnAfterCreated(CefRefPtr<CefBrowser> browser) override { browsers_[browser->GetIdentifier()] = browser; }
+    void OnBeforeClose(CefRefPtr<CefBrowser> browser) override { browsers_.erase(browser->GetIdentifier()); }
+
+    bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
+                        bool user_gesture, bool is_redirect) override {
+        if (!g_strayPageHandler || !frame->IsMain()) return false;
+        std::string url = request->GetURL().ToString();
+        // A blank start (the page comes next), and DevTools Chromium opens in a window of their own.
+        if (url.empty() || url == "about:blank" || url.rfind("devtools://", 0) == 0) return false;
+        Hide(browser);
+        // Chrome's own empty tab (the window it opens after a Web Store install): nobody asked
+        // for it, so it is closed, not turned into a tab. Not at once: stock Chromium opens it
+        // to show its "extension added" dialog and, once the install settles, reads that
+        // window's active tab without checking it's still there, which crashed Cra 4 to 8 s
+        // after Add to Chrome when the window was already gone (PC test of PR #39; the Mac's
+        // extension-install-ui-null-tab.patch fixes the same read in Cra's own CEF build).
+        // Hidden, it waits out the install; Chromium shows it once its tab is in, and the dialog
+        // is a window of its own, so both are hidden again until it goes.
+        if (url.rfind("chrome://newtab", 0) == 0 || url.rfind("chrome://new-tab-page", 0) == 0) {
+            CefPostDelayedTask(TID_UI, new KeepHidden(this, browser->GetIdentifier(), kInstallWindowTicks), kTickMs);
+            return true;
+        }
+        CefPostTask(TID_UI, new DeliverStrayPage(url, ProfileFolderName(browser)));
+        browser->GetHost()->CloseBrowser(true);
+        return true;
+    }
+
+    /// The hidden post-install window stays 15 s, past the install's dialog, and is hidden again
+    /// every quarter second until then.
+    static constexpr int64_t kTickMs = 250;
+    static constexpr int kInstallWindowTicks = 60;
+
+    /// Chrome's window and the windows it owns (its dialogs), unseen: see-through as well as
+    /// hidden, so a Show() between two ticks shows nothing.
+    static void Hide(CefRefPtr<CefBrowser> browser) {
+        HWND page = browser->GetHost()->GetWindowHandle();
+        HWND top = page ? GetAncestor(page, GA_ROOT) : nullptr;
+        if (!top) return;
+        HideWindow(top);
+        EnumWindows([](HWND window, LPARAM owner) -> BOOL {
+            if (GetWindow(window, GW_OWNER) == reinterpret_cast<HWND>(owner)) HideWindow(window);
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(top));
+    }
+
+    static void HideWindow(HWND window) {
+        LONG_PTR style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+        if (!(style & WS_EX_LAYERED) || !(style & WS_EX_TOOLWINDOW)) {
+            SetWindowLongPtrW(window, GWL_EXSTYLE, (style | WS_EX_LAYERED | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW);
+            SetLayeredWindowAttributes(window, 0, 0, LWA_ALPHA);
+        }
+        if (IsWindowVisible(window)) ShowWindow(window, SW_HIDE);
+    }
+
+    /// One tick for a hidden post-install window: hide it again, or close it when its time is
+    /// up. Nothing once it has gone (quitting closes them all).
+    void Tick(int identifier, int ticksLeft) {
+        auto found = browsers_.find(identifier);
+        if (found == browsers_.end() || g_quitting) return;
+        if (ticksLeft <= 0) {
+            found->second->GetHost()->CloseBrowser(true);
+            return;
+        }
+        Hide(found->second);
+        CefPostDelayedTask(TID_UI, new KeepHidden(this, identifier, ticksLeft - 1), kTickMs);
+    }
+
+    /// Quitting: whatever Chromium still has open goes.
+    void CloseAll() {
+        for (auto &entry : browsers_) entry.second->GetHost()->CloseBrowser(true);
+    }
+    size_t Count() const { return browsers_.size(); }
+
+private:
+    class KeepHidden : public CefTask {
+    public:
+        KeepHidden(CefRefPtr<StrayBrowserClient> client, int identifier, int ticksLeft)
+            : client_(client), identifier_(identifier), ticksLeft_(ticksLeft) {}
+        void Execute() override { client_->Tick(identifier_, ticksLeft_); }
+    private:
+        CefRefPtr<StrayBrowserClient> client_;
+        int identifier_, ticksLeft_;
+        IMPLEMENT_REFCOUNTING(KeepHidden);
+    };
+
+    std::map<int, CefRefPtr<CefBrowser>> browsers_;
+    IMPLEMENT_REFCOUNTING(StrayBrowserClient);
+};
+
+CefRefPtr<StrayBrowserClient> g_strayClient;
+
 class CraApp : public CefApp, public CefBrowserProcessHandler {
 public:
     CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
+
+    CefRefPtr<CefClient> GetDefaultClient() override {
+        if (!g_strayClient) g_strayClient = new StrayBrowserClient();
+        return g_strayClient;
+    }
 
     void OnBeforeCommandLineProcessing(const CefString &process_type, CefRefPtr<CefCommandLine> command_line) override {
         if (!process_type.empty()) return;
@@ -1189,6 +1376,7 @@ public:
         CEF_REQUIRE_UI_THREAD();
         g_contextInitialized = true;
         HideDownloadBubble(CefRequestContext::GetGlobalContext());
+        ObserveExtensionSettings(CefRequestContext::GetGlobalContext());
         std::vector<CraBrowser *> pending;
         pending.swap(g_pendingCreation);
         for (CraBrowser *b : pending) {
@@ -1366,16 +1554,19 @@ extern "C" void cra_cef_set_relaunch_handler(void *context, CraRelaunchHandler h
 }
 
 extern "C" void cra_cef_shutdown(void) {
+    g_quitting = true;
     if (g_clickHook) {
         UnhookWindowsHookEx(g_clickHook);
         g_clickHook = nullptr;
     }
     std::vector<CraBrowser *> open(g_browsers.begin(), g_browsers.end());
     for (CraBrowser *b : open) cra_browser_close(b);
+    if (g_strayClient) g_strayClient->CloseAll();
     // Let Chromium destroy the pages: pump its work and the windows' messages until they are
     // gone, for at most five seconds.
     ULONGLONG deadline = GetTickCount64() + 5000;
-    while ((!g_browsers.empty() || g_liveDevTools > 0) && GetTickCount64() < deadline) {
+    auto strays = [] { return g_strayClient ? g_strayClient->Count() : 0; };
+    while ((!g_browsers.empty() || g_liveDevTools > 0 || strays() > 0) && GetTickCount64() < deadline) {
         CefDoMessageLoopWork();
         MSG msg;
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -1385,6 +1576,7 @@ extern "C" void cra_cef_shutdown(void) {
         Sleep(10);
     }
     g_incognitoContext = nullptr;
+    g_extensionSettingsObservers.clear();
     g_profileContexts.clear();
     KillPumpTimer();
     if (g_pumpWindow) DestroyWindow(g_pumpWindow);
@@ -1393,6 +1585,37 @@ extern "C" void cra_cef_shutdown(void) {
 }
 
 extern "C" int cra_cef_live_browser_count(void) { return static_cast<int>(g_browsers.size()); }
+
+extern "C" void cra_cef_set_stray_page_handler(void *context, CraStrayPageHandler handler) {
+    g_strayPageContext = context;
+    g_strayPageHandler = handler;
+}
+
+extern "C" void cra_cef_set_extensions_changed_handler(void *context, CraExtensionsChangedHandler handler) {
+    g_extensionsChangedContext = context;
+    g_extensionsChangedHandler = handler;
+}
+
+extern "C" char *cra_cef_preference_json(const char *profile_path, const char *name) {
+    if (!g_contextInitialized || g_quitting || !name || !*name) return nullptr;
+    std::wstring path = CachePath(profile_path);
+    CefRefPtr<CefRequestContext> context;
+    if (path.empty()) {
+        context = CefRequestContext::GetGlobalContext();
+    } else {
+        // Only a profile already loaded: reading must not start one.
+        auto it = g_profileContexts.find(path);
+        if (it == g_profileContexts.end() || !g_readyProfiles.count(path)) return nullptr;
+        context = it->second;
+    }
+    CefRefPtr<CefValue> value = context ? context->GetPreference(name) : nullptr;
+    if (!value) return nullptr;
+    std::string json = CefWriteJSON(value, JSON_WRITER_DEFAULT).ToString();
+    char *out = static_cast<char *>(std::malloc(json.size() + 1));
+    if (!out) return nullptr;
+    std::memcpy(out, json.c_str(), json.size() + 1);
+    return out;
+}
 
 extern "C" void cra_cef_end_incognito_session(void) { g_incognitoContext = nullptr; }
 

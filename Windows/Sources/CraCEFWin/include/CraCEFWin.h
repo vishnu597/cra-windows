@@ -54,6 +54,26 @@ void cra_cef_end_incognito_session(void);
 const char *cra_cef_chromium_version(void);
 const char *cra_cef_version(void);
 
+// MARK: - Extensions
+
+/// A page Chromium opened in a window of its own (an extension's options page from
+/// chrome://extensions, its chrome.tabs.create or windows.create, its welcome page): `url`, and
+/// the Chromium profile folder it runs in ("Default" or "Profile <id>"). Chromium's window is
+/// hidden and closed; Cra opens the page as a tab. Chrome's empty New Tab window (opened after
+/// a Web Store install) is closed without a call. Called after the navigation, on the main thread.
+typedef void (*CraStrayPageHandler)(void *context, const char *url, const char *profile);
+void cra_cef_set_stray_page_handler(void *context, CraStrayPageHandler handler);
+
+/// A loaded profile's extensions.settings changed (an install, a switch in chrome://extensions,
+/// a removal): once for a burst of changes.
+typedef void (*CraExtensionsChangedHandler)(void *context);
+void cra_cef_set_extensions_changed_handler(void *context, CraExtensionsChangedHandler handler);
+
+/// A profile preference as JSON, live from Chromium: Default's for a NULL or empty
+/// `profile_path`, else that loaded profile's. NULL before Chromium (or that profile) has
+/// loaded, while quitting, or for a preference it doesn't have. Free with cra_data_free.
+char *cra_cef_preference_json(const char *profile_path, const char *name);
+
 /// An Explorer window on the file's folder with the file selected (Finder's "Show in Finder").
 /// Reuses a window already open on that folder, as Explorer's own "Open file location" does.
 void cra_shell_show_in_folder(const char *path);
