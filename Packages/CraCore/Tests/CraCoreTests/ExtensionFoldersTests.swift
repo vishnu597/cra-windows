@@ -75,6 +75,11 @@ struct ExtensionFoldersTests {
         #expect(ExtensionFolders.AddError.noManifest.localizedDescription == "That folder has no manifest.json.")
     }
 
+    @Test func copiesWithOneNameAreToldApart() {
+        #expect(ExtensionFolders.sharedNames(["Cra Test Ext", "uBlock", "cra test ext"]) == ["Cra Test Ext", "cra test ext"])
+        #expect(ExtensionFolders.sharedNames(["A", "B"]).isEmpty)
+    }
+
     @Test func anInstallFromTheFolderIsToldApart() {
         let root = FileManager.default.temporaryDirectory
         let dir = root.appendingPathComponent("Data", isDirectory: true).appendingPathComponent("Extensions", isDirectory: true)

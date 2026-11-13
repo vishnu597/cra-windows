@@ -77,6 +77,14 @@ public enum ExtensionFolders {
         return dest
     }
 
+    /// The names more than one listed extension has (case aside): two copies of one folder
+    /// (Add Unpacked Extension… twice) list alike, so their rows also name their folders.
+    public static func sharedNames(_ names: [String]) -> Set<String> {
+        var counts: [String: Int] = [:]
+        for name in names { counts[name.lowercased(), default: 0] += 1 }
+        return Set(names.filter { counts[$0.lowercased(), default: 0] > 1 })
+    }
+
     /// Whether `folder` (an installed extension's) is one of the folders in `directory`, which is
     /// how a --load-extension install is told from one the person loaded elsewhere. Compared
     /// without case on Windows paths, where C:\Users and c:\users are the same folder.

@@ -48,7 +48,8 @@ extension SettingsPanes {
             error.visibility = text == nil ? .collapsed : .visible
         }
 
-        var shown = ""
+        // nil until the first build, so an empty list still draws its card.
+        var shown: String?
         // The rows' buttons, which their handlers need: a WinRT control built from Swift is only
         // a wrapper, gone once nothing in Swift holds it.
         var kept: [AnyObject] = []
@@ -68,8 +69,9 @@ extension SettingsPanes {
                 empty.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 12, right: Double(DiaSettingsMetrics.cardRowInset), bottom: 12)
                 holder.child = card([empty], palette: palette)
             } else {
+                let shared = ExtensionFolders.sharedNames(entries.map(\.name))
                 holder.child = card(entries.map { e in
-                    extensionRow(e, palette: palette, keep: { parts.append($0) }) {
+                    extensionRow(e, showsFolder: shared.contains(e.name), palette: palette, keep: { parts.append($0) }) {
                         if e.inCraFolder {
                             do {
                                 try FileManager.default.removeItem(at: e.folder)
@@ -123,7 +125,8 @@ extension SettingsPanes {
         return entries.sorted { ($0.name.lowercased(), $0.id) < ($1.name.lowercased(), $1.id) }
     }
 
-    private static func extensionRow(_ e: ExtensionList.Entry, palette: SettingsPalette, keep: (AnyObject) -> Void,
+    /// `showsFolder`: another row has the same name, so this one names its folder too.
+    private static func extensionRow(_ e: ExtensionList.Entry, showsFolder: Bool, palette: SettingsPalette, keep: (AnyObject) -> Void,
                                      remove: @escaping @MainActor () -> Void) -> Grid {
         let row = Grid()
         row.minHeight = Double(DiaSettingsMetrics.cardRowHeight) + 8
@@ -141,6 +144,9 @@ extension SettingsPanes {
             description.textWrapping = .wrap
             description.maxLines = 2
             labels.children.append(description)
+        }
+        if showsFolder {
+            labels.children.append(UI.text("Folder: \(e.folder.lastPathComponent)", size: 11, color: palette.secondaryText))
         }
         row.children.append(labels)
         let button = Button()
