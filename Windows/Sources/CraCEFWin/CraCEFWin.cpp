@@ -1267,16 +1267,62 @@ public:
         std::string url = request->GetURL().ToString();
         // A blank start (the page comes next), and DevTools Chromium opens in a window of their own.
         if (url.empty() || url == "about:blank" || url.rfind("devtools://", 0) == 0) return false;
-        if (HWND page = browser->GetHost()->GetWindowHandle()) {
-            if (HWND top = GetAncestor(page, GA_ROOT)) ShowWindow(top, SW_HIDE);
-        }
+        Hide(browser);
         // Chrome's own empty tab (the window it opens after a Web Store install): nobody asked
-        // for it, so it is closed, not turned into a tab.
-        if (url.rfind("chrome://newtab", 0) != 0 && url.rfind("chrome://new-tab-page", 0) != 0) {
-            CefPostTask(TID_UI, new DeliverStrayPage(url, ProfileFolderName(browser)));
+        // for it, so it is closed, not turned into a tab. Not at once: stock Chromium opens it
+        // to show its "extension added" dialog and, once the install settles, reads that
+        // window's active tab without checking it's still there, which crashed Cra 4 to 8 s
+        // after Add to Chrome when the window was already gone (PC test of PR #39; the Mac's
+        // extension-install-ui-null-tab.patch fixes the same read in Cra's own CEF build).
+        // Hidden, it waits out the install; Chromium shows it once its tab is in, and the dialog
+        // is a window of its own, so both are hidden again until it goes.
+        if (url.rfind("chrome://newtab", 0) == 0 || url.rfind("chrome://new-tab-page", 0) == 0) {
+            CefPostDelayedTask(TID_UI, new KeepHidden(this, browser->GetIdentifier(), kInstallWindowTicks), kTickMs);
+            return true;
         }
+        CefPostTask(TID_UI, new DeliverStrayPage(url, ProfileFolderName(browser)));
         browser->GetHost()->CloseBrowser(true);
         return true;
+    }
+
+    /// The hidden post-install window stays 15 s, past the install's dialog, and is hidden again
+    /// every quarter second until then.
+    static constexpr int64_t kTickMs = 250;
+    static constexpr int kInstallWindowTicks = 60;
+
+    /// Chrome's window and the windows it owns (its dialogs), unseen: see-through as well as
+    /// hidden, so a Show() between two ticks shows nothing.
+    static void Hide(CefRefPtr<CefBrowser> browser) {
+        HWND page = browser->GetHost()->GetWindowHandle();
+        HWND top = page ? GetAncestor(page, GA_ROOT) : nullptr;
+        if (!top) return;
+        HideWindow(top);
+        EnumWindows([](HWND window, LPARAM owner) -> BOOL {
+            if (GetWindow(window, GW_OWNER) == reinterpret_cast<HWND>(owner)) HideWindow(window);
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(top));
+    }
+
+    static void HideWindow(HWND window) {
+        LONG_PTR style = GetWindowLongPtrW(window, GWL_EXSTYLE);
+        if (!(style & WS_EX_LAYERED) || !(style & WS_EX_TOOLWINDOW)) {
+            SetWindowLongPtrW(window, GWL_EXSTYLE, (style | WS_EX_LAYERED | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW);
+            SetLayeredWindowAttributes(window, 0, 0, LWA_ALPHA);
+        }
+        if (IsWindowVisible(window)) ShowWindow(window, SW_HIDE);
+    }
+
+    /// One tick for a hidden post-install window: hide it again, or close it when its time is
+    /// up. Nothing once it has gone (quitting closes them all).
+    void Tick(int identifier, int ticksLeft) {
+        auto found = browsers_.find(identifier);
+        if (found == browsers_.end() || g_quitting) return;
+        if (ticksLeft <= 0) {
+            found->second->GetHost()->CloseBrowser(true);
+            return;
+        }
+        Hide(found->second);
+        CefPostDelayedTask(TID_UI, new KeepHidden(this, identifier, ticksLeft - 1), kTickMs);
     }
 
     /// Quitting: whatever Chromium still has open goes.
@@ -1286,6 +1332,17 @@ public:
     size_t Count() const { return browsers_.size(); }
 
 private:
+    class KeepHidden : public CefTask {
+    public:
+        KeepHidden(CefRefPtr<StrayBrowserClient> client, int identifier, int ticksLeft)
+            : client_(client), identifier_(identifier), ticksLeft_(ticksLeft) {}
+        void Execute() override { client_->Tick(identifier_, ticksLeft_); }
+    private:
+        CefRefPtr<StrayBrowserClient> client_;
+        int identifier_, ticksLeft_;
+        IMPLEMENT_REFCOUNTING(KeepHidden);
+    };
+
     std::map<int, CefRefPtr<CefBrowser>> browsers_;
     IMPLEMENT_REFCOUNTING(StrayBrowserClient);
 };

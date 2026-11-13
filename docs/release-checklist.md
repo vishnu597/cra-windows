@@ -221,6 +221,11 @@ built release app with a test profile. Note anything that fails in the release's
   Full-page capture shows "Capture in Progress" first. Share keeps the control center open. On
   an https page with a certificate error the lock reads "Not Secure" and opens the certificate
   sheet.
+- **Windows Web Store install:** with an isolated test profile, install an extension from the
+  Chrome Web Store (Add to Chrome, then Add extension). Cra stays open for at least 30 s after,
+  no Chrome window or "extension added" dialog shows, the keyboard stays with Cra, and Ctrl+E
+  shows the extension's tile. Stock CEF reads the post-install window's tab when the install
+  settles; Cra crashed when that window was already closed (PC test of PR #39).
 - **Windows Share:** with an isolated test profile, assign Share a shortcut in Settings. In
   both a browser tab and a Little Window with the page focused, use that shortcut: Windows'
   Share panel opens for that page. Close the panel using its own Close X, then invoke Share
