@@ -173,7 +173,7 @@ final class OnboardingView {
             return
         }
         guard !sources.isEmpty else {
-            body.children.append(paragraph("Cra didn’t find Arc, Chrome, Edge, Brave, Opera, Opera GX, Vivaldi or Chromium data on this PC. You can import later from Settings ▸ General."))
+            body.children.append(paragraph("Cra didn’t find \(WindowsImportSource.names) data on this PC. You can import later from Settings ▸ General."))
             setButtons(primary: "Continue", back: true) { [weak self] in self?.advance() }
             return
         }

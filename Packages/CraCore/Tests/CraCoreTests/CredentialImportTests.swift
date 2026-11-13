@@ -177,5 +177,10 @@ struct CredentialImportTests {
         #expect(edge.userData(in: folders)?.pathComponents.suffix(4) == ["L", "Microsoft", "Edge", "User Data"])
         let opera = WindowsImportSource.all.first { $0.id == "opera" }!
         #expect(opera.userData(in: folders)?.pathComponents.suffix(3) == ["R", "Opera Software", "Opera Stable"], "Opera's is under %APPDATA%")
+        let helium = WindowsImportSource.all.first { $0.id == "helium" }!
+        #expect(helium.userData(in: folders)?.pathComponents.suffix(4) == ["L", "imput", "Helium", "User Data"])
+        let aside = WindowsImportSource.all.first { $0.id == "aside" }!
+        #expect(aside.userData(in: folders)?.pathComponents.suffix(3) == ["L", "Aside", "User Data"])
+        #expect(WindowsImportSource.names == "Arc, Chrome, Brave, Edge, Opera, Opera GX, Vivaldi, Chromium, Helium or Aside")
     }
 }

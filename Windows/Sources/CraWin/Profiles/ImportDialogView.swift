@@ -70,7 +70,7 @@ final class ImportDialogView {
         importButton = nil
         content.children.append(title("Import from Another Browser"))
         if sources.isEmpty {
-            content.children.append(paragraph("Cra didn’t find Arc, Chrome, Edge, Brave, Opera, Opera GX, Vivaldi or Chromium data on this PC."))
+            content.children.append(paragraph("Cra didn’t find \(WindowsImportSource.names) data on this PC."))
         } else {
             content.children.append(paragraph("Each profile comes over as a Space, with its bookmarks bar pinned and its open tabs in Today. Arc’s Spaces, folders, favorites, archive and Air Traffic Control come over as they are."))
             content.children.append(credentials)

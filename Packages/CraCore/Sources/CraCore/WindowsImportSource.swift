@@ -4,7 +4,8 @@ import Foundation
 /// (`ImportSource` in the app) with Windows' folders. Chromium browsers keep "User Data" under
 /// %LOCALAPPDATA% (Opera under %APPDATA%); Arc, a packaged app, keeps its files under
 /// %LOCALAPPDATA%\Packages\TheBrowserCompany.Arc_<publisher>\LocalCache\Local\Arc. Dia and Safari
-/// don't run on Windows; Firefox and Zen come with their SQLite reader.
+/// don't run on Windows; Firefox and Zen come with their SQLite reader. Aside, a Chromium browser
+/// with no Mac counterpart in the list, is offered on Windows too.
 public struct WindowsImportSource: Identifiable, Hashable {
     public enum Kind: Hashable {
         /// Arc's own sidebar files (StorableSidebar.json and friends).
@@ -73,7 +74,15 @@ public struct WindowsImportSource: Identifiable, Hashable {
         chromium("operagx", "Opera GX", .roaming, "Opera Software", "Opera GX Stable"),
         chromium("vivaldi", "Vivaldi", .local, "Vivaldi", "User Data"),
         chromium("chromium", "Chromium", .local, "Chromium", "User Data"),
+        chromium("helium", "Helium", .local, "imput", "Helium", "User Data"),
+        chromium("aside", "Aside", .local, "Aside", "User Data"),
     ]
+
+    /// The browsers' names for "Cra didn't find …", in the list's order: "Arc, Chrome, …, Helium or Aside".
+    public static var names: String {
+        let all = self.all.map(\.name)
+        return all.dropLast().joined(separator: ", ") + " or " + (all.last ?? "")
+    }
 
     /// The source's folder: Chromium's User Data, or Arc's support folder (nil when Arc's package
     /// isn't there).
