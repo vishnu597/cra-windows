@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // The Mac's importers for Arc and Dia: where their files are and their preferences. The plan
