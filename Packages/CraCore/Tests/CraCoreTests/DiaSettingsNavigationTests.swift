@@ -48,7 +48,7 @@ struct DiaSettingsNavigationTests {
         #expect(DiaSettingsPane.windowsPanes.allSatisfy { DiaSettingsPane.allCases.contains($0) })
         let order = DiaSettingsPane.windowsPanes.compactMap { DiaSettingsPane.allCases.firstIndex(of: $0) }
         #expect(order == order.sorted(), "in the Mac's order")
-        #expect(DiaSettingsPane.windowsPanes == [.general, .tabs, .profiles, .shortcuts])
+        #expect(DiaSettingsPane.windowsPanes == [.general, .tabs, .profiles, .extensions, .shortcuts])
     }
 
     /// Dia's measurements: the content column fits beside the sidebar, the form's controls start

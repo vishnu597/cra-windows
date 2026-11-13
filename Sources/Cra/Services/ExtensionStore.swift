@@ -776,17 +776,7 @@ final class ExtensionStore {
 
     /// Copies an unpacked extension folder (one that holds manifest.json) in.
     func add(folder: URL) throws {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: folder.appendingPathComponent("manifest.json").path) else {
-            throw NSError(domain: "Cra", code: 1, userInfo: [NSLocalizedDescriptionKey: "That folder has no manifest.json."])
-        }
-        var dest = ExtensionStore.directory.appendingPathComponent(folder.lastPathComponent, isDirectory: true)
-        var n = 2
-        while fm.fileExists(atPath: dest.path) {
-            dest = ExtensionStore.directory.appendingPathComponent("\(folder.lastPathComponent)-\(n)", isDirectory: true)
-            n += 1
-        }
-        try fm.copyItem(at: folder, to: dest)
+        try ExtensionFolders.add(folder: folder, to: ExtensionStore.directory, checkKind: false)
         needsRestart = true
         reload()
     }
