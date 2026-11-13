@@ -1379,6 +1379,12 @@ public:
         std::string disabled = command_line->GetSwitchValue("disable-features");
         command_line->AppendSwitchWithValue("disable-features", (disabled.empty() ? "" : disabled + ",") +
             "OptimizationHints,PreloadingHeuristicsMLModel,HistoryEmbeddings,Glic,LensOverlay");
+        // --load-extension loads after the first pages start loading. The first extension with
+        // webRequest or declarativeNetRequest (an ad blocker) makes Chromium reset the profile's
+        // URL loader factories, which strands a navigation already in flight: the tab stays blank
+        // and loading for good. Proxying from the start leaves nothing to reset (CraCEF.mm).
+        std::string enabled = command_line->GetSwitchValue("enable-features");
+        command_line->AppendSwitchWithValue("enable-features", (enabled.empty() ? "" : enabled + ",") + "ForceWebRequestProxyForTest");
         // Cra's own unpacked extensions, one folder each (cra_cef_set_extension_folders).
         if (!g_extensionFolders.empty()) command_line->AppendSwitchWithValue("load-extension", g_extensionFolders);
     }

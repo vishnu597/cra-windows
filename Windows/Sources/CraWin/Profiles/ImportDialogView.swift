@@ -7,16 +7,22 @@ import WinUI
 /// Import from Another Browser (the Mac's Import from Arc or Dia…, whose sources are
 /// WindowsImportSource here): one row per browser with data on this PC; picking one imports its
 /// spaces, bookmarks and open tabs (Arc's sidebar, archive and Air Traffic Control), and with the
-/// box ticked its passwords and sign-ins (the Mac's Passwords and Sign-ins tiles). When those
-/// come along the card then says what came and what stayed; otherwise it closes. On the profile
-/// dialogs' navy card, in a window of its own over the page; Escape is Cancel (or Done).
+/// box ticked its passwords and sign-ins (the Mac's Passwords and Sign-ins tiles). When the
+/// browser has extensions Cra doesn't, a second page lists them to pick from (the Mac's
+/// Extensions step); the picked ones are copied into Cra's Extensions folder. When passwords or
+/// extensions come along the card then says what came and what stayed; otherwise it closes. On
+/// the profile dialogs' navy card, in a window of its own over the page; Escape is Cancel (or Done).
 @MainActor
 final class ImportDialogView {
     static let width = 450.0
 
-    /// The browser, and whether its passwords and sign-ins come too.
-    var onImport: (WindowsImportSource, Bool) -> Void = { _, _ in }
+    /// The browser, whether its passwords and sign-ins come too, and the extensions picked.
+    var onImport: (WindowsImportSource, Bool, [ExtensionImport.Candidate]) -> Void = { _, _, _ in }
     var onCancel: () -> Void = {}
+    /// The browser's extensions, and the IDs Cra has already (left off the list).
+    var extensionsOf: (WindowsImportSource) -> (candidates: [ExtensionImport.Candidate], installed: Set<String>) = { _ in ([], []) }
+    /// The card's height changed (the extensions page), to place its window again.
+    var onHeightChange: (Double) -> Void = { _ in }
 
     let root = Grid()
     private let content = StackPanel()
@@ -25,6 +31,11 @@ final class ImportDialogView {
     private var rows: [Button] = []
     private var cancel: Button?
     private let credentials = CheckBox()
+    /// The extensions page's boxes, by extension ID; and its Import button, which takes the keyboard.
+    private var extensionBoxes: [(id: String, box: CheckBox)] = []
+    private var importButton: Button?
+    /// The last list of browsers, for the extensions page's Back.
+    private var sources: [(source: WindowsImportSource, profiles: [ChromiumProfile])] = []
 
     private static let card = UI.brush("#161C2F")
     private static let row = UI.brush("#222A43")
@@ -52,8 +63,11 @@ final class ImportDialogView {
 
     /// The browsers to offer, each with its profiles. Returns the card's height.
     func show(_ sources: [(source: WindowsImportSource, profiles: [ChromiumProfile])]) -> Double {
+        self.sources = sources
         content.children.clear()
         rows = []
+        extensionBoxes = []
+        importButton = nil
         content.children.append(title("Import from Another Browser"))
         if sources.isEmpty {
             content.children.append(paragraph("Cra didn’t find Arc, Chrome, Edge, Brave, Opera, Opera GX, Vivaldi or Chromium data on this PC."))
@@ -83,6 +97,8 @@ final class ImportDialogView {
     func showResult(title text: String, lines: [String]) -> Double {
         content.children.clear()
         rows = []
+        extensionBoxes = []
+        importButton = nil
         content.children.append(title(text))
         for line in lines { content.children.append(paragraph(line)) }
         content.children.append(footer("Done"))
@@ -94,9 +110,86 @@ final class ImportDialogView {
         return Double(root.desiredSize.height).rounded(.up)
     }
 
-    /// The first browser takes the keyboard (Cancel when there is none).
+    /// The first browser takes the keyboard (Import on the extensions page, Cancel when there is none).
     func focus() {
-        _ = try? (rows.first ?? cancel)?.focus(.programmatic)
+        _ = try? (importButton ?? rows.first ?? cancel)?.focus(.programmatic)
+    }
+
+    /// A browser was picked: its extensions to pick from first, when it has any Cra doesn't.
+    private func pick(_ source: WindowsImportSource) {
+        let withCredentials = credentials.isChecked == true
+        let offered = extensionsOf(source)
+        let fresh = offered.candidates.filter { !offered.installed.contains($0.id) }
+        guard !fresh.isEmpty else {
+            onImport(source, withCredentials, [])
+            return
+        }
+        onHeightChange(showExtensions(source, fresh, alreadyIn: offered.candidates.count - fresh.count,
+                                      ticked: ExtensionImport.preselected(fresh, installed: offered.installed), credentials: withCredentials))
+        focus()
+    }
+
+    /// The Mac's Extensions step: one box per extension, the ones on in the browser ticked.
+    private func showExtensions(_ source: WindowsImportSource, _ offered: [ExtensionImport.Candidate], alreadyIn: Int,
+                                ticked: Set<String>, credentials withCredentials: Bool) -> Double {
+        content.children.clear()
+        rows = []
+        extensionBoxes = []
+        content.children.append(title("Extensions from \(source.name)"))
+        var words = "Cra copies the ones you pick into its own Extensions folder. They load in every profile when Cra next starts."
+        if alreadyIn > 0 { words += alreadyIn == 1 ? " One is in Cra already." : " \(alreadyIn) are in Cra already." }
+        content.children.append(paragraph(words))
+        let list = StackPanel()
+        list.orientation = .vertical
+        list.spacing = 2
+        list.margin = Thickness(left: 0, top: 14, right: 0, bottom: 0)
+        for e in offered {
+            let box = CheckBox()
+            let name = e.version.isEmpty ? e.name : "\(e.name) \(e.version)"
+            let label = UI.text(e.isEnabled ? name : "\(name) (turned off)", size: 14, color: Self.white, trimmed: true)
+            box.content = label
+            box.isChecked = ticked.contains(e.id)
+            try? AutomationProperties.setName(box, e.name)
+            list.children.append(box)
+            extensionBoxes.append((e.id, box))
+        }
+        let scroll = ScrollViewer()
+        scroll.maxHeight = 260
+        scroll.content = list
+        content.children.append(scroll)
+
+        let buttons = Grid()
+        buttons.margin = Thickness(left: 0, top: 22, right: 0, bottom: 0)
+        buttons.columnDefinitions.append(UI.column(UI.auto))
+        buttons.columnDefinitions.append(UI.column(UI.star))
+        buttons.columnDefinitions.append(UI.column(UI.auto))
+        let back = Button()
+        back.content = UI.text("Back", trimmed: false)
+        back.minWidth = 80
+        back.clickMode = .release
+        back.click.addHandler { [weak self] _, _ in
+            guard let self else { return }
+            self.onHeightChange(self.show(self.sources))
+            self.focus()
+        }
+        buttons.children.append(back)
+        let go = Button()
+        go.content = UI.text("Import", trimmed: false)
+        go.minWidth = 96
+        go.background = Self.white
+        go.foreground = Self.card
+        go.clickMode = .release
+        go.click.addHandler { [weak self] _, _ in
+            guard let self else { return }
+            let picked = Set(self.extensionBoxes.filter { $0.box.isChecked == true }.map(\.id))
+            self.onImport(source, withCredentials, offered.filter { picked.contains($0.id) })
+        }
+        try? Grid.setColumn(go, 2)
+        buttons.children.append(go)
+        content.children.append(buttons)
+        cancel = back
+        importButton = go
+        return measuredHeight()
     }
 
     // MARK: Pieces
@@ -121,8 +214,7 @@ final class ImportDialogView {
         button.clickMode = .release
         try? AutomationProperties.setName(button, "Import from \(source.name)")
         button.click.addHandler { [weak self] _, _ in
-            guard let self else { return }
-            self.onImport(source, self.credentials.isChecked == true)
+            self?.pick(source)
         }
         return button
     }
