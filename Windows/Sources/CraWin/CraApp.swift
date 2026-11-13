@@ -78,7 +78,7 @@ public final class CraApp: SwiftApplication {
             }
             observeGlobalShortcut(store: store, windows: windows)
             openLinksFromOtherApps(windows: windows)
-            openStrayPages(windows: windows)
+            openStrayPages(windows: windows, store: store)
             DefaultBrowser.updateRegistrationIfMoved()
             DefaultBrowser.registerScheme()
         }
@@ -105,10 +105,22 @@ public final class CraApp: SwiftApplication {
     @MainActor private static var relaunched: (([String]) -> Void)?
 
     /// Pages Chromium opens in windows of its own (an extension's options or welcome page)
-    /// become tabs (WindowList.openExtensionPage); Chrome's window is closed unseen.
+    /// become tabs (WindowList.openExtensionPage); Chrome's window is closed unseen. Cra's own
+    /// extensions count as new on every launch, so their welcome pages right after it are
+    /// dropped unless one of them is new since the last launch (ExtensionStartUpPages).
     @MainActor
-    private func openStrayPages(windows: WindowList) {
-        Self.strayPage = { [weak windows] url, profile in windows?.openExtensionPage(url, profile: profile) }
+    private func openStrayPages(windows: WindowList, store: SidebarStore) {
+        let startUp = ExtensionStartUpPages.launch(at: Date(), installed: ExtensionFolders.loadable(in: WinPaths.extensions).map(\.lastPathComponent),
+                                                   directory: WinPaths.supportDir)
+        Self.strayPage = { [weak windows, weak store] url, profile in
+            guard let windows, let store else { return }
+            let isOpen = store.allTabs().contains { $0.tab?.url == url }
+            if startUp.drops(at: Date(), isOpen: isOpen) {
+                print("Cra: dropped start-up page from an extension: \(url)")
+                return
+            }
+            windows.openExtensionPage(url, profile: profile)
+        }
         cra_cef_set_stray_page_handler(nil) { _, url, profile in
             guard let url else { return }
             let link = String(cString: url), folder = profile.map { String(cString: $0) } ?? "Default"

@@ -602,6 +602,11 @@ final class BrowserWindow {
             let fillsEmptyPane = store.selectedTab(window: windowID)?.isEmptyTab == true
             if mode == .editURL || fillsEmptyPane, store.selectedTabID(window: windowID) != nil {
                 loadInSelectedTab(url)
+            } else if !isIncognito, let space = store.settings.space(forTypedURL: url), space != store.focusedSpaceID(window: windowID),
+                      store.orderedSpaces.contains(where: { $0.id == space }) {
+                // Air Traffic Control routes a typed URL too (upstream #421): the tab opens in the
+                // route's space and the window goes there, as in Arc.
+                store.createTab(url: url, in: space, window: windowID)
             } else {
                 store.createTab(url: url, window: windowID)
             }
