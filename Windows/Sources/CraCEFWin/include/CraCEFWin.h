@@ -69,6 +69,11 @@ void cra_cef_set_stray_page_handler(void *context, CraStrayPageHandler handler);
 typedef void (*CraExtensionsChangedHandler)(void *context);
 void cra_cef_set_extensions_changed_handler(void *context, CraExtensionsChangedHandler handler);
 
+/// Cra's own unpacked extension folders (Extensions/ in its data folder, CraCore's
+/// ExtensionFolders), comma-separated, for --load-extension. Before cra_cef_initialize; NULL or
+/// "" loads none. Stock CEF loads them in every profile (the Mac's build picks the profiles).
+void cra_cef_set_extension_folders(const char *comma_separated);
+
 /// A profile preference as JSON, live from Chromium: Default's for a NULL or empty
 /// `profile_path`, else that loaded profile's. NULL before Chromium (or that profile) has
 /// loaded, while quitting, or for a preference it doesn't have. Free with cra_data_free.
@@ -101,6 +106,9 @@ int cra_foreground_draws_nothing(void);
 /// A native menu at the pointer, owned by `owner` (an HWND): `titles[i]` is item i, and NULL or
 /// "" a separator. Returns the chosen item's index plus one, 0 when none was chosen. Modal.
 int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count);
+/// Windows' folder picker titled `title`, over `owner` (an HWND). The chosen folder's path goes
+/// to `out` (UTF-8, `capacity` bytes). 1 when a folder was chosen. Modal.
+int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *out, size_t capacity);
 /// Windows' Save dialog for a PNG, in Downloads, suggesting `file_name`. The chosen path goes to
 /// `out` (UTF-8, `capacity` bytes). 1 when a path was chosen. Modal.
 int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity);

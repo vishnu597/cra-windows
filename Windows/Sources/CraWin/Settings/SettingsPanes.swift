@@ -398,14 +398,14 @@ enum SettingsPanes {
         }
     }
 
-    private static func header(_ title: String, palette: SettingsPalette) -> TextBlock {
+    static func header(_ title: String, palette: SettingsPalette) -> TextBlock {
         let t = UI.text(title, size: 13, color: palette.text, trimmed: false)
         t.fontWeight = UWP.FontWeight(weight: 600)
         t.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 0, right: 0, bottom: 8)
         return t
     }
 
-    private static func note(_ text: String, palette: SettingsPalette) -> TextBlock {
+    static func note(_ text: String, palette: SettingsPalette) -> TextBlock {
         let t = UI.text(text, size: 11, color: palette.secondaryText, trimmed: false)
         t.textWrapping = .wrap
         t.margin = Thickness(left: 28, top: 0, right: 0, bottom: 0)
@@ -413,7 +413,7 @@ enum SettingsPanes {
     }
 
     /// Rounded card behind grouped rows, with a hairline between them.
-    private static func card(_ rows: [UIElement], palette: SettingsPalette) -> Border {
+    static func card(_ rows: [UIElement], palette: SettingsPalette) -> Border {
         let stack = StackPanel()
         stack.orientation = .vertical
         for (i, row) in rows.enumerated() {

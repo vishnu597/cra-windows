@@ -1228,6 +1228,9 @@ private:
 // of its own tabs and closes Chrome's browser, whose window it hides first (StrayBrowserClient
 // in CraCEF.mm). Popup-type windows (windows.create({type: "popup"})) go the same way for now:
 // Windows can't tell them from tabbed ones as the Mac does.
+/// --load-extension's value (cra_cef_set_extension_folders), UTF-8.
+std::string g_extensionFolders;
+
 void *g_strayPageContext = nullptr;
 CraStrayPageHandler g_strayPageHandler = nullptr;
 
@@ -1370,6 +1373,8 @@ public:
         // so Default pages load in that profile instead (#81, as in CraCEF.mm).
         command_line->AppendSwitchWithValue("profile-directory", "Default");
         command_line->AppendSwitchWithValue("autoplay-policy", "document-user-activation-required");
+        // Cra's own unpacked extensions, one folder each (cra_cef_set_extension_folders).
+        if (!g_extensionFolders.empty()) command_line->AppendSwitchWithValue("load-extension", g_extensionFolders);
     }
 
     void OnContextInitialized() override {
@@ -1585,6 +1590,10 @@ extern "C" void cra_cef_shutdown(void) {
 }
 
 extern "C" int cra_cef_live_browser_count(void) { return static_cast<int>(g_browsers.size()); }
+
+extern "C" void cra_cef_set_extension_folders(const char *comma_separated) {
+    g_extensionFolders = comma_separated ? comma_separated : "";
+}
 
 extern "C" void cra_cef_set_stray_page_handler(void *context, CraStrayPageHandler handler) {
     g_strayPageContext = context;

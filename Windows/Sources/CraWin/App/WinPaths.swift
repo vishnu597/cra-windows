@@ -16,4 +16,11 @@ enum WinPaths {
     /// Chromium's profiles: Default and "Profile <id>", as on the Mac.
     static var chromiumCache: URL { supportDir.appendingPathComponent("Chromium", isDirectory: true) }
     static var log: URL { supportDir.appendingPathComponent("chromium.log") }
+    /// Cra's own unpacked extensions, one folder each, loaded at start-up (ExtensionFolders).
+    static var extensions: URL { supportDir.appendingPathComponent("Extensions", isDirectory: true) }
+
+    /// `url` as Windows writes it (C:\Users\…), for a command line.
+    static func native(_ url: URL) -> String {
+        url.withUnsafeFileSystemRepresentation { $0.map { String(cString: $0) } } ?? url.path
+    }
 }

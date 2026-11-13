@@ -35,6 +35,7 @@ namespace {
 const CLSID kWICImagingFactory = {0xcacaf262, 0x9370, 0x4615, {0xa1, 0x3b, 0x9f, 0x55, 0x39, 0xda, 0x4c, 0x0a}};
 const GUID kPixelFormat32bppBGRA = {0x6fddc324, 0x4e03, 0x4bfe, {0xb1, 0x85, 0x3d, 0x77, 0x76, 0x8d, 0xc9, 0x0f}};
 const CLSID kFileSaveDialog = {0xc0b4e2f3, 0xba21, 0x4773, {0x8d, 0xba, 0x33, 0x5e, 0xc9, 0x46, 0xeb, 0x8b}};
+const CLSID kFileOpenDialog = {0xdc1c5a9c, 0xe88a, 0x4dde, {0xa5, 0xa1, 0x60, 0xf8, 0x2a, 0x20, 0xae, 0xf7}};
 
 std::wstring Wide(const char *utf8) {
     if (!utf8 || !*utf8) return std::wstring();
@@ -232,6 +233,25 @@ extern "C" int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t
     int chosen = static_cast<int>(TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, p.x, p.y, window, nullptr));
     DestroyMenu(menu);
     return chosen;
+}
+
+extern "C" int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *out, size_t capacity) {
+    if (!out || capacity == 0) return 0;
+    out[0] = '\0';
+    ComPtr<IFileOpenDialog> dialog;
+    if (FAILED(CoCreateInstance(kFileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return 0;
+    FILEOPENDIALOGOPTIONS options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+    if (title) dialog->SetTitle(Wide(title).c_str());
+    ComPtr<IShellItem> result;
+    PWSTR path = nullptr;
+    if (FAILED(dialog->Show(reinterpret_cast<HWND>(owner))) || FAILED(dialog->GetResult(&result)) ||
+        FAILED(result->GetDisplayName(SIGDN_FILESYSPATH, &path)) || !path)
+        return 0;
+    int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, out, static_cast<int>(capacity), nullptr, nullptr);
+    CoTaskMemFree(path);
+    return n > 0 ? 1 : 0;
 }
 
 extern "C" int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity) {

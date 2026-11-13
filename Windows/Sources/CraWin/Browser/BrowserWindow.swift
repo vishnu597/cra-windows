@@ -904,6 +904,11 @@ final class BrowserWindow {
         }
         Self.settingsWindow?.onNewProfile = { [weak self] in self?.showNewProfile(ticked: []) }
         Self.settingsWindow?.onImport = { [weak self] in self?.showImportDialog() }
+        Self.settingsWindow?.onOpenURL = { [weak self] url in
+            guard let self else { return }
+            self.store.createTab(url: url, window: self.windowID)
+            self.activate()
+        }
         Self.settingsWindow?.show(over: window)
     }
 
