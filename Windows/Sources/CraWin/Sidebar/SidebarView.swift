@@ -352,7 +352,7 @@ final class SidebarView {
         try? Grid.setColumn(add, 0)
         if !store.children(of: space.todayContainerID).isEmpty {
             // Arc's "Clear": every Today tab goes to the archive.
-            let clear = UI.button("Clear", color: palette.secondaryText) { [weak self] in self?.store.clearToday() }
+            let clear = UI.button("Clear", color: palette.secondaryText) { [weak self] in self?.store.clearToday(playing: []) }
             row.children.append(clear)
             try? Grid.setColumn(clear, 1)
         }
@@ -433,7 +433,7 @@ final class SidebarView {
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("New Space") { [weak self] in self?.newSpace() })
         }
-        menu.items.append(UI.menuItem("Clear Today") { [weak self] in self?.store.clearToday(space.id) })
+        menu.items.append(UI.menuItem("Clear Today") { [weak self] in self?.store.clearToday(space.id, playing: []) })
         if !store.isIncognito(space: space.id) { menu.items.append(profileMenu(space)) }
         if store.spaceOrder.count == 1 && !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Hide Space Header") { [weak self] in self?.store.settings.showSpaceHeaderOnSingleSpace = false })

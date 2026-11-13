@@ -1373,6 +1373,12 @@ public:
         // so Default pages load in that profile instead (#81, as in CraCEF.mm).
         command_line->AppendSwitchWithValue("profile-directory", "Default");
         command_line->AppendSwitchWithValue("autoplay-policy", "document-user-activation-required");
+        // Google services Cra never offers, which still set themselves up in the browser process
+        // (and some fetch from Google): optimization hints and their models, AI history search,
+        // Gemini in Chrome, Lens. The same list as CraCEF.mm's.
+        std::string disabled = command_line->GetSwitchValue("disable-features");
+        command_line->AppendSwitchWithValue("disable-features", (disabled.empty() ? "" : disabled + ",") +
+            "OptimizationHints,PreloadingHeuristicsMLModel,HistoryEmbeddings,Glic,LensOverlay");
         // Cra's own unpacked extensions, one folder each (cra_cef_set_extension_folders).
         if (!g_extensionFolders.empty()) command_line->AppendSwitchWithValue("load-extension", g_extensionFolders);
     }

@@ -103,10 +103,10 @@ struct SidebarStoreArchiveTests {
         let pinned = f.store.createTab(url: "https://pinned.test/", pinned: true)
         f.store.createTab(url: "https://a.test/")
         f.store.createTab(url: "https://b.test/")
-        f.store.clearToday()
+        f.store.clearToday(playing: [])
         #expect(f.today().isEmpty && f.pinned() == [pinned.id])
         #expect(f.store.archive.count == 2 && f.store.archive.allSatisfy { $0.reason == .clear })
-        f.store.clearToday(UUID())
+        f.store.clearToday(UUID(), playing: [])
     }
 
     @Test func idleTodayTabsArchiveThemselves() {

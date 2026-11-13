@@ -49,15 +49,18 @@ public enum ArcImporter {
         FileManager.default.fileExists(atPath: supportDir.appendingPathComponent("StorableSidebar.json").path)
     }
 
-    public static func plan(supportDir: URL, preferences: Preferences) throws -> ImportPlan {
+    public static func plan(supportDir: URL, preferences: Preferences,
+                            symbolExists: (String) -> Bool = { _ in false }) throws -> ImportPlan {
         let url = supportDir.appendingPathComponent("StorableSidebar.json")
         guard let data = try? Data(contentsOf: url) else { throw ImportError.notFound("Arc") }
-        return try plan(sidebar: data, supportDir: supportDir, preferences: preferences)
+        return try plan(sidebar: data, supportDir: supportDir, preferences: preferences, symbolExists: symbolExists)
     }
 
     /// The plan from a StorableSidebar.json's contents (favicons, the archive, link routes and
-    /// profiles still come from `supportDir`).
-    public static func plan(sidebar data: Data, supportDir: URL, preferences: Preferences) throws -> ImportPlan {
+    /// profiles still come from `supportDir`). `symbolExists`: whether the platform has an SF Symbol
+    /// of a name, for Arc's `symbol` icons (`ArcSpaceIcon`); Windows has none.
+    public static func plan(sidebar data: Data, supportDir: URL, preferences: Preferences,
+                            symbolExists: (String) -> Bool = { _ in false }) throws -> ImportPlan {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let sidebar = root["sidebar"] as? [String: Any],
               let containers = sidebar["containers"] as? [[String: Any]] else { throw ImportError.unreadable("Arc's sidebar") }
@@ -107,14 +110,9 @@ public enum ArcImporter {
         for (sid, space) in pairs(main["spaces"]) {
             let title = space["title"] as? String ?? "Space"
             spaceTitleByID[sid] = title
-            // No iconType is Remove Icon in Arc, a dot in its dock: keep it icon-less, which Cra's
-            // dock draws as the same dot (#252). An icon this can't read gets 🗂️.
-            var emoji = ""
-            if let info = space["customInfo"] as? [String: Any], let icon = info["iconType"] as? [String: Any] {
-                emoji = "🗂️"
-                if let e = icon["emoji_v2"] as? String { emoji = e }
-                else if let code = icon["emoji"] as? Int, let scalar = UnicodeScalar(code) { emoji = String(Character(scalar)) }
-            }
+            // An emoji, an Icon-tab glyph as Cra's symbol in that slot, or no icon (a dot, #252).
+            let icon = ArcSpaceIcon.icon((space["customInfo"] as? [String: Any])?["iconType"] as? [String: Any],
+                                         symbolExists: symbolExists)
             var pinnedID: String?, todayID: String?
             if let ids = space["containerIDs"] as? [Any] {
                 var i = 0
@@ -127,7 +125,7 @@ public enum ArcImporter {
             }
             // A space without a theme is Arc's default dark purple, close to Ink. Not the next
             // preset: that shifted every later space onto another colour (issue #30).
-            var sp = ImportedSpace(title: title, emoji: emoji, theme: ArcThemeImport.theme(from: space) ?? SpaceTheme.presets[0])
+            var sp = ImportedSpace(title: title, emoji: icon.emoji, symbol: icon.symbol, theme: ArcThemeImport.theme(from: space) ?? SpaceTheme.presets[0])
             let profile = (space["profile"] as? [String: Any]).flatMap(canonical)
             sp.favorites = favoritesByProfile.first { $0.profile != nil && $0.profile == profile }?.items ?? allFavorites
             sp.profile = ImportProfileMap.arcProfileFolder(space["profile"]).map { ImportedProfile(folder: $0, name: profileNames[$0] ?? $0) }

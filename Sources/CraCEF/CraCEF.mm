@@ -234,6 +234,7 @@ static CraClient* AsCraClient(CefClient* c) {
 @property (nonatomic) BOOL chromeCapture;
 - (void)updateCapture;
 @property (nonatomic) BOOL isAudible;
+@property (nonatomic) BOOL hasUncontrollableSound;
 - (void)audibleChanged:(BOOL)audible;
 - (void)requestPictureInPictureInFrame:(CefRefPtr<CefFrame>)frame automatic:(BOOL)automatic x:(int)x y:(int)y;
 /// The key press that lends the page user activation, for a frame that has a video to show.
@@ -816,7 +817,12 @@ public:
             // Hidden tabs keep their last frame (~15 MB of GPU memory each) for an instant switch
             // back. Chromium keeps 5 and doubles that when memory is plentiful; Cra keeps 5, the
             // tabs freezing leaves running (HiddenFrameRelease.savedFrames).
-            + "ScalableFrameEviction");
+            + "ScalableFrameEviction,"
+            // Google services Cra never offers, which still set themselves up in the browser process
+            // (and some fetch from Google): optimization hints and the models they download, AI
+            // history search, Gemini in Chrome, Lens. 11-12 MB less in the browser process at 20 tabs
+            // (scripts/perf/bench.sh procs, two rounds), nothing else changed.
+            + "OptimizationHints,PreloadingHeuristicsMLModel,HistoryEmbeddings,Glic,LensOverlay");
         // --load-extension loads after the restored tabs start loading. The first extension
         // with webRequest or declarativeNetRequest makes Chromium reset the profile's URL
         // loader factories (WebRequestAPI::UpdateMayHaveProxies), which strands a navigation
@@ -1746,7 +1752,11 @@ public:
         if (source_process != PID_BROWSER) return false;
         CraBrowser* o = owner_;
         if (message->GetName() == "Cra.audible") {
-            if (o) [o audibleChanged:message->GetArgumentList()->GetBool(0)];
+            CefRefPtr<CefListValue> args = message->GetArgumentList();
+            // The second argument, whether the media session is controllable, is new in
+            // cef-156.0.27-codecs7; an older CEF leaves every sound controllable.
+            if (o) o.hasUncontrollableSound = args->GetSize() > 1 && !args->GetBool(1);
+            if (o) [o audibleChanged:args->GetBool(0)];
             return true;
         }
         // Camera and microphone use as Chrome's tab recording indicator counts it, which a

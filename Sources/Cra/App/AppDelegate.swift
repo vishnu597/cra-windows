@@ -1075,7 +1075,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     TestGesture.pageKey(String(k[0]), keyCode: code, modifiers: flags,
                                         in: [page.hostWindow?.contentView, page.containerView].compactMap { $0 }, window: w)
                 } else {
-                    TestGesture.key(String(k[0]), keyCode: code, modifiers: flags, in: w)
+                    // The ⌘T bar, while it is open, has the keyboard.
+                    TestGesture.key(String(k[0]), keyCode: code, modifiers: flags, in: main.openCommandPanel ?? w)
                 }
                 return
             }
@@ -1088,11 +1089,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // card and asks; askQuery=<text> types it and presses Return; askFindQuote=<n> presses the
             // last answer's nth Find on Page.
             if let label = dict["askOnPage"] { CraLog.note(main.askOnPage.readout(label)); return }
+            // askTone=<label>: the card's appearance and the question's contrast on it (#408).
+            if let label = dict["askTone"] { CraLog.note(main.askOnPage.toneReadout(label)); return }
             if let q = dict["ask"] { main.showFindBar(); main.askOnPage.ask(q); return }
             if let q = dict["askQuery"] {
                 main.showFindBar()
                 main.overlay.findQuery = q
                 main.askOnPage.submit(shift: false)
+                return
+            }
+            // instantLinks=<label>: the Instant Links row and the last run, as one line (#407).
+            if let v = dict["instantLinksSetting"] { store.settings.instantLinks = v == "on"; return }
+            if let v = dict["instantLinksFail"] {
+                InstantLinksService.failsOnPurpose = v == "plan"
+                InstantLinksService.modelFailsOnPurpose = v == "model"
+                return
+            }
+            if dict["instantLinksDismiss"] != nil { InstantLinksService.shared.dismissFailed(); return }
+            if let label = dict["instantLinks"] {
+                CraLog.note("Cra " + InstantLinksService.shared.readout(label, store: store, space: store.focusedSpaceID(window: main.windowID)))
                 return
             }
             if let n = dict["askFindQuote"].flatMap(Int.init) { main.askOnPage.debugFindQuote(n); return }
@@ -1658,6 +1673,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                           e.hasNext ? 1 : 0, e.hasVideo ? 1 : 0, np.pictureInPicture.contains(e.id) ? 1 : 0)
                 }
                 if np.entries.isEmpty { NSLog("Cra nowPlaying%@ none", label) }
+                // Tabs whose speaker shows, card or not: "Cra nowPlaying[<label>] sounding <host> uncontrollable=…" (#411).
+                for rt in main.browsers.runtimes.values where rt.browser.isAudible {
+                    NSLog("Cra nowPlaying%@ sounding %@ uncontrollable=%d", label, CraLog.host(rt.browser.currentURL),
+                          rt.browser.hasUncontrollableSound ? 1 : 0)
+                }
                 return
             }
             if dict["themeEditor"] != nil { main.showSpaceStyleEditor(space: store.focusedSpace); return }
@@ -1834,6 +1854,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 main.testPickedMenu(count: n, label: dict["label"] ?? "\(n)", run: dict["run"])
                 return
             }
+            // spaceMenu=<label>[&window=incognito]: the open space's header menu in the window in use,
+            // or the newest incognito window (#413).
+            if let label = dict["spaceMenu"] {
+                let target = dict["window"] == "incognito" ? mainWindows.last(where: \.isIncognito) : main
+                guard let target else { CraLog.note("space menu \(label): no window"); return }
+                target.testSpaceMenu(label: label)
+                return
+            }
             // favoriteMenu=<n>[&label=][&run=<row>]: the n-th favorite tile's menu, see testFavoriteMenu (#387).
             if let n = dict["favoriteMenu"].flatMap(Int.init) {
                 main.testFavoriteMenu(tile: n, label: dict["label"] ?? "\(n)", run: dict["run"])
@@ -1880,6 +1908,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 guard let point else { CraLog.note("dragEnd: no point outside Cra's windows on screen \(NSStringFromRect(screen.visibleFrame))"); return }
                 CraLog.note("dragEnd: let go at \(NSStringFromPoint(point))")
                 main.testDragEnded(tab.id, at: point)
+                return
+            }
+            // dropLink=<url>[&name=<link text>][&before=<text>]: a link let go on the focused space's
+            // list, below the last row or on the row whose tab's URL holds the text (#419).
+            if let url = dict["dropLink"] {
+                main.testDropLink(url, name: dict["name"], before: dict["before"])
                 return
             }
             if dict["windows"] != nil {
@@ -2405,7 +2439,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 store.setMuted(c, !t.muted)
                 runtime(for: c)?.browser.setAudioMuted(!t.muted)
             }
-        case "clearToday": store.clearToday()
+        case "clearToday": store.clearToday(playing: main.sidebarUI.audibleTabIDs)
         case "pictureInPicture": main.currentBrowser?.requestPictureInPicture(automatic: false)
         case "nextTab": main.cycleTab(1)
         case "previousTab": main.cycleTab(-1)

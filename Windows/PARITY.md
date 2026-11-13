@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: f6a8736 -->
+<!-- upstream-reviewed: 805a3b7 -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -34,9 +34,9 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Extensions | 0 | 3 | 0 | 2 | 0 |
 | Settings | 2 | 5 | 0 | 4 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
-| Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 4 |
+| Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 9 | 5 |
-| **All** | 22 | 38 | 1 | 76 | 12 |
+| **All** | 22 | 38 | 1 | 76 | 13 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -77,11 +77,11 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Go to Space N (`spaceN`) on Alt+1–9, next and previous space on Ctrl+Alt+Right and Left | ✅ [#5] [#21] | `MainWindowController.swift`, `AppDelegate.swift` | `KeyBindingDefaults`, `SidebarStore` (`focusSpace(number:)`) | Arc for Windows' keys: Ctrl+1–9 stays Go to Tab, as in Chrome. |
 | Move Tab to Space N (`moveTabToSpaceN`) | ❌ | `MainWindowController.swift`, `AppDelegate.swift` | `SpaceWindow`, `SidebarStore` | No Windows key yet (the Mac's is ⌃⌘N); comes with Little Windows, whose page it can also send. |
 | Swipe, Shift + wheel or sideways wheel between spaces | ❌ | `SpacePagerView.swift` | `WheelSpaceSwitch`, `PageDetentHaptics` | Decisions shared; Windows needs the wheel hook and the slide. Upstream c4ee4dc adds one trackpad haptic per changed page, including a flick; hardware feedback needs a Windows counterpart if supported. |
-| Pinned tabs and folders, Today, Clear Today, archive on close | ✅ [#5] | `SidebarRowViews.swift`, `SidebarItemView.swift` | `SidebarStore`, `CloseSuccessor`, `SidebarClose`, `PinnedPeek` | `clearToday` and `newFolder` are in the sidebar menus, not yet commands; `SidebarClose` (Arc's close buttons per row kind) isn't used on Windows yet. |
+| Pinned tabs and folders, Today, Clear Today, archive on close | ✅ [#5] | `SidebarRowViews.swift`, `SidebarItemView.swift` | `SidebarStore`, `CloseSuccessor`, `SidebarClose`, `PinnedPeek`, `TodayClear` | `clearToday` and `newFolder` are in the sidebar menus, not yet commands; Clear keeps the tab on screen (upstream f586c7f, #406), but Windows doesn't know which tabs play sound yet, so those are archived; `SidebarClose` (Arc's close buttons per row kind) isn't used on Windows yet. |
 | Pinned tab extras: back to its page by the favicon, the slash, Reset (`resetTab`), edit URL | ❌ | `EditPinnedURLDialog.swift`, `SidebarRowViews.swift` | `PinnedNavigation` | Since 6e371cc "Back to Pinned URL" slides in under the title on hovering the icon (0.16 s). |
 | Folders: hinge animation, hover previews with search, tabs shown under a closed folder, icon picker | 🟡 | `FolderPreview.swift`, `FolderGlyphView.swift`, `FolderIconPicker.swift`, `FolderSymbolImages.swift` | `FolderPeek`, `FolderSymbol` | Windows has folders without previews or the animation. Since upstream 11ff4c9 (#234) the folder's emblem follows its front panel's perspective; 4fc05d2 adds Arc's picker and native symbol-mask rendering, still missing on Windows. |
 | Favorites | 🟡 [#5] | `SidebarRowViews.swift`, `TileColor.swift` | `FavoritesLayout`, `FavoritesSharing`, `FavoriteClick`, `FavoriteSelectionTint`, `FavoriteOutlineColors` | Missing: 4/2/1 columns by width (`FavoritesLayout`), tile colours and icons, "Drag to add Favorites" card, Settings' share-across-spaces switch, double-click returning to the pinned page (a17a8fe), and the opt-in logo-coloured outline/Arc hover fills (86dbb44, 9927600). |
-| Drag and drop: reorder, into folders and favorites, onto a space's icon, several picked tabs at once, reorder spaces | ❌ | `SidebarListDrop.swift`, `SpaceListView.swift` | `SidebarStore` | The store's moves are shared; the XAML drag layer is the work. Big item. Since 1f3c3d3 a tab dropped on any tab, pinned too, offers a split (no folder drop); since dfa3358 rows keep their hover through AppKit's stray exits (Mac only). |
+| Drag and drop: reorder, into folders and favorites, onto a space's icon, several picked tabs at once, reorder spaces, a link dropped in from a page or another app (#419) | ❌ | `SidebarListDrop.swift`, `SpaceListView.swift` | `SidebarStore`, `SidebarLinkDrop` | The store's moves are shared; upstream 115a201 adds where a dropped link lands (`SidebarLinkDrop`); the XAML drag layer is the work. Big item. Since 1f3c3d3 a tab dropped on any tab, pinned too, offers a split (no folder drop); since dfa3358 rows keep their hover through AppKit's stray exits (Mac only). |
 | Space menu: rename, icon, theme, profile, folder, export, delete | 🟡 [#5] [#19] | `MainWindowController+SpaceMenu.swift`, `SidebarMenus.swift`, `SpaceIconPicker.swift`, `EmojiCatalog.swift`, `EmojiCatalog+Data.swift`, `SpaceIconImage.swift` | `SpaceProfiles`, `SpaceIcon` | Since upstream 8f511ac (#205) a space's icon can be a symbol (`Space.symbol`, `SpaceIcon`); Windows draws the emoji only. Upstream 0b20792 (#395) adds a PNG or SVG as an icon (`Space.iconImage`); Windows shows the emoji. Windows has New Folder, New Space, Clear Today, Hide Space Header, Set Profile, Delete. Missing `editSpace`, `deleteSpace` and `newSpace` as commands, rename, the emoji picker. `EmojiCatalog+Data.swift` has no imports: move it to CraCore for the Windows picker. |
 | Space theme editor: Arc's presets, light and dark halves, grain | ❌ | `SpaceStyleEditor.swift`, `SpaceEditorView.swift` | `SpaceTheme`, `SpaceThemeVariants`, `SpaceColorPresets`, `ArcThemeImport` | Windows draws themes it reads; editing is missing. The colour logic is all shared. Since 6e371cc swatches and knobs grow under the pointer and shrink when pressed. |
 | Manage Spaces page (`manageSpaces`) | ❌ | `SpacesManagerView.swift` | `SidebarStore` | |
@@ -218,7 +218,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Import from Arc and Dia: spaces, pinned, folders, favorites, archive, profiles (`importData`) | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `Importers.swift`, `DiaSidebar.swift`, `BrowserSources.swift` | `ImportPlan`, `ArcImporter`, `SidebarStore+Import` (`apply`), `WindowsImportSource`, `MD5`, `ArcThemeImport`, `ExtensionProfiles` | Windows: Import from Another Browser… (command bar, Settings ▸ General ▸ Your data) reads Arc for Windows' package folder (`%LOCALAPPDATA%\Packages\TheBrowserCompany.Arc_*\LocalCache\Local\Arc`): spaces, profiles, pinned, favorites, archive, Air Traffic Control. Arc for Windows' own preferences (toolbar, auto-archive) aren't read. No Dia on Windows. Next: the onboarding flow (item 11). |
+| Import from Arc and Dia: spaces, pinned, folders, favorites, archive, profiles (`importData`) | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `Importers.swift`, `DiaSidebar.swift`, `BrowserSources.swift` | `ImportPlan`, `ArcImporter`, `SidebarStore+Import` (`apply`), `WindowsImportSource`, `MD5`, `ArcThemeImport`, `ExtensionProfiles`, `ArcSpaceIcon` | Since upstream 272980a an Arc space with an Icon-tab glyph imports as its symbol (`ArcSpaceIcon`), which Windows doesn't draw yet (space menu row). Windows: Import from Another Browser… (command bar, Settings ▸ General ▸ Your data) reads Arc for Windows' package folder (`%LOCALAPPDATA%\Packages\TheBrowserCompany.Arc_*\LocalCache\Local\Arc`): spaces, profiles, pinned, favorites, archive, Air Traffic Control. Arc for Windows' own preferences (toolbar, auto-archive) aren't read. No Dia on Windows. Next: the onboarding flow (item 11). |
 | Import from Chrome, Edge, Brave, Opera, Vivaldi, Helium: tabs, bookmarks, history, extensions | 🟡 [#35](https://github.com/vishnu597/cra-windows/pull/35) | `ChromiumImporter.swift`, `ExtensionImporter.swift` | `ChromiumImport` (`ChromiumImporter`: profiles, bookmarks, sessions), `TopSite`, `ChromiumTime` | Bookmarks and the last session's tabs, one space per profile, from Chrome, Brave, Edge, Opera, Opera GX, Vivaldi and Chromium. Left: extensions, Helium (its Windows folder is unconfirmed). |
 | Passwords and sign-ins | 🟡 [#36](https://github.com/vishnu597/cra-windows/pull/36) | `CredentialImport.swift` | `ImportedCredentials` (`ImportedLogin`, `ImportedCookie`), `PendingCredentials`, `CredentialImportReport`, `ChromiumOSCrypt`, `ChromiumCredentialRows`, `AESGCM`, `SHA256Hash` | Windows: the import card's "Passwords and sign-ins" box reads each profile's Login Data and Cookies with the browser's Local State key (DPAPI, then AES-GCM in CraCore), seals them with Cra's key and stages them in the Mac's `pending-credentials.json`; they go into Cra's profile at the next launch (`CraData.cpp`: DPAPI and winsqlite3). Chrome 127+ seals cookies to itself (app-bound "v20"): those stay, and the card says so. A running browser holds its Cookies shut: the card asks to quit it. Left: a Restart button, Firefox. The Mac still keeps its own copy of the staging code. |
 | Firefox and Zen | ❌ | `FirefoxImporter.swift`, `ZenImporter.swift` | | Same move. |
@@ -232,6 +232,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Tidy Tabs | ➖ | `TidyTabsService.swift` | `TidyTabs` | Runs on Apple Intelligence; Cra sends nothing to a server. A Windows counterpart would need an on-device model (Windows AI APIs on Copilot+ PCs); the prompts and parsing in CraCore can be reused. |
 | Tidy Tab Titles (and Arc's rules for 52 sites) | ➖ | `TidyTitlesService.swift` | `TidyTitles`, `TidyTitleRules`, `TidyTitleRules+Data` | The rule-based titles need no model and could ship on Windows on their own. |
 | Ask on Page: find-or-ask card on ⌘F (#393) | ➖ | `AskOnPageService.swift`, `AskOnPageCard.swift` | `AskOnPage` | Upstream 2b39a45, dc6d118: answered by Apple Intelligence on the Mac. Windows keeps plain find in page until it has an on-device model. |
+| Instant Links: Shift-Return on a search opens the top results (#409) | ➖ | `InstantLinksService.swift` | `InstantLinks` | Upstream 426c345: planned by Apple Intelligence on the Mac. Windows' command bar has no Shift-Return until it has an on-device model. |
 | Tidy Downloads | ➖ | `TidyDownloadsService.swift` | `TidyDownloads` | As Tidy Tabs. |
 
 ## System integration and release
@@ -500,6 +501,26 @@ Upstream sync #13 merged the 4 commits after 0b0b328; `Tests/test-browser-manage
 | 935cca1 | Spare pages: a page made ahead for the next new tab (`SparePage`) | Spare pages row. ❌ |
 | 4ad54a1 | A sidebar tab switches on the press, not the release (`SidebarRowPress.selectsOnPress`) | Sidebar rows. ❌ |
 | f6a8736 | Space switches don't ask which window is under the pointer every frame | Mac only (AppKit hit testing). ➖ |
+
+Upstream sync #14 merged the 16 commits after f6a8736 (55f5549 to 805a3b7). Conflicts: `SidebarStore`
+(`clearToday(playing:)`, incognito guards on `exportSpace` and `setProfile`, kept `public`), the Mac's
+`Importers.swift` (kept the fork's thin wrapper; CraCore's `ArcImporter.plan` takes `symbolExists`,
+which the Mac answers with SF Symbols and Windows leaves false), `ShortcutsPane.swift` (the new Clear
+Today description went into CraCore's `ShortcutDescriptions`) and the release checklist.
+
+| Commit | What | Windows |
+|---|---|---|
+| f586c7f | Clear keeps the tab on screen and tabs playing sound (#406) | Pinned tabs and Today row (`TodayClear`). Windows passes no playing tabs yet. 🟡 |
+| 115a201 | A link dragged in from a page or another app opens where it is let go (#419) | Drag and drop row (`SidebarLinkDrop`). ❌ |
+| 305439a | An incognito space's menu has no Set Profile, Export or other space-only rows (#413) | Space menu row (`SpaceMenuLayout.sections(incognito:)`); Windows' menu already hides those, and the store now refuses them. ✅ |
+| 272980a | Arc spaces with an Icon-tab glyph keep it (`ArcSpaceIcon`) | Import row; Windows draws no symbols yet. 🟡 |
+| 426c345 | Instant Links (#409) | Instant Links row (`InstantLinks`); Apple Intelligence only. ➖ |
+| 8429b73, 805a3b7 | Ask on Page: the question's dark card (#408), a follow-up's own answer (#417) | Ask on Page row. ➖ |
+| 14b921f | A notification ding or Web Audio alone makes no player card (#411) | Now-playing row. ❌ |
+| f3cf96e | Docked page and DevTools corners stay square on macOS 27 (#400) | Mac only (`ChromiumWindowCorners.swift`). ➖ |
+| 3726f65 | Google services Cra never offers are off (optimization hints, AI history search, Gemini, Lens) | Chromium switches: Windows' `CraCEFWin.cpp` turns off the same features. ✅ |
+| ff83e6e | Hidden tabs' frames go 2 s after a switch, a few windows at a time | Tabs and memory row (`HiddenFrameRelease`). ❌ |
+| 55f5549, 729d671, b8de1e5, a531a29, b309829 | Speed notes, CEF 158 beta, framework linked at launch, release-note sponsors | Mac build and docs. ➖ |
 
 ## Keeping this current
 

@@ -37,12 +37,15 @@ extension ArcImporter {
                     showsToolbar: showsToolbar, showsFullURL: showsFullURL)
     }
 
-    static func plan() throws -> ImportPlan { try plan(supportDir: supportDir, preferences: preferences) }
+    static func plan() throws -> ImportPlan { try plan(supportDir: supportDir, preferences: preferences, symbolExists: symbolExists) }
+
+    /// Whether macOS has an SF Symbol of this name, for Arc's `symbol` space icons.
+    static func symbolExists(_ name: String) -> Bool { NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil }
 
     /// The plan from a StorableSidebar.json's contents (favicons and profiles still come from
     /// `supportDir`).
     static func plan(sidebar data: Data) throws -> ImportPlan {
-        try plan(sidebar: data, supportDir: supportDir, preferences: preferences)
+        try plan(sidebar: data, supportDir: supportDir, preferences: preferences, symbolExists: symbolExists)
     }
 
     /// Arc caches sidebar favicons as 32x32 PNGs named md5(item id).
