@@ -95,16 +95,7 @@ final class ExtensionStore {
     }
 
     private nonisolated static func importExtension(_ ext: ImportableExtension) throws {
-        let fm = FileManager.default
-        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
-        let dest = directory.appendingPathComponent(ext.id, isDirectory: true)
-        let staging = directory.appendingPathComponent(".\(ext.id).importing", isDirectory: true)
-        try? fm.removeItem(at: staging)
-        try fm.copyItem(at: ext.folder, to: staging)
-        // Web Store verification hashes (_metadata) do not apply to an unpacked copy.
-        try? fm.removeItem(at: staging.appendingPathComponent("_metadata"))
-        try? fm.removeItem(at: dest)
-        try fm.moveItem(at: staging, to: dest)
+        try ExtensionImport.copy(ext.folder, id: ext.id, into: directory)
     }
 
     /// Cra's Chromium profile folders ("Default", "Profile <id>"), sorted.

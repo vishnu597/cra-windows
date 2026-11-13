@@ -28,25 +28,12 @@ enum ExtensionImporter {
     }
 
     /// Every profile under a Chromium "User Data" folder (Chrome, Brave, Edge… keep it at the top level),
-    /// one entry per extension with the profiles that have it.
+    /// one entry per extension with the profiles that have it (CraCore's ExtensionImport).
     static func extensions(inUserData userData: URL) -> [ImportableExtension] {
-        let profiles = ((try? FileManager.default.contentsOfDirectory(atPath: userData.path)) ?? [])
-            .filter { $0 == "Default" || $0.hasPrefix("Profile ") }.sorted()
-        var out: [ImportableExtension] = []
-        for profile in profiles {
-            let dir = userData.appendingPathComponent(profile, isDirectory: true)
-            for e in extensions(inProfile: dir) {
-                if let i = out.firstIndex(where: { $0.id == e.id }) {
-                    out[i].profiles[profile] = e.isEnabled
-                    out[i].isEnabled = out[i].isEnabled || e.isEnabled
-                } else {
-                    var e = e
-                    e.profiles = [profile: e.isEnabled]
-                    out.append(e)
-                }
-            }
+        ExtensionImport.candidates(inUserData: userData).map { c in
+            ImportableExtension(id: c.id, name: c.name, version: c.version, folder: c.folder, isEnabled: c.isEnabled,
+                                icon: icon(manifest: ["icons": c.manifest.icons], folder: c.folder), profiles: c.profiles)
         }
-        return out.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     /// The profile's pinned extensions (Chromium's extensions.pinned_extensions), in toolbar order.
