@@ -17,11 +17,18 @@ SwiftUI, tests that fail without the fix) and how. This file holds the layer rul
 | Windows app | `Windows/Sources/CraWin` | CraCore, WinUI and WinAppSDK (Swift/WinRT), CraCEFWin |
 | Windows bridge | `Windows/Sources/CraCEFWin` | CEF (C++, seen by Swift through a C header in `include/`) |
 | Windows helper | `Windows/Sources/CraHelperWin` | CEF (the Chromium subprocess) |
+| iPhone | `iOS/Cra` (+ `iOS/CraWidgets`, `iOS/CraShare`) | CraCore, UIKit, SwiftUI, WebKit |
 
 CraCore never imports AppKit, Cocoa, SwiftUI, UIKit or CraCEF, and it builds on Windows and Linux too (`.github/workflows/windows.yml`): Apple-only frameworks go behind `#if canImport`. `scripts/lint.py`
 (`core-platform-import`) fails the build when it does. CraCore is a package of its own, so
 `swift test --package-path Packages/CraCore` runs without `vendor/cef`. Every app file sees it
 through `Sources/Cra/App/CraCoreExports.swift`.
+
+The iPhone app matches Arc Search the way the Mac app matches Arc, and its decisions live in
+`Packages/CraCore/Sources/CraCore/Mobile/` under the same rules. [docs/ios.md](docs/ios.md) has
+its layout and `scripts/ios.sh` (build, run, screenshots, UI tests); its status is
+[docs/ios-parity.md](docs/ios-parity.md). Its UI suite takes over ten minutes and loads the Mac:
+run the classes a change touches, and the whole suite in halves.
 
 1. **Decisions go in CraCore.** Code that decides something without a window or a page (a
    model, a file format, a layout rule, a policy) goes in CraCore, with a test. Its API is
