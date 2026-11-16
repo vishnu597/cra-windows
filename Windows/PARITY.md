@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 4cf04e2 -->
+<!-- upstream-reviewed: 7fc0341 -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -23,7 +23,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
 | Window, pages and toolbar | 5 | 4 | 0 | 16 | 1 |
-| Sidebar | 4 | 6 | 0 | 18 | 0 |
+| Sidebar | 5 | 6 | 0 | 17 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 1 | 1 | 0 | 3 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 25 | 38 | 1 | 76 | 16 |
+| **All** | 26 | 38 | 1 | 75 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -92,7 +92,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Arc's other sidebar actions: Collapse Pinned Tabs (`collapsePinned`), Collapse and Expand All Folders (`collapseAllFolders`, `expandAllFolders`), Reveal Tab in Sidebar (`revealTab`), Reset all tabs in this Space (`resetSpaceTabs`), Archive Tabs Below, Change Icon…, Share ▸ | ❌ | `SidebarMenus.swift`, `MainWindowController.swift`, `SiteControlCenter.swift` | `SidebarStore` (`setAllFoldersExpanded`, `revealInSidebar`, `archiveTabsBelow`) | Upstream d110dc6, 6f3f298. The store side is shared; Windows needs the menu items and commands. |
 | Unread dots and theme colours | ✅ [#5] | `SidebarRowViews.swift` | `SidebarModel` | |
 | Tab row on hover: the name runs to 13 pt before the close button (#243) | ❌ | `SidebarRowViews.swift` | `TabRowTrailing` | Upstream 12ab4cf. Windows' row keeps a fixed gap; use `TabRowTrailing`'s insets. |
-| Mouse back and forward buttons over the sidebar switch spaces (#233) | ❌ | `SidebarView.swift` | `MouseButtonSpaceSwitch` | Upstream 2b95100. Windows: XBUTTON1/XBUTTON2 over the sidebar. |
+| Mouse back and forward buttons over the sidebar switch spaces (#233) | ✅ [#47] | `SidebarView.swift` | `MouseButtonSpaceSwitch` | Upstream 2b95100. Windows: WinUI's XButton1/XButton2 release over the sidebar (`buttonNumber(windowsXButton:)`); over a page they stay Chromium's. Logi Options+'s Alt+arrow and swipe paths are Mac only. |
 | Favorite previews on hover: a Gmail favorite's unread mail, a Google Calendar favorite's Live Calendar, Join Meeting (`joinNextMeeting`, ⌃⌘J) | ❌ | `FavoritePreviewCard.swift`, `LiveCalendarClient.swift` | `GmailPreview`, `CalendarPreview`, `FavoritePreviewMetrics` | Upstream 06366ad, 874e1ca, 32caaf8. Windows needs the hover card over the favorites row and the same signed-in page reads. |
 | Download location per profile: a folder, or ask where to save each file (Settings ▸ Profiles) | ❌ | `DownloadDestinations.swift`, `ProfilesPane.swift` | `DownloadLocation` | Upstream ef42649. `DownloadLocation`'s decoder keeps only folders starting with "/": Windows needs drive paths (`C:\…`) to count as absolute first. |
 | Downloads list in the footer, thumbnails, no Chrome download arrow | 🟡 [#10] [#12] | `DownloadsTray.swift`, `DownloadThumbnails.swift`, `ChromeDownloadAnimation.swift`, `DownloadProgressBadge.swift`, `DownloadRowMenu.swift` | `DownloadHistory`, `DownloadRow`, `DownloadMenu`, `RelativeTime` | `viewDownloads` is Ctrl+J (Chrome's Downloads key): the Library's Downloads page (#27), with Open, Show in Folder and Open Downloads Folder. Missing: the flight into the bin (`DownloadFlight.swift`), upstream e44ba8f's pause/resume/cancel callbacks and row menu, the progress ring on the bin and confirmation before quitting with downloads running. |
@@ -573,6 +573,12 @@ Upstream sync #18 merged one commit after 72b25f2, with no conflicts.
 |---|---|---|
 | 4cf04e2 | The floating sidebar runs no pointer timer while the sidebar is anchored | Hidden and floating sidebar row; Windows has no floating sidebar yet. ❌ |
 
+Upstream sync #19 merged two commits after 4cf04e2, with no conflicts.
+
+| Commit | What | Windows |
+|---|---|---|
+| 11a2a55, 7fc0341 | The engine's hidden window's blank page makes no renderer (engine -9) | Chromium engine row: Mac only. ➖ |
+
 ## Keeping this current
 
 - **Each upstream sync** (CONTRIBUTING's merge before each new PR): run
@@ -612,3 +618,4 @@ Upstream sync #18 merged one commit after 72b25f2, with no conflicts.
 [#44]: https://github.com/vishnu597/cra-windows/pull/44
 [#45]: https://github.com/vishnu597/cra-windows/pull/45
 [#46]: https://github.com/vishnu597/cra-windows/pull/46
+[#47]: https://github.com/vishnu597/cra-windows/pull/47
