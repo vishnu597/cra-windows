@@ -61,7 +61,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private let toast = ShinyToast()
     /// Each live tab's wait for its first response (GitHub #256), the tab whose notice the toast
     /// shows (nil once another toast took its place), and the check when the next one is due.
-    private var slowResponses: [UUID: SlowResponseNotice] = [:]
+    private var slowResponses = SlowResponseNotices()
     private var slowResponseToastTab: UUID?
     private var slowResponseCheck: ScheduledWork?
     /// releaseHiddenFrames, HiddenFrameRelease.afterPageChange after the last page change.
@@ -818,22 +818,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// front tab's notice falls due.
     private func syncSlowResponse() {
         let now = app.composition.clock.now
-        var next: [UUID: SlowResponseNotice] = [:]
-        for (id, rt) in browsers.runtimes {
-            var n = slowResponses[id] ?? SlowResponseNotice()
-            n.update(LoadingIndicator.Phase(isLoading: rt.browser.isLoading, committed: rt.browser.hasCommittedLoad),
-                     navigation: rt.browser.navigationStarts, now: now)
-            next[id] = n
+        let pages = browsers.runtimes.mapValues { rt in
+            SlowResponseNotices.Page(phase: LoadingIndicator.Phase(isLoading: rt.browser.isLoading, committed: rt.browser.hasCommittedLoad),
+                                     navigation: rt.browser.navigationStarts)
         }
-        slowResponses = next
-        let id = browsers.visibleTabID
-        let notice = id.flatMap { next[$0] }
+        let state = slowResponses.update(pages, front: browsers.visibleTabID, now: now)
         slowResponseCheck?.cancel()
         slowResponseCheck = nil
-        if let due = notice?.showsAt, due > now {
+        if let due = state.checkAt {
             slowResponseCheck = app.composition.clock.after(due.timeIntervalSince(now)) { [weak self] in self?.syncSlowResponse() }
         }
-        if let id, notice?.isShown(at: now) == true {
+        if let id = state.shown {
             if slowResponseToastTab != id { showSlowResponse(id) }
         } else if let shown = slowResponseToastTab {
             slowResponseToastTab = nil
@@ -854,7 +849,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                    page: page, in: window, theme: focusedSpace.theme,
                    onClose: { [weak self] in
                        // ✕: the page goes on waiting, without the notice.
-                       self?.slowResponses[id]?.close()
+                       self?.slowResponses.close(id)
                        if self?.slowResponseToastTab == id { self?.slowResponseToastTab = nil }
                    })
         slowResponseToastTab = id

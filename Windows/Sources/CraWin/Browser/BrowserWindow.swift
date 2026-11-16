@@ -119,6 +119,12 @@ final class BrowserWindow {
     /// An extension's popup page (ExtensionLaunch.popupWindow), under the sliders.
     private var extensionPopup: ExtensionPopup?
     private var toast: ToastView!
+    /// Each tab's wait for its first response, and the tab whose "Still waiting" toast is up
+    /// (SlowResponseNotice, the Mac's MainWindowController).
+    private var slowResponses = SlowResponseNotices()
+    private var slowResponseToastTab: UUID?
+    private var slowResponseCheck: ScheduledWork?
+    private lazy var clock = WinScheduler(queue: dispatcher)
     /// A full-page capture is running.
     private var capturing = false
     /// The Peek closed last over this window and the tab it came from: Arc's Ctrl+Shift+T brings
@@ -173,7 +179,7 @@ final class BrowserWindow {
             self?.placeFindBar()
             self?.placePermissionPrompt()
             self?.hideSiteControlCenter()
-            self?.toast?.hide()
+            self?.toast?.ownerMoved()
         }
         window.onMouse = { [weak self] event in self?.handlePaneMouse(event) }
         window.cursor = { [weak self] x, y in self?.paneCursor(x: x, y: y) }
@@ -302,6 +308,7 @@ final class BrowserWindow {
             downloads.apply(SidebarPalette(store.focusedSpace(window: windowID).theme), fill: sidebar.fill)
             if libraryPage != nil { library.build(SidebarPalette(store.focusedSpace(window: windowID).theme), dark: sidebar.isDark) }
             syncPages()
+            syncSlowResponse()
             syncDeveloperBar()
             showAddress(store.selectedTab(window: windowID)?.tab?.url ?? "")
         } onChange: { [weak self] in
@@ -1789,7 +1796,48 @@ final class BrowserWindow {
 
     func showToast(_ text: String, action: ToastView.Action? = nil) {
         guard !closing else { return }
+        // It takes the slow-response notice's place, which comes back with the next navigation.
+        slowResponseToastTab = nil
         toast.show(text, action: action, theme: store.focusedSpace(window: windowID).theme)
+    }
+
+    /// The tab on screen still waiting for its first response after ten seconds says so in the
+    /// toast, with Stop Loading (SlowResponseNotice, GitHub #256). Runs on every page and store
+    /// change and when the front tab's notice falls due.
+    private func syncSlowResponse() {
+        guard !closing else { return }
+        let now = clock.now
+        let live = pages.mapValues { page in
+            SlowResponseNotices.Page(phase: LoadingIndicator.Phase(isLoading: page.isLoading, committed: page.hasCommittedLoad),
+                                     navigation: page.navigationStarts)
+        }
+        let state = slowResponses.update(live, front: shownTabID, now: now)
+        slowResponseCheck?.cancel()
+        slowResponseCheck = nil
+        if let due = state.checkAt {
+            slowResponseCheck = clock.after(due.timeIntervalSince(now)) { [weak self] in self?.syncSlowResponse() }
+        }
+        if let id = state.shown {
+            if slowResponseToastTab != id { showSlowResponse(id) }
+        } else if slowResponseToastTab != nil {
+            slowResponseToastTab = nil
+            toast.hide()
+        }
+    }
+
+    private func showSlowResponse(_ id: UUID) {
+        guard let page = pages[id] else { return }
+        let url = page.navigatingURL.isEmpty ? store.item(id)?.tab?.url ?? "" : page.navigatingURL
+        toast.show(SlowResponseNotice.message(for: url),
+                   action: ToastView.Action(title: "Stop Loading") { [weak self] in self?.pages[id]?.stopLoading() },
+                   theme: store.focusedSpace(window: windowID).theme,
+                   onClose: { [weak self] in
+                       // ✕: the page goes on waiting, without the notice.
+                       self?.slowResponses.close(id)
+                       if self?.slowResponseToastTab == id { self?.slowResponseToastTab = nil }
+                   })
+        // Shown only when the page area is on screen.
+        slowResponseToastTab = toast.isShown ? id : nil
     }
 
     /// The focused pane's frame on screen (the whole page area without a split), for the toast.
@@ -1914,6 +1962,14 @@ extension BrowserWindow: SidebarActions {
 extension BrowserWindow: WebPageDelegate {
     func page(_ page: WebPage, didChangeTitle title: String) {
         if let id = tabID(of: page) { store.updateTab(id, title: title) }
+    }
+
+    func page(_ page: WebPage, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool) {
+        syncSlowResponse()
+    }
+
+    func page(_ page: WebPage, didChangeCommittedLoad committed: Bool) {
+        syncSlowResponse()
     }
 
     func page(_ page: WebPage, didChangeURL url: String) {

@@ -66,6 +66,11 @@ final class LittleWindow {
     private var commandBarHeight = CommandBarView.height(forRows: 0)
     private var commandBarDeactivated = false
     private var toast: ToastView!
+    /// The page's wait for its first response, as in a browser window (SlowResponseNotice).
+    private var slowResponse = SlowResponseNotice()
+    private var slowResponseShown = false
+    private var slowResponseCheck: ScheduledWork?
+    private lazy var clock = WinScheduler(queue: dispatcher)
     private var permissionQueue: [(page: WeakPage, origin: String, kinds: PermissionKinds, answer: (Bool) -> Void)] = []
     private let permissionPrompt = PermissionPromptView()
     private var permissionWindow: FloatingWindow?
@@ -141,7 +146,7 @@ final class LittleWindow {
         window.onMove = { [weak self] in
             self?.placeCommandBar()
             self?.placePermissionPrompt()
-            self?.toast?.hide()
+            self?.toast?.ownerMoved()
         }
         window.onFocus = { [weak self] in
             guard let self, !self.closing, !self.commandBar.isOpen else { return }
@@ -450,9 +455,50 @@ final class LittleWindow {
         WinShell.share(url: url, title: title, owner: window.hwnd, dispatcher: dispatcher,
                        isValid: { [weak self] in self?.closing == false }, onFailure: { [weak self] in
             guard let self, !self.closing else { return }
-            let theme = (self.store.space(self.targetSpaceID) ?? self.store.focusedSpace(window: self.store.lastNormalWindowID)).theme
-            self.toast.show(ShareRetry.failureMessage, theme: theme)
+            self.showToast(ShareRetry.failureMessage)
         })
+    }
+
+    private var toastTheme: SpaceTheme {
+        (store.space(targetSpaceID) ?? store.focusedSpace(window: store.lastNormalWindowID)).theme
+    }
+
+    /// It takes the slow-response notice's place, which comes back with the next navigation.
+    private func showToast(_ text: String, action: ToastView.Action? = nil) {
+        slowResponseShown = false
+        toast.show(text, action: action, theme: toastTheme)
+    }
+
+    /// As in a browser window (BrowserWindow.syncSlowResponse): ten seconds without the page's
+    /// first response puts it in the toast, with Stop Loading.
+    private func syncSlowResponse() {
+        let now = clock.now
+        if let page, !closing, !promoted {
+            slowResponse.update(LoadingIndicator.Phase(isLoading: page.isLoading, committed: page.hasCommittedLoad),
+                                navigation: page.navigationStarts, now: now)
+        } else {
+            slowResponse.update(.hidden, navigation: 0, now: now)
+        }
+        slowResponseCheck?.cancel()
+        slowResponseCheck = nil
+        if let due = slowResponse.showsAt, due > now {
+            slowResponseCheck = clock.after(due.timeIntervalSince(now)) { [weak self] in self?.syncSlowResponse() }
+        }
+        if slowResponse.isShown(at: now) {
+            guard !slowResponseShown, let page else { return }
+            let url = page.navigatingURL.isEmpty ? currentURL : page.navigatingURL
+            toast.show(SlowResponseNotice.message(for: url),
+                       action: ToastView.Action(title: "Stop Loading") { [weak page] in page?.stopLoading() },
+                       theme: toastTheme,
+                       onClose: { [weak self] in
+                           self?.slowResponse.close()
+                           self?.slowResponseShown = false
+                       })
+            slowResponseShown = toast.isShown
+        } else if slowResponseShown {
+            slowResponseShown = false
+            toast.hide()
+        }
     }
 
     /// Ctrl+Shift+C and the link button: the address, and Arc's toast at the page's top right.
@@ -461,13 +507,12 @@ final class LittleWindow {
         // Without trackers, as the browser window's Copy URL.
         let url = CleanURL.withoutTrackers(currentURL), title = page?.currentTitle ?? self.title
         guard WinShell.copy(markdown ? "[\(title)](\(url))" : url) else { return }
-        let theme = (store.space(targetSpaceID) ?? store.focusedSpace(window: store.lastNormalWindowID)).theme
         if markdown {
-            toast.show("Copied URL as Markdown", theme: theme)
+            showToast("Copied URL as Markdown")
         } else {
-            toast.show("Copied Current URL", action: ToastView.Action(title: "Share") { [weak self] in
+            showToast("Copied Current URL", action: ToastView.Action(title: "Share") { [weak self] in
                 self?.share(url: url, title: title)
-            }, theme: theme)
+            })
         }
     }
 
@@ -745,6 +790,7 @@ final class LittleWindow {
         guard !closing else { return }
         closing = true
         commandBar.close()
+        slowResponseCheck?.cancel()
         toast.hide()
         permissionWindow?.hide()
         for request in permissionQueue { request.answer(false) }
@@ -790,8 +836,13 @@ extension LittleWindow: WebPageDelegate {
     }
 
     func page(_ page: WebPage, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool) {
-        guard page === self.page, isPeek else { return }
-        drawStrip()
+        guard page === self.page else { return }
+        syncSlowResponse()
+        if isPeek { drawStrip() }
+    }
+
+    func page(_ page: WebPage, didChangeCommittedLoad committed: Bool) {
+        if page === self.page { syncSlowResponse() }
     }
 
     /// The Peek's bar takes the page's colour.

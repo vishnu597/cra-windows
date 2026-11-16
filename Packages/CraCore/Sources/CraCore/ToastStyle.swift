@@ -22,6 +22,10 @@ public enum ToastStyle {
     public static let buttonHeight: CGFloat = 26
     public static let buttonPadding: CGFloat = 10
     public static let buttonGap: CGFloat = 10
+    /// A toast that stays until it is closed (Cra's slow-response notice) ends in a round ✕,
+    /// 6 pt after the button.
+    public static let closeSize: CGFloat = 26
+    public static let closeGap: CGFloat = 6
 
     /// A vertical gradient, its outline and the text on it.
     public struct Colors: Equatable, Sendable {

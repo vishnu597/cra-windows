@@ -357,6 +357,10 @@ built release app with a test profile. Note anything that fails in the release's
   a crossed-out speaker shows between the favicon and the title. Follow a link in the same tab:
   still quiet. Quit and restart Cra, open the tab: still quiet, the speaker still there. Click the
   speaker: the sound comes back and the speaker goes. Needs real audio, so no scenario covers it.
+- **Windows slow first response:** serve a page that answers after 30 s (a local PowerShell
+  HttpListener), open it in a tab: after 10 s "Still waiting for localhost to respond" shows at the
+  page's top right with Stop Loading and a ✕, and stays. Stop Loading stops the page and the toast
+  goes. Again in a Little Window. Needs a slow real server and the screen, so no scenario covers it.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.

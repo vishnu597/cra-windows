@@ -57,6 +57,8 @@ protocol WebPageDelegate: AnyObject {
     func page(_ page: WebPage, didChangeTitle title: String)
     func page(_ page: WebPage, didChangeURL url: String)
     func page(_ page: WebPage, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool)
+    /// `hasCommittedLoad` changed: the main frame committed, or a new navigation waits for its answer.
+    func page(_ page: WebPage, didChangeCommittedLoad committed: Bool)
     func page(_ page: WebPage, didChangeProgress progress: Double)
     func page(_ page: WebPage, didFinishLoadingURL url: String, statusCode: Int)
     /// PNG bytes.
@@ -94,6 +96,7 @@ extension WebPageDelegate {
     func page(_ page: WebPage, didChangeTitle title: String) {}
     func page(_ page: WebPage, didChangeURL url: String) {}
     func page(_ page: WebPage, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool) {}
+    func page(_ page: WebPage, didChangeCommittedLoad committed: Bool) {}
     func page(_ page: WebPage, didChangeProgress progress: Double) {}
     func page(_ page: WebPage, didFinishLoadingURL url: String, statusCode: Int) {}
     func page(_ page: WebPage, didLoadFavicon png: Data, forURL iconURL: String) {}
@@ -169,6 +172,13 @@ final class WebPage: @unchecked Sendable {
     var currentURL: String { handle.map { String(cString: cra_browser_current_url($0)) } ?? "" }
     var currentTitle: String { handle.map { String(cString: cra_browser_current_title($0)) } ?? "" }
     var isLoading: Bool { handle.map { cra_browser_is_loading($0) != 0 } ?? false }
+    /// The main frame's current navigation has its answer; false while it waits (the loading
+    /// bar's waiting phase, LoadingIndicator.Phase).
+    var hasCommittedLoad: Bool { handle.map { cra_browser_has_committed_load($0) != 0 } ?? false }
+    /// The main-frame navigations the page started, redirects not counted (SlowResponseNotice).
+    var navigationStarts: Int { handle.map { Int(cra_browser_navigation_starts($0)) } ?? 0 }
+    /// Where the main frame is going, before the address changes.
+    var navigatingURL: String { handle.map { String(cString: cra_browser_navigating_url($0)) } ?? "" }
     var canGoBack: Bool { handle.map { cra_browser_can_go_back($0) != 0 } ?? false }
     var canGoForward: Bool { handle.map { cra_browser_can_go_forward($0) != 0 } ?? false }
     var isCreated: Bool { handle.map { cra_browser_is_created($0) != 0 } ?? false }
@@ -313,6 +323,9 @@ final class WebPage: @unchecked Sendable {
         }
         cb.loading_changed = { ctx, loading, back, forward in
             WebPage.with(ctx) { $0.delegate?.page($0, didChangeLoading: loading != 0, canGoBack: back != 0, canGoForward: forward != 0) }
+        }
+        cb.committed_load_changed = { ctx, committed in
+            WebPage.with(ctx) { $0.delegate?.page($0, didChangeCommittedLoad: committed != 0) }
         }
         cb.progress_changed = { ctx, progress in
             WebPage.with(ctx) { $0.delegate?.page($0, didChangeProgress: progress) }

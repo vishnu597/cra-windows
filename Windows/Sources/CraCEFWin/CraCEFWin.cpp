@@ -463,6 +463,9 @@ struct CraBrowser {
     bool closed_by_page = false;
     bool focus_pending = false;  // focused before Chromium made the page: focus it once it is
     bool loading = false;
+    bool committed = false;  // the main frame's current navigation has its answer
+    int navigation_starts = 0;  // main-frame navigations started, redirects not counted
+    std::string navigating_url;
     bool can_go_back = false;
     bool can_go_forward = false;
     bool capturing_media = false;
@@ -1141,6 +1144,8 @@ public:
                               bool canGoForward) override {
         CraBrowser *o = Live();
         if (!o) return;
+        // A load starting from rest waits for its answer (the Mac's CraCEF does the same).
+        if (isLoading && !o->loading) o->committed = false;
         o->loading = isLoading;
         o->can_go_back = canGoBack;
         o->can_go_forward = canGoForward;
@@ -1157,6 +1162,14 @@ public:
         std::string script = PageStartScript();
         if (!script.empty()) frame->ExecuteJavaScript(script, frame->GetURL(), 0);
         if (o->audio_muted) CefPostTask(TID_UI, new KeepAudioMuted(o, o->serial));
+        SetCommittedLoad(o, true);
+    }
+
+    /// The loading bar's and the slow-response notice's "waiting" ends at the commit.
+    static void SetCommittedLoad(CraBrowser *o, bool committed) {
+        if (o->committed == committed) return;
+        o->committed = committed;
+        if (o->callbacks.committed_load_changed) o->callbacks.committed_load_changed(o->callbacks.context, committed ? 1 : 0);
     }
 
     void OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int httpStatusCode) override {
@@ -1192,10 +1205,21 @@ public:
     bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool user_gesture,
                         bool is_redirect) override {
         CraBrowser *o = Live();
-        if (!o || !frame->IsMain() || !user_gesture || is_redirect || !o->callbacks.opens_peek) return false;
-        cef_transition_type_t tt = request->GetTransitionType();
-        if ((tt & TT_SOURCE_MASK) != TT_LINK || (tt & TT_FORWARD_BACK_FLAG)) return false;
-        return o->callbacks.opens_peek(o->callbacks.context, request->GetURL().ToString().c_str(), 0, 0) != 0;
+        if (!o || !frame->IsMain()) return false;
+        if (user_gesture && !is_redirect && o->callbacks.opens_peek) {
+            cef_transition_type_t tt = request->GetTransitionType();
+            if ((tt & TT_SOURCE_MASK) == TT_LINK && !(tt & TT_FORWARD_BACK_FLAG) &&
+                o->callbacks.opens_peek(o->callbacks.context, request->GetURL().ToString().c_str(), 0, 0) != 0)
+                return true;
+        }
+        // A new page, also one started while the last is still loading: it waits for its answer
+        // again (the Mac's CraCEF counts the same way).
+        o->navigating_url = request->GetURL().ToString();
+        if (!is_redirect) {
+            o->navigation_starts += 1;
+            SetCommittedLoad(o, false);
+        }
+        return false;
     }
 
     bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString &target_url,
@@ -1957,6 +1981,14 @@ extern "C" void cra_browser_exit_fullscreen(CraBrowser *b) {
 
 extern "C" int cra_browser_is_created(CraBrowser *b) { return b && b->browser ? 1 : 0; }
 extern "C" int cra_browser_is_loading(CraBrowser *b) { return b && b->loading ? 1 : 0; }
+extern "C" int cra_browser_has_committed_load(CraBrowser *b) { return b && b->committed ? 1 : 0; }
+extern "C" int cra_browser_navigation_starts(CraBrowser *b) { return b ? b->navigation_starts : 0; }
+
+extern "C" const char *cra_browser_navigating_url(CraBrowser *b) {
+    if (!b) return "";
+    b->returned = b->navigating_url;
+    return b->returned.c_str();
+}
 extern "C" int cra_browser_can_go_back(CraBrowser *b) { return b && b->can_go_back ? 1 : 0; }
 extern "C" int cra_browser_can_go_forward(CraBrowser *b) { return b && b->can_go_forward ? 1 : 0; }
 extern "C" int cra_browser_closed_by_page(CraBrowser *b) { return b && b->closed_by_page ? 1 : 0; }
