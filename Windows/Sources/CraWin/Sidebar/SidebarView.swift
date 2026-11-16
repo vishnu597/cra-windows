@@ -26,6 +26,8 @@ protocol SidebarActions: AnyObject {
     func addSplitView()
     /// Another tab's "Open in Split View": it joins the open tab in a split.
     func openInSplitView(_ id: UUID)
+    /// Mutes or unmutes the tab and its page (the speaker on its row, its menu, Mute / Unmute Tab).
+    func toggleMute(_ id: UUID)
 }
 
 /// The row or space header whose name is being edited (the Mac's SidebarUIState.renamingID and
@@ -291,6 +293,7 @@ final class SidebarView {
             let developer = item.tab.map { store.settings.isDeveloperMode(url: $0.url) } ?? false
             appendRow(icon: .favicon(item.tab?.iconKey), title: item.displayTitle, subtitle: item.tab?.sidebarSubtitle(developerMode: developer),
                       depth: depth, selected: selected, ring: developer && selected, unread: item.isUnread, closable: closable,
+                      sound: TabSound.button(muted: item.tab?.muted ?? false, audible: false, editing: renaming.itemID == item.id).map { (item.id, $0) },
                       peek: peekBadge?.tabID == item.id ? .favicon(peekBadge?.iconKey) : nil, menu: tabMenu(item), renames: item.id) { [weak self] in
                 self?.select(item.id)
             }
@@ -350,7 +353,7 @@ final class SidebarView {
     }
 
     private func appendRow(icon: RowIcon, title: String, subtitle: String? = nil, depth: Int, selected: Bool, ring: Bool = false,
-                           unread: Bool, closable: UUID?, peek: RowIcon? = nil, menu: MenuFlyout?, renames: UUID? = nil,
+                           unread: Bool, closable: UUID?, sound: (UUID, TabSound)? = nil, peek: RowIcon? = nil, menu: MenuFlyout?, renames: UUID? = nil,
                            _ action: @escaping @MainActor () -> Void) {
         let row = Grid()
         row.columnDefinitions.append(UI.column(UI.star))
@@ -387,6 +390,21 @@ final class SidebarView {
             try? Grid.setColumnSpan(pill, 2)
             list.children.append(row)
             return
+        }
+        // Arc 1.171's speaker between the favicon and the title; a click mutes or unmutes the tab.
+        if let sound {
+            let (id, speaker) = sound
+            let glyph = FontIcon()
+            glyph.glyph = WinGlyph.code(speaker.symbol)
+            glyph.fontSize = 12
+            glyph.foreground = palette.secondaryText
+            let button = UI.button(glyph, padding: Thickness(left: 2, top: 0, right: 2, bottom: 0)) { [weak self] in
+                self?.actions?.toggleMute(id)
+            }
+            button.verticalAlignment = .center
+            try? AutomationProperties.setName(button, speaker.help)
+            try? ToolTipService.setToolTip(button, speaker.help)
+            label.children.append(button)
         }
         let name = UI.text(title.isEmpty ? "New Tab" : title, color: palette.text)
         if unread { name.fontWeight = UWP.FontWeight(weight: 600) }
@@ -518,6 +536,9 @@ final class SidebarView {
                 menu.items.append(UI.menuItem("Open in Split View") { [weak self] in self?.actions?.openInSplitView(id) })
             }
             menu.items.append(UI.menuItem("Duplicate") { [weak self] in _ = self?.store.duplicateTab(id) })
+            menu.items.append(UI.menuItem(TabSound.menuTitle(muted: item.tab?.muted ?? false)) { [weak self] in
+                self?.actions?.toggleMute(id)
+            })
         }
         // An incognito window's tabs stay in it.
         let others = store.isIncognito(item: id) ? [] : store.orderedSpaces.filter { $0.id != store.spaceID(ofItem: id) }

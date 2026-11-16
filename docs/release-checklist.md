@@ -349,6 +349,10 @@ built release app with a test profile. Note anything that fails in the release's
   The named profile has `Preferences` and `Local Storage` on disk, and `chromium.log` has no
   "Cannot create profile at path" error. Do this with the real CEF app; an isolated in-memory
   context can appear to work until restart.
+- **Windows tab mute:** play a video in a Today tab, right-click the tab ▸ Mute: the sound stops and
+  a crossed-out speaker shows between the favicon and the title. Follow a link in the same tab:
+  still quiet. Quit and restart Cra, open the tab: still quiet, the speaker still there. Click the
+  speaker: the sound comes back and the speaker goes. Needs real audio, so no scenario covers it.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.

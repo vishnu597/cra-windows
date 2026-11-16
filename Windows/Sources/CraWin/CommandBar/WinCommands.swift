@@ -47,6 +47,9 @@ enum WinGlyph {
         // Extensions (the Site Control Center's tiles, Manage Extensions).
         case "puzzlepiece.extension", "puzzlepiece.extension.fill": return "\u{EA86}"  // Puzzle
         case "plus": return "\u{E710}"  // Add
+        // A tab's speaker (TabSound).
+        case "speaker.wave.3": return "\u{E995}"  // Volume3
+        case "speaker.slash": return "\u{E74F}"  // Mute
         default: return "\u{E721}"  // magnifyingglass
         }
     }

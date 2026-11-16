@@ -1250,12 +1250,12 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         let id = m.id
         var shown: [NSView] = []
         if m.capturing { shown.append(captureDot) }
-        let sound = (m.muted || m.audible) && !m.editing
-        if sound {
+        let speaker = TabSound.button(muted: m.muted, audible: m.audible, editing: m.editing)
+        let sound = speaker != nil
+        if let speaker {
             if soundButton.superview == nil { addSubview(soundButton) }
             soundButton.colors = colors
-            soundButton.setSymbol(m.muted ? "speaker.slash" : Self.soundSymbol, iconSize: 13, weight: .regular,
-                                  help: m.muted ? "Unmute Tab" : "Mute Tab")
+            soundButton.setSymbol(speaker.symbol, iconSize: 13, weight: .regular, help: speaker.help)
         }
         soundButton.isHidden = !sound
         if sound != showsSound { showsSound = sound; needsLayout = true }
