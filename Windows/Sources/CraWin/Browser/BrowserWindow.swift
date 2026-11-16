@@ -1972,6 +1972,15 @@ extension BrowserWindow: SidebarActions {
         pages[id]?.loadURL(home)
     }
 
+    /// Arc's Ctrl-click (the Mac's ⌘-click) on the favicon of a pinned tab away from its page,
+    /// Separate From Pinned Tab (#139): the page moves to a new Today tab at the top, the pinned
+    /// tab goes back to its page and stays open (MainWindowController.separatePinnedTab).
+    func separatePinnedTab(_ id: UUID) {
+        guard let home = store.separateFromPinnedTab(id)?.home else { return }
+        pages[id]?.loadURL(home)
+        store.selectTab(id, window: windowID)
+    }
+
     /// Reset all tabs in this Space: every pinned tab of the space in front that is away from its
     /// pinned page, folders included.
     private func resetAllPinnedTabs() {
