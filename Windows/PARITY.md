@@ -123,7 +123,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Up to four panes, dragger, add, close, separate, flip, cycle, split menu | ✅ [#11] | `PaneCardView.swift`, `SplitDraggerHandleView.swift`, `SplitPaneLayout.swift` | `SplitPaneLayout` | |
 | Pane controls on focus and hover, focus ring, rename a split, pinned and favorite splits | 🟡 | `PaneCardView.swift`, `SidebarRowViews.swift` | `SidebarStore` | Windows has the layout and the menu; the per-pane bar, ring and rename are missing. |
-| Switch to Split View 1–4 (`splitPaneN`), Open in Split View and Add Split View on the tab menu, a tab dropped on a pinned tab makes a pinned split (#180) | 🟡 [#49] | `MainWindowController.swift`, `SidebarMenus.swift` | `SidebarStore` (`createSplit(inPlace:)`, `combineIntoSplit`, `canAddPane`, `joinSplit`) | Upstream 56a5232, b2955ba. Windows: the tab menu's Add Split View and Open in Split View [#49]. Left: Switch to Split View 1–4, which need Windows keys (the Mac's ⌃⇧2 would be Ctrl+Shift+2, Capture, on Windows) and aren't in the command bar; the drop waits for drag and drop. |
+| Switch to Split View 1–4 (`splitPaneN`), Open in Split View and Add Split View on the tab menu, a tab dropped on a pinned tab makes a pinned split (#180) | 🟡 [#49] | `MainWindowController.swift`, `SidebarMenus.swift` | `SidebarStore` (`createSplit(inPlace:)`, `combineIntoSplit`, `canAddPane`, `joinSplit`) | Upstream 56a5232, b2955ba. Windows: the tab menu's Add Split View and Open in Split View [#49]. Left: Switch to Split View 1–4, which need Windows keys (the Mac's ⌃⇧2 would be Ctrl+Shift+2, Capture, on Windows) and aren't in the command bar; a tab dropped on a tab's middle in the sidebar makes a split there, a pinned one on a pinned tab [#71](https://github.com/vishnu597/cra-windows/pull/71). |
 | Expand Current Split (`expandSplitPane`): the focused pane takes the window, the others keep Arc's 220 pt minimum | ✅ [#49] | `MainWindowController.swift`, `SplitPaneTransition.swift` | `SplitPaneLayout` | Upstream 9629fd1. `SplitPaneLayout.expanding` and the 220 pt minimum are shared and lay Windows' panes out; Windows runs it from the command bar, with no key, as on the Mac. |
 | Drag a sidebar tab or a page's link onto the page to split it, on the side it's let go (#419) | ❌ | `PageDropRouter.swift`, `PageSplitDrop.swift`, `SplitDropRegionView.swift` | `SplitDropProposal` | Upstream 60cf686, 2908a25. `SplitDropProposal` picks the side and is shared; Windows needs drag and drop onto the CEF page and the region overlay. |
 
@@ -279,6 +279,8 @@ an unconfirmed reactivation/focus follow-up, not a demonstrated #31 regression.
 Code that decides something without a window, written once for both apps. In order of what
 the next Windows PRs need:
 
+1. The Mac's `SpaceListView.resolve` and `applyDrop`, the favorites slot drop and the dock's
+   reorder can read `SidebarDropPlan` (written from them for Windows' sidebar drag).
 1. `FloatingSidebarGeometry.swift` (hidden sidebar): a CLAUDE.md known exception, already
    Foundation only. (`DevToolsToggle` moved in #20.)
 2. The rest of `Services/Import/` (Firefox, Zen, Dia, extensions, credentials): replace `NSImage`
