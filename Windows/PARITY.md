@@ -25,7 +25,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Window, pages and toolbar | 5 | 4 | 0 | 16 | 1 |
 | Sidebar | 5 | 6 | 0 | 17 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
-| Split view | 1 | 1 | 0 | 3 | 0 |
+| Split view | 2 | 2 | 0 | 1 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 2 | 1 | 0 | 4 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 27 | 38 | 1 | 74 | 16 |
+| **All** | 28 | 39 | 1 | 72 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -123,8 +123,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Up to four panes, dragger, add, close, separate, flip, cycle, split menu | ✅ [#11] | `PaneCardView.swift`, `SplitDraggerHandleView.swift`, `SplitPaneLayout.swift` | `SplitPaneLayout` | |
 | Pane controls on focus and hover, focus ring, rename a split, pinned and favorite splits | 🟡 | `PaneCardView.swift`, `SidebarRowViews.swift` | `SidebarStore` | Windows has the layout and the menu; the per-pane bar, ring and rename are missing. |
-| Switch to Split View 1–4 (`splitPaneN`), Open in Split View and Add Split View on the tab menu, a tab dropped on a pinned tab makes a pinned split (#180) | ❌ | `MainWindowController.swift`, `SidebarMenus.swift` | `SidebarStore` (`createSplit(inPlace:)`, `combineIntoSplit`) | Upstream 56a5232, b2955ba. The drop waits for drag and drop. |
-| Expand Current Split (`expandSplitPane`): the focused pane takes the window, the others keep Arc's 220 pt minimum | ❌ | `MainWindowController.swift`, `SplitPaneTransition.swift` | `SplitPaneLayout` | Upstream 9629fd1. `SplitPaneLayout.expanding` and the 220 pt minimum are shared and already lay Windows' panes out; Windows needs the command and the menu item. |
+| Switch to Split View 1–4 (`splitPaneN`), Open in Split View and Add Split View on the tab menu, a tab dropped on a pinned tab makes a pinned split (#180) | 🟡 [#49] | `MainWindowController.swift`, `SidebarMenus.swift` | `SidebarStore` (`createSplit(inPlace:)`, `combineIntoSplit`, `canAddPane`, `joinSplit`) | Upstream 56a5232, b2955ba. Windows: the tab menu's Add Split View and Open in Split View [#49]. Left: Switch to Split View 1–4, which need Windows keys (the Mac's ⌃⇧2 would be Ctrl+Shift+2, Capture, on Windows) and aren't in the command bar; the drop waits for drag and drop. |
+| Expand Current Split (`expandSplitPane`): the focused pane takes the window, the others keep Arc's 220 pt minimum | ✅ [#49] | `MainWindowController.swift`, `SplitPaneTransition.swift` | `SplitPaneLayout` | Upstream 9629fd1. `SplitPaneLayout.expanding` and the 220 pt minimum are shared and lay Windows' panes out; Windows runs it from the command bar, with no key, as on the Mac. |
 | Drag a sidebar tab or a page's link onto the page to split it, on the side it's let go (#419) | ❌ | `PageDropRouter.swift`, `PageSplitDrop.swift`, `SplitDropRegionView.swift` | `SplitDropProposal` | Upstream 60cf686, 2908a25. `SplitDropProposal` picks the side and is shared; Windows needs drag and drop onto the CEF page and the region overlay. |
 
 ## Little Windows, Peek and the Library
@@ -626,3 +626,4 @@ Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
 [#46]: https://github.com/vishnu597/cra-windows/pull/46
 [#47]: https://github.com/vishnu597/cra-windows/pull/47
 [#48]: https://github.com/vishnu597/cra-windows/pull/48
+[#49]: https://github.com/vishnu597/cra-windows/pull/49

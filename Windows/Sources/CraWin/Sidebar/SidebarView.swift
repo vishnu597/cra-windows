@@ -22,6 +22,10 @@ protocol SidebarActions: AnyObject {
     func focusRenameField(_ field: TextBox)
     /// A rename ended (Return, Escape or a click elsewhere): the keyboard goes back to the page.
     func renameEnded()
+    /// The open tab's "Add Split View": an empty pane beside it, the command bar asking for its page.
+    func addSplitView()
+    /// Another tab's "Open in Split View": it joins the open tab in a split.
+    func openInSplitView(_ id: UUID)
 }
 
 /// The row or space header whose name is being edited (the Mac's SidebarUIState.renamingID and
@@ -507,6 +511,12 @@ final class SidebarView {
         if item.isTab {
             // Favorites draw as tiles, which have no name to edit.
             if !favorite { menu.items.append(UI.menuItem("Rename…") { [weak self] in self?.beginRename(item: id) }) }
+            // Arc: "Add Split View" on the open tab, "Open in Split View" on another in its space.
+            if store.isSelected(id, window: windowID) {
+                menu.items.append(UI.menuItem("Add Split View") { [weak self] in self?.actions?.addSplitView() })
+            } else if store.selectedTabID(window: windowID) != nil, store.spaceID(ofItem: id) == store.focusedSpaceID(window: windowID) {
+                menu.items.append(UI.menuItem("Open in Split View") { [weak self] in self?.actions?.openInSplitView(id) })
+            }
             menu.items.append(UI.menuItem("Duplicate") { [weak self] in _ = self?.store.duplicateTab(id) })
         }
         // An incognito window's tabs stay in it.

@@ -194,7 +194,8 @@ struct KeyBindingsTests {
         #expect(all.reduce(0) { $0 + $1.actions.count } == KeyBindingDefaults.windows.filter { listed.contains($0.section) }.count)
         #expect(!all.flatMap(\.actions).contains { $0.id == "openExtensions" })
         #expect(ShortcutsList.groups(in: r, query: "  SPLIT ").flatMap(\.actions).map(\.id)
-            == ["addSplitView", "closeSplitPane", "separateFromSplit", "flipSplitOrientation", "nextSplitPane", "previousSplitPane"])
+            == ["addSplitView", "closeSplitPane", "separateFromSplit", "expandSplitPane", "flipSplitOrientation", "nextSplitPane",
+                "previousSplitPane"])
         #expect(ShortcutsList.groups(in: r, query: "nothing like this").isEmpty)
         #expect(ShortcutsList.groups(in: r, query: "", customizedOnly: true).isEmpty)
         #expect(ShortcutsList.groups(in: r, query: "", conflictingOnly: true).isEmpty)
