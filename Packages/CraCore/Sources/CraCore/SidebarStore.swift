@@ -82,7 +82,7 @@ public final class SidebarStore {
     @ObservationIgnored public private(set) var pinningWindowID: UUID?
 
     public func withPinningWindow(_ windowID: UUID, _ change: () -> Void) {
-        public let previous = pinningWindowID
+        let previous = pinningWindowID
         pinningWindowID = windowID
         defer { pinningWindowID = previous }
         change()
@@ -882,10 +882,10 @@ public final class SidebarStore {
     /// Repaired like a file at launch, so a profile the other Mac deleted leaves its spaces on
     /// Default, and a window whose space is gone shows the first.
     public func replace(document synced: SidebarDocument) {
-        public let previousAskProfiles = askProfileOwnership(of: allTabs().map(\.id))
-        public let previousSpaceProfiles = spaces.mapValues(\.profileID)
+        let previousAskProfiles = askProfileOwnership(of: allTabs().map(\.id))
+        let previousSpaceProfiles = spaces.mapValues(\.profileID)
         defer {
-            public let changedSpaces = Set(previousSpaceProfiles.keys.filter { previousSpaceProfiles[$0]! != spaces[$0]?.profileID })
+            let changedSpaces = Set(previousSpaceProfiles.keys.filter { previousSpaceProfiles[$0]! != spaces[$0]?.profileID })
             notifyAskProfileChanges(previousAskProfiles, spaces: changedSpaces)
         }
         let doc = synced.forSync()
@@ -2439,9 +2439,9 @@ public final class SidebarStore {
 
     /// Temporary snapshots at actual profile/tree mutations, not a store-wide owner registry.
     private struct AskProfileOwnership: Equatable {
-        public let profileID: UUID?
-        public let path: String?
-        public let incognito: Bool
+        let profileID: UUID?
+        let path: String?
+        let incognito: Bool
     }
 
     private func askProfileOwnership(of id: UUID) -> AskProfileOwnership? {
@@ -2450,13 +2450,13 @@ public final class SidebarStore {
     }
 
     private func askProfileOwnership(of ids: [UUID]) -> [UUID: AskProfileOwnership] {
-        public var result: [UUID: AskProfileOwnership] = [:]
+        var result: [UUID: AskProfileOwnership] = [:]
         for id in Set(ids) { if let ownership = askProfileOwnership(of: id) { result[id] = ownership } }
         return result
     }
 
     private func notifyAskProfileChanges(_ previous: [UUID: AskProfileOwnership], spaces: Set<UUID> = []) {
-        public let tabs = Set(previous.keys.filter { previous[$0] != askProfileOwnership(of: $0) })
+        let tabs = Set(previous.keys.filter { previous[$0] != askProfileOwnership(of: $0) })
         guard !tabs.isEmpty || !spaces.isEmpty else { return }
         NotificationCenter.default.post(name: AskOnPage.profileChangedNotification, object: self,
                                         userInfo: ["tabIDs": tabs, "spaceIDs": spaces])
