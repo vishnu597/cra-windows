@@ -1743,6 +1743,47 @@ extern "C" void cra_cef_set_extension_folders(const char *comma_separated) {
 
 extern "C" void cra_cef_set_content_blocking(int enabled) { cra_blocker::Enabled().store(enabled != 0); }
 
+// Secure DNS lives in Local State, the global preference manager, not in a profile (the Mac's
+// #110). Cra keeps no copy, so a choice made in chrome://settings/security shows in Settings too.
+namespace {
+std::string g_secureDNSReturned;  // backing store for the string the getter returns
+}
+
+extern "C" const char *cra_cef_secure_dns_preference(const char *name) {
+    if (!g_contextInitialized || g_quitting || !name) return nullptr;
+    CefRefPtr<CefPreferenceManager> local = CefPreferenceManager::GetGlobalPreferenceManager();
+    CefRefPtr<CefValue> value = local ? local->GetPreference(name) : nullptr;
+    if (!value || value->GetType() != VTYPE_STRING) return nullptr;
+    g_secureDNSReturned = value->GetString().ToString();
+    return g_secureDNSReturned.c_str();
+}
+
+extern "C" int cra_cef_secure_dns_is_managed(void) {
+    if (!g_contextInitialized || g_quitting) return 0;
+    CefRefPtr<CefPreferenceManager> local = CefPreferenceManager::GetGlobalPreferenceManager();
+    return local && !(local->CanSetPreference("dns_over_https.mode") && local->CanSetPreference("dns_over_https.templates")) ? 1 : 0;
+}
+
+extern "C" int cra_cef_set_secure_dns(const char *mode, const char *templates) {
+    if (!g_contextInitialized || g_quitting || !mode || !templates || cra_cef_secure_dns_is_managed()) return 0;
+    CefRefPtr<CefPreferenceManager> local = CefPreferenceManager::GetGlobalPreferenceManager();
+    if (!local) return 0;
+    // Provider first when turning secure on, mode first otherwise, so the network service never
+    // sees "secure" without a server in between (as CraCEF.mm).
+    std::vector<std::pair<const char *, std::string>> writes = {{"dns_over_https.mode", mode}, {"dns_over_https.templates", templates}};
+    if (std::string(mode) == "secure") std::swap(writes[0], writes[1]);
+    for (const auto &[name, string] : writes) {
+        CefRefPtr<CefValue> value = CefValue::Create();
+        value->SetString(string);
+        CefString error;
+        if (!local->SetPreference(name, value, error)) {
+            fprintf(stderr, "CraCEFWin: %s: %s\n", name, error.ToString().c_str());
+            return 0;
+        }
+    }
+    return 1;
+}
+
 extern "C" void cra_cef_set_https_only(int enabled) {
     if ((enabled != 0) == g_httpsOnly) return;
     g_httpsOnly = enabled != 0;

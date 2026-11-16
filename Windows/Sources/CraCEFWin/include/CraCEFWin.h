@@ -86,6 +86,15 @@ int cra_cef_blocked_domain_count(void);
 /// included; profiles that load later get it too.
 void cra_cef_set_https_only(int enabled);
 
+/// Chromium's secure DNS in Local State: `name` is "dns_over_https.mode" or
+/// "dns_over_https.templates". NULL before Chromium is ready or when nothing set it; the string
+/// lasts until the next call.
+const char *cra_cef_secure_dns_preference(const char *name);
+/// 1 when a policy sets secure DNS, so Settings can't change it.
+int cra_cef_secure_dns_is_managed(void);
+/// Writes both prefs; 0 when Chromium refused (not ready, managed, write failed).
+int cra_cef_set_secure_dns(const char *mode, const char *templates);
+
 /// JavaScript every page's main frame runs as each navigation commits, from then on ("" for
 /// none): Block Cookie Banners' stylesheet (CookieBanners.pageScript). Pages already open get it
 /// at their next load, as on the Mac.
