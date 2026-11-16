@@ -771,10 +771,6 @@ final class BrowserWindow {
         case "previousSplitPane": cycleSplitPane(-1)
         case "expandSplitPane": if let t = store.selectedTabID(window: windowID) { expandSplitPane(t) }
         default:
-            if id.hasPrefix("splitPane"), let n = Int(id.dropFirst(9)), (1...4).contains(n) {
-                selectSplitPane(n)
-                return true
-            }
             if id.hasPrefix("space"), let n = Int(id.dropFirst(5)), (1...9).contains(n) {
                 store.focusSpace(number: n, window: windowID)
                 return true
@@ -1052,14 +1048,6 @@ final class BrowserWindow {
     }
 
     /// Switch to Next / Previous Split View.
-    /// Arc's Switch to Split View 1–4: the open split's nth pane.
-    private func selectSplitPane(_ n: Int) {
-        guard let current = store.selectedTabID(window: windowID) else { return }
-        let panes = store.paneTabIDs(for: current)
-        guard panes.count > 1, n >= 1, n <= panes.count else { return }
-        store.selectTab(panes[n - 1], window: windowID)
-    }
-
     /// Arc's View ▸ Expand Current Split: the pane takes the window and the others keep the
     /// minimum width, stored as the split's width factors like a divider drag
     /// (SplitPaneLayout.expanding). A divider drag brings the panes back.
