@@ -148,3 +148,31 @@ public struct SecureDNSPrefs: Equatable, Sendable {
         return !open
     }
 }
+
+extension SecureDNSChoice {
+    /// The menu's rows in order, a separator between the groups (Settings ▸ Privacy ▸ Secure DNS).
+    public static let menuGroups: [[SecureDNSChoice]] = [
+        [.automatic, .off],
+        SecureDNSProvider.all.map { .provider($0) },
+        [.custom],
+    ]
+
+    /// How the menu and its button name the row.
+    public var title: String {
+        switch self {
+        case .automatic: return "Automatic"
+        case .off: return "Off"
+        case .provider(let p): return p.name
+        case .custom: return "Custom…"
+        }
+    }
+}
+
+extension SecureDNS {
+    /// What the row says under its description: the summary, after "Your organization sets
+    /// secure DNS." when a policy does; nil when nothing is set yet.
+    public func footnote(managed: Bool) -> String? {
+        guard !summary.isEmpty else { return nil }
+        return managed ? "Your organization sets secure DNS. " + summary : summary
+    }
+}

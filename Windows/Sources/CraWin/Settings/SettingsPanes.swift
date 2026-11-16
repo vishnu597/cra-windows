@@ -163,10 +163,14 @@ enum SettingsPanes {
         let connections = header("Connections", palette: palette)
         connections.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
         stack.children.append(connections)
+        // Secure DNS is Chromium's, in Local State: read again each time the pane shows.
+        let dns = SecureDNSRows(palette: palette)
+        syncs.append { dns.refresh() }
         stack.children.append(card([
             switchRow("Always use secure connections",
                       detail: "Pages load over HTTPS. Before opening a site that doesn’t support it, Cra warns you first.",
                       \.httpsOnly),
+            dns.element,
         ], palette: palette))
         let data = header("Data", palette: palette)
         data.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
@@ -499,7 +503,7 @@ enum SettingsPanes {
 
     /// Label on the left, control on the right, 43 DIPs tall. A `detail` goes under the label
     /// in secondary text (the Mac's SettingsToggleRow), and the row grows to fit it.
-    private static func cardRow(_ title: String, detail: String? = nil, trailing: FrameworkElement, palette: SettingsPalette) -> Grid {
+    static func cardRow(_ title: String, detail: String? = nil, trailing: FrameworkElement, palette: SettingsPalette) -> Grid {
         let row = Grid()
         row.minHeight = Double(DiaSettingsMetrics.cardRowHeight)
         let pad = detail == nil ? 0.0 : 10.0
