@@ -161,7 +161,7 @@ final class BrowserWindow {
         sidebar.attachDownloads(button: downloads.button, list: downloads.list)
         library = LibraryView(store: store, history: .shared, dispatcher: dispatcher, actions: self)
         downloads.onClick = { [weak self] in self?.toggleLibrary() }
-        downloads.pointer = { [weak self] in
+        let pointer: () -> (x: Double, y: Double)? = { [weak self] in
             guard let self, let window = self.window, let host = HWND(bitPattern: self.hwnd) else { return nil }
             var p = POINT(x: Int32.min, y: Int32.min)
             _ = GetCursorPos(&p)
@@ -169,6 +169,13 @@ final class BrowserWindow {
             _ = ScreenToClient(host, &p)
             // The XAML island starts at the client area's top left.
             return (Double(p.x) / window.scale, Double(p.y) / window.scale)
+        }
+        downloads.pointer = pointer
+        sidebar.pointer = pointer
+        // A sidebar drag holds the mouse in the window itself, so no page sees it go by.
+        sidebar.captureMouse = { [weak self] in
+            guard let self, let host = HWND(bitPattern: self.hwnd) else { return }
+            _ = SetCapture(host)
         }
         window = try HostWindow(content: makeLayout(), topBar: developerBar.root, sidebarWidth: Self.sidebarWidth, frame: frame)
         window.title = Self.title(nil, incognito: isIncognito)

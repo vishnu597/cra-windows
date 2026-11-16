@@ -51,19 +51,20 @@ final class SidebarRenaming {
 @MainActor
 final class SidebarView {
     let root = Grid()
-    private let favorites = Grid()
+    let favorites = Grid()
     private let header = Grid()
-    private let list = StackPanel()
-    private let spacesBar = StackPanel()
+    let list = StackPanel()
+    let scroll = ScrollViewer()
+    let spacesBar = StackPanel()
     /// The downloads button on the left (Arc's Library button) over the same cell as the spaces,
     /// so they stay centred whatever the button shows.
     private let footer = Grid()
-    private let store: SidebarStore
+    let store: SidebarStore
     /// The window it draws: its space, its selected tab (SidebarStore.WindowSession).
-    private let windowID: UUID
+    let windowID: UUID
     private let favicons: Favicons
-    private weak var actions: SidebarActions?
-    private var palette = SidebarPalette(SpaceTheme.presets[0])
+    weak var actions: SidebarActions?
+    private(set) var palette = SidebarPalette(SpaceTheme.presets[0])
     /// Controls a handler reaches weakly: a WinRT control made in Swift is only a wrapper, freed
     /// (and its weak references nil) once Swift lets go of it, however long XAML shows it.
     private var kept: [AnyObject] = []
@@ -77,6 +78,25 @@ final class SidebarView {
     private var lastTabClick: (id: UUID, at: UInt64, wentBack: Bool)?
     /// What is being renamed (Rename…, Rename Space…, a new folder, a double-click).
     let renaming = SidebarRenaming()
+
+    // MARK: Drag and drop (SidebarDrag.swift)
+
+    /// Over everything else, never hit: the insertion line, a combine's outline, the dragged row's
+    /// stand-in by the pointer.
+    let overlay = Canvas()
+    /// "Add to Favorites" where the tiles go while a tab is dragged and the space has none.
+    let favoritesCard = Border()
+    /// The item rows as drawn, top to bottom, and the line between pinned and Today.
+    var rowMeta: [SidebarRowMeta] = []
+    var divider: FrameworkElement?
+    /// The favorite tiles and the space icons as drawn.
+    var favoriteTiles: [(element: FrameworkElement, id: UUID)] = []
+    var spaceCells: [(element: FrameworkElement, id: UUID)] = []
+    /// The pointer in the XAML's coordinates (DIPs from the island's top left), and the mouse
+    /// held for a drag so no page sees it: set by the window.
+    var pointer: () -> (x: Double, y: Double)? = { nil }
+    var captureMouse: () -> Void = {}
+    let drag = SidebarDragState()
 
     /// Emoji a new space picks from, in turn.
     private static let spaceEmoji = ["🌱", "💼", "🎮", "📚", "🎨", "🏠", "✈️", "🧪"]
@@ -94,7 +114,6 @@ final class SidebarView {
         header.margin = Thickness(left: 0, top: 4, right: 0, bottom: 4)
         list.orientation = .vertical
         list.spacing = 1
-        let scroll = ScrollViewer()
         scroll.content = list
         spacesBar.orientation = .horizontal
         spacesBar.spacing = 2
@@ -106,6 +125,7 @@ final class SidebarView {
             root.children.append(part)
             try? Grid.setRow(part, Int32(i))
         }
+        makeDragChrome()
         // A mouse's back and forward buttons over the sidebar switch spaces (Arc's
         // SidebarView.otherMouseUp:, #233); over a page they stay Chromium's. A clear fill so the
         // sidebar's empty space takes the press too.
@@ -126,6 +146,8 @@ final class SidebarView {
         let space = store.focusedSpace(window: windowID)
         palette = SidebarPalette(space.theme)
         kept = []
+        rowMeta = []
+        divider = nil
         buildFavorites(space)
         buildHeader(space)
         list.children.clear()
@@ -157,8 +179,10 @@ final class SidebarView {
         favorites.children.clear()
         favorites.columnDefinitions.clear()
         favorites.rowDefinitions.clear()
+        favoriteTiles = []
         let items = store.children(of: space.favoritesContainerID).filter { $0.isTab || $0.isSplit }
         favorites.visibility = items.isEmpty ? .collapsed : .visible
+        showFavoritesCard()
         guard !items.isEmpty else { return }
         let perRow = Self.favoritesPerRow
         for _ in 0..<perRow { favorites.columnDefinitions.append(UI.column(UI.star)) }
@@ -168,8 +192,10 @@ final class SidebarView {
             let label = tileIcon(item)
             label.horizontalAlignment = .center
             let tile = UI.button(label, fill: item.id == open ? palette.selected : palette.tile) { [weak self] in
+                self?.dragPressed(.item(item.id))
                 self?.select(item.id)
             }
+            favoriteTiles.append((tile, item.id))
             tile.horizontalAlignment = .stretch
             tile.verticalAlignment = .stretch
             tile.contextFlyout = tabMenu(item)
@@ -285,6 +311,8 @@ final class SidebarView {
     // MARK: Rows
 
     private func addRow(_ item: SidebarItem, depth: Int) {
+        let before = list.children.count
+        defer { if !item.isFolder { noteRow(item, depth: depth, at: before) } }
         if item.isFolder {
             addFolderRow(item, depth: depth)
         } else if item.isSplit {
@@ -295,6 +323,7 @@ final class SidebarView {
             let focus = item.split?.focusTabID.flatMap { panes.contains($0) ? $0 : nil } ?? panes.first
             appendRow(icon: .text("⧉"), title: titles, depth: depth, selected: selected, unread: false, closable: nil,
                       menu: splitMenu(item, open: selected)) { [weak self] in
+                self?.dragPressed(.item(item.id))
                 if let focus { self?.select(focus) }
             }
         } else if item.isTab {
@@ -309,6 +338,7 @@ final class SidebarView {
                       sound: TabSound.button(muted: item.tab?.muted ?? false, audible: false, editing: renaming.itemID == item.id).map { (item.id, $0) },
                       peek: peekBadge?.tabID == item.id ? .favicon(peekBadge?.iconKey) : nil, menu: tabMenu(item), renames: item.id,
                       homeIcon: away ? item.id : nil) { [weak self] in
+                self?.dragPressed(.item(item.id))
                 self?.clickTab(item.id, awayFromHome: away)
             }
         }
@@ -332,8 +362,11 @@ final class SidebarView {
         menu.items.append(UI.menuItem("Delete Folder") { [weak self] in self?.store.deleteFolder(folder.id) })
         appendRow(icon: .text(open ? "▾" : "▸"), title: folder.displayTitle, depth: depth, selected: false, unread: false, closable: nil,
                   menu: menu, renames: folder.isLiveFolder ? nil : folder.id) { [weak self] in
+            // A drag that starts here leaves the folder as it was.
+            self?.dragPressed(.item(folder.id)) { [weak self] in self?.store.setExpanded(folder.id, open) }
             self?.store.setExpanded(folder.id, !open)
         }
+        noteRow(folder, depth: depth, at: list.children.count - 1)
         guard open else { return }
         let children = store.children(of: folder.id)
         if children.isEmpty {
@@ -514,6 +547,7 @@ final class SidebarView {
         line.background = palette.tile
         line.margin = Thickness(left: 4, top: 6, right: 4, bottom: 6)
         list.children.append(line)
+        divider = line
     }
 
     private func addNewTabRow(_ space: Space) {
@@ -693,13 +727,16 @@ final class SidebarView {
 
     private func buildSpacesBar(_ focused: Space) {
         spacesBar.children.clear()
+        spaceCells = []
         // An incognito window pages only its own space (SidebarStore.pagedSpaces).
         for space in store.pagedSpaces(window: windowID) where !store.hidesSpaceHeader(space.id) {
             let mark = UI.text(space.emoji.isEmpty ? String(space.title.prefix(1)) : space.emoji, size: 15, color: palette.text, trimmed: false)
             let dot = UI.button(mark, fill: space.id == focused.id ? palette.selected : nil,
                                 padding: Thickness(left: 6, top: 3, right: 6, bottom: 3)) { [weak self] in
+                self?.dragPressed(.space(space.id))
                 self?.store.focusSpace(space.id, window: self?.windowID)
             }
+            spaceCells.append((dot, space.id))
             try? ToolTipService.setToolTip(dot, space.title)
             dot.contextFlyout = spaceMenu(space)
             spacesBar.children.append(dot)
