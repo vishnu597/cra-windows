@@ -847,7 +847,15 @@ Arc 1.172 binary (otool/llvm-objdump on the arm64 slice, 8 Nov, #246):
   glyphs with tooltips only. The address centred between them is from the reporter's captures; no
   host label was found in the binary.
 - [O static] Minimize is per site (`minimizeEnabled` in its PiP config) and asks Chromium to leave PiP;
-  `offscreen` is a separate "stash" past the screen edge. Cra has neither.
+  `offscreen` is a separate "stash" past the screen edge. [O static, Arc 1.173.1, x86_64 slice, #434]
+  Minimize is SF Symbol `minus` with the tooltip "Minimize", built next to Close (`xmark`, "Close")
+  with a 6.0 constant beside the pair [I: the group's spacing]; the log line "The user requested
+  minimizing this PIP window, but .shouldHidePIP has not been received yet" and `userRequestedMinimize`
+  say it leaves PiP and the video plays on; the sidebar card (`isBackToPIPButtonEnabled`,
+  `backToPipClicked`) then has it. The #246 reporter's Arc windows had no Minimize at 224 and 277 pt
+  wide and had it at 396. Cra (#434): Minimize from 280 pt wide [I: the small size class], 6 pt left
+  of Close; it leaves PiP without pausing and without selecting the tab (`exitPictureInPicture`), so
+  the tab's card comes back in the sidebar player. No per-site switch, and no `offscreen` stash.
 - [O static] Scrubber: 5 pt capsule (15 pt drag area) 8 pt above the bottom (4 when tiny), white over
   white 30 %; dragging upwards slows seeking by 2^round(dy / 60 pt), down to 1/16. Cra draws it
   (`PictureInPictureScrubber` in CraCore, 12 Nov) for a video with an end, and a press goes to that
@@ -2818,7 +2826,7 @@ Theme palettes in a hand-built space can be borrowed; only the `background` styl
   previous, play/pause, next, volume, laid out like an HStack (glyphs 16 / 13 / 8.5 / 13 / 19 pt, equal gaps,
   14 pt in on the left, 12.5 on the right); up to two more peek out, each 7 pt higher, 5 pt narrower a side and
   0.2 fainter, the second showing the tops of its controls at ~15 % (raised 7.25 pt). Hover: all cards 65.5 pt,
-  title row (tab title, 13 pt, 14.5 pt in, centred 16.25 pt from the top; Picture in Picture glyph 15.5 pt wide
+  title row (tab title, 13 pt, 14.5 pt in, centred 16.25 pt from the top; Picture in Picture glyph (`pip` at 12 pt, from the binary, #434) 15.5 pt wide
   centred 45.5 pt from the right on video tabs; ✕ 11 pt centred 21.75 pt from the right), stacked upward 5 pt
   apart, oldest on top, ~0.2 s ease-out both ways (collapse starts at once). Tooltips: "Back to Tab", "Previous
   Track", "Pause"/"Play", "Next Track", "Adjust Tab Volume", "Open Picture in Picture", "Close Mini Player";
@@ -3650,6 +3658,27 @@ event with `shiftClickModalEntryPointEnabled` set for the run, AX frames and 60 
   own layers so the press can scale about the centre. Past Arc, at the reporter's request: ⌘W and ⌘O press their
   button (PeekControl.pressed(byAction:)) for 0.15 s on the press spring while the action runs at once. Close's
   closing picture, taken within 80 ms, carries the pressed button; Expand's Peek is gone that frame.
+- [S, 16 Nov, GitHub #425] Close turns red only to confirm a close, never on hover (Arc 1.173.1's arm64 code,
+  body witnesses of `ModalV2ControlsViewSwiftUI` and `ModalV2ControlButton`, no symbols). `ModalV2ControlButton`
+  holds `baseConfig` and `expandedConfig` (`ButtonViewModel`: text, systemImageName, fillColor, accentColor, title)
+  and `isExpanded`. Close's base is xmark on the space's fill, title "Close"; its expanded config is the same glyph
+  (phone.down.fill when the reason is `mediaInputActive`), text "Confirm", title "Close" ("Hang up" for a call),
+  filled with the `DestructiveButtonFace` asset (ARCUI.bundle, sRGB 245/55/20, one value for light and dark) and
+  white ink. `isExpanded` = `dismissConfirmationReason != nil`, animated on `.spring(response: 0.25,
+  dampingFraction: 0.8)`. The label is an `HStack(spacing: 4)`: the glyph (15 pt semibold, padding 1) and, when
+  expanded, `Text` 13 pt medium with `.move(edge: .leading).combined(with: .opacity)`; `ModalButtonStyle` adds its
+  padding 8 and capsule, so the pill grows right from the button's left edge.
+- [S] When a close waits (`WindowData+ModalContent`, the function that returns `DismissConfirmationReason?`): with
+  no wait on, `escapeKeyPressed(prefersConfirmation:)` waits only when its sender asks (that sender wasn't found);
+  close button, ⌘W, a background click, a swipe, redo close and exit wait only while the page uses the camera or
+  microphone (`mediaInputActive`). While waiting (`awaitingDismissConfirmation(attempts:reason:)`), Esc, the close
+  button and ⌘W close; a background click, a swipe or redo close keep a call's wait and end an Esc's.
+  `ModalV2HostViewController.dismissConfirmationReset` gives up after 10 s for a call and 1 s for Esc, and the
+  button is round again. Not seen live (a Peek needs Victor's Arc).
+- Cra (#425): PeekCloseHold (CraCore) has the rule, the timeouts and the pill's numbers; PeekControlButton draws the
+  pill on its own layers (face ▸ clip ▸ glyphs and a CATextLayer) and PeekControlsPanel widens itself while it is up.
+  LittleWindowController.attemptPeekClose takes the Close button, ⌘W, Esc and the click catcher; Cra's Esc never asks,
+  so only a Peek using the camera or microphone (CraBrowser.isCapturingMedia) holds its first close.
 - [O, 4 Nov] Which links peek, with both Links settings on (`modalEnabled` and
   `shiftClickModalEntryPointEnabled` set for the run, the sidebar reset before each run), HID clicks on a
   lab page at 127.0.0.1 in a pinned tab: a link to localhost peeked, plain or target=_blank; a link to
@@ -3898,6 +3927,16 @@ Apple Intelligence is on, so it's free and nothing leaves the Mac).
   ramps 0.38 s.
 - [?] Not seen: Arc's real grouping (the server is gone), what Arc does with a model answer naming an existing
   group, whether a header can be dragged, and the arrow Arc sometimes draws before "Clear" (offline copy).
+- [O static, Arc 1.173.1, 16 Nov 2026, `strings` on the arm64 binary] Next to `createUnpinnedTabGroups()` sit the
+  example's "Toaster Shopping" and "calendar.google.com/0", the request "Here are my tabs, in the format 'id:
+  title':" and "Your array of group assignments, as valid JSON within a ```code block```:". Arc asked for one
+  assignment per tab. (PR #443's decoded instructions: six example tabs, nitehawk cinema / Amazon / two toaster
+  pages / "June 25 | Weekly View" / Barbie, answered Movies, Toaster Shopping and Calendar on its own.)
+- Cra, measured on the on-device model (16 Nov 2026, macOS 26.6, three tab sets of 11–18 tabs with known groups,
+  greedy sampling): asking for each group's ids put up to 73 % of the grouped pairs in a wrong group; one group name
+  per tab, in order, with Arc's example answered that way, put none in a wrong group. Listing Today's existing groups
+  in the prompt made the model file nearly every tab into them (35 of 41 tabs went into one they had nothing to do with), so they stay out of it; a name
+  the model comes up with that matches one still joins it. One-tab groups stay, as in Arc's Calendar example.
 
 ## Tidy titles and Tidy Tab Titles (Arc 1.171, 4 Nov 2026, Swift metadata + strings, Victor's Arc, 60 fps recordings)
 
@@ -3933,6 +3972,27 @@ Titles (`renamePinnedTabsEnabled`, AI endpoint `renamePinnedTabs`) gives a tab a
   opt-in).
 - [?] Not seen: whether a drag into Pinned renames (Cra does, every pin counts), a rename whose new name isn't a
   prefix of the old (Cra crossfades in the soft edge), undo.
+- [O static] Arc 1.173.1 (16 Nov 2026, arm64 disassembly, PR #444): the prompt is built in
+  WindowState+AIRenameTabs (0x1000c00b4, text at 0x1039bca00, only caller 0x1000bf1b4) and no longer goes to a
+  server endpoint: "You are a perfect editor, summarizer and translator. I am bookmarking a tab in my browser. The
+  title is `…`", "Remove the name of the site (<URL.absoluteString>), if it's not the only thing there)", SEO
+  cruft, not too general, proper nouns with context (Anna Delvey and Arc Monetization examples), no 'kind of page'
+  words, keep subject, main verb and direct object; JSON `filtered` ("translated and filtered to remove the cruft.
+  No word limit.") and `rewritten` ("rewritten in 1-3 words"); "Write responses (but not JSON keys) in <language>",
+  the language being `Locale.preferredLanguages.first ?? "en"` named by an en_US locale ("English" fallback).
+- [O static] Choosing the name: if `filtered.count < rewritten.count` only `filtered` is a candidate, else both
+  (0x1000bf6f0–0x1000bf830); empties are dropped. Each is measured with `sizeWithAttributes:` in the row's title
+  font; Arc takes the widest that fits the title width (taken from layout constants minus insets) and the
+  narrowest when none fits (0x1000bff88). A longer name than the old title is fine, and a name equal to the old
+  one still renames; the old and new lengths only feed `auto_renamed_pinned_tab`.
+- Cra since #444: Arc's instructions word for word, with the title (one line, no backticks) and the site's host
+  in the request instead of inside the instructions, and Arc's candidate and width rule against the live row.
+  Deviations: the host instead of the whole URL, and a name equal to the shown title is skipped (no sweep for
+  nothing). On the Mac's model (macOS 26.7.2, greedy) Arc's text, Cra's earlier prompt with Arc's renames as
+  examples and #444's reworded one scored 11, 12 and 11 of 18 sample titles (Arc's 7 renames above plus 11
+  judged by Arc's rules, each kept out of every prompt's examples); renaming the answer type alone moved a score
+  by 2, so those are a tie. The earlier prompt's 7 of 7 on Arc's renames was those renames being its examples.
+  `scripts/test-tidy-titles-model.sh --real` reruns it.
 
 ## Tidy Downloads (Arc 1.171, 4 Nov 2026, strings + Victor's Arc, 60 fps recordings)
 
@@ -3956,7 +4016,12 @@ Arc Max's renameDownloads: a finished download is renamed on disk and a card abo
   ↶ renamed the file back at once (git-consortium-master.zip). Not captured: the reverted toast (Cra shows
   "Download name reverted!" in its one toast), the card in a light space (Cra: white, from Arc's Max picture), and
   whether hovering holds it.
-- Cra: TidyDownloads (CraCore: prompt with Cra's own examples, the name's checks, a free name), TidyDownloadsService
+- [O static, Arc 1.173.1, 16 Nov 2026] The prompt's full text is in Arc's main binary (`strings`): the five rule lines,
+  "Some examples, in the form \"original name, tab title, domain -> new name\"", nine `- 'file', 'title', 'domain' ->
+  'new name' (reason)` lines, a JSON schema (`newName: string // The new filename`), "Write responses (but not JSON keys)
+  in " + a language, and a request of three lines: `Original filename: '…'`, `Source tab title: '…'`, `Source domain: '…'`.
+- Cra: TidyDownloads (CraCore: Arc's prompt word for word since #441, with the Gmail example's address de-identified;
+  the name's checks; a free name, Arc's "(1)"…"(100)"), TidyDownloadsService
   (FoundationModels, renames the file, DownloadHistory.move, revert), DownloadRenameCard (SidebarView, over the bin).
   Settings ▸ Max ▸ Tidy Downloads, off by default. Deviations Victor asked for (5 Nov 2026): the body is 71 pt
   (the old name's baseline as far from the bottom as the label's cap top from the top), and the card stays while the

@@ -69,9 +69,10 @@ built release app with a test profile. Note anything that fails in the release's
 
 - **#393, Ask on Page:** with Apple Intelligence on and Settings ▸ Max ▸ Ask on Page on, press ⌘F on a
   long article: the card reads "Find or ask…"; typing a word finds it (count, ↑ ↓, highlights in the
-  page). Type a question and press Ask (or Return): the question in the space's colour, "This page was
-  long, so I read the first N%.", an answer with a quote on a rule. Find on Page highlights and scrolls to
-  the quote in the page, or says "Quote not found". Ask a follow-up; past 450 pt the conversation scrolls
+  page). Type a question: Return asks once the count says 0 (Ask asks at once). The question in the space's
+  colour, "This page was long, so I read the first N%.", an answer with its key words in bold and a quote on
+  a rule. Find on Page selects and scrolls to the whole quote in the page, also one across a Wikipedia "[3]";
+  a quote the page doesn't have says "Quote not found" when the answer is done. Ask a follow-up; past 450 pt the conversation scrolls
   with fades. Esc or ✕ closes it and the next ⌘F starts over. Compare with Arc's card on the same page
   (Arc's own numbers are in arc-reverse-engineering.md; its placement, corner and colours weren't read).
 
@@ -81,7 +82,9 @@ built release app with a test profile. Note anything that fails in the release's
   question. Then a factual follow-up gets its own quote. The model is on-device and varies, so ask a few times.
 
 - **Ask on Page, long answers and unanswerable questions:** ask a long article something it doesn't say
-  ("why did el salvador succeed?"): the answer never quotes a solar-power page or J.W. Peters. Ask for "the
+  ("why did el salvador succeed?"): the answer never quotes a solar-power page or J.W. Peters. Known on
+  the on-device model (16 Nov 2026): it often adds page quotes that don't answer such a question, and it
+  refuses some topics (slavery, disasters, religion) with "Sorry, I encountered an error". Ask for "the
   key points of this entire article in detailed bullet points": the window and the page keep scrolling smoothly
   while it writes, and the answer never vanishes and starts over.
 
@@ -120,6 +123,9 @@ built release app with a test profile. Note anything that fails in the release's
 - **#196:** hover a Today tab and move onto its ✕ several times. The ✕ never vanishes before
   the click.
 - **#7:** click a tab while moving the pointer a few points on a trackpad. It opens.
+- **#429:** two windows on pages with a text field. Press ⌘L in the first, then click the second's
+  field without closing the bar, and type and paste. The text lands in the second window, never the
+  first. Do the same from a Little Window's bar.
 - **Row press:** next to Arc, hold the button on a pinned tab, a Today tab, a split, New Tab and a
   Favorites tile. Each pushes in slightly about its centre (a tile a little more) and springs back
   on release; a drag doesn't leave it pushed in, a double-click on a tab dips once, folders don't move.
@@ -424,6 +430,10 @@ built release app with a test profile. Note anything that fails in the release's
   hand. The window stays put. With the sidebar hidden, the pointer at the top of the screen
   reveals the title bar with the traffic lights in it. The `fullscreen-window-chrome` scenario
   checks the window's flags; only a hand drag shows that AppKit honours them.
+- **Blocked requests:** with Block Ads & Trackers on, ziplyfiber.com, fidelity.com and
+  allstate.com show their pages. They stayed white while a blocked request was cancelled instead of
+  failed: Adobe Target hides the page until its request ends. (The scenario checks the failure and
+  that the blocked host is never asked; this needs the real sites.)
 
 ### Sync
 

@@ -124,6 +124,21 @@ to Markdown or `docs/` alone runs nothing.
   a stub to `AppServices.swift`.
 - `scripts/test-store.sh`: the real `SidebarStore`, `AppComposition` and importers on a
   `ManualScheduler`, against the made-up Arc and Chromium profiles in `Tests/Fixtures`.
+- `scripts/test-tidy-downloads.sh`: `TidyDownloadsService` and `TidyDownloadFiles` on real files
+  with a fake model: renames, Revert, and a newer download at the same path while a rename or
+  undo is waiting. No Chromium or windows.
+- `scripts/test-tidy-tabs.sh`: Tidy Tabs' service on the real `SidebarStore` with a scripted
+  model: the broom's minimum run, cancellation when the setting goes off or the space goes away,
+  a failed run hiding Tidy like Arc's, undo. `scripts/test-tidy-tabs-model.sh` checks the
+  on-device adapter's context fitting; `--real` also asks the Mac's own model (needs Apple
+  Intelligence) and prints its groups.
+- `scripts/test-tidy-titles.sh`: Tidy Tab Titles' service on the real `SidebarStore` with a
+  scripted model and a manual clock: the pin's own window measures the name, a manual rename or a
+  new home wins over a late answer, and turning the setting or the model off cancels.
+  `scripts/test-tidy-title-layout.sh` checks the row's title width and font and the rename sweep's
+  cleanup. `scripts/test-tidy-titles-model.sh` checks Arc's answer schema; `--real` also asks the
+  Mac's own model (needs Apple Intelligence) for 18 sample titles and prints the names a 230 pt row
+  would pick.
 - `scripts/test-policies.sh`: the decisions pulled out of the window controllers
   (`ExtensionLaunch`, `FeatureFlags`).
 - `scripts/test-folder-glyph.sh`: the standalone folder component's real AppKit layers and image
@@ -135,8 +150,27 @@ to Markdown or `docs/` alone runs nothing.
 - `scripts/test-link-summary-share.sh`: 5-Second Previews' Copy as Image (`LinkSummaryShareImage`)
   against Arc's own copy of a card: size at 3x, the picture's inset, the dashed line's pattern and place,
   the footer colour.
+- `scripts/test-mobile-popup.sh`: the iPhone app's popups (`WebPage`'s `createWebViewWith` callback and
+  `TabStore` against stand-ins, no WebKit or simulator): a popup keeps WebKit's request (POST body included)
+  and takes its source's privacy, closing it returns to its opener, private openers stay only while their
+  popup is in front, and a closed opener's page is let go.
 - `scripts/test-link-summary-panel.sh`: 5-Second Previews' card window (`LinkSummaryPanel`) off screen with
   a stub service: the loading card, the answer growing in under the link, the small card above its link, closing.
+- Ask on Page (⌘F's find-or-ask card), four harnesses:
+  `scripts/test-ask-on-page-service.sh` runs `AskOnPageService`, the card's controller and the find panel's
+  Use Selection path on a `ManualScheduler` with a scripted model (streaming at ten updates a second, follow-ups
+  as turns, an echoed request asked again, overflow and failures); `scripts/test-ask-on-page-lifecycle.sh` the
+  same service on the real `SidebarStore` (Max switches, profiles, availability); `scripts/test-ask-on-page-content.sh`
+  the page-text and quote scripts in a real WKWebView on `Tests/Fixtures/AskOnPage`; `scripts/test-ask-on-page-quotes.sh`
+  the quote script on a scripted DOM in Node, and the CEF bridge's isolated-world evaluation.
+- `scripts/test-link-summary-service.sh`: 5-Second Previews' fetch and model lifecycle (`LinkSummaryFetch`,
+  `LinkSummaryService`) on a manual clock: every redirect hop checked before it's requested (no hosts on the Mac
+  or the local network), the byte and time limits, cancellation dropping late answers, the context-overflow retry,
+  caches kept apart by profile, search and language.
+- `scripts/test-link-summary-hooks.sh`: turning 5-Second Previews off, or Apple Intelligence becoming unavailable,
+  stops the card and the work behind it.
+- `scripts/test-link-summary-image.sh`: the card's picture over a local server: images only, at most 4 MB, every
+  redirect checked, nothing kept and no cookies sent.
 - `scripts/test-emoji-label.sh`: a space's emoji label in the dock and the space header, drawn
   clipped to its frame and with the cell's text cut at the baseline, as macOS 27 draws it: `EmojiLabel`
   shows the emoji's whole picture, in the same place (#399).

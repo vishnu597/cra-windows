@@ -18,6 +18,11 @@ suite "CraCore" swift test --package-path Packages/CraCore
 suite "Shipped-issue tests" scripts/promises.py
 if [ "${1:-}" != core ]; then
   suite "Browser manager" Tests/test-browser-manager.sh
+  suite "Ask on Page DOM" scripts/test-ask-on-page-content.sh
+  suite "Ask on Page quote scripts" scripts/test-ask-on-page-quotes.sh
+  suite "Ask on Page service" scripts/test-ask-on-page-service.sh
+  suite "Ask on Page lifecycle" scripts/test-ask-on-page-lifecycle.sh
+  suite "iOS popup ownership" scripts/test-mobile-popup.sh
   suite "Floating sidebar" scripts/test-floating-sidebar.sh
   suite "Extension popup candidate" scripts/test-extension-popup-candidate.sh
   suite "Extension popup window" scripts/test-extension-popup-window.sh
@@ -26,6 +31,9 @@ if [ "${1:-}" != core ]; then
   suite "Window content grabber" scripts/test-window-content-grabber.sh
   suite "5-Second Previews copy" scripts/test-link-summary-share.sh
   suite "5-Second Previews card" scripts/test-link-summary-panel.sh
+  suite "5-Second Previews lifecycle" scripts/test-link-summary-service.sh
+  suite "5-Second Previews eligibility hooks" scripts/test-link-summary-hooks.sh
+  suite "5-Second Previews image transport" scripts/test-link-summary-image.sh
   suite "Capture overlay" scripts/test-capture-overlay.sh
   suite "Dialogs" scripts/test-dialogs.sh
   suite "Sidebar creation menu" scripts/test-sidebar-creation-menu.sh
@@ -34,8 +42,14 @@ if [ "${1:-}" != core ]; then
   suite "Extension state" scripts/test-extension-state.sh
   suite "Extension store migration" scripts/test-extension-store-migration.sh
   suite "Store and importers" scripts/test-store.sh
+  suite "Tidy Downloads lifecycle" scripts/test-tidy-downloads.sh
+  suite "Tidy Tabs model" scripts/test-tidy-tabs-model.sh
+  suite "Tidy Tabs lifecycle" scripts/test-tidy-tabs.sh
   suite "Policies" scripts/test-policies.sh
   suite "Folder glyph" scripts/test-folder-glyph.sh
+  suite "Tidy title layout" scripts/test-tidy-title-layout.sh
+  suite "Tidy title requests" scripts/test-tidy-titles.sh
+  suite "Tidy title model" scripts/test-tidy-titles-model.sh
   suite "Emoji label" scripts/test-emoji-label.sh
   suite "Theme noise" scripts/test-theme-noise.sh
   suite "Chromium window corners" scripts/test-chromium-window-corners.sh

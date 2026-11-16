@@ -131,6 +131,7 @@
 #include "ui/views/widget/widget.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 extern "C" int CraEngineMain(int argc, const char** argv);
 
@@ -963,16 +964,20 @@ bool TargetURL(content::WebContents* contents, const GURL& url) {
 }
 
 // Cra's ad and tracker blocking (patches/cra-content-blocking.patch): a request third-party to its top-level
-// page, to a listed domain.
-bool BlockRequest(const GURL& url, const content::GlobalRenderFrameHostId& frame) {
+// page, to a listed domain. The page is the asking frame's; a frame's navigation has none, and then it is the
+// navigation's top frame (up to engine -10 such frames were never blocked).
+bool BlockRequest(const GURL& url, const content::GlobalRenderFrameHostId& frame, const url::Origin* top_frame) {
   if (!cra_blocker::Enabled().load(std::memory_order_relaxed)) {
     return false;
   }
-  content::RenderFrameHost* host = content::RenderFrameHost::FromID(frame);
-  if (!host) {
+  std::string page;
+  if (content::RenderFrameHost* host = content::RenderFrameHost::FromID(frame)) {
+    page = cra_blocker::WebHost(host->GetOutermostMainFrame()->GetLastCommittedURL().spec());
+  } else if (top_frame && !top_frame->opaque()) {
+    page = cra_blocker::WebHost(top_frame->GetURL().spec());
+  } else {
     return false;
   }
-  std::string page = cra_blocker::WebHost(host->GetOutermostMainFrame()->GetLastCommittedURL().spec());
   return cra_blocker::ShouldBlock(cra_blocker::WebHost(url.spec()), page);
 }
 
@@ -1752,6 +1757,10 @@ void RunReadyBlocks() {
   NSString* _pendingURL;
   BOOL _waitingForPopup;
   BOOL _audioMuted;
+  // The app's find session (AskOnPage.FindRequest): every result Chrome reports is tagged with it. Nil
+  // after -stopFinding:, so a late result of a stopped search reaches nobody.
+  NSUUID* _findGeneration;
+  BOOL _findQuote;
   BOOL _closeRequested;
   BOOL _pendingFocus;
   // The saved back and forward list the page opens with (GitHub #273), until it has gone in.
@@ -1991,6 +2000,11 @@ void RunReadyBlocks() {
   page.frame = _container.bounds;
   page.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   [_container addSubview:page];
+  // A page made hidden (a background tab: a ⌘-click, a restored tab) gets a hidden view from Chrome
+  // (WebContentsViewMac::CreateView), and Chrome's view host unhides it when it attaches the page. Cra's
+  // pages never attach there (cra_hosted_page.h), so Cra unhides it: the page is shown and hidden with
+  // Cra's container. Left hidden, such a tab stayed black whenever it was shown (0.1.44).
+  page.hidden = NO;
   [self installDocumentStartScripts];
   __weak CraBrowser* weakSelf = self;
   cra::WatchMediaSession(contents, ^(NSInteger state, bool controllable) {
@@ -2303,11 +2317,21 @@ void RunReadyBlocks() {
 
 - (void)pageFindResult {
   auto* find = find_in_page::FindTabHelper::FromWebContents(_contents);
-  if (!find || ![_delegate respondsToSelector:@selector(browser:didFindMatches:activeMatch:)]) {
+  SEL selector = @selector(browser:didFindMatches:activeMatch:generation:quote:identifier:finalUpdate:);
+  // The session is read here, as the result arrives: a later search never lends it its tag. Chrome's
+  // find helper drops replies to any request but its current one.
+  NSUUID* generation = _findGeneration;
+  if (!find || !generation || ![_delegate respondsToSelector:selector]) {
     return;
   }
   const find_in_page::FindNotificationDetails& result = find->find_result();
-  [_delegate browser:self didFindMatches:result.number_of_matches() activeMatch:result.active_match_ordinal()];
+  [_delegate browser:self
+      didFindMatches:result.number_of_matches()
+         activeMatch:result.active_match_ordinal()
+          generation:generation
+               quote:_findQuote
+          identifier:result.request_id()
+         finalUpdate:result.final_update()];
 }
 
 - (void)pageFocused {
@@ -2439,11 +2463,24 @@ void RunReadyBlocks() {
     return;
   }
   // A forced close, as CEF's CloseBrowser(true): no "Leave site?" (beforeunload), which would keep a closed tab's
-  // page alive. Deleting the page closes its DevTools too.
-  if (PageHost* host = HostOf(_contents)) {
-    TabStripModel* tabs = host->browser()->GetTabStripModel();
-    tabs->DetachAndDeleteWebContentsAt(tabs->GetIndexOfWebContents(_contents));
-  }
+  // page alive. Deleting the page closes its DevTools too. It is deleted on the next turn, as CEF's close
+  // was: close can come from inside the page's own callbacks (a hidden page that answers from its
+  // navigation, and its owner closes it), and Chrome stops when a page is deleted while it tells its
+  // observers something (~WebContentsImpl, 0.1.44 crash reports).
+  Later(base::BindOnce(
+      [](base::WeakPtr<content::WebContents> contents) {
+        if (!contents) {
+          return;
+        }
+        if (PageHost* host = HostOf(contents.get())) {
+          TabStripModel* tabs = host->browser()->GetTabStripModel();
+          const int index = tabs->GetIndexOfWebContents(contents.get());
+          if (index != TabStripModel::kNoTab) {
+            tabs->DetachAndDeleteWebContentsAt(index);
+          }
+        }
+      },
+      _contents->GetWeakPtr()));
 }
 
 #pragma mark Not yet
@@ -2677,13 +2714,29 @@ void RunReadyBlocks() {
     zoom->SetZoomLevel(level);
   }
 }
-- (void)findText:(NSString*)text forward:(BOOL)forward matchCase:(BOOL)matchCase findNext:(BOOL)findNext {
-  // Chrome's find helper tells a new search from the next match of the same one itself.
-  if (auto* find = _contents ? find_in_page::FindTabHelper::FromWebContents(_contents) : nullptr) {
-    find->StartFinding(base::SysNSStringToUTF16(text), forward, matchCase, /*find_match=*/true);
+- (void)findText:(NSString*)text
+         forward:(BOOL)forward
+       matchCase:(BOOL)matchCase
+        findNext:(BOOL)findNext
+      generation:(NSUUID*)generation
+           quote:(BOOL)quote {
+  auto* find = _contents ? find_in_page::FindTabHelper::FromWebContents(_contents) : nullptr;
+  if (!find) {
+    return;
   }
+  // Within one session Chrome's find helper tells a new search from the next match itself. A new
+  // session stops the old one first, so the same text again (A, B, A) is a fresh search with its own
+  // request, and the old one's replies are dropped.
+  if (![_findGeneration isEqual:generation] || _findQuote != quote) {
+    _findGeneration = nil;
+    find->StopFinding(find_in_page::SelectionAction::kKeep);
+    _findGeneration = generation;
+    _findQuote = quote;
+  }
+  find->StartFinding(base::SysNSStringToUTF16(text), forward, matchCase, /*find_match=*/true);
 }
 - (void)stopFinding:(BOOL)clearSelection {
+  _findGeneration = nil;
   if (auto* find = _contents ? find_in_page::FindTabHelper::FromWebContents(_contents) : nullptr) {
     find->StopFinding(clearSelection ? find_in_page::SelectionAction::kClear : find_in_page::SelectionAction::kKeep);
   }
@@ -2842,6 +2895,24 @@ void RunReadyBlocks() {
 - (void)evaluateInIsolatedWorld:(NSString*)world
                          params:(NSString*)params
                      completion:(void (^)(NSString* _Nullable, NSString* _Nullable))completion {
+  [self evaluateInIsolatedWorld:world
+                         params:params
+                      ifCurrent:^BOOL {
+                        return YES;
+                      }
+                     completion:completion];
+}
+
+// The caller's check runs again before each step and right before the script is sent: Ask on Page
+// drops an evaluation whose page or question changed while the frame and world were looked up.
+- (void)evaluateInIsolatedWorld:(NSString*)world
+                         params:(NSString*)params
+                      ifCurrent:(BOOL (^)(void))ifCurrent
+                     completion:(void (^)(NSString* _Nullable, NSString* _Nullable))completion {
+  if (!ifCurrent()) {
+    completion(nil, @"retired evaluation");
+    return;
+  }
   CraBrowser* __weak weakSelf = self;
   id (^parse)(NSString*) = ^id(NSString* json) {
     return json ? [NSJSONSerialization JSONObjectWithData:[json dataUsingEncoding:NSUTF8StringEncoding]
@@ -2854,7 +2925,11 @@ void RunReadyBlocks() {
                 completion:^(NSString* tree, NSString* error) {
                   NSString* frameID = [parse(tree) valueForKeyPath:@"frameTree.frame.id"];
                   CraBrowser* strong = weakSelf;
-                  if (!strong || ![frameID isKindOfClass:NSString.class]) {
+                  if (!strong || !ifCurrent()) {
+                    completion(nil, @"retired evaluation");
+                    return;
+                  }
+                  if (![frameID isKindOfClass:NSString.class]) {
                     completion(nil, error ?: @"no frame");
                     return;
                   }
@@ -2867,13 +2942,21 @@ void RunReadyBlocks() {
                                     NSNumber* context = [parse(made) valueForKey:@"executionContextId"];
                                     NSMutableDictionary* evaluate = [parse(params) mutableCopy];
                                     CraBrowser* again = weakSelf;
-                                    if (!again || ![context isKindOfClass:NSNumber.class] ||
+                                    if (!again || !ifCurrent()) {
+                                      completion(nil, @"retired evaluation");
+                                      return;
+                                    }
+                                    if (![context isKindOfClass:NSNumber.class] ||
                                         ![evaluate isKindOfClass:NSMutableDictionary.class]) {
                                       completion(nil, madeError ?: @"no isolated world");
                                       return;
                                     }
                                     evaluate[@"contextId"] = context;
                                     NSData* json = [NSJSONSerialization dataWithJSONObject:evaluate options:0 error:nil];
+                                    if (!ifCurrent()) {
+                                      completion(nil, @"retired evaluation");
+                                      return;
+                                    }
                                     [again sendDevToolsMethod:@"Runtime.evaluate"
                                                        params:[[NSString alloc] initWithData:json
                                                                                     encoding:NSUTF8StringEncoding]

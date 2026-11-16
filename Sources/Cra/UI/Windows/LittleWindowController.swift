@@ -159,6 +159,12 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     private var permissionCards: [PermissionPopover] = []
     private var favicon: NSImage?
     private var promoted = false
+    /// The app the window was opened over (a link from it, the shortcut pressed in it), which gets
+    /// the keyboard back as the window closes (#430). AppDelegate keeps it up to date.
+    var focusReturn = LittleWindowReturn(app: nil)
+    /// The page moved into a tab of the browser window (Open in): that's where the keyboard goes.
+    private var movedToTab = false
+    private var handedBack = false
     /// Hosts a page's window.open (a sign-in popup); its URL arrives after it shows.
     private let isPopupHost: Bool
     /// Arc's Peek: this Little Window sits over a browser window, which a dimming panel
@@ -173,6 +179,9 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     /// Another tab is on screen: the Peek is out of sight, its page alive, until its tab is back.
     private(set) var isParked = false
     private var dim: PeekDimPanel?
+    /// The Peek's Close is the red Confirm pill, waiting for a second close (#425).
+    private var closeHold: PeekCloseHold?
+    private var closeHoldReset: DispatchWorkItem?
     /// The click catcher's frame (screen coordinates), for cra://debug?peekCatcher.
     var dimFrame: NSRect? { dim?.frame }
     private var controls: PeekControlsPanel?
@@ -187,6 +196,8 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     private var commandPanel: CommandBarPanel!
     private var commandHost: CommandBarView!
     private var commandBarOpenedAt = Date.distantPast
+    /// Set while the bar closes because its panel lost the keys (#429).
+    private var commandBarLostKeys = false
     private var commandObserving = false
     private var popup: LittlePopupPanel?
     private var tooltip: LittleTooltipPanel?
@@ -661,7 +672,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     /// lands.
     func showAsPeek(fromTab tabID: UUID?) {
         guard let window, let parent = peekParent, let pw = parent.window else { return }
-        let dim = PeekDimPanel(covering: parent.peekDismissArea(), of: pw) { [weak self] in self?.closeWindow() }
+        let dim = PeekDimPanel(covering: parent.peekDismissArea(), of: pw) { [weak self] in self?.attemptPeekClose(.background) }
         self.dim = dim
         pw.addChildWindow(dim, ordered: .above)
         dim.orderFront(nil)
@@ -673,7 +684,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
             easel.usePeekLook()
         }
         var buttons: [PeekControlsPanel.Button] = [
-            .init(control: .close, symbol: "xmark", help: "Close (⌘W)") { [weak self] in self?.closeWindow() },
+            .init(control: .close, symbol: "xmark", help: "Close (⌘W)") { [weak self] in self?.attemptPeekClose(.closeButton) },
             .init(control: .expand, symbol: "arrow.up.left.and.arrow.down.right", help: "Expand (⌘O)") { [weak self] in
                 self?.expandPeek(commandClick: NSApp.currentEvent?.modifierFlags.contains(.command) == true)
             },
@@ -1027,8 +1038,18 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
             }
             return
         }
-        window?.makeKeyAndOrderFront(nil)
-        focusPage()
+        // Lost to another window, the keys stay there (#429).
+        guard commandBarLostKeys else { window?.makeKeyAndOrderFront(nil); focusPage(); return }
+        commandBarLostKeys = false
+        panel.keysWent(owns: { [weak self] w in
+            guard let self else { return false }
+            return w === self.window || w === self.popup || self.peekWindows.contains { $0 === w }
+        }, finish: { [weak self] holder in
+            guard let self, !self.commandBar.isOpen, self.window?.isVisible == true,
+                  CommandBarClosing.lostKeys(to: holder).barsWindowTakesKeys else { return }
+            self.window?.makeKeyAndOrderFront(nil)
+            self.focusPage()
+        })
     }
 
     private func handleCommit(_ s: Suggestion?, typed: String, mode: CommandBarMode) {
@@ -1228,6 +1249,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         let tab = store.createTab(url: b.currentURL, title: b.currentTitle, in: sid, select: true, window: target.windowID)
         if let favicon, let key = FaviconKey.key(for: b.currentURL) { app.favicons.store(favicon, forKey: key) }
         promoted = true
+        movedToTab = true
         endDevTools(of: b)
         browser = nil
         target.browsers.adopt(b, for: tab.id)
@@ -1325,7 +1347,8 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         if isPeek, !closingPeek, let control = PeekControl.pressed(byAction: id) { controls?.pressFromKey(control) }
         switch id {
         // ⌘W on the card fades it out, as Esc does (#337).
-        case "closeTab", "closeWindow": if isCard, !cardFading, window?.isVisible == true { dismissCard() } else { closeWindow() }
+        case "closeTab", "closeWindow":
+            if isCard, !cardFading, window?.isVisible == true { dismissCard() } else if isPeek { attemptPeekClose(.closeShortcut) } else { closeWindow() }
         case "newTab", "editURL":
             // ⌘T in a Peek is the browser window's New Tab bar, with its tabs; ⌘L edits the Peek (#379).
             let opening = CommandBarOpening.of(id == "newTab" ? .newTab : .editURL, in: isPeek ? .peek : .littleWindow, hasPage: hasPage)
@@ -1409,6 +1432,34 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         toast.show(text, action: action, page: content.convert(content.bounds, to: nil), in: window, colors: LittlePalette.toast)
     }
 
+    /// The Peek's user closes (its Close button, ⌘W, Esc, a click outside) go through here. A Peek on
+    /// a call holds the first one: Close becomes Arc's red Confirm pill and the next close goes through
+    /// (PeekCloseHold, GitHub #425). Everything else closes as before.
+    func attemptPeekClose(_ attempt: PeekCloseAttempt) {
+        guard isPeek, !closingPeek else { closeWindow(); return }
+        let next = PeekCloseHold.after(attempt, holding: closeHold, capturingMedia: browser?.isCapturingMedia == true)
+        closeHoldReset?.cancel()
+        closeHoldReset = nil
+        closeHold = next
+        controls?.showHold(next)
+        guard let next else { closeWindow(); return }
+        // Arc gives up waiting after a while, and Close is round again.
+        let reset = DispatchWorkItem { [weak self] in
+            guard let self, self.closeHold != nil else { return }
+            self.closeHold = nil
+            self.controls?.showHold(nil)
+        }
+        closeHoldReset = reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + next.timeout, execute: reset)
+    }
+
+    /// `cra://debug?peekClose`: open or closing, capturing, and the Close button's state.
+    func peekCloseReadout() -> String {
+        let hold = closeHold.map { "\($0)" } ?? "none"
+        let capturing = browser?.isCapturingMedia == true ? 1 : 0
+        return "open=\(closingPeek ? 0 : 1) capturing=\(capturing) hold=\(hold) close=\(controls?.closeReadout() ?? "-")"
+    }
+
     /// ⌘W / Close Window: the same path as the close button. (performClose is
     /// skipped: it refuses to act while the standard buttons are dimmed.)
     func closeWindow() {
@@ -1433,6 +1484,8 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard sender === window else { return true }
+        // Before the page and its windows go: one of them may have the keyboard.
+        handBackFocus()
         tooltipTimer?.invalidate(); hideTooltip()
         closePopup()
         commandBar.close()
@@ -1448,8 +1501,24 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
 
     func windowWillClose(_ notification: Notification) {
         guard (notification.object as? NSWindow) === window else { return }
+        handBackFocus()  // closes that skip windowShouldClose: the page's own window.close()
         endPeek()
         if browser == nil { app.removeLittleWindow(self) }
+    }
+
+    /// Arc's Little Arc closes back to the app it was opened over (#430). Left to AppKit, the
+    /// keyboard goes to Cra's next window, which brings the browser window (and its Space) forward.
+    /// The app comes forward before the window goes, so Cra is no longer in front by then.
+    private func handBackFocus() {
+        guard !handedBack, let window else { return }
+        handedBack = true
+        var key = NSApp.keyWindow
+        while let parent = key?.parent { key = parent }
+        let hadKeyboard = key === window || key === commandPanel || key === popup
+        guard let pid = focusReturn.target(closingKeyWindow: hadKeyboard, craActive: NSApp.isActive, movedToTab: movedToTab),
+              let other = NSRunningApplication(processIdentifier: pid), !other.isTerminated else { return }
+        CraLog.note("Little Window closed: the app it was opened over comes forward (#430)")
+        other.activate(from: .current, options: [])
     }
 
     /// Left with the green button or ⌃⌘F while a video was fullscreen: the page leaves too.
@@ -1525,6 +1594,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
             }
             return
         }
+        commandBarLostKeys = true
         commandBar.close()
     }
 
@@ -1833,7 +1903,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     func browser(_ browser: CraBrowser, handleUnhandledKeyEvent event: NSEvent) -> Bool {
         // Arc's "Exit the current context": Escape the page didn't use closes a Peek.
         if isPeek, event.type == .keyDown, event.keyCode == 53, event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty {
-            closeWindow()
+            attemptPeekClose(.escape(prefersConfirmation: false))
             return true
         }
         return app.handleUnhandledKey(event)

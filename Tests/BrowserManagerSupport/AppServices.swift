@@ -62,9 +62,12 @@ enum TestRoot { case today }
     var settings = Settings()
     var items: [UUID: TestItem] = [:]
     func item(_ id: UUID) -> TestItem? { items[id] }
+    private let focusedAskSpace = UUID()
+    func focusedSpaceID(window: UUID?) -> UUID { focusedAskSpace }
     var incognitoItems: Set<UUID> = []
     func isIncognito(item: UUID) -> Bool { incognitoItems.contains(item) }
-    func profilePath(item: UUID) -> String? { nil }
+    var profilePaths: [UUID: String] = [:]
+    func profilePath(item: UUID) -> String? { profilePaths[item] }
     func profileDirectoryName(item: UUID) -> String { "Default" }
     func spaceID(ofItem: UUID) -> UUID? { nil }
     func splitContaining(_ id: UUID) -> TestItem? {
@@ -86,7 +89,9 @@ enum TestRoot { case today }
     var visits: [String] = []
     func recordVisit(url: String, title: String) { visits.append(url) }
     func clearHistory(_ range: BrowsingDataClear.Range) {}
-    func selectTab(_ id: UUID, window: UUID?) {}
+    /// The tabs selected, in order (Picture in Picture's Back to Tab selects; Minimize doesn't).
+    private(set) var selections: [UUID] = []
+    func selectTab(_ id: UUID, window: UUID?) { selections.append(id) }
     func markUnread(_ id: UUID, _ unread: Bool) {}
     @discardableResult
     func createTab(url: String, in space: UUID? = nil, select: Bool = false,
@@ -133,6 +138,7 @@ struct PictureInPictureActions {
     var skip: (Double) -> Void
     var seek: (Double) -> Void
     var close: () -> Void
+    var minimize: () -> Void = {}
 }
 final class PictureInPictureChrome {
     static let shared = PictureInPictureChrome()
