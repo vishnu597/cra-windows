@@ -287,6 +287,11 @@ built release app with a test profile. Note anything that fails in the release's
   new tab: the tab opens in the sidebar and the page stays in front. Turn on Settings ▸ Tabs ▸
   "Switch to links opened in new tabs from the page menu" and do it again: the new tab comes to
   the front. Ctrl-click still opens behind and Ctrl+Shift-click in front either way.
+- **Windows split menu items:** right-click the open tab ▸ Add Split View: an empty pane opens
+  beside it with the command bar. Right-click another tab in the space ▸ Open in Split View: it
+  joins the open tab's split. A fifth pane says "Cannot Add New Pane". In a split, the command
+  bar's Expand Current Split gives the focused pane the window; a divider drag brings the others
+  back.
 - **Windows Share:** with an isolated test profile, assign Share a shortcut in Settings. In
   both a browser tab and a Little Window with the page focused, use that shortcut: Windows'
   Share panel opens for that page. Close the panel using its own Close X, then invoke Share

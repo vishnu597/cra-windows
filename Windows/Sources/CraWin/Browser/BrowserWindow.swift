@@ -769,7 +769,12 @@ final class BrowserWindow {
         case "flipSplitOrientation": if let t = store.selectedTabID(window: windowID), let split = store.splitContaining(t) { store.flipSplitOrientation(split.id) }
         case "nextSplitPane": cycleSplitPane(1)
         case "previousSplitPane": cycleSplitPane(-1)
+        case "expandSplitPane": if let t = store.selectedTabID(window: windowID) { expandSplitPane(t) }
         default:
+            if id.hasPrefix("splitPane"), let n = Int(id.dropFirst(9)), (1...4).contains(n) {
+                selectSplitPane(n)
+                return true
+            }
             if id.hasPrefix("space"), let n = Int(id.dropFirst(5)), (1...9).contains(n) {
                 store.focusSpace(number: n, window: windowID)
                 return true
@@ -1047,6 +1052,38 @@ final class BrowserWindow {
     }
 
     /// Switch to Next / Previous Split View.
+    /// Arc's Switch to Split View 1–4: the open split's nth pane.
+    private func selectSplitPane(_ n: Int) {
+        guard let current = store.selectedTabID(window: windowID) else { return }
+        let panes = store.paneTabIDs(for: current)
+        guard panes.count > 1, n >= 1, n <= panes.count else { return }
+        store.selectTab(panes[n - 1], window: windowID)
+    }
+
+    /// Arc's View ▸ Expand Current Split: the pane takes the window and the others keep the
+    /// minimum width, stored as the split's width factors like a divider drag
+    /// (SplitPaneLayout.expanding). A divider drag brings the panes back.
+    private func expandSplitPane(_ id: UUID) {
+        guard let split = store.splitContaining(id) else { return }
+        let factors = SplitPaneLayout.expanding(id, in: store.paneTabIDs(for: id))
+        store.setSplitWidthFactors(split.id, factors.mapValues { Double($0) })
+    }
+
+    /// Arc's "Open in Split View" on a sidebar tab: it joins the open tab in a split (a new one
+    /// in its place, or the open split), as the Mac's openTabInSplit does.
+    func openInSplitView(_ id: UUID) {
+        guard let current = store.selectedTabID(window: windowID), current != id, store.item(current)?.isEmptyTab == false else { return }
+        if store.paneTabIDs(for: current).contains(id) {
+            store.selectTab(id, window: windowID)
+            return
+        }
+        guard store.canAddPane(to: current) else {
+            showToast("Cannot Add New Pane")
+            return
+        }
+        store.joinSplit(id, with: current, window: windowID)
+    }
+
     private func cycleSplitPane(_ delta: Int) {
         guard let current = store.selectedTabID(window: windowID),
               let next = SplitPaneLayout.pane(delta, from: current, in: store.paneTabIDs(for: current)) else { return }
@@ -1786,6 +1823,7 @@ extension BrowserWindow: LibraryActions {
 }
 
 extension BrowserWindow: SidebarActions {
+    func addSplitView() { addSplitPane() }
     /// Set Profile ▸ New Profile… on a space's menu: the space starts ticked.
     func newProfile(forSpace id: UUID) { showNewProfile(ticked: [id]) }
 

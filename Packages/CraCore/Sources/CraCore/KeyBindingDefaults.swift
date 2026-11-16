@@ -258,6 +258,10 @@ public enum KeyBindingDefaults {
             "flipSplitOrientation": [],
             "nextSplitPane": [],
             "previousSplitPane": [],
+            // Arc's View ▸ Expand Current Split; Switch to Split View 1–4 have no Windows keys yet
+            // (the Mac's ⌃⇧2 is Ctrl+Shift+2, Capture, here): Settings ▸ Shortcuts can give them one.
+            "expandSplitPane": [],
+            "splitPane1": [], "splitPane2": [], "splitPane3": [], "splitPane4": [],
             "nextSpace": [KeyChord(KeyChord.right, ctrlAlt)],
             "previousSpace": [KeyChord(KeyChord.left, ctrlAlt)],
             "changeProfile": [],
