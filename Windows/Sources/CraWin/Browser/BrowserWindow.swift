@@ -80,6 +80,13 @@ final class BrowserWindow {
     private var commandBarDeactivated = false
     /// Ctrl+F: find in the shown page, in a window of its own at the page's top right.
     private let findBar = FindBarView()
+    /// Right-click Back or Forward: the tab's pages that way (BackForwardMenu, #416). Kept here:
+    /// a MenuFlyout made from Swift is only a wrapper, freed with its last Swift reference.
+    private let backMenu = MenuFlyout()
+    private let forwardMenu = MenuFlyout()
+    /// The shown page's history rows, as last read, and which page they are from.
+    private var historyRows: [BackForwardMenu.Direction: [BackForwardMenu.Row]] = [:]
+    private var historyPage: ObjectIdentifier?
     /// Arc's Developer Mode bar over a site's page (HostWindow's strip).
     private let developerBar = DeveloperBarView()
     private var developerTabID: UUID?
@@ -446,8 +453,14 @@ final class BrowserWindow {
         let toolbar = StackPanel()
         toolbar.orientation = .horizontal
         toolbar.spacing = 2
-        toolbar.children.append(UI.button("\u{2190}") { [weak self] in self?.shownPage?.goBack() })
-        toolbar.children.append(UI.button("\u{2192}") { [weak self] in self?.shownPage?.goForward() })
+        let back = UI.button("\u{2190}") { [weak self] in self?.shownPage?.goBack() }
+        let forward = UI.button("\u{2192}") { [weak self] in self?.shownPage?.goForward() }
+        back.contextFlyout = backMenu
+        forward.contextFlyout = forwardMenu
+        backMenu.opening.addHandler { [weak self] _, _ in self?.openHistoryMenu(.back) }
+        forwardMenu.opening.addHandler { [weak self] _, _ in self?.openHistoryMenu(.forward) }
+        toolbar.children.append(back)
+        toolbar.children.append(forward)
         toolbar.children.append(UI.button("\u{27F3}") { [weak self] in self?.shownPage?.reload() })
 
         address.fontSize = 13
@@ -2012,6 +2025,47 @@ extension BrowserWindow: WebPageDelegate {
 
     func page(_ page: WebPage, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool) {
         syncSlowResponse()
+    }
+
+    // MARK: Back and Forward history
+
+    /// The menu opens with the rows read last for this page (none for another page), then fills
+    /// in from Chromium's answer (DevTools `Page.getNavigationHistory`, as on the Mac).
+    private func openHistoryMenu(_ direction: BackForwardMenu.Direction) {
+        fillHistoryMenu(direction)
+        guard let page = shownPage else { return }
+        page.sendDevToolsMethod("Page.getNavigationHistory") { [weak self, weak page] json, _ in
+            guard let self, let page, page === self.shownPage, let json else { return }
+            let id = ObjectIdentifier(page)
+            if self.historyPage != id {
+                self.historyPage = id
+                self.historyRows = [:]
+            }
+            let rows = BackForwardMenu.rows(history: json, direction: direction)
+            guard rows != self.historyRows[direction] else { return }
+            self.historyRows[direction] = rows
+            self.fillHistoryMenu(direction)
+        }
+    }
+
+    private func fillHistoryMenu(_ direction: BackForwardMenu.Direction) {
+        let menu = direction == .back ? backMenu : forwardMenu
+        menu.items.clear()
+        let current = shownPage.map(ObjectIdentifier.init)
+        let rows = current != nil && current == historyPage ? historyRows[direction] ?? [] : []
+        guard !rows.isEmpty else {
+            let none = UI.menuItem(direction == .back ? "No Earlier Pages" : "No Later Pages") {}
+            none.isEnabled = false
+            menu.items.append(none)
+            return
+        }
+        for row in rows {
+            menu.items.append(UI.menuItem(row.title) { [weak self] in self?.goToHistoryEntry(row.entryID) })
+        }
+    }
+
+    private func goToHistoryEntry(_ entryID: Int) {
+        shownPage?.sendDevToolsMethod("Page.navigateToHistoryEntry", params: #"{"entryId":\#(entryID)}"#) { _, _ in }
     }
 
     func page(_ page: WebPage, didChangeCommittedLoad committed: Bool) {

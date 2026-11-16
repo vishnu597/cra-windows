@@ -372,6 +372,10 @@ built release app with a test profile. Note anything that fails in the release's
   doesn't move the window. Turn off Settings ▸ Advanced ▸ Allow window dragging from the top of
   webpages: the same drag selects nothing and the window stays. Needs real mouse drags, so no
   scenario covers it.
+- **Windows Back and Forward history:** in one tab open example.com, then three more pages by
+  links or the address. Right-click the sidebar's Back: the earlier pages, nearest first, by
+  title. Pick the oldest: the tab goes there. Right-click Forward: the later pages; pick one. In a
+  fresh tab both say there are no pages. Needs real navigation history, so no scenario covers it.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.

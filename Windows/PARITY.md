@@ -22,7 +22,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 <!-- summary: parity.py summary --write -->
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
-| Window, pages and toolbar | 9 | 5 | 0 | 11 | 1 |
+| Window, pages and toolbar | 9 | 6 | 0 | 10 | 1 |
 | Sidebar | 6 | 8 | 0 | 14 | 0 |
 | Command bar and shortcuts | 1 | 5 | 0 | 3 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 35 | 44 | 1 | 60 | 16 |
+| **All** | 35 | 45 | 1 | 59 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -53,7 +53,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Drag the window from the top of a page (on by default, as in Arc) | ✅ [#64] | `MainWindowController.swift` | `PageTopDrag` | Upstream 3b6b27d. Windows: CraCEFWin's mouse hook takes a plain press in the page's top 60 DIPs over the arrow pointer (the rule of `PageTopDrag.holds`), gives the page the release past Windows' drag distance and starts the move (WM_NCLBUTTONDOWN with HTCAPTION). Not in HTML fullscreen or the Peek's card; Settings ▸ Advanced switch. |
 | Clicks land under the pointer while Chrome's debugger bar shows (#241) | ❌ | `CraCEF.mm` | `PageViewInsets` | Upstream 7675257: the Mac page view moved down by the bar. Check on Windows when extensions that debug pages (#228) run. |
 | Find in page with match count | ✅ [#10] | `Overlays.swift` | `FindInPage`, `FindBarPlacement` | Upstream 720ede7 (#418) hangs the find bar under an auto-hiding toolbar while it's out (`FindBarPlacement`); Windows has no toolbar yet. |
-| Back and Forward history menu: right-click or hold Back or Forward lists the tab's pages (#416) | ❌ | `BackForwardMenuView.swift`, `ButtonHold.swift` | `BackForwardMenu` | Upstream c61aab7: rows from DevTools' `Page.getNavigationHistory` and Arc's menu geometry in CraCore. Windows' sidebar Back and Forward buttons need the right-click/hold and a FloatingWindow menu. |
+| Back and Forward history menu: right-click or hold Back or Forward lists the tab's pages (#416) | 🟡 [#66] | `BackForwardMenuView.swift`, `ButtonHold.swift` | `BackForwardMenu` | Upstream c61aab7: rows from DevTools' `Page.getNavigationHistory` and Arc's menu geometry in CraCore. Windows: right-click the sidebar's Back or Forward lists the pages that way (`BackForwardMenu.rows`) in a WinUI menu and goes to the one picked (`Page.navigateToHistoryEntry`). Left: press-and-hold, Arc's own menu look (`BackForwardMenu.Layout`) with favicons, and the Peek bar's buttons. |
 | Toasts (copied URL with Share, captures, downloads) | ✅ [#17] | `ShinyToast.swift`, `Overlays.swift` | `ToastStyle`, `ShareRetry` | Windows uses DataTransferManager for Share. `ShareRetry` bounds temporary-busy retries and ends with one failure toast; commands, Site Controls and copied-URL toasts use the same path. The sheet opens with Cra's window in front (a toast's Share button hands the foreground back to its window first), and `ShareRetry.OwnerWatch` re-enables a window a sheet left disabled (gone, or in front but cloaked) and shows the failure toast when no sheet ever showed. A wedged Windows Share (ShellExperienceHost holding a dead sheet) needs a sign-out on the PC; the sheet's own close can't be driven by test input. |
 | Site Control Center, lock badge and certificate viewer | 🟡 [#17] | `SiteControlCenter.swift`, `CertificateWindow.swift` | `SiteControlCenter`, `ConnectionSecurity`, `PageCapture` | Windows shows the sliders in the sidebar's address pill. Its Settings section has the Developer Mode and Block Ads & Trackers switches [#45]. Missing: the protected-media card (Mac only, see Media) and upstream cbb5753's per-site Automatic Picture-In-Picture switch. |
 | Zoom (`zoomIn`, `zoomOut`, `resetZoom`), `print`, `viewSource` | ✅ [#58] | `AppDelegate.swift` | `KeyBindingDefaults` | Windows takes Chrome's keys for them (Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+P, Ctrl+U) in its key table, the command bar and Settings ▸ Shortcuts, and zooms in the Mac's half-level steps. Ctrl+Shift+= stays Add Split View. |
@@ -534,7 +534,7 @@ new CraCore files' CoreGraphics imports are guarded.
 | Commit | What | Windows |
 |---|---|---|
 | 3831d67 | A URL typed in ⌘T follows an Air Traffic Control route to a space (#421) | Air Traffic Control row: Windows' command bar does the same (`AppSettings.space(forTypedURL:)`). ✅ |
-| c61aab7 | Right-click Back or Forward lists the tab's history (#416) | New Back and Forward history menu row (`BackForwardMenu`). ❌ |
+| c61aab7 | Right-click Back or Forward lists the tab's history (#416) | New Back and Forward history menu row (`BackForwardMenu`); Windows right-click menu in [#66]. 🟡 |
 | 308817d, 4e0c10b, a4192fe | A link let go on a tab's middle opens nothing, on a folder's middle goes in the folder; Arc's insertion ring and line (#419) | Drag and drop row (`SidebarLinkDrop`). ❌ |
 | 720ede7 | The find bar hangs under an auto-hiding toolbar (#418) | Find in page row (`FindBarPlacement`). Windows has no toolbar. ➖ |
 | 30afd28 | Extensions see the page Cra has focused as the active tab (#414) | Toolbar and popups row (`ChromiumPageFocus.swift`); on Windows a popup's tabs.query doesn't see the Cra tab yet (patched CEF). ❌ |
@@ -649,3 +649,4 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 [#63]: https://github.com/vishnu597/cra-windows/pull/63
 [#64]: https://github.com/vishnu597/cra-windows/pull/64
 [#65]: https://github.com/vishnu597/cra-windows/pull/65
+[#66]: https://github.com/vishnu597/cra-windows/pull/66
