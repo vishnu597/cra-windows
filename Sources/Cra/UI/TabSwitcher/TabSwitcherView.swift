@@ -1,35 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Arc 1.170's tab switcher, measured on a 1× display (27 Oct 2026, see
-/// docs/arc-reverse-engineering.md "Tab switcher").
-enum TabSwitcherMetrics {
-    static let maxItems = 5
-    /// ⌃Tab to panel: Arc showed it 0.18–0.26 s after the key; a 0.13 s tap never showed it.
-    static let showDelay: TimeInterval = 0.15
-    static let card = CGSize(width: 180, height: 158)
-    static let thumbnail = CGSize(width: 158, height: 105)
-    static let thumbnailOrigin = CGPoint(x: 11.5, y: 12)
-    static let cardSpacing: CGFloat = 2
-    static let paddingH: CGFloat = 16.5
-    static let paddingV: CGFloat = 16
-    static let cornerRadius: CGFloat = 26
-    static let cardCornerRadius: CGFloat = 8
-    static let thumbnailCornerRadius: CGFloat = 6.5
-    static let favicon: CGFloat = 16
-    /// Room around the panel for its shadow (the window is this much larger on each side).
-    static let shadowMargin: CGFloat = 40
-
-    static func panelSize(count: Int) -> CGSize {
-        let n = CGFloat(max(count, 1))
-        return CGSize(width: paddingH * 2 + n * card.width + (n - 1) * cardSpacing, height: paddingV * 2 + card.height)
-    }
-
-    static func windowSize(count: Int) -> CGSize {
-        let p = panelSize(count: count)
-        return CGSize(width: p.width + shadowMargin * 2, height: p.height + shadowMargin * 2)
-    }
-}
+/// Arc 1.170's tab switcher measurements, shared with Windows (CraCore's TabSwitcherLayout).
+typealias TabSwitcherMetrics = TabSwitcherLayout
 
 /// The switcher panel: a dark rounded slab of cards, each a page thumbnail over its favicon
 /// and title, the selected one on the space's highlight.
@@ -236,16 +209,8 @@ extension SpaceTheme {
     /// spaces) the dark one sits at OKLab lightness ≈ 0.60 in the theme's hue, close to the
     /// most saturated colour sRGB has there, at 48% opacity; the light one is opaque at ≈ 0.885.
     func switcherHighlight(dark: Bool) -> Color {
-        let hex = accent ?? colors.first ?? "#808080"
-        let c = HexColor.components(hex) ?? (0.5, 0.5, 0.5)
-        let lab = OKLab.from(r: c.r, g: c.g, b: c.b)
-        let chroma = (lab.a * lab.a + lab.b * lab.b).squareRoot()
-        let hue = atan2(lab.b, lab.a)
-        let L = dark ? 0.60 : 0.885
-        // Greys stay grey; anything with a clear hue gets Arc's near-full saturation.
-        let target = OKLab.maxChroma(L: L, hue: hue) * (dark ? 0.87 : 0.5) * min(1, chroma / 0.03)
-        let rgb = OKLab.toRGB(L: L, a: target * cos(hue), b: target * sin(hue))
-        return Color(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b, opacity: dark ? 0.48 : 1)
+        let c = switcherHighlightRGBA(dark: dark)
+        return Color(.sRGB, red: c.r, green: c.g, blue: c.b, opacity: c.a)
     }
 
     /// Arc's developer-mode toolbar (CraCore's SpaceTheme.developerBar, which has the measurements).
