@@ -92,8 +92,8 @@ final class ImportDialogView {
         return measuredHeight()
     }
 
-    /// After an import that brought passwords or sign-ins: what came over and what stayed, with
-    /// Done. Returns the card's height.
+    /// After an import: what came over (and, with passwords, sign-ins or extensions, what stayed),
+    /// with Done. Returns the card's height.
     func showResult(title text: String, lines: [String]) -> Double {
         content.children.clear()
         rows = []

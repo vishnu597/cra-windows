@@ -1292,18 +1292,16 @@ final class BrowserWindow {
 
     /// Adds the browser's plan to the sidebar, shows its first space and says what came over.
     /// With `credentials`, its passwords and sign-ins are staged for the next launch, and
-    /// `extensions` are copied into Cra's folder; then the card stays up to say so (the Mac's
-    /// Passwords, Sign-ins and Extensions tiles).
+    /// `extensions` are copied into Cra's folder. The card stays up with Done to say what came
+    /// over, as the Mac's progress step does. With nothing but the sidebar it used to close and
+    /// leave a toast, which went unseen (PR #43's PC test saw no result at all).
     private func runImport(_ source: WindowsImportSource, credentials: Bool, extensions: [ExtensionImport.Candidate] = []) {
         switch importData(source, credentials: credentials, extensions: extensions) {
         case .failed(let error):
             hideImportDialog()
             showToast(error)
-        case .done(let summary, nil):
-            hideImportDialog()
-            showToast(summary)
-        case .done(let summary, let words?):
-            importDialogHeight = importDialog.showResult(title: summary, lines: [words])
+        case .done(let summary, let words):
+            importDialogHeight = importDialog.showResult(title: summary, lines: words.map { [$0] } ?? [])
             placeImportDialog()
             importDialog.focus()
         }
