@@ -278,6 +278,10 @@ public enum KeyBindingDefaults {
             "renameTab": [],
             "duplicateTab": [],
             "muteTab": [],
+            // Back to Pinned Page and Reset all tabs in this Space, from the command bar (no keys
+            // on the Mac either).
+            "resetTab": [],
+            "resetSpaceTabs": [],
             "nextTab": [KeyChord(KeyChord.tab, ctrl)],
             "previousTab": [KeyChord(KeyChord.tab, ctrlShift)],
             "goBack": [KeyChord(KeyChord.left, alt)],

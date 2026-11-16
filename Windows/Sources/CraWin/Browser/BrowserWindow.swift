@@ -763,6 +763,8 @@ final class BrowserWindow {
         case "renameTab": renameSelectedTab()
         case "duplicateTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { _ = store.duplicateTab(t) }
         case "muteTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { toggleMute(t) }
+        case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
+        case "resetSpaceTabs": resetAllPinnedTabs()
         case "favoriteTab": if let t = store.selectedTabID(window: windowID), !store.isFavorite(t) { store.addToFavorites(t) }
         case "nextTab": cycleTab(1)
         case "previousTab": cycleTab(-1)
@@ -1934,6 +1936,22 @@ extension BrowserWindow: SidebarActions {
 
     /// Return, Escape or a click elsewhere ended a rename: keys back to the page.
     func renameEnded() { focusContent() }
+
+    /// Arc's Back to Pinned Page (resetTab): the pinned tab goes back to its pinned page, with its
+    /// name and icon, and its page loads it (MainWindowController.resetPinnedTab).
+    func resetPinnedTab(_ id: UUID) {
+        guard let home = store.resetPinnedTab(id) else { return }
+        pages[id]?.loadURL(home)
+    }
+
+    /// Reset all tabs in this Space: every pinned tab of the space in front that is away from its
+    /// pinned page, folders included.
+    private func resetAllPinnedTabs() {
+        let space = store.focusedSpace(window: windowID)
+        for t in store.tabs(under: space.pinnedContainerID) where t.tab.map({ $0.url != $0.savedURL }) == true {
+            resetPinnedTab(t.id)
+        }
+    }
 
     /// Today tabs are archived. Pinned tabs and favorites stay; they unload and return to
     /// their pinned page (Arc's close-on-pinned behaviour, MainWindowController.closeTab).

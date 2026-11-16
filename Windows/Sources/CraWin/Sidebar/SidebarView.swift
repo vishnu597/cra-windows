@@ -28,6 +28,8 @@ protocol SidebarActions: AnyObject {
     func openInSplitView(_ id: UUID)
     /// Mutes or unmutes the tab and its page (the speaker on its row, its menu, Mute / Unmute Tab).
     func toggleMute(_ id: UUID)
+    /// Back to Pinned Page: the pinned tab returns to its pinned page.
+    func resetPinnedTab(_ id: UUID)
 }
 
 /// The row or space header whose name is being edited (the Mac's SidebarUIState.renamingID and
@@ -539,6 +541,11 @@ final class SidebarView {
             menu.items.append(UI.menuItem(TabSound.menuTitle(muted: item.tab?.muted ?? false)) { [weak self] in
                 self?.actions?.toggleMute(id)
             })
+            // A pinned tab away from its pinned page (the Mac's tab menu).
+            if pinned, let tab = item.tab, tab.url != tab.savedURL {
+                menu.items.append(MenuFlyoutSeparator())
+                menu.items.append(UI.menuItem("Back to Pinned Page") { [weak self] in self?.actions?.resetPinnedTab(id) })
+            }
         }
         // An incognito window's tabs stay in it.
         let others = store.isIncognito(item: id) ? [] : store.orderedSpaces.filter { $0.id != store.spaceID(ofItem: id) }

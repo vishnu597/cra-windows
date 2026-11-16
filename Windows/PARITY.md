@@ -23,7 +23,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
 | Window, pages and toolbar | 8 | 4 | 0 | 13 | 1 |
-| Sidebar | 6 | 7 | 0 | 15 | 0 |
+| Sidebar | 6 | 8 | 0 | 14 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 34 | 39 | 1 | 66 | 16 |
+| **All** | 34 | 40 | 1 | 65 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -79,7 +79,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Move Tab to Space N (`moveTabToSpaceN`) | ✅ [#53] | `MainWindowController.swift`, `AppDelegate.swift` | `SpaceWindow`, `SidebarStore` | Windows' key is Alt+Shift+1–9 (Go to Space N's Alt+N with Shift, where the Mac adds ⌘ to ⌃N; Ctrl+Alt would be AltGr). The open tab, or its split, moves and the window follows it (`moveTabAndFollow`); a Little Window sends its page there. An incognito window's tabs stay put. |
 | Swipe, Shift + wheel or sideways wheel between spaces | ❌ | `SpacePagerView.swift` | `WheelSpaceSwitch`, `PageDetentHaptics` | Decisions shared; Windows needs the wheel hook and the slide. Upstream c4ee4dc adds one trackpad haptic per changed page, including a flick; hardware feedback needs a Windows counterpart if supported. |
 | Pinned tabs and folders, Today, Clear Today, archive on close | ✅ [#5] | `SidebarRowViews.swift`, `SidebarItemView.swift` | `SidebarStore`, `CloseSuccessor`, `SidebarClose`, `PinnedPeek`, `TodayClear` | `clearToday` and `newFolder` are in the sidebar menus, not yet commands; Clear keeps the tab on screen (upstream f586c7f, #406), but Windows doesn't know which tabs play sound yet, so those are archived; `SidebarClose` (Arc's close buttons per row kind) isn't used on Windows yet. |
-| Pinned tab extras: back to its page by the favicon, the slash, Reset (`resetTab`), edit URL | ❌ | `EditPinnedURLDialog.swift`, `SidebarRowViews.swift` | `PinnedNavigation` | Since 6e371cc "Back to Pinned URL" slides in under the title on hovering the icon (0.16 s). |
+| Pinned tab extras: back to its page by the favicon, the slash, Reset (`resetTab`), edit URL | 🟡 [#60] | `EditPinnedURLDialog.swift`, `SidebarRowViews.swift` | `PinnedNavigation` | Since 6e371cc "Back to Pinned URL" slides in under the title on hovering the icon (0.16 s). Windows [#60]: Back to Pinned Page on the tab menu of a pinned tab away from its page and in the command bar (`resetTab`). Left: the favicon's double-click (3d6548c, `PinnedIconClick`), the slash and hover slide, Edit Pinned URL…. |
 | Folders: hinge animation, hover previews with search, tabs shown under a closed folder, icon picker | 🟡 | `FolderPreview.swift`, `FolderGlyphView.swift`, `FolderIconPicker.swift`, `FolderSymbolImages.swift` | `FolderPeek`, `FolderSymbol` | Windows has folders without previews or the animation. Since upstream 11ff4c9 (#234) the folder's emblem follows its front panel's perspective; 4fc05d2 adds Arc's picker and native symbol-mask rendering, still missing on Windows. |
 | Favorites | 🟡 [#5] | `SidebarRowViews.swift`, `TileColor.swift` | `FavoritesLayout`, `FavoritesSharing`, `FavoriteClick`, `FavoriteSelectionTint`, `FavoriteOutlineColors` | Missing: 4/2/1 columns by width (`FavoritesLayout`), tile colours and icons, "Drag to add Favorites" card, Settings' share-across-spaces switch, double-click returning to the pinned page (a17a8fe), and the opt-in logo-coloured outline/Arc hover fills (86dbb44, 9927600). |
 | Drag and drop: reorder, into folders and favorites, onto a space's icon, several picked tabs at once, reorder spaces, a link dropped in from a page or another app (#419) | ❌ | `SidebarListDrop.swift`, `SpaceListView.swift` | `SidebarStore`, `SidebarLinkDrop` | The store's moves are shared; upstream 115a201 adds where a dropped link lands (`SidebarLinkDrop`); the XAML drag layer is the work. Big item. Since 1f3c3d3 a tab dropped on any tab, pinned too, offers a split (no folder drop); since dfa3358 rows keep their hover through AppKit's stray exits (Mac only). |
@@ -89,7 +89,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Space tooltip with its profile and keys | ❌ | `SpaceDock.swift`, `ArcTooltip.swift` | `ThemeTones` | |
 | Jump pill back to the open tab | ❌ | `SidebarJumpPill.swift` | | |
 | Rename (`renameTab`), duplicate (`duplicateTab`), Add to Favorites (`favoriteTab`) as commands | ✅ [#44] | `SidebarMenus.swift` | `SidebarStore`, `KeyBindingDefaults` | Windows: Rename… on a tab or folder row (and a double-click) turns its name into a field (Return keeps it, Escape doesn't); a new folder starts named. All three are commands with no default key, as on the Mac. |
-| Arc's other sidebar actions: Collapse Pinned Tabs (`collapsePinned`), Collapse and Expand All Folders (`collapseAllFolders`, `expandAllFolders`), Reveal Tab in Sidebar (`revealTab`), Reset all tabs in this Space (`resetSpaceTabs`), Archive Tabs Below, Change Icon…, Share ▸ | 🟡 [#50] | `SidebarMenus.swift`, `MainWindowController.swift`, `SiteControlCenter.swift` | `SidebarStore` (`setAllFoldersExpanded`, `revealInSidebar`, `archiveTabsBelow`) | Upstream d110dc6, 6f3f298. The store side is shared. Windows [#50]: Collapse Pinned Tabs, Collapse and Expand All Folders and Reveal Tab in Sidebar in the command bar (no keys: the Mac's ⌃Space is Ctrl+Space, an input method switch, on Windows; Reveal doesn't scroll the sidebar yet), Archive Tabs Below on a Today tab's menu. Left: Reset all tabs in this Space (with pinned Reset), Change Icon…, Share ▸. |
+| Arc's other sidebar actions: Collapse Pinned Tabs (`collapsePinned`), Collapse and Expand All Folders (`collapseAllFolders`, `expandAllFolders`), Reveal Tab in Sidebar (`revealTab`), Reset all tabs in this Space (`resetSpaceTabs`), Archive Tabs Below, Change Icon…, Share ▸ | 🟡 [#50] [#60] | `SidebarMenus.swift`, `MainWindowController.swift`, `SiteControlCenter.swift` | `SidebarStore` (`setAllFoldersExpanded`, `revealInSidebar`, `archiveTabsBelow`) | Upstream d110dc6, 6f3f298. The store side is shared. Windows [#50]: Collapse Pinned Tabs, Collapse and Expand All Folders and Reveal Tab in Sidebar in the command bar (no keys: the Mac's ⌃Space is Ctrl+Space, an input method switch, on Windows; Reveal doesn't scroll the sidebar yet), Archive Tabs Below on a Today tab's menu. Reset all tabs in this Space (`resetSpaceTabs`) from the command bar [#60]. Left: Change Icon…, Share ▸. |
 | Unread dots and theme colours | ✅ [#5] | `SidebarRowViews.swift` | `SidebarModel` | |
 | Tab row on hover: the name runs to 13 pt before the close button (#243) | ❌ | `SidebarRowViews.swift` | `TabRowTrailing` | Upstream 12ab4cf. Windows' row keeps a fixed gap; use `TabRowTrailing`'s insets. |
 | Mouse back and forward buttons over the sidebar switch spaces (#233) | ✅ [#47] | `SidebarView.swift` | `MouseButtonSpaceSwitch` | Upstream 2b95100. Windows: WinUI's XButton1/XButton2 release over the sidebar (`buttonNumber(windowsXButton:)`); over a page they stay Chromium's. Logi Options+'s Alt+arrow and swipe paths are Mac only. |
@@ -643,3 +643,4 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 [#57]: https://github.com/vishnu597/cra-windows/pull/57
 [#58]: https://github.com/vishnu597/cra-windows/pull/58
 [#59]: https://github.com/vishnu597/cra-windows/pull/59
+[#60]: https://github.com/vishnu597/cra-windows/pull/60
