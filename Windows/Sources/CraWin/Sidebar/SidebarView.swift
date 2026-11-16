@@ -603,11 +603,7 @@ final class SidebarView {
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Rename Space…") { [weak self] in self?.beginRename(space: space.id) })
         }
-        menu.items.append(UI.menuItem("New Folder") { [weak self] in
-            guard let self else { return }
-            // Arc names a new folder at once.
-            self.beginRename(item: self.store.createFolder(named: "New Folder", in: space.pinnedContainerID).id)
-        })
+        menu.items.append(UI.menuItem("New Folder") { [weak self] in self?.newFolder(in: space, atTop: false) })
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("New Space") { [weak self] in self?.newSpace() })
         }
@@ -662,7 +658,14 @@ final class SidebarView {
         spacesBar.children.append(add)
     }
 
-    private func newSpace() {
+    /// New Folder in the pinned section of `space` (the one in front by default), named at once
+    /// as in Arc: at the top for the command (the Mac's), after the rest from the space's menu.
+    func newFolder(in space: Space? = nil, atTop: Bool = true) {
+        let space = space ?? store.focusedSpace(window: windowID)
+        beginRename(item: store.createFolder(named: "New Folder", in: space.pinnedContainerID, index: atTop ? 0 : nil).id)
+    }
+
+    func newSpace() {
         let n = store.spaceOrder.count
         // Arc's New Space starts on the profile of the space it was opened from.
         let profile = SpaceProfiles.forNewSpace(from: store.focusedSpace(window: windowID), profiles: store.profiles)

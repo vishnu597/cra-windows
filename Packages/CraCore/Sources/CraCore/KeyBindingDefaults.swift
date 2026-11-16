@@ -282,6 +282,13 @@ public enum KeyBindingDefaults {
             // on the Mac either).
             "resetTab": [],
             "resetSpaceTabs": [],
+            // The sidebar's New Folder, New Space and Clear Today, and the Library's archive, as
+            // commands. Clear Today keeps the Mac's ⇧⌘K as Ctrl+Shift+K.
+            "newFolder": [],
+            "newSpace": [],
+            "clearToday": [KeyChord("k", ctrlShift)],
+            "showArchive": [],
+            "clearArchive": [],
             "nextTab": [KeyChord(KeyChord.tab, ctrl)],
             "previousTab": [KeyChord(KeyChord.tab, ctrlShift)],
             "goBack": [KeyChord(KeyChord.left, alt)],
