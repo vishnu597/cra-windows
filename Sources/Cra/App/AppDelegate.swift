@@ -336,6 +336,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard TabSleepPolicy.passDue(lastPass: lastSleepPass, now: now) else { return }
         lastSleepPass = now
         let settings = store.settings
+        // A profile that loaded since the last pass gets the kept-active sites in Chromium's list, and
+        // an edit on chrome://settings/performance comes back to Settings (#458).
+        ChromeKeepActiveSites.apply(store: store)
         for w in mainWindows {
             w.browsers.freezeIdleTabs(hiddenLongerThan: freezeAfter)
             w.releaseHiddenFrames(now: composition.clock.now)
@@ -365,6 +368,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         observeChanges(of: { [store] in store.settings.httpsOnly }, apply: CraCEFRuntime.setHttpsOnlyModeEnabled)
         observeChanges(of: { [store] in store.settings.fingerprintingProtection },
                        apply: CraCEFRuntime.setFingerprintingProtectionEnabled)
+        // Settings ▸ Tabs ▸ "Always keep these sites active" (#458), for Chromium's own freezing too.
+        observeChanges(of: { [store] in store.settings.keepActiveSites }) { [store] _ in ChromeKeepActiveSites.apply(store: store) }
     }
 
     /// Chromium's secure DNS setting (Settings > Privacy, chrome://settings/security), left on
@@ -1150,6 +1155,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 TestGesture.openMenu(at: NSPoint(x: g[0], y: w.frame.height - g[1]), in: w, right: dict["button"] == "right")
                 return
             }
+            // hitAt=x,y: the view a press there lands on, as the window's hit test finds it, and its superviews
+            // (the toolbar's ← over where the hidden traffic lights were, #449).
+            if let g = dict["hitAt"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 2, let w = main.window,
+               let root = w.contentView?.superview {
+                var chain: [String] = []
+                var v = root.hitTest(root.superview?.convert(NSPoint(x: g[0], y: w.frame.height - g[1]), from: nil)
+                    ?? NSPoint(x: g[0], y: w.frame.height - g[1]))
+                while let c = v, chain.count < 12 { chain.append(String(describing: type(of: c))); v = c.superview }
+                CraLog.note("hit at \(Int(g[0])),\(Int(g[1])): \(chain.isEmpty ? "nothing" : chain.joined(separator: " < "))")
+                return
+            }
             // clickAt=x,y: a click there through the event queue, as the pointer's would go (#195);
             // target=little as for menuAt. button=back|forward: that mouse button released there,
             // handed to what the window's otherMouseUp monitor runs (#233); AppKit can't make a
@@ -1401,6 +1417,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 tiles.sort { ($0.frame.minY, $0.frame.minX) < ($1.frame.minY, $1.frame.minX) }
                 let badges = tiles.enumerated().compactMap { i, t in t.peekBadgeReadout.map { "tile\(i + 1) \($0)" } }
                 NSLog("Cra favorite badges %@: %@", label, badges.isEmpty ? "none" : badges.joined(separator: ", "))
+                return
+            }
+            // minimize=1: Window ▸ Minimize Window as ⌘M runs it (performMiniaturize, which AppKit refuses
+            // when the minimize button can't take a click: alpha 0, or hidden lights out of the window, #449).
+            if dict["minimize"] == "1", let w = main.window {
+                w.performMiniaturize(nil)
                 return
             }
             if let size = dict["windowSize"]?.split(separator: "x").compactMap({ Double($0) }), size.count == 2, let w = main.window {
