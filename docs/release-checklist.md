@@ -384,6 +384,10 @@ built release app with a test profile. Note anything that fails in the release's
   sidebar: it goes back to its pinned page. Follow a link again and Ctrl-click the favicon: the
   page moves to a new Today tab at the top and the pinned tab goes home. Away again, double-click
   the favicon: it goes home once and no rename field opens. Needs real pointer input on the row.
+- **Windows tab sleeping:** set Settings ▸ Tabs ▸ Memory to 15 minutes, open 12 tabs, type in a
+  form on one and play a video on another, then leave them all hidden for 16 minutes. The plain
+  tabs reload when opened again; the form keeps its text and the video kept playing. Needs real
+  pages and wall-clock time, so no scenario covers it.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.
