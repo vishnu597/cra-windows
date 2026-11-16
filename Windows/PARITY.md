@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 7fc0341 -->
+<!-- upstream-reviewed: 335bb79 -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -578,6 +578,12 @@ Upstream sync #19 merged two commits after 4cf04e2, with no conflicts.
 | Commit | What | Windows |
 |---|---|---|
 | 11a2a55, 7fc0341 | The engine's hidden window's blank page makes no renderer (engine -9) | Chromium engine row: Mac only. ➖ |
+
+Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
+
+| Commit | What | Windows |
+|---|---|---|
+| 335bb79 | xbench reads the URL back before Return, and gains a probe mode | Mac benchmark tooling. ➖ |
 
 ## Keeping this current
 
