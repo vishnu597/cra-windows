@@ -119,6 +119,9 @@ public struct KeyChord: Codable, Hashable, Sendable {
     /// The Delete key as a menu's key equivalent wants it (NSBackspaceCharacter), shown ⌫.
     /// Its key events carry U+007F, which the app reads as this.
     public static let delete = "\u{8}"
+    /// The forward Delete key (NSDeleteFunctionKey), shown ⌦: Windows' Delete, which Chrome for
+    /// Windows' Ctrl+Shift+Delete uses.
+    public static let forwardDelete = "\u{F728}"
     /// F12 (NSF12FunctionKey): Arc's second Developer Tools key.
     public static let f12 = "\u{F70F}"
     /// The space bar: Arc's Reveal Current Tab is ⌃Space, shown ⌃⎵.
@@ -141,6 +144,7 @@ public struct KeyChord: Codable, Hashable, Sendable {
         case Self.up: s.append("↑")
         case Self.down: s.append("↓")
         case Self.delete: s.append("⌫")
+        case Self.forwardDelete: s.append("⌦")
         case Self.f12: s.append("F12")
         case Self.space: s.append("⎵")
         default: s.append(key.uppercased())

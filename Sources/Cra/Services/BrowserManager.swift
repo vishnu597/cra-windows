@@ -883,25 +883,7 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
     /// One wait per page (a second load finds the first); the page answers once, then it waits
     /// again.
     private func watchClearBrowsingData(_ browser: CraBrowser) {
-        let js = """
-        (() => {
-          if (typeof chrome === 'undefined' || typeof chrome.send !== 'function') return null;
-          return window.__craClearBrowsingData ??= new Promise(resolve => {
-            const send = chrome.send;
-            chrome.send = function (name, args) {
-              if (name === 'clearBrowsingData') {
-                chrome.send = send;
-                window.__craClearBrowsingData = null;
-                resolve(JSON.stringify((args ?? []).slice(1)));
-              }
-              return send.apply(this, arguments);
-            };
-          });
-        })()
-        """
-        let params: [String: Any] = ["expression": js, "returnByValue": true, "awaitPromise": true]
-        let json = String(data: try! JSONSerialization.data(withJSONObject: params), encoding: .utf8)!
-        browser.sendDevToolsMethod("Runtime.evaluate", params: json) { [weak self, weak browser] result, _ in
+        browser.sendDevToolsMethod("Runtime.evaluate", params: BrowsingDataClear.watchParams) { [weak self, weak browser] result, _ in
             DispatchQueue.main.async {
                 guard let self, let browser, let message = Self.stringResult(result) else { return }
                 if let range = BrowsingDataClear.historyRange(messageJSON: message, now: self.clock.now) { self.store.clearHistory(range) }

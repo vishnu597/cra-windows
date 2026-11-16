@@ -124,7 +124,9 @@ enum SettingsPanes {
     /// Dia's "Content blocking" card (PrivacyPane on the Mac), with the switches Windows has so
     /// far: the ad and tracker blocker and cookie banners. Fingerprinting, secure connections
     /// and the Data card wait for their features.
-    static func privacy(store: SidebarStore, palette: SettingsPalette) -> SettingsPaneContent {
+    /// `openURL` opens a page in the browser window in use (Clear browsing data's Chrome dialog).
+    static func privacy(store: SidebarStore, palette: SettingsPalette,
+                        openURL: @escaping @MainActor (String) -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
         stack.margin = Thickness(left: Double(DiaSettingsMetrics.paneInset), top: Double(DiaSettingsMetrics.paneTop),
@@ -165,6 +167,14 @@ enum SettingsPanes {
             switchRow("Always use secure connections",
                       detail: "Pages load over HTTPS. Before opening a site that doesn’t support it, Cra warns you first.",
                       \.httpsOnly),
+        ], palette: palette))
+        let data = header("Data", palette: palette)
+        data.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
+        stack.children.append(data)
+        stack.children.append(card([
+            cardRow("Clear browsing data",
+                    detail: "Delete history, cookies and cached files for the current space’s profile. History you delete also leaves the command bar.",
+                    trailing: UI.button("Clear…") { openURL(BrowsingDataClear.pageURL) }, palette: palette),
         ], palette: palette))
         // The Site Control Center's switch and the onboarding change them too.
         return SettingsPaneContent(element: stack) { syncs.forEach { $0() } }

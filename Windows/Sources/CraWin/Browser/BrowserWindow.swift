@@ -724,6 +724,8 @@ final class BrowserWindow {
         case "manageExtensions": store.createTab(url: SiteControlCenter.manageExtensionsURL, window: windowID)
         case "setDefaultBrowser": DefaultBrowser.makeDefault()
         case "importData": if !isIncognito { showImportDialog() }
+        // Chrome's Delete browsing data dialog; what it deletes from history leaves the command bar.
+        case "clearBrowsingData": if !isIncognito { store.createTab(url: BrowsingDataClear.pageURL, window: windowID) }
         case "newWindow": host?.openNewWindow(incognito: false)
         case "newIncognitoWindow": host?.openNewWindow(incognito: true)
         case "newLittleWindow": host?.newLittleWindow()
@@ -1922,7 +1924,18 @@ extension BrowserWindow: WebPageDelegate {
 
     func page(_ page: WebPage, didFinishLoadingURL url: String, statusCode: Int) {
         guard let id = tabID(of: page), !store.isIncognito(item: id) else { return }
+        if url.hasPrefix("chrome://settings") { watchClearBrowsingData(page) }
         store.recordVisit(url: url, title: page.currentTitle)
+    }
+
+    /// Chrome's Delete browsing data dialog runs in the page; the command bar's history is Cra's.
+    /// Hear its Delete and clear the same history (BrowserManager.watchClearBrowsingData).
+    private func watchClearBrowsingData(_ page: WebPage) {
+        page.sendDevToolsMethod("Runtime.evaluate", params: BrowsingDataClear.watchParams) { [weak self, weak page] result, _ in
+            guard let self, let page, let message = BrowsingDataClear.stringResult(result) else { return }
+            if let range = BrowsingDataClear.historyRange(messageJSON: message, now: Date()) { self.store.clearHistory(range) }
+            if page.currentURL.hasPrefix("chrome://settings") { self.watchClearBrowsingData(page) }
+        }
     }
 
     /// Kept under the page's host, as the Mac's BrowserManager does; the tab takes that key.

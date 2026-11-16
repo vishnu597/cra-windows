@@ -306,6 +306,8 @@ public enum KeyBindingDefaults {
             "setDefaultBrowser": [],
             // The Import dialog: Arc's and Chromium browsers' spaces, bookmarks and tabs (PR 10).
             "importData": [],
+            // Chrome for Windows' key for its Delete browsing data dialog (the Mac's ⇧⌘⌫).
+            "clearBrowsingData": [KeyChord(KeyChord.forwardDelete, ctrlShift)],
             // Extensions: Arc's Open Extensions (the Site Control Center and its extension tiles)
             // takes ⌘E's Ctrl+E, which Chrome gives its omnibox search Cra doesn't have; Manage
             // Extensions is chrome://extensions.
