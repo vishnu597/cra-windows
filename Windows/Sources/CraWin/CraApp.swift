@@ -223,6 +223,15 @@ public final class CraApp: SwiftApplication {
             cra_cef_set_website_appearance(Int32(appearance.chromiumMode))
         }
         followWebsiteAppearance()
+        // Settings ▸ Advanced ▸ Allow window dragging from the top of webpages (PageTopDrag).
+        // Windows' pages have no toolbar over them, so the band is the whole reach.
+        func followPageTopDrag() {
+            let on = withObservationTracking { store.settings.pageTopWindowDrag } onChange: {
+                onMain { _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { followPageTopDrag() } }
+            }
+            cra_cef_set_page_top_drag(on ? PageTopDrag.band(barHeight: 0) : 0, PageTopDrag.trailingInset)
+        }
+        followPageTopDrag()
     }
 
     private static var exeFolder: URL { URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent() }

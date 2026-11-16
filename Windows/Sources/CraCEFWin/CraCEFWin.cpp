@@ -481,6 +481,7 @@ struct CraBrowser {
     bool can_go_back = false;
     bool can_go_forward = false;
     bool capturing_media = false;
+    bool fullscreen = false;  // the page is in HTML fullscreen (a video): no window drag from its top
     bool audio_muted = false;  // Cra's mute, kept across the page's navigations and its creation
     std::string current_url;
     std::string current_title;
@@ -1091,6 +1092,7 @@ public:
 
     void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override {
         CraBrowser *o = Live();
+        if (o) o->fullscreen = fullscreen;
         if (o && o->callbacks.fullscreen_changed) o->callbacks.fullscreen_changed(o->callbacks.context, fullscreen);
     }
 
@@ -1685,7 +1687,77 @@ namespace {
 /// multi-threaded message loop), so a thread hook sees their mouse messages.
 HHOOK g_clickHook = nullptr;
 
+/// Arc's "Allow window dragging from the top of webpages" (PageTopDrag in CraCore): how far into a
+/// page from its top a press can move the window, and how much of its right edge stays out for
+/// the scrollbar, in DIPs. A band of 0 turns it off.
+double g_pageTopDragBand = 0;
+double g_pageTopDragTrailingInset = 0;
+
+/// A press in a page's top band, waiting to see whether the pointer moves far enough to be a drag.
+struct PageTopPress {
+    HWND target = nullptr;  // the window Chromium got the press in
+    HWND root = nullptr;    // the Cra window that moves
+    POINT start = {};       // screen pixels
+};
+PageTopPress g_pageTopPress;
+DWORD g_lastPageTopPressTime = 0;
+POINT g_lastPageTopPressPoint = {};
+
+/// Whether a left press at `screen` in `page` (the page's own window) can start a window drag:
+/// a single plain press in the band, over the ordinary arrow (Chromium shows another pointer over
+/// links, text and controls), in a window of its own (not the Peek's card, which its bar moves).
+bool PressHoldsForWindowDrag(HWND page, POINT screen) {
+    if (g_pageTopDragBand <= 0) return false;
+    if (GetKeyState(VK_SHIFT) < 0 || GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_MENU) < 0) return false;
+    if (GetCursor() != LoadCursorW(nullptr, IDC_ARROW)) return false;
+    HWND root = GetAncestor(page, GA_ROOT);
+    if (!root || GetWindow(root, GW_OWNER)) return false;
+    // The second press of a double click selects or zooms in the page, as without the band.
+    DWORD now = GetMessageTime();
+    bool second = now - g_lastPageTopPressTime <= GetDoubleClickTime()
+        && abs(screen.x - g_lastPageTopPressPoint.x) <= GetSystemMetrics(SM_CXDOUBLECLK) / 2
+        && abs(screen.y - g_lastPageTopPressPoint.y) <= GetSystemMetrics(SM_CYDOUBLECLK) / 2;
+    g_lastPageTopPressTime = second ? 0 : now;
+    g_lastPageTopPressPoint = screen;
+    if (second) return false;
+    RECT rect;
+    if (!GetWindowRect(page, &rect)) return false;
+    double scale = GetDpiForWindow(page) / 96.0;
+    if (scale <= 0) scale = 1;
+    double depth = (screen.y - rect.top) / scale;
+    double fromRight = (rect.right - screen.x) / scale;
+    return depth >= 0 && depth < g_pageTopDragBand && fromRight > g_pageTopDragTrailingInset;
+}
+
+/// The pointer moved with the button held: past Windows' drag distance, the window moves. The page
+/// gets the release where the pointer is (Arc's page gets it too), then Windows' own move loop
+/// takes the drag, as from the title bar.
+void FollowPageTopPress(POINT screen, bool buttonDown) {
+    if (!g_pageTopPress.root) return;
+    if (!buttonDown) {
+        g_pageTopPress = {};
+        return;
+    }
+    if (abs(screen.x - g_pageTopPress.start.x) < GetSystemMetrics(SM_CXDRAG)
+        && abs(screen.y - g_pageTopPress.start.y) < GetSystemMetrics(SM_CYDRAG)) return;
+    PageTopPress press = g_pageTopPress;
+    g_pageTopPress = {};
+    if (!IsWindow(press.root)) return;
+    POINT client = screen;
+    if (IsWindow(press.target) && ScreenToClient(press.target, &client)) {
+        SendMessageW(press.target, WM_LBUTTONUP, 0, MAKELPARAM(client.x, client.y));
+    }
+    ReleaseCapture();
+    PostMessageW(press.root, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(screen.x, screen.y));
+}
+
 LRESULT CALLBACK ClickHook(int code, WPARAM wParam, LPARAM lParam) {
+    if (code == HC_ACTION && wParam == WM_MOUSEMOVE && g_pageTopPress.root) {
+        auto *mouse = reinterpret_cast<MOUSEHOOKSTRUCT *>(lParam);
+        if (mouse) FollowPageTopPress(mouse->pt, GetKeyState(VK_LBUTTON) < 0);
+    } else if (code == HC_ACTION && wParam == WM_LBUTTONUP) {
+        g_pageTopPress = {};
+    }
     if (code == HC_ACTION && (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN || wParam == WM_MBUTTONDOWN)) {
         auto *mouse = reinterpret_cast<MOUSEHOOKSTRUCT *>(lParam);
         HWND target = mouse ? mouse->hwnd : nullptr;
@@ -1697,6 +1769,11 @@ LRESULT CALLBACK ClickHook(int code, WPARAM wParam, LPARAM lParam) {
                 clicked = b;
                 break;
             }
+        }
+        g_pageTopPress = {};
+        if (clicked && wParam == WM_LBUTTONDOWN && !clicked->is_popup_host && !clicked->fullscreen) {
+            HWND page = clicked->browser->GetHost()->GetWindowHandle();
+            if (PressHoldsForWindowDrag(page, mouse->pt)) g_pageTopPress = {target, GetAncestor(page, GA_ROOT), mouse->pt};
         }
         // Outside the loop: the app may open or close pages in answer.
         if (clicked) clicked->callbacks.focus_received(clicked->callbacks.context);
@@ -1731,6 +1808,12 @@ extern "C" int cra_cef_initialize(const CraCEFSettings *s) {
     ScheduleWork(0);
     if (!g_clickHook) g_clickHook = SetWindowsHookExW(WH_MOUSE, ClickHook, nullptr, GetCurrentThreadId());
     return 1;
+}
+
+extern "C" void cra_cef_set_page_top_drag(double band, double trailing_inset) {
+    g_pageTopDragBand = band > 0 ? band : 0;
+    g_pageTopDragTrailingInset = trailing_inset > 0 ? trailing_inset : 0;
+    if (g_pageTopDragBand == 0) g_pageTopPress = {};
 }
 
 extern "C" int cra_cef_another_instance_was_notified(void) { return g_anotherInstanceNotified ? 1 : 0; }

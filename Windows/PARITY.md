@@ -22,7 +22,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 <!-- summary: parity.py summary --write -->
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
-| Window, pages and toolbar | 8 | 5 | 0 | 12 | 1 |
+| Window, pages and toolbar | 9 | 5 | 0 | 11 | 1 |
 | Sidebar | 6 | 8 | 0 | 14 | 0 |
 | Command bar and shortcuts | 1 | 5 | 0 | 3 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 34 | 43 | 1 | 62 | 16 |
+| **All** | 35 | 43 | 1 | 61 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -50,7 +50,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Toolbar: optional (`toggleToolbar`), host-only address, Show Full URL, reload that turns into stop (`stop`), tab colour, link-copy glyph | ❌ | `PaneToolbarView.swift`, `AppKitControls.swift` | `ToolbarComposition`, `ToolbarColor`, `ToolbarExtensionFit`, `ToolbarAutoHide` | Off by default as on the Mac, so it comes after the sidebar's address pill. Composition and colour decisions are already shared. Upstream 87ab765 and 15c5913 set Arc's 36 pt button pitch and right-end spacing (`ToolbarComposition`). Upstream 167c05a (#405, not in Arc) can float it over the page until the pointer rests at the top. |
 | Loading bar at the top middle of the window | ❌ | `LoadingIndicatorView.swift` | `LoadingIndicator` | Small: drive a XAML bar from `LoadingIndicator`. |
 | Hide the sidebar (`toggleSidebar`) and the floating sidebar that slides in from the left edge | ❌ | `FloatingSidebar.swift`, `FloatingSidebarGeometry.swift` | `SidebarMotion`, `SidebarSlidePage` (move `FloatingSidebarGeometry` here) | `FloatingSidebarGeometry` is a CLAUDE.md known exception: move it to CraCore with this PR. Upstream 86dbb44, fb2c304 and 43e8adc refine the reveal, fullscreen edge and page/toolbar staying put while the sidebar slides. Windows needs the whole hidden/floating-sidebar path. |
-| Drag the window from the top of a page (on by default, as in Arc) | ❌ | `MainWindowController.swift` | `PageTopDrag` | Upstream 3b6b27d. Windows: a press in the page's top strip starts the move (WM_NCLBUTTONDOWN with HTCAPTION). |
+| Drag the window from the top of a page (on by default, as in Arc) | ✅ [#64] | `MainWindowController.swift` | `PageTopDrag` | Upstream 3b6b27d. Windows: CraCEFWin's mouse hook takes a plain press in the page's top 60 DIPs over the arrow pointer (the rule of `PageTopDrag.holds`), gives the page the release past Windows' drag distance and starts the move (WM_NCLBUTTONDOWN with HTCAPTION). Not in HTML fullscreen or the Peek's card; Settings ▸ Advanced switch. |
 | Clicks land under the pointer while Chrome's debugger bar shows (#241) | ❌ | `CraCEF.mm` | `PageViewInsets` | Upstream 7675257: the Mac page view moved down by the bar. Check on Windows when extensions that debug pages (#228) run. |
 | Find in page with match count | ✅ [#10] | `Overlays.swift` | `FindInPage`, `FindBarPlacement` | Upstream 720ede7 (#418) hangs the find bar under an auto-hiding toolbar while it's out (`FindBarPlacement`); Windows has no toolbar yet. |
 | Back and Forward history menu: right-click or hold Back or Forward lists the tab's pages (#416) | ❌ | `BackForwardMenuView.swift`, `ButtonHold.swift` | `BackForwardMenu` | Upstream c61aab7: rows from DevTools' `Page.getNavigationHistory` and Arc's menu geometry in CraCore. Windows' sidebar Back and Forward buttons need the right-click/hold and a FloatingWindow menu. |
@@ -647,3 +647,4 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 [#61]: https://github.com/vishnu597/cra-windows/pull/61
 [#62]: https://github.com/vishnu597/cra-windows/pull/62
 [#63]: https://github.com/vishnu597/cra-windows/pull/63
+[#64]: https://github.com/vishnu597/cra-windows/pull/64

@@ -193,7 +193,8 @@ enum SettingsPanes {
 
     // MARK: Advanced
 
-    /// The Mac's AdvancedPane, as far as Windows has its features: how Cra opens.
+    /// The Mac's AdvancedPane, as far as Windows has its features: how Cra opens, and dragging the
+    /// window from a page's top.
     static func advanced(store: SidebarStore, palette: SettingsPalette) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
@@ -204,6 +205,9 @@ enum SettingsPanes {
         stack.children.append(card([
             // Arc's Advanced switch: off, only the window in use last comes back.
             settingSwitch("When opening Cra, restore windows from previous session", detail: nil, \.restoreWindows,
+                          store: store, palette: palette, syncs: &syncs),
+            // Arc's: a press near a page's top moves the window, as from the title bar.
+            settingSwitch("Allow window dragging from the top of webpages", detail: nil, \.pageTopWindowDrag,
                           store: store, palette: palette, syncs: &syncs),
             // Not in Arc (X DM 7 Nov 2026): Arc opens on the tab in use last.
             settingSwitch("Start on a new tab",
