@@ -36,6 +36,11 @@ protocol SidebarActions: AnyObject {
     func separatePinnedTab(_ id: UUID)
     /// Manage Spaces…: the Library's Spaces page.
     func showLibrary(_ page: LibraryPage)
+    /// A sidebar tab dragged off the sidebar, over the page: whether the panes offer a split at
+    /// the pointer (the window shows it). `before`: the tab open before the press.
+    func splitDragMoved(tab id: UUID, before: UUID?) -> Bool
+    /// That drag left the page or ended; `drop` makes the split it offered.
+    func splitDragEnded(tab id: UUID, drop: Bool)
 }
 
 /// The row or space header whose name is being edited (the Mac's SidebarUIState.renamingID and
@@ -128,6 +133,7 @@ final class SidebarView {
             try? Grid.setRow(part, Int32(i))
         }
         makeDragChrome()
+        makeLinkDropTarget()
         // A mouse's back and forward buttons over the sidebar switch spaces (Arc's
         // SidebarView.otherMouseUp:, #233); over a page they stay Chromium's. A clear fill so the
         // sidebar's empty space takes the press too.
