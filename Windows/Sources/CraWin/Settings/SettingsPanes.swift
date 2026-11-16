@@ -302,6 +302,36 @@ enum SettingsPanes {
         }
         cleanup.children.append(duration)
         form.group("Tab Cleanup:", [cleanup])
+        // Tab sleeping (GitHub #153): Arc's 4 hours and nothing more unless you ask.
+        let memory = StackPanel()
+        memory.orientation = .horizontal
+        memory.spacing = 6
+        memory.children.append(checkbox("Free memory from tabs I haven’t used in:", \.tabSleepTimerEnabled))
+        let sleepAfter = TabSleepThreshold.allCases
+        let sleepDuration = ComboBox()
+        sleepDuration.verticalAlignment = .center
+        for t in sleepAfter { sleepDuration.items.append(t.label) }
+        sleepDuration.selectedIndex = Int32(sleepAfter.firstIndex(of: store.settings.tabSleepAfter) ?? 0)
+        sleepDuration.isEnabled = store.settings.tabSleepTimerEnabled
+        sleepDuration.selectionChanged.addHandler { [weak sleepDuration] _, _ in
+            guard let sleepDuration else { return }
+            let i = Int(sleepDuration.selectedIndex)
+            guard sleepAfter.indices.contains(i), store.settings.tabSleepAfter != sleepAfter[i] else { return }
+            store.settings.tabSleepAfter = sleepAfter[i]
+        }
+        try? AutomationProperties.setName(sleepDuration, "Free memory from tabs after")
+        syncs.append {
+            let i = Int32(sleepAfter.firstIndex(of: store.settings.tabSleepAfter) ?? 0)
+            if sleepDuration.selectedIndex != i { sleepDuration.selectedIndex = i }
+            sleepDuration.isEnabled = store.settings.tabSleepTimerEnabled
+        }
+        memory.children.append(sleepDuration)
+        let sleepNote = note(TabSleepPolicy.settingsNote(timerOn: store.settings.tabSleepTimerEnabled, after: store.settings.tabSleepAfter),
+                             palette: palette)
+        syncs.append {
+            sleepNote.text = TabSleepPolicy.settingsNote(timerOn: store.settings.tabSleepTimerEnabled, after: store.settings.tabSleepAfter)
+        }
+        form.group("Memory:", [memory, sleepNote])
         // Arc's Links pane: where links from other apps open, "Open Little Arc when I press ⌥⌘N"
         // (#195), New Little Window's key from any app, Peek's, and "Air Traffic Control…" with
         // how many routes there are.
