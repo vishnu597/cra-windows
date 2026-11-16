@@ -315,6 +315,9 @@ public enum KeyBindingDefaults {
         for n in 1...9 {
             table["item\(n)"] = [KeyChord("\(n)", ctrl)]
             table["space\(n)"] = [KeyChord("\(n)", alt)]
+            // The Mac adds ⌘ to Go to Space N's key; Windows adds Shift to its Alt+N. Ctrl+Alt
+            // would be AltGr, which types on many layouts' digits.
+            table["moveTabToSpace\(n)"] = [KeyChord("\(n)", [.option, .shift] as KeyChord.Modifiers)]
         }
         return table
     }()

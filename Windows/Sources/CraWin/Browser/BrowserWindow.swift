@@ -784,6 +784,14 @@ final class BrowserWindow {
                 store.focusSpace(number: n, window: windowID)
                 return true
             }
+            // Move Tab to Space N: the open tab (its split, if any) goes there and the window follows.
+            // An incognito window's tabs stay in it, as its tab menu has no Move to Space.
+            if id.hasPrefix("moveTabToSpace"), let n = Int(id.dropFirst(14)), (1...9).contains(n) {
+                if let t = store.selectedTabID(window: windowID), !store.isIncognito(item: t), n <= store.spaceOrder.count {
+                    _ = store.moveTabAndFollow(t, toSpace: store.spaceOrder[n - 1], window: windowID)
+                }
+                return true
+            }
             guard id.hasPrefix("item"), let n = Int(id.dropFirst(4)), (1...9).contains(n) else { return false }
             selectTab(number: n)
         }
