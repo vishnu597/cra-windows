@@ -93,8 +93,8 @@ public enum SiteControlCenter {
         public let symbol: String
     }
 
-    /// The switches for the page at `url`, of those the platform has (Windows has none of the
-    /// three features yet, so its popover leaves the section out).
+    /// The switches for the page at `url`, of those the platform has (Windows has Developer
+    /// Mode and the ad and tracker blocker, not automatic Picture-in-Picture yet).
     public static func settingRows(_ settings: AppSettings, url: String,
                                    available: Set<Setting> = Set(Setting.allCases)) -> [SettingRow] {
         Setting.allCases.filter(available.contains).map { s in

@@ -261,6 +261,7 @@ final class SettingsWindow {
         switch pane {
         case .tabs:
             built = SettingsPanes.tabs(store: store, palette: palette) { [weak self] button in self?.airTrafficControl.show(from: button) }
+        case .privacy: built = SettingsPanes.privacy(store: store, palette: palette)
         case .profiles: built = SettingsPanes.profiles(store: store, palette: palette) { [weak self] in self?.onNewProfile() }
         case .extensions:
             built = SettingsPanes.extensions(store: store, palette: palette, owner: { [weak self] in

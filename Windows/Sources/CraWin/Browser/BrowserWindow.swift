@@ -1521,9 +1521,16 @@ final class BrowserWindow {
         var actions = SiteControlCenterView.Actions()
         actions.perform = { [weak self] action in self?.siteControlAction(action) }
         actions.more = { [weak self] item in self?.siteControlMore(item, url: url) }
+        // Windows has two of the three switches: no automatic Picture-in-Picture yet.
+        let switches: Set<SiteControlCenter.Setting> = [.developerMode, .blockAdsAndTrackers]
         actions.toggle = { [weak self] setting in
             guard let self else { return }
             SiteControlCenter.toggle(setting, in: &self.store.settings, url: url)
+            // The row shows its new state (the same rows, so the same height and place).
+            guard self.siteControlShown, let window = self.window else { return }
+            self.siteControl.build(url: url, secure: secure, rows: SiteControlCenter.settingRows(self.store.settings, url: url, available: switches),
+                                   extensions: self.extensionTiles(scale: window.scale), dark: WinAppearance.isDark)
+            self.siteControl.focus()
         }
         actions.runExtension = { [weak self] id in self?.runExtension(id) }
         actions.addExtension = { [weak self] in self?.siteControlMore(.addExtension, url: url) }
@@ -1535,8 +1542,7 @@ final class BrowserWindow {
             }
         }
         siteControl.actions = actions
-        // Windows has none of the three switches' features yet.
-        siteControl.build(url: url, secure: secure, rows: SiteControlCenter.settingRows(store.settings, url: url, available: []),
+        siteControl.build(url: url, secure: secure, rows: SiteControlCenter.settingRows(store.settings, url: url, available: switches),
                           extensions: extensionTiles(scale: window.scale), dark: WinAppearance.isDark)
         // Under the sliders, its right edge at theirs, kept on the window.
         let scale = window.scale

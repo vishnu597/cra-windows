@@ -271,6 +271,12 @@ built release app with a test profile. Note anything that fails in the release's
   after a restart. Escape leaves the old name. Double-click a tab, a folder and the space's name:
   each turns into a field. Rename Space… on the space's menu and New Folder (which starts named)
   work the same, and the keys go back to the page afterwards.
+- **Windows ad and tracker blocker:** with an isolated test profile, the log says "Cra: ad and
+  tracker list: N domains" with N in the tens of thousands (0 means blocklist\domains.txt is
+  missing beside Cra.exe). On a news site with third-party ads, the ad slots stay empty; turn
+  Block Ads & Trackers off in the Site Control Center (its row reads Off) and reload: the ads
+  load. Settings ▸ Privacy's switch follows, and turning it back on blocks again after a reload.
+  The page itself and its own domain's requests always load.
 - **Windows Share:** with an isolated test profile, assign Share a shortcut in Settings. In
   both a browser tab and a Little Window with the page focused, use that shortcut: Windows'
   Share panel opens for that page. Close the panel using its own Close X, then invoke Share

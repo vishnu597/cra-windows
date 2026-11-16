@@ -68,6 +68,7 @@ public final class CraApp: SwiftApplication {
             periodic = [clock.every(30 * 60) { store.runAutoArchive() }]
             self.clock = clock
             self.store = store
+            startContentBlocking(store: store, clock: clock)
             let windows = WindowList(store: store, dispatcher: dispatcher)
             self.windows = windows
             windows.restore()
@@ -160,9 +161,28 @@ public final class CraApp: SwiftApplication {
         follow()
     }
 
+    /// Ad and tracker blocking (Settings ▸ Privacy, the Site Control Center's switch, the
+    /// onboarding's checkbox), as AppDelegate.startContentBlocking runs it: the bundled list
+    /// (blocklist\domains.txt beside Cra.exe, resources/blocklist in the repo) parsed off the
+    /// UI thread, the switch following the setting.
+    @MainActor
+    private func startContentBlocking(store: SidebarStore, clock: WinScheduler) {
+        cra_cef_load_blocked_domains(WinPaths.native(Self.exeFolder.appendingPathComponent("blocklist").appendingPathComponent("domains.txt")))
+        // For the log a PC test reads: 0 means the list is missing from the build.
+        _ = clock.after(5) { print("Cra: ad and tracker list: \(cra_cef_blocked_domain_count()) domains") }
+        func follow() {
+            let on = withObservationTracking { store.settings.blockAdsAndTrackers } onChange: {
+                onMain { _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { follow() } }
+            }
+            cra_cef_set_content_blocking(on ? 1 : 0)
+        }
+        follow()
+    }
+
+    private static var exeFolder: URL { URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent() }
+
     private func startChromium() -> Bool {
-        let exe = CommandLine.arguments[0]
-        let helper = URL(fileURLWithPath: exe).deletingLastPathComponent().appendingPathComponent("CraHelper.exe").path
+        let helper = Self.exeFolder.appendingPathComponent("CraHelper.exe").path
         CrashRecovery.prepare(cache: WinPaths.chromiumCache)
         // Deleted profiles' folders, while Chromium has none of them open.
         DeletedProfiles(directory: WinPaths.supportDir, chromiumCache: WinPaths.chromiumCache).run()
