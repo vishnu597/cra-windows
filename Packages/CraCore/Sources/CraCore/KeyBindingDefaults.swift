@@ -274,6 +274,7 @@ public enum KeyBindingDefaults {
             "favoriteTab": [],
             "renameTab": [],
             "duplicateTab": [],
+            "muteTab": [],
             "nextTab": [KeyChord(KeyChord.tab, ctrl)],
             "previousTab": [KeyChord(KeyChord.tab, ctrlShift)],
             "goBack": [KeyChord(KeyChord.left, alt)],

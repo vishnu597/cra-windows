@@ -440,6 +440,7 @@ struct CraBrowser {
     bool can_go_back = false;
     bool can_go_forward = false;
     bool capturing_media = false;
+    bool audio_muted = false;  // Cra's mute, kept across the page's navigations and its creation
     std::string current_url;
     std::string current_title;
     std::string favicon_downloaded;
@@ -643,6 +644,23 @@ private:
     CraBrowser *owner_;
     uint64_t serial_;
     IMPLEMENT_REFCOUNTING(ReopenDevTools);
+};
+
+/// Mutes a page again after a navigation's other observers ran (Chrome's
+/// SoundContentSettingObserver unmutes a tab when it navigates; the Mac's keepAudioMuted).
+class KeepAudioMuted : public CefTask {
+public:
+    KeepAudioMuted(CraBrowser *owner, uint64_t serial) : owner_(owner), serial_(serial) {}
+    void Execute() override {
+        CraBrowser *o = owner_;
+        if (!g_browsers.count(o) || o->serial != serial_ || !o->audio_muted || !o->browser) return;
+        if (!o->browser->GetHost()->IsAudioMuted()) o->browser->GetHost()->SetAudioMuted(true);
+    }
+
+private:
+    CraBrowser *owner_;
+    uint64_t serial_;
+    IMPLEMENT_REFCOUNTING(KeepAudioMuted);
 };
 
 /// A page's DevTools browser (made through OnBeforeDevToolsPopup). Detached when its page goes.
@@ -921,6 +939,7 @@ public:
         if (!o->visible) browser->GetHost()->WasHidden(true);
         if (o->focus_pending && o->visible) cra_browser_set_focused(o, 1);
         o->focus_pending = false;
+        if (o->audio_muted) browser->GetHost()->SetAudioMuted(true);
         if (o->close_requested) browser->GetHost()->CloseBrowser(true);
     }
 
@@ -1111,6 +1130,7 @@ public:
         // didChangeCommittedLoad.
         std::string script = PageStartScript();
         if (!script.empty()) frame->ExecuteJavaScript(script, frame->GetURL(), 0);
+        if (o->audio_muted) CefPostTask(TID_UI, new KeepAudioMuted(o, o->serial));
     }
 
     void OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int httpStatusCode) override {
@@ -1885,7 +1905,10 @@ extern "C" void cra_browser_stop_finding(CraBrowser *b, int clear_selection) {
     if (b && b->browser) b->browser->GetHost()->StopFinding(clear_selection != 0);
 }
 extern "C" void cra_browser_set_audio_muted(CraBrowser *b, int muted) {
-    if (b && b->browser) b->browser->GetHost()->SetAudioMuted(muted != 0);
+    if (!b) return;
+    // Kept, so a page muted before Chromium made it starts muted and stays muted on its next page.
+    b->audio_muted = muted != 0;
+    if (b->browser) b->browser->GetHost()->SetAudioMuted(muted != 0);
 }
 
 extern "C" void cra_browser_answer_permission(CraBrowser *b, uint64_t request_id, int allowed) {

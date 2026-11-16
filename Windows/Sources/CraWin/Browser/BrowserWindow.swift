@@ -352,6 +352,7 @@ final class BrowserWindow {
         newPages[ObjectIdentifier(page)] = Date()
         page.userInfo = id
         page.isVisible = false
+        if store.item(id)?.tab?.muted == true { page.setAudioMuted(true) }
         pages[id] = page
         return page
     }
@@ -746,6 +747,7 @@ final class BrowserWindow {
         case "pinTab": if let t = store.selectedTabID(window: windowID) { store.togglePinned(t) }
         case "renameTab": renameSelectedTab()
         case "duplicateTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { _ = store.duplicateTab(t) }
+        case "muteTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { toggleMute(t) }
         case "favoriteTab": if let t = store.selectedTabID(window: windowID), !store.isFavorite(t) { store.addToFavorites(t) }
         case "nextTab": cycleTab(1)
         case "previousTab": cycleTab(-1)
@@ -1827,6 +1829,13 @@ extension BrowserWindow: SidebarActions {
     func addSplitView() { addSplitPane() }
     /// Set Profile ▸ New Profile… on a space's menu: the space starts ticked.
     func newProfile(forSpace id: UUID) { showNewProfile(ticked: [id]) }
+
+    /// The tab's mute is saved (`Tab.muted` in sidebar.json), so its next page and a relaunch keep it.
+    func toggleMute(_ id: UUID) {
+        guard let tab = store.item(id)?.tab else { return }
+        store.setMuted(id, !tab.muted)
+        pages[id]?.setAudioMuted(!tab.muted)
+    }
 
     /// Rename…'s field takes the keyboard with its text selected, as the Mac's does.
     func focusRenameField(_ field: TextBox) {

@@ -378,6 +378,8 @@ double cra_browser_zoom_level(CraBrowser *browser);
 void cra_browser_set_zoom_level(CraBrowser *browser, double level);
 void cra_browser_find(CraBrowser *browser, const char *text, int forward, int match_case, int find_next);
 void cra_browser_stop_finding(CraBrowser *browser, int clear_selection);
+/// Mutes or unmutes the page. The bridge keeps it: a page muted before Chromium made it starts muted,
+/// and it stays muted on its next page.
 void cra_browser_set_audio_muted(CraBrowser *browser, int muted);
 void cra_browser_answer_permission(CraBrowser *browser, uint64_t request_id, int allowed);
 void cra_browser_execute_javascript(CraBrowser *browser, const char *script);
