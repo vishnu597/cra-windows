@@ -22,7 +22,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 <!-- summary: parity.py summary --write -->
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
-| Window, pages and toolbar | 5 | 4 | 0 | 16 | 1 |
+| Window, pages and toolbar | 5 | 5 | 0 | 15 | 1 |
 | Sidebar | 5 | 7 | 0 | 16 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 28 | 40 | 1 | 71 | 16 |
+| **All** | 28 | 41 | 1 | 70 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -63,7 +63,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Sidebar blur, Reduce transparency, active/inactive look | ❌ | `ActiveAppearanceProbe.swift` | `SidebarBackdrop` | Windows counterpart: Mica or Acrylic, and Windows' transparency setting. Since f6b9fb6 a full-screen window keeps its active look while its Space slides away (AppKit's own answer, `windowActive(activeAppearance:)`). |
 | Only one Cra running (an older copy quits) | ➖ | `NewestCopy.swift` | | Windows: a single-instance mutex when the installer lands. |
 | Arc's dialog sheet for every confirmation: one card, its buttons, keys and hover | ❌ | `AppDialog.swift`, `DialogComponents.swift`, `Colors.swift` | `DialogActions` | Upstream bc47470 (#224). Windows asks with WinUI flyouts and dialogs; `DialogActions` (which button Return and Escape press) is shared for the Windows card. `Colors.swift` is SwiftUI's hex colours. |
-| Stay On Top (`stayOnTop`), Save Page As (`savePageAs`), Copy URL as Quote (`copyURLQuote`), Copy URL without trackers | ❌ | `MainWindowController.swift`, `AppDelegate.swift` | `CleanURL` | Upstream d110dc6. Windows' Copy URL copies the address as it is: call `CleanURL` there first. Stay On Top: `HWND_TOPMOST`. Upstream cd8f3f5 copies every selected sidebar tab's URL on separate lines; Windows also needs multi-selection for that behavior. |
+| Stay On Top (`stayOnTop`), Save Page As (`savePageAs`), Copy URL as Quote (`copyURLQuote`), Copy URL without trackers | 🟡 [#52] | `MainWindowController.swift`, `AppDelegate.swift` | `CleanURL` | Upstream d110dc6. Windows: Copy URL and Copy URL as Markdown leave trackers out (`CleanURL`), Copy URL as Quote copies the selection with a text-fragment link, Stay On Top keeps the window (or a Little Window) above other apps' (`HWND_TOPMOST`); both from the command bar, no keys (the Mac's ⌃⇧⌘C has no free Windows counterpart). Left: Save Page As, and upstream cd8f3f5's copy of every selected sidebar tab's URL, which needs multi-selection. |
 | Find ▸ Use Selection to Find (`useSelectionForFind`), Jump to Selection (`jumpToSelection`) | ❌ | `MainWindowController.swift` | `FindInPage` | Upstream 894f1f6. Windows' find bar would take the page's selection. |
 | What websites see: View ▸ Appearance (`appearanceAutomatic`, `appearanceLight`, `appearanceDark`), sound effects, "Allow websites to get your theme data" | ❌ | `AppDelegate.swift`, `BrowserManager.swift`, `AdvancedPane.swift`, `CraCEF.mm` | `SidebarModel` (`WebsiteAppearance`), `ArcThemeData`, `ThemeTones`, `SidebarStore` (`themeDataCSS`) | Upstream 35bc84a, bfd9962. The settings are in the shared `settings.json`; Windows needs the CEF colour-scheme call and the `:root` style injection. |
 | "When opening Cra, restore windows from previous session" and "start on a new tab" | ❌ | `AppDelegate.swift`, `AdvancedPane.swift` | `SidebarModel` (`restoreWindows`), `SidebarStore`, `LaunchStart` | Upstream 337d5f8 and 7c98d46. Windows always restores its windows; read both launch settings with the Advanced pane. A link launch must still show its link rather than a new-tab bar. |
@@ -629,3 +629,4 @@ Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
 [#49]: https://github.com/vishnu597/cra-windows/pull/49
 [#50]: https://github.com/vishnu597/cra-windows/pull/50
 [#51]: https://github.com/vishnu597/cra-windows/pull/51
+[#52]: https://github.com/vishnu597/cra-windows/pull/52

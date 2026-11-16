@@ -247,6 +247,8 @@ public enum KeyBindingDefaults {
             "capturePage": [KeyChord("2", ctrlShift)],
             "copyURL": [KeyChord("c", ctrlShift)],
             "copyURLMarkdown": [KeyChord("c", [.control, .option, .shift] as KeyChord.Modifiers)],
+            // The Mac's ⌃⇧⌘C has no Windows counterpart left (Ctrl+Alt+Shift+C is Markdown).
+            "copyURLQuote": [],
             "find": [KeyChord("f", ctrl)],
             "findNext": [KeyChord("g", ctrl), KeyChord(KeyChord.function(3), [] as KeyChord.Modifiers)],
             "findPrevious": [KeyChord("g", ctrlShift), KeyChord(KeyChord.function(3), KeyChord.Modifiers.shift)],
@@ -266,6 +268,7 @@ public enum KeyBindingDefaults {
             "collapsePinned": [], "revealTab": [], "collapseAllFolders": [], "expandAllFolders": [],
             "nextSpace": [KeyChord(KeyChord.right, ctrlAlt)],
             "previousSpace": [KeyChord(KeyChord.left, ctrlAlt)],
+            "stayOnTop": [],
             "changeProfile": [],
             "newProfile": [],
             "share": [],

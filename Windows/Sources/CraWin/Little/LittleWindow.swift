@@ -409,6 +409,9 @@ final class LittleWindow {
         case "resetZoom": page?.zoomLevel = 0
         case "copyURL": copyURL(markdown: false)
         case "copyURLMarkdown": copyURL(markdown: true)
+        // Stay On Top for the Little Window itself (the Mac's keyLittleWindow.staysOnTop); a Peek
+        // is owned by its browser window and goes with it.
+        case "stayOnTop": if !isPeek { window.staysOnTop.toggle() }
         case "share":
             if hasPage { share(url: currentURL, title: title) }
         case "viewSource": page?.viewSource()
@@ -455,7 +458,8 @@ final class LittleWindow {
     /// Ctrl+Shift+C and the link button: the address, and Arc's toast at the page's top right.
     private func copyURL(markdown: Bool) {
         guard hasPage else { return }
-        let url = currentURL, title = page?.currentTitle ?? self.title
+        // Without trackers, as the browser window's Copy URL.
+        let url = CleanURL.withoutTrackers(currentURL), title = page?.currentTitle ?? self.title
         guard WinShell.copy(markdown ? "[\(title)](\(url))" : url) else { return }
         let theme = (store.space(targetSpaceID) ?? store.focusedSpace(window: store.lastNormalWindowID)).theme
         if markdown {
