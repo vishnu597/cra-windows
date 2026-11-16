@@ -23,7 +23,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
 | Window, pages and toolbar | 5 | 4 | 0 | 16 | 1 |
-| Sidebar | 5 | 6 | 0 | 17 | 0 |
+| Sidebar | 5 | 7 | 0 | 16 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 28 | 39 | 1 | 72 | 16 |
+| **All** | 28 | 40 | 1 | 71 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -89,7 +89,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Space tooltip with its profile and keys | ❌ | `SpaceDock.swift`, `ArcTooltip.swift` | `ThemeTones` | |
 | Jump pill back to the open tab | ❌ | `SidebarJumpPill.swift` | | |
 | Rename (`renameTab`), duplicate (`duplicateTab`), Add to Favorites (`favoriteTab`) as commands | ✅ [#44] | `SidebarMenus.swift` | `SidebarStore`, `KeyBindingDefaults` | Windows: Rename… on a tab or folder row (and a double-click) turns its name into a field (Return keeps it, Escape doesn't); a new folder starts named. All three are commands with no default key, as on the Mac. |
-| Arc's other sidebar actions: Collapse Pinned Tabs (`collapsePinned`), Collapse and Expand All Folders (`collapseAllFolders`, `expandAllFolders`), Reveal Tab in Sidebar (`revealTab`), Reset all tabs in this Space (`resetSpaceTabs`), Archive Tabs Below, Change Icon…, Share ▸ | ❌ | `SidebarMenus.swift`, `MainWindowController.swift`, `SiteControlCenter.swift` | `SidebarStore` (`setAllFoldersExpanded`, `revealInSidebar`, `archiveTabsBelow`) | Upstream d110dc6, 6f3f298. The store side is shared; Windows needs the menu items and commands. |
+| Arc's other sidebar actions: Collapse Pinned Tabs (`collapsePinned`), Collapse and Expand All Folders (`collapseAllFolders`, `expandAllFolders`), Reveal Tab in Sidebar (`revealTab`), Reset all tabs in this Space (`resetSpaceTabs`), Archive Tabs Below, Change Icon…, Share ▸ | 🟡 [#50] | `SidebarMenus.swift`, `MainWindowController.swift`, `SiteControlCenter.swift` | `SidebarStore` (`setAllFoldersExpanded`, `revealInSidebar`, `archiveTabsBelow`) | Upstream d110dc6, 6f3f298. The store side is shared. Windows [#50]: Collapse Pinned Tabs, Collapse and Expand All Folders and Reveal Tab in Sidebar in the command bar (no keys: the Mac's ⌃Space is Ctrl+Space, an input method switch, on Windows; Reveal doesn't scroll the sidebar yet), Archive Tabs Below on a Today tab's menu. Left: Reset all tabs in this Space (with pinned Reset), Change Icon…, Share ▸. |
 | Unread dots and theme colours | ✅ [#5] | `SidebarRowViews.swift` | `SidebarModel` | |
 | Tab row on hover: the name runs to 13 pt before the close button (#243) | ❌ | `SidebarRowViews.swift` | `TabRowTrailing` | Upstream 12ab4cf. Windows' row keeps a fixed gap; use `TabRowTrailing`'s insets. |
 | Mouse back and forward buttons over the sidebar switch spaces (#233) | ✅ [#47] | `SidebarView.swift` | `MouseButtonSpaceSwitch` | Upstream 2b95100. Windows: WinUI's XButton1/XButton2 release over the sidebar (`buttonNumber(windowsXButton:)`); over a page they stay Chromium's. Logi Options+'s Alt+arrow and swipe paths are Mac only. |
@@ -627,3 +627,4 @@ Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
 [#47]: https://github.com/vishnu597/cra-windows/pull/47
 [#48]: https://github.com/vishnu597/cra-windows/pull/48
 [#49]: https://github.com/vishnu597/cra-windows/pull/49
+[#50]: https://github.com/vishnu597/cra-windows/pull/50

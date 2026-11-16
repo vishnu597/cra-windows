@@ -54,3 +54,14 @@ struct WindowsSplitCommandsTests {
         #expect(windows["capturePage"]?.shortcuts.map(\.windowsDisplay) == ["Ctrl+Shift+2"])
     }
 }
+
+/// Arc's sidebar commands the Windows command bar runs (the store does the work), without keys.
+struct WindowsSidebarCommandsTests {
+    @Test func theyAreInTheWindowsTableWithoutKeys() {
+        let windows = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.windows.map { ($0.id, $0) })
+        for id in ["collapsePinned", "revealTab", "collapseAllFolders", "expandAllFolders"] {
+            #expect(windows[id]?.shortcuts == [], "\(id)")
+            #expect(windows[id]?.inCommandBar == true, "\(id)")
+        }
+    }
+}
