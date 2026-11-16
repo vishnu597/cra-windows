@@ -76,8 +76,8 @@ final class ShinyToast {
     private let closeGlyph = CALayer()
     private var persistent = false
     private var onClose: (() -> Void)?
-    static let closeSize: CGFloat = 26
-    static let closeGap: CGFloat = 6
+    static let closeSize: CGFloat = ToastStyle.closeSize
+    static let closeGap: CGFloat = ToastStyle.closeGap
     private var hide: DispatchWorkItem?
     private var action: Action?
     /// The text colour: the button is a wash of it.

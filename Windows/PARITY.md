@@ -22,7 +22,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 <!-- summary: parity.py summary --write -->
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
-| Window, pages and toolbar | 5 | 5 | 0 | 15 | 1 |
+| Window, pages and toolbar | 6 | 5 | 0 | 14 | 1 |
 | Sidebar | 6 | 7 | 0 | 15 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 31 | 40 | 1 | 68 | 16 |
+| **All** | 32 | 40 | 1 | 67 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -67,7 +67,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Find ▸ Use Selection to Find (`useSelectionForFind`), Jump to Selection (`jumpToSelection`) | ❌ | `MainWindowController.swift` | `FindInPage` | Upstream 894f1f6. Windows' find bar would take the page's selection. |
 | What websites see: View ▸ Appearance (`appearanceAutomatic`, `appearanceLight`, `appearanceDark`), sound effects, "Allow websites to get your theme data" | ❌ | `AppDelegate.swift`, `BrowserManager.swift`, `AdvancedPane.swift`, `CraCEF.mm` | `SidebarModel` (`WebsiteAppearance`), `ArcThemeData`, `ThemeTones`, `SidebarStore` (`themeDataCSS`) | Upstream 35bc84a, bfd9962. The settings are in the shared `settings.json`; Windows needs the CEF colour-scheme call and the `:root` style injection. |
 | "When opening Cra, restore windows from previous session" and "start on a new tab" | ❌ | `AppDelegate.swift`, `AdvancedPane.swift` | `SidebarModel` (`restoreWindows`), `SidebarStore`, `LaunchStart` | Upstream 337d5f8 and 7c98d46. Windows always restores its windows; read both launch settings with the Advanced pane. A link launch must still show its link rather than a new-tab bar. |
-| Slow first response: after 10 seconds, a waiting-page toast with Stop Loading | ❌ | `BrowserManager.swift`, `ShinyToast.swift` | `SlowResponseNotice` | Upstream 001afb2. The waiting/wording policy is shared; Windows needs scheduled notices and the Stop Loading action. |
+| Slow first response: after 10 seconds, a waiting-page toast with Stop Loading | ✅ [#57] | `BrowserManager.swift`, `ShinyToast.swift` | `SlowResponseNotice`, `SlowResponseNotices` | Upstream 001afb2. Browser windows (front tab only) and Little Windows; the bridge reports commits and navigation starts, the toast stays with a ✕. |
 | Translate a page, Translation Available affordance and Arc's translate popover | ❌ | `BrowserManager+Translation.swift`, `TranslatePopover.swift`, `PaneToolbarView.swift` | `PageTranslation` | Upstream 386fbf8. Requires the translate CEF bridge/patch (`translate-ui.patch`) and native Windows popover; stock CEF alone does not provide Cra's state callback. |
 
 ## Sidebar
@@ -359,7 +359,7 @@ shared models arriving in the merge do not make their Windows UI or integration 
 | 4fc05d2, 37477ee | Arc folder icon picker and masks; dropping a tab puts it first and keeps the folder shut (#250, #266) | Folder and drag/drop rows (`FolderSymbol`); Windows has neither picker nor sidebar drag/drop. |
 | 4e38498, 0f20e1f | System App Shortcuts retitle Hide/Show Sidebar; Shift+digit records the digit (#253, #321) | Mac shortcut naming is system-specific. Shared `KeyChord` keeps the recording decision; Windows already matches virtual keys. |
 | a7ea20f, dc404ff | Space dock dots, squeezed docks and a hovered dot expanding to its icon (#252) | Spaces row (`SpaceDock`); Windows still draws emoji buttons. |
-| 001afb2 | Slow first response notice after 10 seconds, with Stop Loading (#256) | New slow-response row (`SlowResponseNotice`); Windows scheduling/toast integration remains. |
+| 001afb2 | Slow first response notice after 10 seconds, with Stop Loading (#256) | New slow-response row (`SlowResponseNotice`); Windows has it since [#57]. |
 | c795319, 0051bb3 | An extension selecting a tab and creating a page never raise a background Cra (#239, #274) | Browser-window row (`TabActivationRaise`); check native focus behavior on Windows. |
 | 7c98d46 | Start on a new tab when opening Cra | Launch-settings row (`LaunchStart`); not applied on Windows yet. |
 | 9630b47, 249adb7, 8a6c6bf | Page menu split action, one localized new-tab item and Option-click split (#257, #276, #298) | Page context menu row (`LinkMenu`, `PageMenuLabels`, `LinkSplitClick`); Windows callbacks remain. |
@@ -634,3 +634,4 @@ Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
 [#54]: https://github.com/vishnu597/cra-windows/pull/54
 [#55]: https://github.com/vishnu597/cra-windows/pull/55
 [#56]: https://github.com/vishnu597/cra-windows/pull/56
+[#57]: https://github.com/vishnu597/cra-windows/pull/57

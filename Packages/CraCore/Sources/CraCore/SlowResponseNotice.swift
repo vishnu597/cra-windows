@@ -60,3 +60,57 @@ public struct SlowResponseNotice: Equatable, Sendable {
         return "Still waiting for \(host.isEmpty ? "the page" : host) to respond"
     }
 }
+
+/// Every tab's SlowResponseNotice in a window. Each tab keeps its own clock, and only the front
+/// tab's notice shows: switching to a tab that has been waiting ten seconds shows it at once,
+/// switching away takes it down (MainWindowController on the Mac, BrowserWindow on Windows).
+public struct SlowResponseNotices: Equatable, Sendable {
+    /// A live page's loading phase and the main-frame navigations it has started.
+    public struct Page: Equatable, Sendable {
+        public var phase: LoadingIndicator.Phase
+        public var navigation: Int
+
+        public init(phase: LoadingIndicator.Phase, navigation: Int) {
+            self.phase = phase
+            self.navigation = navigation
+        }
+    }
+
+    /// What the window does after an update.
+    public struct State: Equatable, Sendable {
+        /// The tab whose notice is up, nil when none is.
+        public var shown: UUID?
+        /// When to update again, for the front tab's notice to fall due; nil when nothing will
+        /// change on its own.
+        public var checkAt: Date?
+
+        public init(shown: UUID?, checkAt: Date?) {
+            self.shown = shown
+            self.checkAt = checkAt
+        }
+    }
+
+    public private(set) var notices: [UUID: SlowResponseNotice] = [:]
+
+    public init() {}
+
+    /// `pages`: every live page, by tab (a page that went takes its notice with it); `front`:
+    /// the tab on screen.
+    public mutating func update(_ pages: [UUID: Page], front: UUID?, now: Date) -> State {
+        var next: [UUID: SlowResponseNotice] = [:]
+        for (id, page) in pages {
+            var n = notices[id] ?? SlowResponseNotice()
+            n.update(page.phase, navigation: page.navigation, now: now)
+            next[id] = n
+        }
+        notices = next
+        let notice = front.flatMap { next[$0] }
+        let due = notice?.showsAt.flatMap { $0 > now ? $0 : nil }
+        return State(shown: notice?.isShown(at: now) == true ? front : nil, checkAt: due)
+    }
+
+    /// The ✕ on `id`'s notice: gone until that tab's next navigation waits.
+    public mutating func close(_ id: UUID) {
+        notices[id]?.close()
+    }
+}

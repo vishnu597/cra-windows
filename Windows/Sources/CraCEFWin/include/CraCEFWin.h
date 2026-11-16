@@ -347,6 +347,9 @@ typedef struct CraBrowserCallbacks {
     int (*dev_tools_key_event)(void *context, const CraKeyEvent *event);
     /// Chromium is done with the page; the CraBrowser is freed after this returns.
     void (*closed)(void *context);
+    /// cra_browser_has_committed_load changed: the main frame committed (CEF's OnLoadStart), or
+    /// a new navigation started and waits for its answer (the Mac's didChangeCommittedLoad).
+    void (*committed_load_changed)(void *context, int committed);
 } CraBrowserCallbacks;
 
 // MARK: - Browser
@@ -379,6 +382,13 @@ void cra_browser_exit_fullscreen(CraBrowser *browser);
 
 int cra_browser_is_created(CraBrowser *browser);
 int cra_browser_is_loading(CraBrowser *browser);
+/// The main frame's current navigation has its answer (committed); 0 while it waits for one.
+int cra_browser_has_committed_load(CraBrowser *browser);
+/// The main-frame navigations the page has started, redirects not counted.
+int cra_browser_navigation_starts(CraBrowser *browser);
+/// The address the main frame is navigating to (or last navigated to), redirects followed;
+/// UTF-8, valid until the next call into this browser.
+const char *cra_browser_navigating_url(CraBrowser *browser);
 int cra_browser_can_go_back(CraBrowser *browser);
 int cra_browser_can_go_forward(CraBrowser *browser);
 /// UTF-8, valid until the next call into this browser.
