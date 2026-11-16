@@ -19,6 +19,15 @@ struct MouseButtonSpaceSwitchTests {
         }
     }
 
+    /// Windows: XBUTTON1 is a mouse's back button and XBUTTON2 its forward one (WM_XBUTTONUP,
+    /// WinUI's XButton1Released and XButton2Released), the same steps as buttons 3 and 4.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/233"))
+    func windowsSideButtonsStepLikeTheMacs() {
+        #expect(MouseButtonSpaceSwitch.buttonNumber(windowsXButton: 1).flatMap(MouseButtonSpaceSwitch.offset(buttonNumber:)) == -1)
+        #expect(MouseButtonSpaceSwitch.buttonNumber(windowsXButton: 2).flatMap(MouseButtonSpaceSwitch.offset(buttonNumber:)) == 1)
+        for other in [0, 3, -1] { #expect(MouseButtonSpaceSwitch.buttonNumber(windowsXButton: other) == nil) }
+    }
+
     /// An MX Master with Logi Options+ never emits button 3 or 4. Its Back assignment types ⌥←
     /// (key code 123) and Forward types ⌥→ (124). ⌥⌘← is already Previous Space, and ⌥⇧← selects
     /// a word, so only Option alone counts.

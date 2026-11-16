@@ -37,6 +37,16 @@ public enum MouseButtonSpaceSwitch {
         }
     }
 
+    /// Windows' side buttons as AppKit numbers them: XBUTTON1 (1, a mouse's back button) is button
+    /// 3 and XBUTTON2 (2, forward) is button 4, so the Windows sidebar steps like the Mac's.
+    public static func buttonNumber(windowsXButton xButton: Int) -> Int? {
+        switch xButton {
+        case 1: back
+        case 2: forward
+        default: nil
+        }
+    }
+
     /// The step ⌥← or ⌥→ makes, or nil for any other chord. Only Option alone: ⌥⌘← is already
     /// Previous Space, ⌘← is Go Back, and ⌥⇧← selects a word. Caps Lock is not a shortcut
     /// modifier. An empty `key` still matches the arrow's key code, which is what an injector

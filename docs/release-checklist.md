@@ -280,6 +280,9 @@ built release app with a test profile. Note anything that fails in the release's
 - **Windows cookie banners:** with an isolated test profile, turn on Settings ▸ Privacy ▸ Block
   cookie banners and load a site that uses OneTrust or Cookiebot: no consent banner shows and the
   page scrolls. Turn it off and reload: the banner is back.
+- **Windows mouse side buttons:** with two spaces and a mouse with back and forward buttons,
+  press back over the sidebar (a tab row, the space name and empty space): the previous space
+  shows; forward shows the next. Over a page they go back and forward in the tab.
 - **Windows Share:** with an isolated test profile, assign Share a shortcut in Settings. In
   both a browser tab and a Little Window with the page focused, use that shortcut: Windows'
   Share panel opens for that page. Close the panel using its own Close X, then invoke Share

@@ -2,6 +2,7 @@ import CraCore
 import Foundation
 import Observation
 import UWP
+import WinAppSDK
 import WinUI
 
 /// What the sidebar asks of its window: things that touch pages, not only the store.
@@ -87,6 +88,19 @@ final class SidebarView {
         for (i, part) in parts.enumerated() {
             root.children.append(part)
             try? Grid.setRow(part, Int32(i))
+        }
+        // A mouse's back and forward buttons over the sidebar switch spaces (Arc's
+        // SidebarView.otherMouseUp:, #233); over a page they stay Chromium's. A clear fill so the
+        // sidebar's empty space takes the press too.
+        root.background = UI.clear
+        root.pointerReleased.addHandler { [weak self] _, args in
+            guard let self, let args, let point = try? args.getCurrentPoint(nil), let properties = point.properties else { return }
+            let kind = properties.pointerUpdateKind
+            let xButton = kind == .xbutton1Released ? 1 : kind == .xbutton2Released ? 2 : 0
+            guard let offset = MouseButtonSpaceSwitch.buttonNumber(windowsXButton: xButton).flatMap(MouseButtonSpaceSwitch.offset(buttonNumber:))
+            else { return }
+            args.handled = true
+            self.store.focusSpace(offset: offset, window: self.windowID)
         }
     }
 
