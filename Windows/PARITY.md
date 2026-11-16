@@ -27,7 +27,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 1 | 1 | 0 | 3 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
-| Tabs and memory | 1 | 1 | 0 | 5 | 0 |
+| Tabs and memory | 2 | 1 | 0 | 4 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
 | Profiles, privacy and site data | 4 | 2 | 0 | 7 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 26 | 38 | 1 | 75 | 16 |
+| **All** | 27 | 38 | 1 | 74 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -57,7 +57,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Toasts (copied URL with Share, captures, downloads) | ✅ [#17] | `ShinyToast.swift`, `Overlays.swift` | `ToastStyle`, `ShareRetry` | Windows uses DataTransferManager for Share. `ShareRetry` bounds temporary-busy retries and ends with one failure toast; commands, Site Controls and copied-URL toasts use the same path. The sheet opens with Cra's window in front (a toast's Share button hands the foreground back to its window first), and `ShareRetry.OwnerWatch` re-enables a window a sheet left disabled (gone, or in front but cloaked) and shows the failure toast when no sheet ever showed. A wedged Windows Share (ShellExperienceHost holding a dead sheet) needs a sign-out on the PC; the sheet's own close can't be driven by test input. |
 | Site Control Center, lock badge and certificate viewer | 🟡 [#17] | `SiteControlCenter.swift`, `CertificateWindow.swift` | `SiteControlCenter`, `ConnectionSecurity`, `PageCapture` | Windows shows the sliders in the sidebar's address pill. Its Settings section has the Developer Mode and Block Ads & Trackers switches [#45]. Missing: the protected-media card (Mac only, see Media) and upstream cbb5753's per-site Automatic Picture-In-Picture switch. |
 | Zoom (`zoomIn`, `zoomOut`, `resetZoom`), `print`, `viewSource` | 🟡 | `AppDelegate.swift` | `KeyBindingDefaults` | Left to Chromium's own keys on Windows: not in Cra's key table, the command bar or Settings ▸ Shortcuts. Add them to `KeyBindingDefaults.windowsShortcuts`. |
-| Page context menu: Open Link in New Tab and Open Link in Split View; Alt-click split | 🟡 | `BrowserManager.swift` | `LinkMenu`, `PageMenuLabels`, `LinkSplitClick` | Chromium's menu shows on Windows. Upstream 9630b47, 249adb7 and 8a6c6bf add a split action, one localized Open Link in New Tab item following the foreground setting, and Option-click split (Alt on Windows). Windows needs those policies wired to the page callbacks. |
+| Page context menu: Open Link in New Tab and Open Link in Split View; Alt-click split | 🟡 | `BrowserManager.swift` | `LinkMenu`, `PageMenuLabels`, `LinkSplitClick` | Chromium's menu shows on Windows. Upstream 9630b47, 249adb7 and 8a6c6bf add a split action, one localized Open Link in New Tab item following the foreground setting, and Option-click split (Alt on Windows). Windows: Chrome's Open Link in New Tab, under its own localized label, follows the setting [#48]. Left: Open Link in Split View, Open Link in Little Window, Alt-click split. |
 | Arc-style tooltips in the space's tones | ❌ | `ArcTooltip.swift` | `ThemeTones` (`TooltipTones`) | Windows uses plain WinUI tooltips. |
 | Theme, metrics and the brand mark | 🟡 | `Theme.swift`, `Tuning.swift`, `BrandMark.swift` | `SpaceTheme`, `ThemeTones`, `ArcMenuTones`, `SidebarTones`, `CardFill` | Sidebar palette from `SpaceTheme` is shared; Windows has its own metrics. Upstream's Arc menu, sidebar hover and card-fill policies are available but not all used by the Windows controls. Brand mark from `brand/`. |
 | Sidebar blur, Reduce transparency, active/inactive look | ❌ | `ActiveAppearanceProbe.swift` | `SidebarBackdrop` | Windows counterpart: Mica or Acrylic, and Windows' transparency setting. Since f6b9fb6 a full-screen window keeps its active look while its Space slides away (AppKit's own answer, `windowActive(activeAppearance:)`). |
@@ -150,7 +150,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Tab freezing and sleeping, Tab Cleanup timers, calls stay awake | ❌ | `BrowserManager.swift` | `TabSleepPolicy`, `MemoryReclaim` | The policy is shared; Windows needs the CEF discard calls and the two Settings ▸ Tabs switches. Since upstream 135f794 (#214) the policy reads a `PageState` per page and says why it passed one over. Since upstream c09f3c3 (#237) critical memory pressure closes 9 pages a pass and each pass logs one line per way of closing (`TabSleepPolicy.PassLog`). |
 | Spare pages: a page made ahead for the next new tab, link or restored tab | ❌ | `SparePages.swift` | `SparePage` | Upstream 935cca1: CEF's window-making (~34 ms on the Mac) moves off the click. Windows makes each page on the click; its HWND cost is unmeasured. |
 | Mute a tab (`muteTab`), speaker icon, camera and microphone dot | 🟡 | `SidebarRowViews.swift` | `SidebarModel` | The bridge can mute; the sidebar shows no speaker yet. Upstream 4d9beb0, 7cd69db (#387): a muted tab stays muted on its next page and after a relaunch (`Tab.isMuted` in `sidebar.json`), and a favorite's menu has Mute / Unmute. Windows needs to re-apply the mute when a page is created. |
-| Open links in new tabs in the background | ❌ | `TabsPane.swift` | `LinkMenu` | |
+| Open links in new tabs in the background | ✅ [#48] | `TabsPane.swift` | `LinkMenu` | The page menu's Open Link in New Tab leaves the page in front, as in Arc; Settings ▸ Tabs ▸ "Switch to links opened in new tabs from the page menu" (`openLinksInForeground`, the Mac's Links pane row) brings the tab forward. Ctrl-click and Ctrl+Shift-click keep Chrome's meaning. |
 | Background tabs laid out at the pane's size, first seconds of a tab, hidden tabs give their GPU tiles back (#195) | ❌ | `BrowserManager.swift`, `PageProbe.swift`, `PageScript.swift` | `HiddenFrameRelease` | `PageScript.swift` is Foundation only: move it to CraCore. |
 | Tabs keep back/forward history across relaunch; Back closes a link-opened tab and returns to its source | ❌ | `PageHistoryStore.swift`, `BrowserManager.swift` | `PageHistory`, `BackToReferrer` | Upstream 5fe9cd2 and fe7810f. Windows needs Chromium serialized-history save/restore callbacks and referrer-aware Back behavior; the shared model alone does not preserve a CEF page's history. |
 
@@ -619,3 +619,4 @@ Upstream sync #19 merged two commits after 4cf04e2, with no conflicts.
 [#45]: https://github.com/vishnu597/cra-windows/pull/45
 [#46]: https://github.com/vishnu597/cra-windows/pull/46
 [#47]: https://github.com/vishnu597/cra-windows/pull/47
+[#48]: https://github.com/vishnu597/cra-windows/pull/48

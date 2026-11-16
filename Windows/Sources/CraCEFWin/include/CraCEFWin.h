@@ -87,6 +87,10 @@ int cra_cef_blocked_domain_count(void);
 /// at their next load, as on the Mac.
 void cra_cef_set_page_start_script(const char *script);
 
+/// The page menu's "Open Link in New Tab": nonzero opens the tab behind the page (Arc, the
+/// default), 0 switches to it (Settings ▸ Tabs, LinkMenu). Ctrl-clicks are unaffected.
+void cra_cef_set_link_menu_background(int background);
+
 /// A profile preference as JSON, live from Chromium: Default's for a NULL or empty
 /// `profile_path`, else that loaded profile's. NULL before Chromium (or that profile) has
 /// loaded, while quitting, or for a preference it doesn't have. Free with cra_data_free.

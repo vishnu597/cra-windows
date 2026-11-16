@@ -181,6 +181,15 @@ public final class CraApp: SwiftApplication {
             cra_cef_set_page_start_script(banners ? CookieBanners.pageScript : "")
         }
         follow()
+        // The page menu's "Open Link in New Tab": behind the page as in Arc unless Settings ▸
+        // Tabs says to switch (AppDelegate.observeLinkMenu, #276).
+        func followLinkMenu() {
+            let switches = withObservationTracking { store.settings.openLinksInForeground } onChange: {
+                onMain { _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { followLinkMenu() } }
+            }
+            cra_cef_set_link_menu_background(LinkMenu.item(switchesToTab: switches).opensInBackground ? 1 : 0)
+        }
+        followLinkMenu()
     }
 
     private static var exeFolder: URL { URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent() }
