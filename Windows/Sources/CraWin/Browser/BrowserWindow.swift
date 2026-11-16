@@ -755,6 +755,8 @@ final class BrowserWindow {
         case "previousSpace": store.focusSpace(offset: -1, window: windowID)
         case "copyURL": copyURL(markdown: false)
         case "copyURLMarkdown": copyURL(markdown: true)
+        case "copyURLQuote": copyURLAsQuote()
+        case "stayOnTop": window.staysOnTop.toggle()
         case "capturePage": capture(fullPage: false)
         case "clearCache": shownPage?.clearSiteDataAndReload(cookies: false)
         case "clearCookies": shownPage?.clearSiteDataAndReload(cookies: true)
@@ -1703,7 +1705,9 @@ final class BrowserWindow {
 
     /// Ctrl+Shift+C (Arc's ⇧⌘C): the page's address; with Alt, as a Markdown link.
     private func copyURL(markdown: Bool) {
-        guard let tab = store.selectedTab(window: windowID), let url = tab.tab?.url, !url.isEmpty else { return }
+        // Arc: "Copy the current tab's URL without trackers" (utm_* and click ids go).
+        guard let tab = store.selectedTab(window: windowID), let address = tab.tab?.url, !address.isEmpty else { return }
+        let url = CleanURL.withoutTrackers(address)
         guard WinShell.copy(markdown ? "[\(tab.displayTitle)](\(url))" : url) else { return }
         if markdown {
             showToast("Copied URL as Markdown")
@@ -1712,6 +1716,19 @@ final class BrowserWindow {
             showToast("Copied Current URL", action: ToastView.Action(title: "Share") { [weak self] in
                 self?.share(url: url, title: title)
             })
+        }
+    }
+
+    /// Copy URL as Quote: the page's selection in curly quotes, then a link that scrolls to it
+    /// (CleanURL.quote; the Mac's PageCommands.copyURLAsQuote).
+    private func copyURLAsQuote() {
+        guard let page = shownPage, let url = store.selectedTab(window: windowID)?.tab?.url, !url.isEmpty else { return }
+        page.sendDevToolsMethod("Runtime.evaluate", params: #"{"expression":"getSelection().toString()","returnByValue":true}"#) { [weak self] result, _ in
+            let value = result.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+            let text = (value?["result"] as? [String: Any])?["value"] as? String ?? ""
+            guard let self else { return }
+            guard let quote = CleanURL.quote(text, url: url) else { return self.showToast("Select Text to Copy as a Quote") }
+            if WinShell.copy(quote) { self.showToast("Copied URL as Quote") }
         }
     }
 

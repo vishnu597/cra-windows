@@ -158,6 +158,21 @@ final class HostWindow {
                          noSize | noMove | noActivate | noOwnerZOrder)
     }
 
+    /// Arc's Stay On Top: the window stays above other apps' windows (HWND_TOPMOST), or goes back
+    /// among them (the Mac's floating window level).
+    var staysOnTop: Bool {
+        get {
+            guard let window = HWND(bitPattern: hwnd) else { return false }
+            return GetWindowLongPtrW(window, GWL_EXSTYLE) & LONG_PTR(Self.topmost) != 0
+        }
+        set {
+            guard let window = HWND(bitPattern: hwnd) else { return }
+            let noSize: UINT = 0x0001, noMove: UINT = 0x0002, noActivate: UINT = 0x0010
+            _ = SetWindowPos(window, HWND(bitPattern: newValue ? -1 : -2), 0, 0, 0, 0, noSize | noMove | noActivate)
+        }
+    }
+    private static let topmost: UInt32 = 0x0000_0008  // WS_EX_TOPMOST
+
     var title: String {
         get { appWindow.title }
         set { appWindow.title = newValue }
