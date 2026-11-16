@@ -1799,6 +1799,7 @@ extern "C" int cra_cef_initialize(const CraCEFSettings *s) {
     if (s->log_path) CefString(&settings.log_file) = Wide(s->log_path);
     settings.log_severity = LOGSEVERITY_WARNING;
     if (s->user_agent_product) CefString(&settings.user_agent_product) = Wide(s->user_agent_product);
+    if (s->locale && *s->locale) CefString(&settings.locale) = Wide(s->locale);
     settings.background_color = CefColorSetARGB(255, 255, 255, 255);
     CefRefPtr<CraApp> app(new CraApp);
     if (!CefInitialize(main_args, settings, app, nullptr)) {

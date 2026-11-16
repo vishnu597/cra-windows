@@ -35,8 +35,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Settings | 2 | 7 | 0 | 2 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
-| System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 35 | 45 | 1 | 59 | 16 |
+| System integration and release | 4 | 2 | 0 | 9 | 8 |
+| **All** | 36 | 45 | 1 | 58 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -250,7 +250,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Signed installer | ❌ | | | Authenticode and MSIX or Inno Setup. Phase 3. |
 | Custom app icon | ❌ | `AppIconManager.swift` | | |
 | Bluetooth device cache for Chromium | ➖ | `ChromiumBluetoothCache.swift` | | Mac only (CoreBluetooth). |
-| Chromium follows the system language | ❌ | `AppDelegate.swift` | `ChromiumLocale` | Shared decision; Windows passes the user's UI language. |
+| Chromium follows the system language | ✅ [#67] | `AppDelegate.swift` | `ChromiumLocale`, `ChromiumLocale+Paks` | Windows picks from CEF's `locales/*.pak` and the user's display languages (`ChromiumLocale.pick(localePaks:)`, where the folder's en-US is plain English). |
 | Window switchers and window managers see one window per Cra window (#391, #401) | ➖ | `DockedWindowAccessibility.swift`, `SwitcherWindows+AppKit.swift` | `SwitcherWindows` | Upstream ac12d60, 192b41e: macOS lists docked Chromium windows through accessibility. On Windows CEF's pages are child windows of Cra's top-level window, so Alt+Tab and snapping already see one window. Check on the PC that a Little Window's or Peek's page doesn't show as a window of its own. |
 | Shortcuts set in the system's keyboard settings work in pages | ➖ | `AppDelegate.swift` | | macOS only. |
 | AppleScript with Arc's dictionary, JavaScript from Apple Events off by default (`allowAppleEventsJavaScript`) | ➖ | `AppleScripting.swift` | | macOS only (upstream de695e2). Windows' scripting goes through `cra://` (its own row). |
@@ -650,3 +650,4 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 [#64]: https://github.com/vishnu597/cra-windows/pull/64
 [#65]: https://github.com/vishnu597/cra-windows/pull/65
 [#66]: https://github.com/vishnu597/cra-windows/pull/66
+[#67]: https://github.com/vishnu597/cra-windows/pull/67

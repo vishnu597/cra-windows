@@ -28,6 +28,8 @@ typedef struct CraCEFSettings {
     const char *log_path;
     /// Appended to the user agent ("Cra/1.0"); NULL for none.
     const char *user_agent_product;
+    /// Chromium's locale ("de", "en-GB"), ChromiumLocale's pick; NULL leaves CEF's en-US.
+    const char *locale;
 } CraCEFSettings;
 
 /// Runs a Chromium subprocess when this process is one (CraHelper.exe calls it first thing);
