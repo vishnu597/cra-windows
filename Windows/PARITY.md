@@ -29,14 +29,14 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 1 | 1 | 0 | 5 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
-| Profiles, privacy and site data | 3 | 2 | 0 | 8 | 0 |
+| Profiles, privacy and site data | 4 | 2 | 0 | 7 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 3 | 0 | 2 | 0 |
 | Settings | 2 | 6 | 0 | 3 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 24 | 38 | 1 | 77 | 16 |
+| **All** | 25 | 38 | 1 | 76 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -175,7 +175,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Clear Cache, Clear Cookies | ✅ [#17] | `SiteData.swift` | `SiteDataClearing` | |
 | Clear Browsing Data (`clearBrowsingData`) | 🟡 | `AppDelegate.swift` | `BrowsingDataClear` | The store side is shared; the command and Chrome's dialog are missing. |
 | Ad and tracker blocker | ✅ [#45] | `CraContentBlocker.h`, `CraCEF.mm` | `SiteControlCenter` | `CraCEFWin.cpp` includes the Mac's `CraContentBlocker.h` as is: the same matcher, the same third-party rule and the same `resources/blocklist` list, copied beside Cra.exe by build.ps1 and read off the UI thread at launch. The switch follows `blockAdsAndTrackers` live, from Settings ▸ Privacy, the Site Control Center and the onboarding. |
-| Block Cookie Banners (Arc's, off by default) | ❌ | `BrowserManager.swift`, `PrivacyPane.swift` | `CookieBanners`, `SidebarStore` (`cookieBannerCSS`) | Upstream 93b20a6. The stylesheet is shared; Windows injects it with the Privacy pane. |
+| Block Cookie Banners (Arc's, off by default) | ✅ [#46] | `BrowserManager.swift`, `PrivacyPane.swift` | `CookieBanners` (`pageScript`), `SidebarStore` (`cookieBannerCSS`) | Upstream 93b20a6. The stylesheet is shared. Windows: Settings ▸ Privacy's switch; each page adopts it as it commits (`cra_cef_set_page_start_script`, from the main world, where the Mac uses an isolated one; nothing is left on `window`). |
 | Always use secure connections (HTTPS-only), Secure DNS | ❌ | `PrivacyPane.swift`, `SecureDNSSetting.swift` | `SecureDNS` | Both are Chromium prefs; the decisions are shared. |
 | Passwords and cookies encrypted with a key of Cra's own | ❌ | `SafeStorage.swift`, `keychain-service-name.patch` | | Windows counterpart: DPAPI, which Chromium uses by default. Confirm the stock CEF build does. |
 | Safe Browsing, Web Push | ❌ | `CraCEF.mm`, `safe-browsing-update-interval.patch`, `gcm-enabled.patch` | | Needs Cra's CEF patches on the Windows build (today it uses Spotify's stock build). |
@@ -210,7 +210,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Links | 🟡 [#31] | `LinksPane.swift`, `AirTrafficControlView.swift` | `LinkRouting`, `AirTrafficControl` | Upstream b4c20de moves Little Windows, Peek, foreground-link preference and Air Traffic Control out of Tabs into Settings ▸ Links. Windows keeps its implemented rows under Tabs; it does not list a Links pane yet. |
 | Shortcuts | ✅ [#15] | `ShortcutsPane.swift` | `KeyBindingRegistry` | |
 | Profiles | ✅ [#19] | `ProfilesPane.swift` | `SpaceProfiles` | |
-| Privacy | 🟡 [#45] | `PrivacyPane.swift` | `SecureDNS` | Windows has the Content blocking card's ad and tracker switch. Left: cookie banners, fingerprinting protection, secure connections and DNS, the Data card. |
+| Privacy | 🟡 [#45] | `PrivacyPane.swift` | `SecureDNS` | Windows has the Content blocking card's ad and tracker [#45] and cookie banner [#46] switches. Left: fingerprinting protection, secure connections and DNS, the Data card. |
 | Extensions | 🟡 | `ExtensionsPane.swift` | `ExtensionFolders`, `InstalledExtensions` | Windows lists every profile's installs once each, with Remove (Cra's own folder) or Remove… (chrome://extensions), Add Unpacked Extension… (Windows' folder picker) and Open Chrome's Extension Manager. Cra's folders load in every profile (stock CEF has no `extension-profiles.patch`). No Live Folder plugins under it yet (Plugins row). |
 | Plugins | ❌ | `PluginsPane.swift` | `LiveFolderPlugin`, `LiveFolderPluginPackage` | With the live-folder plugin runtime: install, permission summary, enable/disable, reload and remove packages. |
 | Advanced: engine, export bookmarks, versions | ❌ | `AdvancedPane.swift`, `SidebarExport.swift` | | The bookmarks-file writer in `SidebarExport.swift` can move to CraCore; the save dialog stays per platform. |
@@ -611,3 +611,4 @@ Upstream sync #18 merged one commit after 72b25f2, with no conflicts.
 [#31]: https://github.com/vishnu597/cra-windows/pull/31
 [#44]: https://github.com/vishnu597/cra-windows/pull/44
 [#45]: https://github.com/vishnu597/cra-windows/pull/45
+[#46]: https://github.com/vishnu597/cra-windows/pull/46
