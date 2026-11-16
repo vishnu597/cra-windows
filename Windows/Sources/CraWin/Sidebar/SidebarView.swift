@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import UWP
 import WinAppSDK
+import WinSDK
 import WinUI
 
 /// What the sidebar asks of its window: things that touch pages, not only the store.
@@ -30,6 +31,9 @@ protocol SidebarActions: AnyObject {
     func toggleMute(_ id: UUID)
     /// Back to Pinned Page: the pinned tab returns to its pinned page.
     func resetPinnedTab(_ id: UUID)
+    /// Ctrl-click on a pinned tab's favicon away from its page: the page moves to a new Today
+    /// tab and the pinned tab goes home (Separate From Pinned Tab).
+    func separatePinnedTab(_ id: UUID)
 }
 
 /// The row or space header whose name is being edited (the Mac's SidebarUIState.renamingID and
@@ -66,6 +70,11 @@ final class SidebarView {
     /// Arc badges the tab a Peek came from with the peeked page's favicon (modalIcon), at the
     /// row's end. Set by the browser window, which builds the sidebar again.
     var peekBadge: (tabID: UUID, iconKey: String?)?
+    /// A press on the favicon of a pinned tab away from its page (Arc's icon region), and when.
+    private var iconPress: (id: UUID, at: UInt64)?
+    /// The last click on a tab row and whether it went back home (PinnedIconClick: a double-click
+    /// on the icon goes back once, then neither clicks again nor renames, #345).
+    private var lastTabClick: (id: UUID, at: UInt64, wentBack: Bool)?
     /// What is being renamed (Rename…, Rename Space…, a new folder, a double-click).
     let renaming = SidebarRenaming()
 
@@ -293,11 +302,14 @@ final class SidebarView {
             let selected = store.isSelected(item.id, window: windowID)
             // A site in Developer Mode: its host and port under the title, a ring round the open tab.
             let developer = item.tab.map { store.settings.isDeveloperMode(url: $0.url) } ?? false
+            // Arc: the favicon of a pinned tab away from its pinned page takes it back there (#139).
+            let away = store.isPinned(item.id) && item.tab.map { $0.url != $0.savedURL } == true
             appendRow(icon: .favicon(item.tab?.iconKey), title: item.displayTitle, subtitle: item.tab?.sidebarSubtitle(developerMode: developer),
                       depth: depth, selected: selected, ring: developer && selected, unread: item.isUnread, closable: closable,
                       sound: TabSound.button(muted: item.tab?.muted ?? false, audible: false, editing: renaming.itemID == item.id).map { (item.id, $0) },
-                      peek: peekBadge?.tabID == item.id ? .favicon(peekBadge?.iconKey) : nil, menu: tabMenu(item), renames: item.id) { [weak self] in
-                self?.select(item.id)
+                      peek: peekBadge?.tabID == item.id ? .favicon(peekBadge?.iconKey) : nil, menu: tabMenu(item), renames: item.id,
+                      homeIcon: away ? item.id : nil) { [weak self] in
+                self?.clickTab(item.id, awayFromHome: away)
             }
         }
     }
@@ -356,7 +368,7 @@ final class SidebarView {
 
     private func appendRow(icon: RowIcon, title: String, subtitle: String? = nil, depth: Int, selected: Bool, ring: Bool = false,
                            unread: Bool, closable: UUID?, sound: (UUID, TabSound)? = nil, peek: RowIcon? = nil, menu: MenuFlyout?, renames: UUID? = nil,
-                           _ action: @escaping @MainActor () -> Void) {
+                           homeIcon: UUID? = nil, _ action: @escaping @MainActor () -> Void) {
         let row = Grid()
         row.columnDefinitions.append(UI.column(UI.star))
         row.columnDefinitions.append(UI.column(UI.auto))
@@ -368,6 +380,10 @@ final class SidebarView {
         let lead = rowIcon(icon)
         lead.verticalAlignment = .center
         label.children.append(lead)
+        // The press starts on the icon (it reaches the icon before the row's button takes it).
+        if let id = homeIcon {
+            lead.pointerPressed.addHandler { [weak self] _, _ in self?.iconPress = (id, GetTickCount64()) }
+        }
         if let id = renames, renaming.itemID == id {
             // Rename…: the row's name is a field until Return, Escape or a click elsewhere.
             let own = store.item(id)?.title
@@ -441,7 +457,13 @@ final class SidebarView {
         pick.horizontalContentAlignment = peek == nil ? .left : .stretch
         if let menu { pick.contextFlyout = menu }
         // Arc: a double-click on a tab's or folder's name renames it.
-        if let id = renames { pick.doubleTapped.addHandler { [weak self] _, _ in self?.beginRename(item: id) } }
+        if let id = renames {
+            pick.doubleTapped.addHandler { [weak self] _, _ in
+                // Not when the double-click's first click went back home from the icon (#345).
+                guard let self, !self.wentHomeJustNow(id) else { return }
+                self.beginRename(item: id)
+            }
+        }
         row.children.append(pick)
         try? Grid.setColumn(pick, 0)
 
@@ -514,6 +536,36 @@ final class SidebarView {
 
     private func select(_ id: UUID) {
         store.selectTab(id, window: windowID)
+    }
+
+    /// A click on a tab row (on its release): on the favicon of a pinned tab away from its page
+    /// it goes back there, with Ctrl the page moves out to a new Today tab first (the Mac's ⌘);
+    /// anywhere else it selects the tab (PinnedIconClick, SidebarRowViews' click).
+    private func clickTab(_ id: UUID, awayFromHome: Bool) {
+        let now = GetTickCount64()
+        let onIcon = iconPress.map { $0.id == id && now &- $0.at < 2000 } ?? false
+        iconPress = nil
+        let last = lastTabClick.flatMap { $0.id == id && now &- $0.at <= UInt64(GetDoubleClickTime()) ? $0 : nil }
+        let action = PinnedIconClick.action(clickCount: last == nil ? 1 : 2, onIcon: onIcon, navigatedAway: awayFromHome,
+                                            command: GetKeyState(0x11) < 0, previousWentBack: last?.wentBack ?? false)
+        lastTabClick = (id, now, action.wentBack || (action == .nothing))
+        switch action {
+        case .separateFromPinnedTab:
+            actions?.separatePinnedTab(id)
+        case .backToPinnedPage:
+            actions?.resetPinnedTab(id)
+            select(id)
+        case .nothing:
+            break
+        case .row:
+            select(id)
+        }
+    }
+
+    /// This row's last click went back home from its icon, within a double-click.
+    private func wentHomeJustNow(_ id: UUID) -> Bool {
+        guard let last = lastTabClick, last.id == id, last.wentBack else { return false }
+        return GetTickCount64() &- last.at <= 2 * UInt64(GetDoubleClickTime())
     }
 
     // MARK: Menus

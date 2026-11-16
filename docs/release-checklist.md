@@ -380,6 +380,10 @@ built release app with a test profile. Note anything that fails in the release's
   language besides English), launch Cra: chrome://settings and a page's right-click menu are in
   that language, and `navigator.language` in DevTools answers it. Needs a Windows language pack,
   so no scenario covers it.
+- **Windows pinned tab favicon:** pin a tab, follow a link in it, then click its favicon in the
+  sidebar: it goes back to its pinned page. Follow a link again and Ctrl-click the favicon: the
+  page moves to a new Today tab at the top and the pinned tab goes home. Away again, double-click
+  the favicon: it goes home once and no rename field opens. Needs real pointer input on the row.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.
