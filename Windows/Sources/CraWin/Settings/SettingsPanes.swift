@@ -158,6 +158,14 @@ enum SettingsPanes {
                       detail: "Cookie banners from the common consent tools are hidden. Pages load again with the change.",
                       \.blockCookieBanners),
         ], palette: palette))
+        let connections = header("Connections", palette: palette)
+        connections.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
+        stack.children.append(connections)
+        stack.children.append(card([
+            switchRow("Always use secure connections",
+                      detail: "Pages load over HTTPS. Before opening a site that doesn’t support it, Cra warns you first.",
+                      \.httpsOnly),
+        ], palette: palette))
         // The Site Control Center's switch and the onboarding change them too.
         return SettingsPaneContent(element: stack) { syncs.forEach { $0() } }
     }

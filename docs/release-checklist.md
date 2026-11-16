@@ -349,6 +349,10 @@ built release app with a test profile. Note anything that fails in the release's
   The named profile has `Preferences` and `Local Storage` on disk, and `chromium.log` has no
   "Cannot create profile at path" error. Do this with the real CEF app; an isolated in-memory
   context can appear to work until restart.
+- **Windows HTTPS-only:** turn on Settings ▸ Privacy ▸ Always use secure connections and open
+  `http://http.badssl.com/`: Chrome's "Connection is not secure" warning shows before the page.
+  Same in a private window and in a space on another profile. Turn it off: the page opens.
+  Needs a real HTTP-only site, so no scenario covers it.
 - **Windows tab mute:** play a video in a Today tab, right-click the tab ▸ Mute: the sound stops and
   a crossed-out speaker shows between the favicon and the title. Follow a link in the same tab:
   still quiet. Quit and restart Cra, open the tab: still quiet, the speaker still there. Click the

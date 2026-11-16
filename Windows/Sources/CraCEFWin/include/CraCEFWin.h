@@ -82,6 +82,10 @@ void cra_cef_load_blocked_domains(const char *path);
 /// The domains on the list read so far (0 until it's in).
 int cra_cef_blocked_domain_count(void);
 
+/// Chrome's "Always use secure connections" (HTTPS-only mode) on every profile, private windows
+/// included; profiles that load later get it too.
+void cra_cef_set_https_only(int enabled);
+
 /// JavaScript every page's main frame runs as each navigation commits, from then on ("" for
 /// none): Block Cookie Banners' stylesheet (CookieBanners.pageScript). Pages already open get it
 /// at their next load, as on the Mac.

@@ -147,6 +147,25 @@ void HideDownloadBubble(CefRefPtr<CefRequestContext> context) {
     }
 }
 
+/// Chrome's "Always use secure connections" (Settings ▸ Privacy, `httpsOnly`), on every profile.
+bool g_httpsOnly = false;
+
+void ApplyHttpsOnly(CefRefPtr<CefRequestContext> context) {
+    if (!context) return;
+    CefRefPtr<CefValue> value = CefValue::Create();
+    value->SetBool(g_httpsOnly);
+    CefString error;
+    if (!context->SetPreference("https_only_mode_enabled", value, error)) {
+        fprintf(stderr, "CraCEFWin: https_only_mode_enabled: %s\n", error.ToString().c_str());
+    }
+}
+
+/// What every profile gets once it loads (ApplyProfilePreferences in CraCEF.mm).
+void ApplyProfilePreferences(CefRefPtr<CefRequestContext> context) {
+    HideDownloadBubble(context);
+    ApplyHttpsOnly(context);
+}
+
 /// Set once Cra starts quitting: no more extension calls into Swift.
 bool g_quitting = false;
 
@@ -195,17 +214,24 @@ std::set<std::wstring> g_readyProfiles;
 /// The off-the-record profile private windows share (an empty cache path keeps cookies,
 /// storage and cache in memory), until the last of them closes (cra_cef_end_incognito_session).
 /// Its preferences get Cra's settings once it loads, as the Mac's IncognitoContext does.
+CefRefPtr<CefRequestContext> g_incognitoContext;
+bool g_incognitoReady = false;  // its preferences can be set
+
 class IncognitoContextHandler : public CefRequestContextHandler {
 public:
-    void OnRequestContextInitialized(CefRefPtr<CefRequestContext> context) override { HideDownloadBubble(context); }
+    void OnRequestContextInitialized(CefRefPtr<CefRequestContext> context) override {
+        ApplyProfilePreferences(context);
+        if (g_incognitoContext && context->IsSame(g_incognitoContext)) g_incognitoReady = true;
+    }
 private:
     IMPLEMENT_REFCOUNTING(IncognitoContextHandler);
 };
 
-CefRefPtr<CefRequestContext> g_incognitoContext;
-
 CefRefPtr<CefRequestContext> IncognitoContext() {
-    if (!g_incognitoContext) g_incognitoContext = CefRequestContext::CreateContext(CefRequestContextSettings(), new IncognitoContextHandler());
+    if (!g_incognitoContext) {
+        g_incognitoReady = false;
+        g_incognitoContext = CefRequestContext::CreateContext(CefRequestContextSettings(), new IncognitoContextHandler());
+    }
     return g_incognitoContext;
 }
 
@@ -217,7 +243,7 @@ class ProfileContextHandler : public CefRequestContextHandler {
 public:
     explicit ProfileContextHandler(std::wstring path) : path_(std::move(path)) {}
     void OnRequestContextInitialized(CefRefPtr<CefRequestContext> context) override {
-        HideDownloadBubble(context);
+        ApplyProfilePreferences(context);
         ObserveExtensionSettings(context);
         g_readyProfiles.insert(path_);
     }
@@ -1500,7 +1526,7 @@ public:
     void OnContextInitialized() override {
         CEF_REQUIRE_UI_THREAD();
         g_contextInitialized = true;
-        HideDownloadBubble(CefRequestContext::GetGlobalContext());
+        ApplyProfilePreferences(CefRequestContext::GetGlobalContext());
         ObserveExtensionSettings(CefRequestContext::GetGlobalContext());
         std::vector<CraBrowser *> pending;
         pending.swap(g_pendingCreation);
@@ -1717,6 +1743,18 @@ extern "C" void cra_cef_set_extension_folders(const char *comma_separated) {
 
 extern "C" void cra_cef_set_content_blocking(int enabled) { cra_blocker::Enabled().store(enabled != 0); }
 
+extern "C" void cra_cef_set_https_only(int enabled) {
+    if ((enabled != 0) == g_httpsOnly) return;
+    g_httpsOnly = enabled != 0;
+    // Profiles that load later get it from ApplyProfilePreferences.
+    if (!g_contextInitialized || g_quitting) return;
+    ApplyHttpsOnly(CefRequestContext::GetGlobalContext());
+    for (auto &[path, context] : g_profileContexts) {
+        if (g_readyProfiles.count(path)) ApplyHttpsOnly(context);
+    }
+    if (g_incognitoContext && g_incognitoReady) ApplyHttpsOnly(g_incognitoContext);
+}
+
 extern "C" void cra_cef_load_blocked_domains(const char *path) {
     if (!path || !*path) return;
     std::wstring file = Wide(path);
@@ -1769,7 +1807,10 @@ extern "C" char *cra_cef_preference_json(const char *profile_path, const char *n
     return out;
 }
 
-extern "C" void cra_cef_end_incognito_session(void) { g_incognitoContext = nullptr; }
+extern "C" void cra_cef_end_incognito_session(void) {
+    g_incognitoContext = nullptr;
+    g_incognitoReady = false;
+}
 
 extern "C" const char *cra_cef_chromium_version(void) {
     static char version[64];
