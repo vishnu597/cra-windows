@@ -173,7 +173,7 @@ extension SidebarView {
         drag.target = nil
         drag.undoPress = undo
         drag.lastTick = Date()
-        guard let queue = WinAppSDK.DispatcherQueue.getForCurrentThread(), let timer = try? queue.createTimer() else {
+        guard let queue = (try? WinAppSDK.DispatcherQueue.getForCurrentThread()) ?? nil, let timer = try? queue.createTimer() else {
             drag.source = nil
             return
         }
