@@ -23,7 +23,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
 | Window, pages and toolbar | 5 | 5 | 0 | 15 | 1 |
-| Sidebar | 5 | 7 | 0 | 16 | 0 |
+| Sidebar | 6 | 7 | 0 | 15 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 28 | 41 | 1 | 70 | 16 |
+| **All** | 29 | 41 | 1 | 69 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -76,7 +76,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Spaces: switch, create, delete, the space dock | 🟡 [#5] | `SidebarView.swift`, `SidebarRootView.swift`, `SpaceDock.swift`, `SpaceListView.swift`, `SpaceColumnView.swift`, `SidebarUIState.swift`, `EmojiLabelFrame.swift` | `SidebarStore`, `SidebarModel`, `ItemTable`, `SidebarIntegrity`, `SpaceDock` | Same `sidebar.json` as the Mac. The Windows dock has emoji buttons; upstream a7ea20f and dc404ff add Arc's iconless/squeezed dots and expanding hovered dot, which are not drawn on Windows yet. |
 | Go to Space N (`spaceN`) on Alt+1–9, next and previous space on Ctrl+Alt+Right and Left | ✅ [#5] [#21] | `MainWindowController.swift`, `AppDelegate.swift` | `KeyBindingDefaults`, `SidebarStore` (`focusSpace(number:)`) | Arc for Windows' keys: Ctrl+1–9 stays Go to Tab, as in Chrome. |
-| Move Tab to Space N (`moveTabToSpaceN`) | ❌ | `MainWindowController.swift`, `AppDelegate.swift` | `SpaceWindow`, `SidebarStore` | No Windows key yet (the Mac's is ⌃⌘N); comes with Little Windows, whose page it can also send. |
+| Move Tab to Space N (`moveTabToSpaceN`) | ✅ [#53] | `MainWindowController.swift`, `AppDelegate.swift` | `SpaceWindow`, `SidebarStore` | Windows' key is Alt+Shift+1–9 (Go to Space N's Alt+N with Shift, where the Mac adds ⌘ to ⌃N; Ctrl+Alt would be AltGr). The open tab, or its split, moves and the window follows it (`moveTabAndFollow`); a Little Window sends its page there. An incognito window's tabs stay put. |
 | Swipe, Shift + wheel or sideways wheel between spaces | ❌ | `SpacePagerView.swift` | `WheelSpaceSwitch`, `PageDetentHaptics` | Decisions shared; Windows needs the wheel hook and the slide. Upstream c4ee4dc adds one trackpad haptic per changed page, including a flick; hardware feedback needs a Windows counterpart if supported. |
 | Pinned tabs and folders, Today, Clear Today, archive on close | ✅ [#5] | `SidebarRowViews.swift`, `SidebarItemView.swift` | `SidebarStore`, `CloseSuccessor`, `SidebarClose`, `PinnedPeek`, `TodayClear` | `clearToday` and `newFolder` are in the sidebar menus, not yet commands; Clear keeps the tab on screen (upstream f586c7f, #406), but Windows doesn't know which tabs play sound yet, so those are archived; `SidebarClose` (Arc's close buttons per row kind) isn't used on Windows yet. |
 | Pinned tab extras: back to its page by the favicon, the slash, Reset (`resetTab`), edit URL | ❌ | `EditPinnedURLDialog.swift`, `SidebarRowViews.swift` | `PinnedNavigation` | Since 6e371cc "Back to Pinned URL" slides in under the title on hovering the icon (0.16 s). |
@@ -630,3 +630,4 @@ Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
 [#50]: https://github.com/vishnu597/cra-windows/pull/50
 [#51]: https://github.com/vishnu597/cra-windows/pull/51
 [#52]: https://github.com/vishnu597/cra-windows/pull/52
+[#53]: https://github.com/vishnu597/cra-windows/pull/53
