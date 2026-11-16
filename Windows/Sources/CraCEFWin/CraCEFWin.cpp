@@ -11,6 +11,7 @@
 #include <shlobj.h>
 #include <wincrypt.h>
 
+#include <atomic>
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
@@ -840,6 +841,13 @@ private:
 std::mutex g_pageStartScriptLock;
 std::string g_pageStartScript;
 
+/// The page menu's "Open Link in New Tab" leaves the page in front (Arc, #276) unless Settings ▸
+/// Tabs says to switch (cra_cef_set_link_menu_background). Ctrl-click and Ctrl+Shift-click say
+/// what they want and don't follow it.
+std::atomic<bool> g_linkMenuBackground{true};
+/// Cra's own "Open Link in New Tab" in Chrome's page menu, in place of Chrome's.
+constexpr int kMenuOpenLinkNewTab = MENU_ID_USER_FIRST + 1;
+
 std::string PageStartScript() {
     std::lock_guard<std::mutex> lock(g_pageStartScriptLock);
     return g_pageStartScript;
@@ -856,7 +864,8 @@ class CraClient : public CefClient,
                   public CefFocusHandler,
                   public CefPermissionHandler,
                   public CefFindHandler,
-                  public CefCommandHandler {
+                  public CefCommandHandler,
+                  public CefContextMenuHandler {
 public:
     explicit CraClient(CraBrowser *owner) : owner_(owner) {}
     void Detach() { owner_ = nullptr; }
@@ -871,6 +880,32 @@ public:
     CefRefPtr<CefPermissionHandler> GetPermissionHandler() override { return this; }
     CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
     CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
+    CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override { return this; }
+
+    // Page menu -----------------------------------------------------------
+
+    /// Chrome's page menu, with its "Open Link in New Tab" swapped for Cra's under the same
+    /// (localized) label, which follows the setting (the Mac's MakeArcMenu, LinkMenu).
+    void OnBeforeContextMenu(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefContextMenuParams> params,
+                             CefRefPtr<CefMenuModel> model) override {
+        static const int newTabID = cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_OPENLINKNEWTAB");
+        if (newTabID <= 0 || params->GetLinkUrl().empty()) return;
+        int index = static_cast<int>(model->GetIndexOf(newTabID));
+        if (index < 0) return;
+        CefString label = model->GetLabelAt(static_cast<size_t>(index));
+        model->RemoveAt(static_cast<size_t>(index));
+        model->InsertItemAt(static_cast<size_t>(index), kMenuOpenLinkNewTab, label.empty() ? CefString("Open link in new tab") : label);
+    }
+
+    bool OnContextMenuCommand(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefContextMenuParams> params,
+                              int command_id, EventFlags event_flags) override {
+        if (command_id != kMenuOpenLinkNewTab) return false;
+        CraBrowser *o = Live();
+        if (o && o->callbacks.new_tab_requested)
+            o->callbacks.new_tab_requested(o->callbacks.context, params->GetLinkUrl().ToString().c_str(),
+                                           g_linkMenuBackground.load() ? 1 : 0);
+        return true;
+    }
 
     // Life span -----------------------------------------------------------
 
@@ -1675,6 +1710,8 @@ extern "C" void cra_cef_load_blocked_domains(const char *path) {
 }
 
 extern "C" int cra_cef_blocked_domain_count(void) { return static_cast<int>(cra_blocker::Count()); }
+
+extern "C" void cra_cef_set_link_menu_background(int background) { g_linkMenuBackground.store(background != 0); }
 
 extern "C" void cra_cef_set_page_start_script(const char *script) {
     std::lock_guard<std::mutex> lock(g_pageStartScriptLock);

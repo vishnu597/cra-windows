@@ -283,6 +283,10 @@ built release app with a test profile. Note anything that fails in the release's
 - **Windows mouse side buttons:** with two spaces and a mouse with back and forward buttons,
   press back over the sidebar (a tab row, the space name and empty space): the previous space
   shows; forward shows the next. Over a page they go back and forward in the tab.
+- **Windows page menu new tab:** with an isolated test profile, right-click a link ▸ Open link in
+  new tab: the tab opens in the sidebar and the page stays in front. Turn on Settings ▸ Tabs ▸
+  "Switch to links opened in new tabs from the page menu" and do it again: the new tab comes to
+  the front. Ctrl-click still opens behind and Ctrl+Shift-click in front either way.
 - **Windows Share:** with an isolated test profile, assign Share a shortcut in Settings. In
   both a browser tab and a Little Window with the page focused, use that shortcut: Windows'
   Share panel opens for that page. Close the panel using its own Close X, then invoke Share

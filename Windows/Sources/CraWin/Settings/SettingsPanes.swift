@@ -257,6 +257,8 @@ enum SettingsPanes {
             checkbox("Open a Peek window when clicking on links to other sites", \.peekLinksToOtherSites),
             everyTab,
             checkbox("Open a Peek window when clicking on links with Shift held", \.peekOnShiftClick),
+            // Not in Arc's tab: what the page menu's "Open Link in New Tab" does (#276).
+            checkbox("Switch to links opened in new tabs from the page menu", \.openLinksInForeground),
             routesRow,
             routesNote,
         ])
