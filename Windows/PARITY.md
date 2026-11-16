@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 335bb79 -->
+<!-- upstream-reviewed: 0ea8123 -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -22,7 +22,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 <!-- summary: parity.py summary --write -->
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
-| Window, pages and toolbar | 7 | 4 | 0 | 14 | 1 |
+| Window, pages and toolbar | 8 | 4 | 0 | 13 | 1 |
 | Sidebar | 6 | 7 | 0 | 15 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 33 | 39 | 1 | 67 | 16 |
+| **All** | 34 | 39 | 1 | 66 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -59,14 +59,14 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Zoom (`zoomIn`, `zoomOut`, `resetZoom`), `print`, `viewSource` | ✅ [#58] | `AppDelegate.swift` | `KeyBindingDefaults` | Windows takes Chrome's keys for them (Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+P, Ctrl+U) in its key table, the command bar and Settings ▸ Shortcuts, and zooms in the Mac's half-level steps. Ctrl+Shift+= stays Add Split View. |
 | Page context menu: Open Link in New Tab and Open Link in Split View; Alt-click split | 🟡 | `BrowserManager.swift` | `LinkMenu`, `PageMenuLabels`, `LinkSplitClick` | Chromium's menu shows on Windows. Upstream 9630b47, 249adb7 and 8a6c6bf add a split action, one localized Open Link in New Tab item following the foreground setting, and Option-click split (Alt on Windows). Windows: Chrome's Open Link in New Tab, under its own localized label, follows the setting [#48]. Left: Open Link in Split View, Open Link in Little Window, Alt-click split. |
 | Arc-style tooltips in the space's tones | ❌ | `ArcTooltip.swift` | `ThemeTones` (`TooltipTones`) | Windows uses plain WinUI tooltips. |
-| Theme, metrics and the brand mark | 🟡 | `Theme.swift`, `Tuning.swift`, `BrandMark.swift` | `SpaceTheme`, `ThemeTones`, `ArcMenuTones`, `SidebarTones`, `CardFill` | Sidebar palette from `SpaceTheme` is shared; Windows has its own metrics. Upstream's Arc menu, sidebar hover and card-fill policies are available but not all used by the Windows controls. Brand mark from `brand/`. |
+| Theme, metrics and the brand mark | 🟡 | `Theme.swift`, `ThemeNoise.swift`, `Tuning.swift`, `BrandMark.swift` | `SpaceTheme`, `ThemeTones`, `ArcMenuTones`, `SidebarTones`, `CardFill` | Sidebar palette from `SpaceTheme` is shared; Windows has its own metrics. Upstream's Arc menu, sidebar hover and card-fill policies are available but not all used by the Windows controls. Brand mark from `brand/`. |
 | Sidebar blur, Reduce transparency, active/inactive look | ❌ | `ActiveAppearanceProbe.swift` | `SidebarBackdrop` | Windows counterpart: Mica or Acrylic, and Windows' transparency setting. Since f6b9fb6 a full-screen window keeps its active look while its Space slides away (AppKit's own answer, `windowActive(activeAppearance:)`). |
 | Only one Cra running (an older copy quits) | ➖ | `NewestCopy.swift` | | Windows: a single-instance mutex when the installer lands. |
 | Arc's dialog sheet for every confirmation: one card, its buttons, keys and hover | ❌ | `AppDialog.swift`, `DialogComponents.swift`, `Colors.swift` | `DialogActions` | Upstream bc47470 (#224). Windows asks with WinUI flyouts and dialogs; `DialogActions` (which button Return and Escape press) is shared for the Windows card. `Colors.swift` is SwiftUI's hex colours. |
 | Stay On Top (`stayOnTop`), Save Page As (`savePageAs`), Copy URL as Quote (`copyURLQuote`), Copy URL without trackers | 🟡 [#52] | `MainWindowController.swift`, `AppDelegate.swift` | `CleanURL` | Upstream d110dc6. Windows: Copy URL and Copy URL as Markdown leave trackers out (`CleanURL`), Copy URL as Quote copies the selection with a text-fragment link, Stay On Top keeps the window (or a Little Window) above other apps' (`HWND_TOPMOST`); both from the command bar, no keys (the Mac's ⌃⇧⌘C has no free Windows counterpart). Left: Save Page As, and upstream cd8f3f5's copy of every selected sidebar tab's URL, which needs multi-selection. |
 | Find ▸ Use Selection to Find (`useSelectionForFind`), Jump to Selection (`jumpToSelection`) | ❌ | `MainWindowController.swift` | `FindInPage` | Upstream 894f1f6. Windows' find bar would take the page's selection. |
 | What websites see: View ▸ Appearance (`appearanceAutomatic`, `appearanceLight`, `appearanceDark`), sound effects, "Allow websites to get your theme data" | ❌ | `AppDelegate.swift`, `BrowserManager.swift`, `AdvancedPane.swift`, `CraCEF.mm` | `SidebarModel` (`WebsiteAppearance`), `ArcThemeData`, `ThemeTones`, `SidebarStore` (`themeDataCSS`) | Upstream 35bc84a, bfd9962. The settings are in the shared `settings.json`; Windows needs the CEF colour-scheme call and the `:root` style injection. |
-| "When opening Cra, restore windows from previous session" and "start on a new tab" | ❌ | `AppDelegate.swift`, `AdvancedPane.swift` | `SidebarModel` (`restoreWindows`), `SidebarStore`, `LaunchStart` | Upstream 337d5f8 and 7c98d46. Windows always restores its windows; read both launch settings with the Advanced pane. A link launch must still show its link rather than a new-tab bar. |
+| "When opening Cra, restore windows from previous session" and "start on a new tab" | ✅ [#59] | `AppDelegate.swift`, `AdvancedPane.swift` | `SidebarModel` (`restoreWindows`), `SidebarStore`, `LaunchStart` | Upstream 337d5f8 and 7c98d46. Windows: Settings ▸ Advanced ▸ Opening and quitting has both switches. Off, only the window in use last comes back (`keepOnlyActiveWindow`); on a new tab, the window opens with no tab selected and the command bar making one, unless another app started Cra for a link. A link arriving later closes that bar. |
 | Slow first response: after 10 seconds, a waiting-page toast with Stop Loading | ✅ [#57] | `BrowserManager.swift`, `ShinyToast.swift` | `SlowResponseNotice`, `SlowResponseNotices` | Upstream 001afb2. Browser windows (front tab only) and Little Windows; the bridge reports commits and navigation starts, the toast stays with a ✕. |
 | Translate a page, Translation Available affordance and Arc's translate popover | ❌ | `BrowserManager+Translation.swift`, `TranslatePopover.swift`, `PaneToolbarView.swift` | `PageTranslation` | Upstream 386fbf8. Requires the translate CEF bridge/patch (`translate-ui.patch`) and native Windows popover; stock CEF alone does not provide Cra's state callback. |
 
@@ -585,6 +585,12 @@ Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
 |---|---|---|
 | 335bb79 | xbench reads the URL back before Return, and gains a probe mode | Mac benchmark tooling. ➖ |
 
+Upstream sync #21 merged one commit after 335bb79, with no conflicts.
+
+| Commit | What | Windows |
+|---|---|---|
+| 0ea8123 | Theme grain: a pattern Core Animation tiles, not a drawn view | Mac drawing of the theme's grain (`ThemeNoise.swift`), in the theme row. Windows draws no grain yet. ➖ |
+
 ## Keeping this current
 
 - **Each upstream sync** (CONTRIBUTING's merge before each new PR): run
@@ -636,3 +642,4 @@ Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
 [#56]: https://github.com/vishnu597/cra-windows/pull/56
 [#57]: https://github.com/vishnu597/cra-windows/pull/57
 [#58]: https://github.com/vishnu597/cra-windows/pull/58
+[#59]: https://github.com/vishnu597/cra-windows/pull/59

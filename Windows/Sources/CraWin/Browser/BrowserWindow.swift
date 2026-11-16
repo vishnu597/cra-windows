@@ -592,6 +592,12 @@ final class BrowserWindow {
         _ = try? dispatcher.tryEnqueue { [weak self] in self?.presentCommandBar(mode) }
     }
 
+    /// A link from another app soon after starting on a new tab: its tab is what the window
+    /// shows, so the bar waiting for a new tab goes (the Mac's openExternalURL).
+    func closeNewTabBar() {
+        if commandBar.isOpen, store.selectedTab(window: windowID) == nil { commandBar.close() }
+    }
+
     /// cra://commandbar: the bar, with `query` typed into it. With the bar already open a new
     /// query is the next keystroke, not a new session (AppDelegate.handleInternalURL).
     func openCommandBar(_ mode: CommandBarMode, query: String?) {

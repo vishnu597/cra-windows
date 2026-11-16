@@ -37,6 +37,7 @@ if [ "${1:-}" != core ]; then
   suite "Policies" scripts/test-policies.sh
   suite "Folder glyph" scripts/test-folder-glyph.sh
   suite "Emoji label" scripts/test-emoji-label.sh
+  suite "Theme noise" scripts/test-theme-noise.sh
   suite "Chromium window corners" scripts/test-chromium-window-corners.sh
   suite "Music notes pixels" scripts/test-music-notes.sh
   suite "Live folder plugins" scripts/test-live-folder-plugins.sh
