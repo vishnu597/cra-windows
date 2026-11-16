@@ -126,6 +126,11 @@ final class BrowserWindow {
     /// An extension's popup page (ExtensionLaunch.popupWindow), under the sliders.
     private var extensionPopup: ExtensionPopup?
     private var toast: ToastView!
+    /// Tab sleeping: when each page went out of sight, when a page that refused may be asked
+    /// again, and the minute's pass (BrowserManager.sleepIdleTabs on the Mac).
+    private var hiddenAt: [UUID: Date] = [:]
+    private var sleepAskAfter: [UUID: Date] = [:]
+    private var sleepTimer: WinAppSDK.DispatcherQueueTimer?
     /// Each tab's wait for its first response, and the tab whose "Still waiting" toast is up
     /// (SlowResponseNotice, the Mac's MainWindowController).
     private var slowResponses = SlowResponseNotices()
@@ -159,7 +164,9 @@ final class BrowserWindow {
         sidebar = SidebarView(store: store, windowID: session.id, actions: self)
         downloads = DownloadsTray(history: .shared, dispatcher: dispatcher)
         sidebar.attachDownloads(button: downloads.button, list: downloads.list)
-        library = LibraryView(store: store, history: .shared, dispatcher: dispatcher, actions: self)
+        // A private window shows only its own space: no Spaces page (Manage Spaces…).
+        let spacesPage = incognito ? nil : SpacesManagerView(store: store, windowID: session.id, actions: self)
+        library = LibraryView(store: store, history: .shared, dispatcher: dispatcher, spaces: spacesPage, actions: self)
         downloads.onClick = { [weak self] in self?.toggleLibrary() }
         let pointer: () -> (x: Double, y: Double)? = { [weak self] in
             guard let self, let window = self.window, let host = HWND(bitPattern: self.hwnd) else { return nil }
@@ -181,6 +188,7 @@ final class BrowserWindow {
         window.title = Self.title(nil, incognito: isIncognito)
         hwnd = window.hwnd
         window.onLayout = { [weak self] _ in
+            self?.syncLibraryWidth()
             self?.repositionPeeks()
             self?.layoutPanes()
             self?.placeCommandBar()
@@ -224,6 +232,7 @@ final class BrowserWindow {
         makeImportDialog()
         makeSiteControlCenter()
         toast = ToastView(owner: window) { [weak self] in self?.pageOnScreen() }
+        startTabSleeping()
         // Chromium closes its pages before their parent window goes (CEF's DoClose order).
         window.shouldClose = { [weak self] in
             guard let self, !self.readyToClose else { return true }
@@ -320,7 +329,10 @@ final class BrowserWindow {
             sidebarPanel.background = sidebar.fill
             applyPaneColors(store.focusedSpace(window: windowID).theme)
             downloads.apply(SidebarPalette(store.focusedSpace(window: windowID).theme), fill: sidebar.fill)
-            if libraryPage != nil { library.build(SidebarPalette(store.focusedSpace(window: windowID).theme), dark: sidebar.isDark) }
+            if libraryPage != nil {
+                library.build(SidebarPalette(store.focusedSpace(window: windowID).theme), dark: sidebar.isDark)
+                syncLibraryWidth()
+            }
             syncPages()
             syncSlowResponse()
             syncDeveloperBar()
@@ -358,6 +370,7 @@ final class BrowserWindow {
         layoutPanes()
         for (id, page) in pages where shown[id] == nil { page.isVisible = false }
         for page in shown.values { page.isVisible = true }
+        noteHidden(shown: Set(shown.keys))
         show(selected.flatMap { shown[$0.id] }, tab: selected?.id)
         window.title = Self.title(selected?.displayTitle, incognito: isIncognito)
     }
@@ -776,6 +789,7 @@ final class BrowserWindow {
         case "openLibrary": toggleLibrary()
         case "viewArchive": showLibrary(.archive)
         case "viewDownloads": showLibrary(.downloads)
+        case "manageSpaces": if !isIncognito { showLibrary(.spaces) }
         case "closeTab": closeCurrentTab()
         case "reload": reload(ignoringCache: false)
         case "hardReload": reload(ignoringCache: true)
@@ -870,6 +884,63 @@ final class BrowserWindow {
         if let id = store.selectedTabID(window: windowID) { closeTab(id) }
     }
 
+    // MARK: Tab sleeping
+
+    /// When each page went out of sight (TabSleepPolicy's hiddenAt).
+    private func noteHidden(shown: Set<UUID>) {
+        let now = Date()
+        for id in pages.keys {
+            if shown.contains(id) { hiddenAt[id] = nil } else if hiddenAt[id] == nil { hiddenAt[id] = now }
+        }
+        hiddenAt = hiddenAt.filter { pages[$0.key] != nil }
+        sleepAskAfter = sleepAskAfter.filter { pages[$0.key] != nil }
+    }
+
+    private func startTabSleeping() {
+        sleepTimer = try? dispatcher.createTimer()
+        sleepTimer?.interval = TimeSpan(duration: Int64(TabSleepPolicy.passInterval * 10_000_000))
+        sleepTimer?.isRepeating = true
+        sleepTimer?.tick.addHandler { [weak self] _, _ in self?.sleepIdleTabs() }
+        try? sleepTimer?.start()
+    }
+
+    /// Settings ▸ Tabs ▸ Free memory from unused tabs: a page out of sight longer than the
+    /// setting (Arc's 4 hours), and not one of the 10 tabs used last, closes and loads again
+    /// when its tab is shown. Pages that are loading or in DevTools stay; so do pages holding
+    /// edited fields, playing sound or asking before they close (TabSleepProbe), which are
+    /// asked again after 10 minutes. Windows' CEF can't discard a page and keep its history, so
+    /// the tab reloads its address.
+    private func sleepIdleTabs() {
+        let settings = store.settings
+        guard !closing, settings.tabSleepTimerEnabled else { return }
+        let policy = TabSleepPolicy.timer(settings.tabSleepAfter)
+        let now = Date()
+        let cutoff = now.addingTimeInterval(-policy.hiddenFor)
+        let visible = paneIDs
+        let list = pages.keys.map { TabSleepPolicy.Page(id: $0, hiddenAt: hiddenAt[$0]) }
+        for id in policy.candidates(list, visible: visible, now: now) {
+            guard let page = pages[id], sleepAskAfter[id].map({ $0 <= now }) ?? true else { continue }
+            let state = TabSleepPolicy.PageState(hiddenAt: hiddenAt[id], visible: visible.contains(id), created: page.isCreated,
+                                                 loading: page.isLoading, devTools: page.hasDevTools)
+            guard TabSleepPolicy.hold(state, before: cutoff) == nil else { continue }
+            page.sendDevToolsMethod("Runtime.evaluate", params: TabSleepProbe.evaluateParams) { [weak self, weak page] reply, error in
+                guard let self, let page, self.pages[id] === page, !self.paneIDs.contains(id),
+                      self.hiddenAt[id].map({ $0 < cutoff }) == true else { return }
+                let refusal = error == nil ? TabSleepProbe.refusal(fromReply: reply) : "no reply"
+                guard refusal.isEmpty else {
+                    self.sleepAskAfter[id] = Date().addingTimeInterval(Self.sleepRefusalBackoff)
+                    return
+                }
+                self.pages[id] = nil
+                self.hiddenAt[id] = nil
+                self.sleepAskAfter[id] = nil
+                page.close()
+            }
+        }
+    }
+
+    private static let sleepRefusalBackoff: TimeInterval = 10 * 60
+
     /// Selects the tab `delta` rows away in the space's favorites, pinned and Today tabs.
     private func cycleTab(_ delta: Int) {
         let tabs = store.visibleTabs(in: store.focusedSpaceID(window: windowID))
@@ -896,7 +967,21 @@ final class BrowserWindow {
     private func setLibraryShown(_ open: Bool) {
         for part in sidebarParts { part.visibility = open ? .collapsed : .visible }
         library.root.visibility = open ? .visible : .collapsed
-        window.sidebarWidth = Self.sidebarWidth + (open ? LibraryLayout.extraWidth : 0)
+        syncLibraryWidth()
+    }
+
+    /// The sidebar's width for what it shows: the tabs, the Library 70 DIPs wider for its rail, or
+    /// the Spaces page wide enough for every card while the window leaves the page 56 DIPs
+    /// (LibraryWidth, the Mac's), its cards scrolling sideways past that. A window resize and a
+    /// space added or removed size it again.
+    private func syncLibraryWidth() {
+        guard !closing, let window else { return }
+        var width = Self.sidebarWidth + (libraryPage != nil ? LibraryLayout.extraWidth : 0)
+        if libraryPage != nil, let cards = library.spacesWidth {
+            let windowWidth = Double(window.appWindow.clientSize.width) / window.scale
+            width = max(width, LibraryWidth.sidebar(spacesCards: cards, window: windowWidth))
+        }
+        if window.sidebarWidth != width { window.sidebarWidth = width }
     }
 
     private func reopenClosedTab() {
@@ -1901,6 +1986,24 @@ final class BrowserWindow {
 }
 
 // MARK: - Sidebar → window
+
+extension BrowserWindow: SpacesManagerActions {
+    func openFromLibrary(tab id: UUID) {
+        store.selectTab(id, window: windowID)
+        closeLibrary()
+    }
+
+    func openFromLibrary(space id: UUID) {
+        store.focusSpace(id, window: windowID)
+        closeLibrary()
+    }
+
+    /// The new space's card joins the page, which stays open (the Mac opens the space editor).
+    func newSpaceFromLibrary() {
+        guard !isIncognito else { return }
+        sidebar.newSpace()
+    }
+}
 
 extension BrowserWindow: LibraryActions {
     /// The Library takes over the sidebar, 70 DIPs wider for its rail; its search takes the keys.

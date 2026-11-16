@@ -227,8 +227,9 @@ public enum KeyBindingDefaults {
     ]
 
     /// Commands a private window's command bar leaves out: an import adds spaces and sign-ins to
-    /// the normal windows, which a private window doesn't show or use.
-    public static let hiddenInPrivateWindows: Set<String> = ["importData"]
+    /// the normal windows, which a private window doesn't show or use, and Manage Spaces shows
+    /// those spaces (the Mac turns it off in a standalone window).
+    public static let hiddenInPrivateWindows: Set<String> = ["importData", "manageSpaces"]
 
     /// Action id to Windows' default shortcuts. An action joins when the Windows app performs it.
     public static let windowsShortcuts: [String: [KeyChord]] = {
@@ -286,6 +287,8 @@ public enum KeyBindingDefaults {
             // commands. Clear Today keeps the Mac's ⇧⌘K as Ctrl+Shift+K.
             "newFolder": [],
             "newSpace": [],
+            // The Library's Spaces page (no keys on the Mac either).
+            "manageSpaces": [],
             "clearToday": [KeyChord("k", ctrlShift)],
             "showArchive": [],
             "clearArchive": [],

@@ -34,6 +34,8 @@ protocol SidebarActions: AnyObject {
     /// Ctrl-click on a pinned tab's favicon away from its page: the page moves to a new Today
     /// tab and the pinned tab goes home (Separate From Pinned Tab).
     func separatePinnedTab(_ id: UUID)
+    /// Manage Spaces…: the Library's Spaces page.
+    func showLibrary(_ page: LibraryPage)
 }
 
 /// The row or space header whose name is being edited (the Mac's SidebarUIState.renamingID and
@@ -695,6 +697,11 @@ final class SidebarView {
         }
         menu.items.append(UI.menuItem("Clear Today") { [weak self] in self?.store.clearToday(space.id, playing: []) })
         if !store.isIncognito(space: space.id) { menu.items.append(profileMenu(space)) }
+        if !store.isIncognito(space: space.id) {
+            // Arc's group of Manage Spaces… and, with one space, Hide Space Header (SpaceMenuLayout).
+            menu.items.append(MenuFlyoutSeparator())
+            menu.items.append(UI.menuItem("Manage Spaces…") { [weak self] in self?.actions?.showLibrary(.spaces) })
+        }
         if store.spaceOrder.count == 1 && !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Hide Space Header") { [weak self] in self?.store.settings.showSpaceHeaderOnSingleSpace = false })
         }

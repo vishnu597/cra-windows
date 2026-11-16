@@ -23,11 +23,11 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
 | Window, pages and toolbar | 9 | 6 | 0 | 10 | 1 |
-| Sidebar | 6 | 9 | 0 | 13 | 0 |
+| Sidebar | 6 | 10 | 0 | 12 | 0 |
 | Command bar and shortcuts | 1 | 5 | 0 | 3 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
-| Tabs and memory | 2 | 1 | 0 | 4 | 0 |
+| Tabs and memory | 2 | 2 | 0 | 3 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
 | Profiles, privacy and site data | 6 | 2 | 0 | 5 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 4 | 2 | 0 | 9 | 8 |
-| **All** | 36 | 46 | 1 | 57 | 16 |
+| **All** | 36 | 48 | 1 | 55 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -85,7 +85,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Drag and drop: reorder, into folders and favorites, onto a space's icon, several picked tabs at once, reorder spaces, a link dropped in from a page or another app (#419) | 🟡 [#71](https://github.com/vishnu597/cra-windows/pull/71) | `SidebarListDrop.swift`, `SpaceListView.swift` | `SidebarStore`, `SidebarLinkDrop`, `SidebarDropPlan` | Windows (`Sidebar/SidebarDrag.swift`): a row, favorite tile or space icon dragged past Windows' drag distance moves before or after a row (top and bottom quarters), into a folder (its middle, or first inside an open folder's bottom), makes a split with a tab (its middle, on the side the pointer is on; on a pinned tab a pinned split), joins a split row, crosses between pinned and Today, takes a slot among the favorites (or the "Add to Favorites" card when there are none), moves to another space by its icon (which comes forward after 0.5 s), and space icons reorder along the dock. Arc's insertion ring and line, the combine's outline and dashed pane, the list scrolling near its edges, Escape to cancel. The decisions are `SidebarDropPlan` (the Mac's `SpaceListView.resolve` and `applyDrop`). Left: several picked tabs (Windows has no multi-select yet), a link dropped in from a page or another app, drags between windows and tearing a tab out (Blank Window). Since 1f3c3d3 a tab dropped on any tab, pinned too, offers a split (no folder drop); since dfa3358 rows keep their hover through AppKit's stray exits (Mac only). |
 | Space menu: rename, icon, theme, profile, folder, export, delete | 🟡 [#5] [#19] | `MainWindowController+SpaceMenu.swift`, `EmojiLabel.swift`, `SidebarMenus.swift`, `SpaceIconPicker.swift`, `EmojiCatalog.swift`, `EmojiCatalog+Data.swift`, `SpaceIconImage.swift` | `SpaceProfiles`, `SpaceIcon` | Since upstream 8f511ac (#205) a space's icon can be a symbol (`Space.symbol`, `SpaceIcon`); Windows draws the emoji only. Upstream 0b20792 (#395) adds a PNG or SVG as an icon (`Space.iconImage`); Windows shows the emoji. Windows has Rename Space… (and a double-click on the name, `SidebarStore+Rename`'s `renameSpace`, [#44]), New Folder, New Space, Clear Today, Hide Space Header, Set Profile, Delete. `newSpace` is a command too [#61]. Missing `editSpace` (no editor yet) and `deleteSpace` (waits for a confirmation card) as commands, the emoji picker. `EmojiCatalog+Data.swift` has no imports: move it to CraCore for the Windows picker. |
 | Space theme editor: Arc's presets, light and dark halves, grain | ❌ | `SpaceStyleEditor.swift`, `SpaceEditorView.swift` | `SpaceTheme`, `SpaceThemeVariants`, `SpaceColorPresets`, `ArcThemeImport` | Windows draws themes it reads; editing is missing. The colour logic is all shared. Since 6e371cc swatches and knobs grow under the pointer and shrink when pressed. |
-| Manage Spaces page (`manageSpaces`) | ❌ | `SpacesManagerView.swift` | `SidebarStore` | |
+| Manage Spaces page (`manageSpaces`) | 🟡 [#70] | `SpacesManagerView.swift` | `SidebarStore`, `SpacesManagerLayout`, `LibraryWidth` | Windows [#70]: the Library's Spaces page (rail, the space menu's Manage Spaces… and the command): a card per space in its colours with its pinned and Today tabs (a click opens the tab), the move handle to drag a card along the row (Move Left and Move Right in its ⋯ menu too), Open Space, Clear Today, Delete Space, and the + for a new space; the Library widens to fit the cards and leaves the page 56 DIPs. Not yet: Edit Theme Color… (no editor on Windows), the card's full space menu, the page keeping its width past the window's edge (`LibraryWidth.page`), the cards' grain; the Mac still has its own `SpacesManagerMetrics` (move it onto `SpacesManagerLayout` with the next Mac change). |
 | Space tooltip with its profile and keys | ❌ | `SpaceDock.swift`, `ArcTooltip.swift` | `ThemeTones` | |
 | Jump pill back to the open tab | ❌ | `SidebarJumpPill.swift` | | |
 | Rename (`renameTab`), duplicate (`duplicateTab`), Add to Favorites (`favoriteTab`) as commands | ✅ [#44] | `SidebarMenus.swift` | `SidebarStore`, `KeyBindingDefaults` | Windows: Rename… on a tab or folder row (and a double-click) turns its name into a field (Return keeps it, Escape doesn't); a new folder starts named. All three are commands with no default key, as on the Mac. |
@@ -147,7 +147,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
 | Auto-archive Today tabs after a set time | ✅ [#14] | `TabsPane.swift` | `SidebarModel` (`AutoArchiveThreshold`) | Upstream 2e8a659 adds 90/180 days and tolerant decoding of newer values. Windows' picker lists the shared cases, so the new thresholds arrive with the model; recheck the menu in the sync PC test. |
-| Tab freezing and sleeping, Tab Cleanup timers, calls stay awake | ❌ | `BrowserManager.swift` | `TabSleepPolicy`, `MemoryReclaim` | The policy is shared; Windows needs the CEF discard calls and the two Settings ▸ Tabs switches. Since upstream 135f794 (#214) the policy reads a `PageState` per page and says why it passed one over. Since upstream c09f3c3 (#237) critical memory pressure closes 9 pages a pass and each pass logs one line per way of closing (`TabSleepPolicy.PassLog`). |
+| Tab freezing and sleeping, Tab Cleanup timers, calls stay awake | 🟡 [#69] | `BrowserManager.swift` | `TabSleepPolicy`, `TabSleepProbe`, `MemoryReclaim` | The policy is shared; Windows needs the CEF discard calls and the two Settings ▸ Tabs switches. Since upstream 135f794 (#214) the policy reads a `PageState` per page and says why it passed one over. Since upstream c09f3c3 (#237) critical memory pressure closes 9 pages a pass and each pass logs one line per way of closing (`TabSleepPolicy.PassLog`). Windows [#69]: Settings ▸ Tabs ▸ Memory's switch and time, and the minute's pass per window (`TabSleepPolicy.timer`, candidates, holds): a page passing `TabSleepProbe` (no edited fields, no playing sound, no onbeforeunload) closes and its tab reloads its address when shown. Left: Chromium's discard that keeps back/forward history, freezing, the memory-pressure sweep, Chromium's audible state and freezing reasons (calls, devices). |
 | Spare pages: a page made ahead for the next new tab, link or restored tab | ❌ | `SparePages.swift` | `SparePage` | Upstream 935cca1: CEF's window-making (~34 ms on the Mac) moves off the click. Windows makes each page on the click; its HWND cost is unmeasured. |
 | Mute a tab (`muteTab`), speaker icon, camera and microphone dot | 🟡 [#51] | `SidebarRowViews.swift` | `SidebarModel`, `TabSound` | Windows mutes from the tab menu (Mute / Unmute), the command bar (Mute / Unmute Tab) and a muted tab's speaker between its favicon and title (a click unmutes it). The mute is saved (`Tab.muted`) and the bridge keeps it on the next page, when the page is made again and after a relaunch. Left: the speaker on a tab that plays sound, the music notes and the camera dot need the page's audible state, which the Mac's CEF gets from a patch (`audible-state.patch`) the stock Windows CEF lacks; a favorite's tile has no Mute yet. |
 | Open links in new tabs in the background | ✅ [#48] | `TabsPane.swift` | `LinkMenu` | The page menu's Open Link in New Tab leaves the page in front, as in Arc; Settings ▸ Tabs ▸ "Switch to links opened in new tabs from the page menu" (`openLinksInForeground`, the Mac's Links pane row) brings the tab forward. Ctrl-click and Ctrl+Shift-click keep Chrome's meaning. |
@@ -654,3 +654,5 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 [#66]: https://github.com/vishnu597/cra-windows/pull/66
 [#67]: https://github.com/vishnu597/cra-windows/pull/67
 [#68]: https://github.com/vishnu597/cra-windows/pull/68
+[#69]: https://github.com/vishnu597/cra-windows/pull/69
+[#70]: https://github.com/vishnu597/cra-windows/pull/70
