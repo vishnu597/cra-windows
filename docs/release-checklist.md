@@ -292,6 +292,10 @@ built release app with a test profile. Note anything that fails in the release's
   joins the open tab's split. A fifth pane says "Cannot Add New Pane". In a split, the command
   bar's Expand Current Split gives the focused pane the window; a divider drag brings the others
   back.
+- **Windows sidebar commands:** the command bar's Collapse Pinned Tabs hides the pinned tabs but
+  the open one, and running it again brings them back; Collapse and Expand All Folders close and
+  open the space's folders; Reveal Tab in Sidebar opens the folders round the open tab. A Today
+  tab's menu ▸ Archive Tabs Below archives the tabs under it and keeps it and those above.
 - **Windows Share:** with an isolated test profile, assign Share a shortcut in Settings. In
   both a browser tab and a Little Window with the page focused, use that shortcut: Windows'
   Share panel opens for that page. Close the panel using its own Close X, then invoke Share

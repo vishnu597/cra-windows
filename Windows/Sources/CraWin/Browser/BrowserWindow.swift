@@ -770,6 +770,11 @@ final class BrowserWindow {
         case "nextSplitPane": cycleSplitPane(1)
         case "previousSplitPane": cycleSplitPane(-1)
         case "expandSplitPane": if let t = store.selectedTabID(window: windowID) { expandSplitPane(t) }
+        // Arc's sidebar commands; the store does the work and the sidebar redraws.
+        case "collapsePinned": store.togglePinnedCollapsed(store.focusedSpaceID(window: windowID))
+        case "collapseAllFolders": store.setAllFoldersExpanded(false, inSpace: store.focusedSpaceID(window: windowID))
+        case "expandAllFolders": store.setAllFoldersExpanded(true, inSpace: store.focusedSpaceID(window: windowID))
+        case "revealTab": revealSelectedTab()
         default:
             if id.hasPrefix("space"), let n = Int(id.dropFirst(5)), (1...9).contains(n) {
                 store.focusSpace(number: n, window: windowID)
@@ -1047,7 +1052,14 @@ final class BrowserWindow {
         store.selectTab(id, window: windowID)
     }
 
-    /// Switch to Next / Previous Split View.
+    /// Arc's Reveal Tab in Sidebar: the open tab's folders open, and a collapsed pinned section
+    /// shows it again; the Library gives the sidebar back.
+    private func revealSelectedTab() {
+        guard let id = store.selectedTabID(window: windowID) else { return }
+        store.revealInSidebar(store.splitContaining(id)?.id ?? id)
+        closeLibrary()
+    }
+
     /// Arc's View ▸ Expand Current Split: the pane takes the window and the others keep the
     /// minimum width, stored as the split's width factors like a divider drag
     /// (SplitPaneLayout.expanding). A divider drag brings the panes back.
@@ -1072,6 +1084,7 @@ final class BrowserWindow {
         store.joinSplit(id, with: current, window: windowID)
     }
 
+    /// Switch to Next / Previous Split View.
     private func cycleSplitPane(_ delta: Int) {
         guard let current = store.selectedTabID(window: windowID),
               let next = SplitPaneLayout.pane(delta, from: current, in: store.paneTabIDs(for: current)) else { return }

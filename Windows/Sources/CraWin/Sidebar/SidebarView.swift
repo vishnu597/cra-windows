@@ -531,6 +531,11 @@ final class SidebarView {
         }
         menu.items.append(MenuFlyoutSeparator())
         menu.items.append(UI.menuItem(pinned ? "Close (Unload)" : "Close Tab") { [weak self] in self?.actions?.closeTab(id) })
+        // Arc's Today tab menu: Archive Tabs Below, when there are tabs below it.
+        if let parent = item.parentID, let rows = store.item(parent)?.children, rows.last != id,
+           store.spaceID(ofItem: id).flatMap(store.space)?.todayContainerID == parent {
+            menu.items.append(UI.menuItem("Archive Tabs Below") { [weak self] in self?.store.archiveTabsBelow(id) })
+        }
         return menu
     }
 

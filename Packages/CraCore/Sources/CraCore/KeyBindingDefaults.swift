@@ -261,6 +261,9 @@ public enum KeyBindingDefaults {
             // Arc's View ▸ Expand Current Split, from the command bar as on the Mac. Switch to Split
             // View 1–4 wait for Windows keys: the Mac's ⌃⇧2 is Ctrl+Shift+2, Capture, here.
             "expandSplitPane": [],
+            // Arc's sidebar commands, from the command bar. Reveal Tab in Sidebar has no key: the
+            // Mac's ⌃Space would be Ctrl+Space, which switches input methods on Windows.
+            "collapsePinned": [], "revealTab": [], "collapseAllFolders": [], "expandAllFolders": [],
             "nextSpace": [KeyChord(KeyChord.right, ctrlAlt)],
             "previousSpace": [KeyChord(KeyChord.left, ctrlAlt)],
             "changeProfile": [],
