@@ -20,7 +20,8 @@ enum SettingsPanes {
     /// Dia's card idiom (GeneralPane on the Mac): a "System" card with Cra's place in Windows.
     /// `importData` opens Import from Another Browser in the browser window in use (the Mac's
     /// Advanced ▸ Your data row; Windows' Advanced pane has only how Cra opens).
-    static func general(palette: SettingsPalette, importData: @escaping @MainActor () -> Void) -> SettingsPaneContent {
+    static func general(palette: SettingsPalette, importData: @escaping @MainActor () -> Void,
+                        exportSpaces: @escaping @MainActor () -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
         stack.margin = Thickness(left: Double(DiaSettingsMetrics.paneInset), top: Double(DiaSettingsMetrics.paneTop),
@@ -108,8 +109,13 @@ enum SettingsPanes {
         let data = header("Your data", palette: palette)
         data.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
         stack.children.append(data)
-        stack.children.append(card([cardRow("Import from another browser", trailing: UI.button("Import…") { importData() }, palette: palette)],
-                                   palette: palette))
+        stack.children.append(card([
+            cardRow("Import from another browser", trailing: UI.button("Import…") { importData() }, palette: palette),
+            // The Mac's Advanced ▸ Your data row (SidebarExport).
+            cardRow("Export spaces and pinned tabs",
+                    detail: "Save every space’s favorites, pinned tabs and folders as a bookmarks file that Chrome, Edge, Firefox and other browsers can import.",
+                    trailing: UI.button("Export…") { exportSpaces() }, palette: palette),
+        ], palette: palette))
         // Task Manager can turn it off while the window is open, Windows' Settings change the
         // default browser.
         return SettingsPaneContent(element: stack) {
@@ -215,6 +221,24 @@ enum SettingsPanes {
                           store: store, palette: palette, syncs: &syncs),
         ], palette: palette))
         return SettingsPaneContent(element: stack) { syncs.forEach { $0() } }
+    }
+
+    /// The Mac's SidebarExport.run: asks where to save CraCore's bookmarks file, writes it and
+    /// shows it in Explorer. `owner` is the window the Save dialog opens over.
+    static func exportSpaces(store: SidebarStore, owner: UInt) {
+        let now = Date()
+        guard let path = WinShell.save(owner: owner, title: "Export Spaces", fileName: BookmarksExport.fileName(at: now),
+                                       typeName: "Bookmarks file", fileExtension: "html") else { return }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .short
+        do {
+            try BookmarksExport.html(store, exportedOn: formatter.string(from: now))
+                .write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
+            Shell.showInFolder(path)
+        } catch {
+            print("Cra: exporting spaces failed: \(error)")
+        }
     }
 
     // MARK: Tabs

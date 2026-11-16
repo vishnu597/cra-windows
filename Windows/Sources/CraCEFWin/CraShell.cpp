@@ -255,15 +255,21 @@ extern "C" int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *
 }
 
 extern "C" int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity) {
-    if (!out || capacity == 0) return 0;
+    return cra_save_file_dialog(owner, title, file_name, "PNG image", "png", out, capacity);
+}
+
+extern "C" int cra_save_file_dialog(uintptr_t owner, const char *title, const char *file_name, const char *type_name,
+                                    const char *extension, char *out, size_t capacity) {
+    if (!out || capacity == 0 || !type_name || !extension) return 0;
     out[0] = '\0';
     ComPtr<IFileSaveDialog> dialog;
     if (FAILED(CoCreateInstance(kFileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return 0;
     if (title) dialog->SetTitle(Wide(title).c_str());
     if (file_name) dialog->SetFileName(Wide(file_name).c_str());
-    COMDLG_FILTERSPEC types[] = {{L"PNG image", L"*.png"}};
+    const std::wstring name = Wide(type_name), ext = Wide(extension), pattern = L"*." + ext;
+    COMDLG_FILTERSPEC types[] = {{name.c_str(), pattern.c_str()}};
     dialog->SetFileTypes(1, types);
-    dialog->SetDefaultExtension(L"png");
+    dialog->SetDefaultExtension(ext.c_str());
     std::wstring downloads = DownloadsFolder();
     ComPtr<IShellItem> folder;
     if (!downloads.empty() && SUCCEEDED(SHCreateItemFromParsingName(downloads.c_str(), nullptr, IID_PPV_ARGS(&folder))))

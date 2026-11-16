@@ -271,7 +271,11 @@ final class SettingsWindow {
         case .shortcuts:
             let view = ShortcutsPaneView(bindings: WinKeyBindings.shared, palette: palette)
             built = SettingsPaneContent(element: view.root) { view.render() }
-        default: built = SettingsPanes.general(palette: palette) { [weak self] in self?.onImport() }
+        default:
+            built = SettingsPanes.general(palette: palette, importData: { [weak self] in self?.onImport() }, exportSpaces: { [weak self] in
+                guard let self else { return }
+                SettingsPanes.exportSpaces(store: self.store, owner: UInt(self.appWindow.id.value))
+            })
         }
         scroll.content = built.element
         syncPane = built.sync

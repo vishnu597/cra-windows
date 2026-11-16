@@ -152,6 +152,10 @@ int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *out, size_t
 /// Windows' Save dialog for a PNG, in Downloads, suggesting `file_name`. The chosen path goes to
 /// `out` (UTF-8, `capacity` bytes). 1 when a path was chosen. Modal.
 int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity);
+/// The same dialog for any one kind of file: `type_name` ("Bookmarks file") and its `extension`
+/// ("html", without the dot).
+int cra_save_file_dialog(uintptr_t owner, const char *title, const char *file_name, const char *type_name,
+                         const char *extension, char *out, size_t capacity);
 
 // MARK: - Overlays
 
