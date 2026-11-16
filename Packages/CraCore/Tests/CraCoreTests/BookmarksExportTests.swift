@@ -30,6 +30,19 @@ struct BookmarksExportTests {
         #expect(html.hasSuffix("</DL><p>\n"))
     }
 
+    @Test func aPinnedSplitGivesItsPanesToItsFolder() throws {
+        let f = StoreFixture()
+        let left = f.store.createTab(url: "https://left.example/", title: "Left", pinned: true)
+        let right = f.store.createTab(url: "https://right.example/", title: "Right", pinned: true)
+        let split = try #require(f.store.createSplit(with: [left.id, right.id], inPlace: true))
+        #expect(f.pinned().contains(split.id))
+        let html = BookmarksExport.html(f.store, exportedOn: "today")
+        // Straight in the space's folder (depth 2), no folder of the split's own.
+        #expect(html.contains("\n        <DT><A HREF=\"https://left.example/\""))
+        #expect(html.contains("\n        <DT><A HREF=\"https://right.example/\""))
+        #expect(html.components(separatedBy: "<H3").count == 2)  // the space's folder only
+    }
+
     @Test func fileNameIsTheDayInTheZone() throws {
         let date = Date(timeIntervalSince1970: 1_794_787_200)  // 2026-11-16 00:00 UTC
         #expect(BookmarksExport.fileName(at: date, timeZone: try #require(TimeZone(identifier: "UTC"))) == "Cra Spaces 2026-11-16.html")
