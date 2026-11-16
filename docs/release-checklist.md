@@ -266,6 +266,11 @@ built release app with a test profile. Note anything that fails in the release's
 - **Windows import result:** with an isolated test profile, use Import from Another Browser with
   passwords unticked and no extensions picked. The card stays up, says what came over
   ("Imported … from …") and closes on Done or Escape (PR #43's PC test).
+- **Windows rename:** with an isolated test profile, right-click a Today tab ▸ Rename…: its name
+  turns into a field with the text selected; type and press Return, and the row keeps the name
+  after a restart. Escape leaves the old name. Double-click a tab, a folder and the space's name:
+  each turns into a field. Rename Space… on the space's menu and New Folder (which starts named)
+  work the same, and the keys go back to the page afterwards.
 - **Windows Share:** with an isolated test profile, assign Share a shortcut in Settings. In
   both a browser tab and a Little Window with the page focused, use that shortcut: Windows'
   Share panel opens for that page. Close the panel using its own Close X, then invoke Share

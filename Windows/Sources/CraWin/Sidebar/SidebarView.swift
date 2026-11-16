@@ -1,5 +1,6 @@
 import CraCore
 import Foundation
+import Observation
 import UWP
 import WinUI
 
@@ -16,6 +17,19 @@ protocol SidebarActions: AnyObject {
     func closeSplitPane(_ id: UUID)
     /// Set Profile ▸ New Profile…: Create a new Profile, with this space ticked.
     func newProfile(forSpace id: UUID)
+    /// A rename field is up: it takes the keyboard (Win32 focus into the XAML first).
+    func focusRenameField(_ field: TextBox)
+    /// A rename ended (Return, Escape or a click elsewhere): the keyboard goes back to the page.
+    func renameEnded()
+}
+
+/// The row or space header whose name is being edited (the Mac's SidebarUIState.renamingID and
+/// renamingSpaceID). Observed, so setting it draws the sidebar again with a field in its place.
+@Observable
+@MainActor
+final class SidebarRenaming {
+    var itemID: UUID?
+    var spaceID: UUID?
 }
 
 /// Arc's sidebar on the shared SidebarStore: favorites as tiles, the space's name, its pinned
@@ -43,6 +57,8 @@ final class SidebarView {
     /// Arc badges the tab a Peek came from with the peeked page's favicon (modalIcon), at the
     /// row's end. Set by the browser window, which builds the sidebar again.
     var peekBadge: (tabID: UUID, iconKey: String?)?
+    /// What is being renamed (Rename…, Rename Space…, a new folder, a double-click).
+    let renaming = SidebarRenaming()
 
     /// Emoji a new space picks from, in turn.
     private static let spaceEmoji = ["🌱", "💼", "🎮", "📚", "🎨", "🏠", "✈️", "🧪"]
@@ -155,6 +171,15 @@ final class SidebarView {
         header.children.clear()
         // Arc's single-space mode (Settings ▸ Tabs ▸ Spaces, or the space's menu).
         header.visibility = store.hidesSpaceHeader(space.id) ? .collapsed : .visible
+        if renaming.spaceID == space.id {
+            let spaceID = space.id
+            let field = renameField(space.title, size: 14) { [weak self] text in
+                self?.store.renameSpace(spaceID, to: text)
+            } isCurrent: { [weak self] in self?.renaming.spaceID == spaceID } end: { [weak self] in self?.renaming.spaceID = nil }
+            field.margin = Thickness(left: 2, top: 0, right: 2, bottom: 0)
+            header.children.append(field)
+            return
+        }
         let name = UI.text("\(space.emoji) \(space.title)".trimmingCharacters(in: .whitespaces), size: 14, color: palette.text)
         // Arc: clicking the space's name folds its pinned tabs away.
         let title = UI.button(name, padding: Thickness(left: 6, top: 4, right: 6, bottom: 4)) { [weak self] in
@@ -164,7 +189,66 @@ final class SidebarView {
         title.horizontalAlignment = .stretch
         title.horizontalContentAlignment = .left
         title.contextFlyout = spaceMenu(space)
+        // Arc: a double-click on the space's name renames it.
+        let spaceID = space.id
+        title.doubleTapped.addHandler { [weak self] _, _ in self?.beginRename(space: spaceID) }
         header.children.append(title)
+    }
+
+    // MARK: Renaming
+
+    /// Rename… on a tab or folder row (renameTab): its name turns into a field.
+    func beginRename(item id: UUID) {
+        renaming.spaceID = nil
+        renaming.itemID = id
+    }
+
+    /// Rename Space…: the header's name turns into a field, on the space shown.
+    func beginRename(space id: UUID) {
+        if store.focusedSpaceID(window: windowID) != id { store.focusSpace(id, window: windowID) }
+        // A header Arc's single-space mode hides has no name to edit.
+        guard !store.hidesSpaceHeader(id) else { return }
+        renaming.itemID = nil
+        renaming.spaceID = id
+    }
+
+    /// A field over a name: Return keeps what was typed, Escape the old name, and leaving the
+    /// field keeps it too, as the Mac's field ends editing. `isCurrent` says whether this field
+    /// is still the rename (a redraw drops it and fires its LostFocus); `end` clears it.
+    private func renameField(_ text: String, size: Double = 13, commit: @escaping @MainActor (String) -> Void,
+                             isCurrent: @escaping @MainActor () -> Bool, end: @escaping @MainActor () -> Void) -> TextBox {
+        let field = TextBox()
+        field.text = text
+        field.fontSize = size
+        field.minHeight = 0
+        field.padding = Thickness(left: 6, top: 3, right: 6, bottom: 3)
+        field.isSpellCheckEnabled = false
+        field.isTextPredictionEnabled = false
+        field.verticalAlignment = .center
+        field.horizontalAlignment = .stretch
+        try? AutomationProperties.setName(field, "Name")
+        kept.append(field)
+        let finish: @MainActor (Bool) -> Void = { [weak self, weak field] keep in
+            guard isCurrent() else { return }
+            let typed = field?.text ?? text
+            end()
+            if keep { commit(typed) }
+            self?.actions?.renameEnded()
+        }
+        field.previewKeyDown.addHandler { _, args in
+            guard let args else { return }
+            switch Int32(truncatingIfNeeded: args.key.rawValue) {
+            case 0x0D: args.handled = true; finish(true)   // Return
+            case 0x1B: args.handled = true; finish(false)  // Escape
+            default: break
+            }
+        }
+        field.lostFocus.addHandler { _, _ in finish(true) }
+        field.loaded.addHandler { [weak self, weak field] _, _ in
+            guard let self, let field, isCurrent() else { return }
+            self.actions?.focusRenameField(field)
+        }
+        return field
     }
 
     // MARK: Rows
@@ -189,7 +273,7 @@ final class SidebarView {
             let developer = item.tab.map { store.settings.isDeveloperMode(url: $0.url) } ?? false
             appendRow(icon: .favicon(item.tab?.iconKey), title: item.displayTitle, subtitle: item.tab?.sidebarSubtitle(developerMode: developer),
                       depth: depth, selected: selected, ring: developer && selected, unread: item.isUnread, closable: closable,
-                      peek: peekBadge?.tabID == item.id ? .favicon(peekBadge?.iconKey) : nil, menu: tabMenu(item)) { [weak self] in
+                      peek: peekBadge?.tabID == item.id ? .favicon(peekBadge?.iconKey) : nil, menu: tabMenu(item), renames: item.id) { [weak self] in
                 self?.select(item.id)
             }
         }
@@ -202,13 +286,17 @@ final class SidebarView {
         if !folder.isLiveFolder {
             menu.items.append(UI.menuItem("New Folder Inside") { [weak self] in
                 guard let self else { return }
-                self.store.createFolder(named: "New Folder", in: folder.id)
+                // Arc names a new folder at once.
+                self.beginRename(item: self.store.createFolder(named: "New Folder", in: folder.id).id)
             })
+        }
+        if !folder.isLiveFolder {
+            menu.items.append(UI.menuItem("Rename…") { [weak self] in self?.beginRename(item: folder.id) })
         }
         menu.items.append(MenuFlyoutSeparator())
         menu.items.append(UI.menuItem("Delete Folder") { [weak self] in self?.store.deleteFolder(folder.id) })
         appendRow(icon: .text(open ? "▾" : "▸"), title: folder.displayTitle, depth: depth, selected: false, unread: false, closable: nil,
-                  menu: menu) { [weak self] in
+                  menu: menu, renames: folder.isLiveFolder ? nil : folder.id) { [weak self] in
             self?.store.setExpanded(folder.id, !open)
         }
         guard open else { return }
@@ -244,7 +332,7 @@ final class SidebarView {
     }
 
     private func appendRow(icon: RowIcon, title: String, subtitle: String? = nil, depth: Int, selected: Bool, ring: Bool = false,
-                           unread: Bool, closable: UUID?, peek: RowIcon? = nil, menu: MenuFlyout?,
+                           unread: Bool, closable: UUID?, peek: RowIcon? = nil, menu: MenuFlyout?, renames: UUID? = nil,
                            _ action: @escaping @MainActor () -> Void) {
         let row = Grid()
         row.columnDefinitions.append(UI.column(UI.star))
@@ -257,6 +345,31 @@ final class SidebarView {
         let lead = rowIcon(icon)
         lead.verticalAlignment = .center
         label.children.append(lead)
+        if let id = renames, renaming.itemID == id {
+            // Rename…: the row's name is a field until Return, Escape or a click elsewhere.
+            let own = store.item(id)?.title
+            let field = renameField(own ?? title) { [weak self] text in
+                self?.store.rename(id, to: text)
+            } isCurrent: { [weak self] in self?.renaming.itemID == id } end: { [weak self] in self?.renaming.itemID = nil }
+            let editing = Grid()
+            editing.columnDefinitions.append(UI.column(UI.auto))
+            editing.columnDefinitions.append(UI.column(UI.star))
+            editing.columnSpacing = 6
+            label.children.clear()
+            editing.children.append(lead)
+            editing.children.append(field)
+            try? Grid.setColumn(field, 1)
+            // The row's pill stays behind the field (a Border rounds its fill; a Grid doesn't).
+            let pill = Border()
+            pill.padding = Thickness(left: 8, top: 2, right: 4, bottom: 2)
+            pill.cornerRadius = CornerRadius(topLeft: 6, topRight: 6, bottomRight: 6, bottomLeft: 6)
+            if selected { pill.background = palette.selected }
+            pill.child = editing
+            row.children.append(pill)
+            try? Grid.setColumnSpan(pill, 2)
+            list.children.append(row)
+            return
+        }
         let name = UI.text(title.isEmpty ? "New Tab" : title, color: palette.text)
         if unread { name.fontWeight = UWP.FontWeight(weight: 600) }
         if let subtitle {
@@ -289,6 +402,8 @@ final class SidebarView {
         pick.horizontalAlignment = .stretch
         pick.horizontalContentAlignment = peek == nil ? .left : .stretch
         if let menu { pick.contextFlyout = menu }
+        // Arc: a double-click on a tab's or folder's name renames it.
+        if let id = renames { pick.doubleTapped.addHandler { [weak self] _, _ in self?.beginRename(item: id) } }
         row.children.append(pick)
         try? Grid.setColumn(pick, 0)
 
@@ -376,6 +491,8 @@ final class SidebarView {
             menu.items.append(UI.menuItem(pinned ? "Unpin" : "Pin") { [weak self] in self?.store.togglePinned(id) })
         }
         if item.isTab {
+            // Favorites draw as tiles, which have no name to edit.
+            if !favorite { menu.items.append(UI.menuItem("Rename…") { [weak self] in self?.beginRename(item: id) }) }
             menu.items.append(UI.menuItem("Duplicate") { [weak self] in _ = self?.store.duplicateTab(id) })
         }
         // An incognito window's tabs stay in it.
@@ -426,9 +543,13 @@ final class SidebarView {
 
     private func spaceMenu(_ space: Space) -> MenuFlyout {
         let menu = MenuFlyout()
+        if !store.isIncognito(space: space.id) {
+            menu.items.append(UI.menuItem("Rename Space…") { [weak self] in self?.beginRename(space: space.id) })
+        }
         menu.items.append(UI.menuItem("New Folder") { [weak self] in
             guard let self else { return }
-            self.store.createFolder(named: "New Folder", in: space.pinnedContainerID)
+            // Arc names a new folder at once.
+            self.beginRename(item: self.store.createFolder(named: "New Folder", in: space.pinnedContainerID).id)
         })
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("New Space") { [weak self] in self?.newSpace() })

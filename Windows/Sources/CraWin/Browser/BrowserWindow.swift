@@ -744,6 +744,9 @@ final class BrowserWindow {
         case "reload": reload(ignoringCache: false)
         case "hardReload": reload(ignoringCache: true)
         case "pinTab": if let t = store.selectedTabID(window: windowID) { store.togglePinned(t) }
+        case "renameTab": renameSelectedTab()
+        case "duplicateTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { _ = store.duplicateTab(t) }
+        case "favoriteTab": if let t = store.selectedTabID(window: windowID), !store.isFavorite(t) { store.addToFavorites(t) }
         case "nextTab": cycleTab(1)
         case "previousTab": cycleTab(-1)
         case "nextSpace": store.focusSpace(offset: 1, window: windowID)
@@ -778,6 +781,13 @@ final class BrowserWindow {
     }
 
     // MARK: Commands
+
+    /// Rename Tab…: the open tab's row takes a field. A favorite draws as a tile and a split's
+    /// pane as part of its split's row, so neither has a name to edit there.
+    private func renameSelectedTab() {
+        guard let t = store.selectedTabID(window: windowID), !store.isFavorite(t), store.splitContaining(t) == nil else { return }
+        sidebar.beginRename(item: t)
+    }
 
     private func closeCurrentTab() {
         if let id = store.selectedTabID(window: windowID) { closeTab(id) }
@@ -1772,6 +1782,16 @@ extension BrowserWindow: LibraryActions {
 extension BrowserWindow: SidebarActions {
     /// Set Profile ▸ New Profile… on a space's menu: the space starts ticked.
     func newProfile(forSpace id: UUID) { showNewProfile(ticked: [id]) }
+
+    /// Rename…'s field takes the keyboard with its text selected, as the Mac's does.
+    func focusRenameField(_ field: TextBox) {
+        window.focusXAML()
+        _ = try? field.focus(.programmatic)
+        try? field.selectAll()
+    }
+
+    /// Return, Escape or a click elsewhere ended a rename: keys back to the page.
+    func renameEnded() { focusContent() }
 
     /// Today tabs are archived. Pinned tabs and favorites stay; they unload and return to
     /// their pinned page (Arc's close-on-pinned behaviour, MainWindowController.closeTab).
