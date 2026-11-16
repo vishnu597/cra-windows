@@ -62,6 +62,11 @@ final class WindowList: BrowserWindowHost {
         windows.first?.activate()
     }
 
+    /// The browser window in use last, which `restore` brings to the front.
+    var windowInUse: BrowserWindow? {
+        windows.first { $0.windowID == store.activeWindowID } ?? windows.first
+    }
+
     func openNewWindow(incognito: Bool) {
         let current = windows.first { $0.windowID == store.activeWindowID } ?? windows.last
         var frame: WindowFrame?
@@ -222,11 +227,13 @@ final class WindowList: BrowserWindowHost {
             openLittleWindow(url: url, opener: nil, activate: true, space: space)
         case .space(let id):
             guard let target = normalWindow(forSpace: id) else { return }
+            if store.settings.startOnNewTab { target.closeNewTabBar() }
             store.activeWindowID = target.windowID
             store.createTab(url: url, in: id, select: true, window: target.windowID)
             target.activate()
         case .mostRecentSpace:
             guard let target = lastNormalWindow() else { return }
+            if store.settings.startOnNewTab { target.closeNewTabBar() }
             store.activeWindowID = target.windowID
             store.createTab(url: url, select: true, window: target.windowID)
             target.activate()

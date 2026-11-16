@@ -71,11 +71,26 @@ public final class CraApp: SwiftApplication {
             startContentBlocking(store: store, clock: clock)
             let windows = WindowList(store: store, dispatcher: dispatcher)
             self.windows = windows
+            let firstRun = Onboarding.isNeeded(hasSeenImportPrompt: store.settings.hasSeenImportPrompt, tabCount: store.allTabs().count)
+            // Arc's "When opening Arc, restore windows from previous session", off: one window
+            // comes back (AppDelegate on the Mac).
+            if !store.settings.restoreWindows { store.keepOnlyActiveWindow() }
+            // Settings ▸ Advanced "Start on a new tab": the window in front opens on no tab, before
+            // any page is made, so the last page isn't loaded only to be hidden. Not when another
+            // app started Cra for a link: its tab is what the window shows. Windows has no update
+            // restart.
+            let launch = LaunchStart.launch(firstRun: firstRun, automaticUpdate: false,
+                                            withLinks: !ExternalLink.links(inArguments: Self.launchArguments()).isEmpty)
+            let startOnNewTab = LaunchStart.startsOnNewTab(enabled: store.settings.startOnNewTab, launch: launch)
+            if startOnNewTab { store.selectTab(nil, window: store.activeWindowID) }
             windows.restore()
             // A fresh install: the onboarding on a card over the first window (the Mac shows its
             // own window first). Seen once it ends, so quitting halfway brings it back.
-            if Onboarding.isNeeded(hasSeenImportPrompt: store.settings.hasSeenImportPrompt, tabCount: store.allTabs().count) {
+            if firstRun {
                 windows.windows.first?.showOnboarding()
+            } else if startOnNewTab {
+                // As Ctrl+T: the command bar makes the new tab, Escape leaves the window empty.
+                windows.windowInUse?.openCommandBar(.newTab)
             }
             observeGlobalShortcut(store: store, windows: windows)
             openLinksFromOtherApps(windows: windows)

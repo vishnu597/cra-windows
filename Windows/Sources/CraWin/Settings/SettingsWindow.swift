@@ -267,6 +267,7 @@ final class SettingsWindow {
             built = SettingsPanes.extensions(store: store, palette: palette, owner: { [weak self] in
                 self.map { UInt($0.appWindow.id.value) } ?? 0
             }) { [weak self] url in self?.onOpenURL(url) }
+        case .advanced: built = SettingsPanes.advanced(store: store, palette: palette)
         case .shortcuts:
             let view = ShortcutsPaneView(bindings: WinKeyBindings.shared, palette: palette)
             built = SettingsPaneContent(element: view.root) { view.render() }

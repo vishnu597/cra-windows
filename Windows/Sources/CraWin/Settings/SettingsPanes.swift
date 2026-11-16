@@ -19,7 +19,7 @@ enum SettingsPanes {
 
     /// Dia's card idiom (GeneralPane on the Mac): a "System" card with Cra's place in Windows.
     /// `importData` opens Import from Another Browser in the browser window in use (the Mac's
-    /// Advanced ▸ Your data row; Windows has no Advanced pane yet).
+    /// Advanced ▸ Your data row; Windows' Advanced pane has only how Cra opens).
     static func general(palette: SettingsPalette, importData: @escaping @MainActor () -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
@@ -134,22 +134,7 @@ enum SettingsPanes {
         stack.children.append(header("Content blocking", palette: palette))
         var syncs: [() -> Void] = []
         func switchRow(_ title: String, detail: String, _ key: WritableKeyPath<AppSettings, Bool>) -> Grid {
-            let toggle = ToggleSwitch()
-            toggle.onContent = ""
-            toggle.offContent = ""
-            toggle.minWidth = 0
-            toggle.isOn = store.settings[keyPath: key]
-            toggle.toggled.addHandler { [weak toggle] _, _ in
-                guard let toggle else { return }
-                let on = toggle.isOn
-                if store.settings[keyPath: key] != on { store.settings[keyPath: key] = on }
-            }
-            try? AutomationProperties.setName(toggle, title)
-            syncs.append {
-                let on = store.settings[keyPath: key]
-                if toggle.isOn != on { toggle.isOn = on }
-            }
-            return cardRow(title, detail: detail, trailing: toggle, palette: palette)
+            settingSwitch(title, detail: detail, key, store: store, palette: palette, syncs: &syncs)
         }
         stack.children.append(card([
             switchRow("Block ads and trackers",
@@ -181,6 +166,50 @@ enum SettingsPanes {
                     trailing: UI.button("Clear…") { openURL(BrowsingDataClear.pageURL) }, palette: palette),
         ], palette: palette))
         // The Site Control Center's switch and the onboarding change them too.
+        return SettingsPaneContent(element: stack) { syncs.forEach { $0() } }
+    }
+
+    /// A card row with a switch for one of the store's settings; `syncs` gets what puts the
+    /// switch back in step when the setting changes elsewhere.
+    static func settingSwitch(_ title: String, detail: String?, _ key: WritableKeyPath<AppSettings, Bool>,
+                              store: SidebarStore, palette: SettingsPalette, syncs: inout [() -> Void]) -> Grid {
+        let toggle = ToggleSwitch()
+        toggle.onContent = ""
+        toggle.offContent = ""
+        toggle.minWidth = 0
+        toggle.isOn = store.settings[keyPath: key]
+        toggle.toggled.addHandler { [weak toggle] _, _ in
+            guard let toggle else { return }
+            let on = toggle.isOn
+            if store.settings[keyPath: key] != on { store.settings[keyPath: key] = on }
+        }
+        try? AutomationProperties.setName(toggle, title)
+        syncs.append {
+            let on = store.settings[keyPath: key]
+            if toggle.isOn != on { toggle.isOn = on }
+        }
+        return cardRow(title, detail: detail, trailing: toggle, palette: palette)
+    }
+
+    // MARK: Advanced
+
+    /// The Mac's AdvancedPane, as far as Windows has its features: how Cra opens.
+    static func advanced(store: SidebarStore, palette: SettingsPalette) -> SettingsPaneContent {
+        let stack = StackPanel()
+        stack.orientation = .vertical
+        stack.margin = Thickness(left: Double(DiaSettingsMetrics.paneInset), top: Double(DiaSettingsMetrics.paneTop),
+                                 right: Double(DiaSettingsMetrics.paneInset), bottom: 20)
+        stack.children.append(header("Opening and quitting", palette: palette))
+        var syncs: [() -> Void] = []
+        stack.children.append(card([
+            // Arc's Advanced switch: off, only the window in use last comes back.
+            settingSwitch("When opening Cra, restore windows from previous session", detail: nil, \.restoreWindows,
+                          store: store, palette: palette, syncs: &syncs),
+            // Not in Arc (X DM 7 Nov 2026): Arc opens on the tab in use last.
+            settingSwitch("Start on a new tab",
+                          detail: "When Cra opens, it starts on a new tab instead of the tab you used last.", \.startOnNewTab,
+                          store: store, palette: palette, syncs: &syncs),
+        ], palette: palette))
         return SettingsPaneContent(element: stack) { syncs.forEach { $0() } }
     }
 
