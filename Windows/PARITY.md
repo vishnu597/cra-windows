@@ -24,19 +24,19 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|--:|--:|--:|--:|--:|
 | Window, pages and toolbar | 8 | 5 | 0 | 12 | 1 |
 | Sidebar | 6 | 8 | 0 | 14 | 0 |
-| Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
+| Command bar and shortcuts | 1 | 5 | 0 | 3 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 2 | 1 | 0 | 4 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
-| Profiles, privacy and site data | 6 | 1 | 0 | 6 | 0 |
+| Profiles, privacy and site data | 6 | 2 | 0 | 5 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 3 | 0 | 2 | 0 |
 | Settings | 2 | 6 | 0 | 3 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 34 | 41 | 1 | 64 | 16 |
+| **All** | 34 | 43 | 1 | 62 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -111,7 +111,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Search suggestions, Site Search with Tab, % tab search, Chromium's engines | 🟡 [#9] [#13] | `SearchEngines.swift` | `SearchSuggestions`, `SiteSearch`, `TabSearchScope` | Windows reads Cra's engine setting; the Mac also reads Chromium's engine list (SQLite). Upstream d55e7a0 adds a search engine per space and cab6d40 can restrict tab results to that space; the Windows caller must use the shared engine/scope decisions. |
 | Shortcuts in `keybindings.json`, Settings ▸ Shortcuts | ✅ [#15] | `KeyBindings.swift`, `ShortcutsPane.swift`, `KeyboardLayoutCharacters.swift` | `KeyBindingDefaults`, `KeyBindingRegistry`, `KeyChord`, `KeyChord+Windows` | Since upstream 370ca1a (#212) the Mac matches by the character the layout types and falls back to the key's ANSI place (`KeyChord.match`); Windows matches virtual keys, which already follow the layout. Windows' table is `KeyBindingDefaults.windowsShortcuts`; a command joins it when Windows performs it (`parity.py report` lists the rest, each named in its feature's row). |
 | Who gets a shortcut's keys while a page wants them: Prefer Cra, Use Both, Prefer Websites (#374); search by keys | ❌ | `ShortcutsPane.swift`, `AppDelegate.swift`, `CraCEF.mm` | `ShortcutPriority`, `ShortcutSearch`, `KeyBindingRegistry` | Upstream 115e806. keybindings.json carries each action's priority on its chords (`KeyBindingOverrides`), and Windows' registry reads and keeps it already; Windows still takes its keys at one point (before the page) and has no pop-up for it. |
-| Help menu: Essential Keyboard Shortcuts card (`essentialShortcuts`), Reveal Cra Data (`revealData`), Copy Cra Info (`copyAppInfo`), Open Task Manager (`taskManager`), Cast… (`cast`) | ❌ | `EssentialShortcutsWindow.swift`, `AppDelegate.swift` | `KeyBindingDefaults` | Upstream a6b5d41, d729895, d110dc6. Task Manager and Cast are Chrome's own pages. |
+| Help menu: Essential Keyboard Shortcuts card (`essentialShortcuts`), Reveal Cra Data (`revealData`), Copy Cra Info (`copyAppInfo`), Open Task Manager (`taskManager`), Cast… (`cast`) | 🟡 [#63] | `EssentialShortcutsWindow.swift`, `AppDelegate.swift` | `KeyBindingDefaults`, `CraInfo` | Upstream a6b5d41, d729895, d110dc6. Windows runs Reveal Cra Data (Explorer on the data folder) and Copy Cra Info (Cra, engine and Windows version, `CraInfo`, which the Mac reads too) from the command bar. Left: the shortcuts card, Task Manager and Cast (Chrome's own). |
 | Recent-tab switcher on ⌃Tab (`recentTab`, `recentTabBackward`) | ❌ | `TabSwitcher.swift`, `TabSwitcherView.swift` | `SidebarStore` | Ctrl+Tab cycles sidebar order on Windows until this lands. Upstream 5a93a4c (#394): `SidebarStore.recentTabs` puts a tab opened in the background right after the current one; the switcher reads it once it lands. |
 | Context menus show shortcut glyphs | 🟡 | `SidebarMenus.swift` | `KeyBindings` | WinUI menu items take KeyboardAcceleratorTextOverride. |
 | Command bar's search-suggestions notice | ❌ | `CommandBarController.swift`, `CommandBarView.swift` | `SearchSuggestionsNotice`, `CommandBarTones` | Upstream 50d2fa9 then 0c81531: Arc's (i) opens the search-engine privacy notice, not Site Control Center; Dismiss persists. Windows needs the badge, banner and Search Settings action. |
@@ -170,7 +170,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Permission prompts | 🟡 [#17] | `CraCEF.mm`, `BrowserManager.swift` | `PermissionPrompt`, `PermissionAsk` | Windows prompts work. Upstream f8a9d1f queues a hidden tab's camera/microphone request until the tab is shown and logs outcomes; Windows does not yet use `PermissionAsk` for that waiting policy. |
 | Profiles: per-space cookie folders, Set Profile, Change Profile, New Profile, Settings ▸ Profiles | ✅ [#19] | `ProfilesPane.swift`, `ProfileDialogs.swift`, `NewProfileDialog.swift` | `SpaceProfiles`, `DeletedProfiles` | |
-| Website languages per profile in Settings ▸ Profiles, Language Settings (`languageSettings`) opens Chromium's page (#209) | ❌ | `ProfilesPane.swift` | `BrowserLanguages` | Upstream b528590. Windows: a row in its Profiles pane and the command, reading each profile's Preferences. |
+| Website languages per profile in Settings ▸ Profiles, Language Settings (`languageSettings`) opens Chromium's page (#209) | 🟡 [#63] | `ProfilesPane.swift` | `BrowserLanguages` | Upstream b528590. Windows has the command ([#63], Chromium's page in a tab of the window's space). Left: the row in its Profiles pane, reading each profile's Preferences. |
 | Rebuild profiles from Arc (`rebuildArcProfiles`) | ❌ | `ArcProfileRebuilder.swift` | `ArcProfileRebuild` | Waits for Arc import. |
 | Clear Cache, Clear Cookies | ✅ [#17] | `SiteData.swift` | `SiteDataClearing` | |
 | Clear Browsing Data (`clearBrowsingData`) | ✅ [#55] | `AppDelegate.swift` | `BrowsingDataClear` | Windows: Ctrl+Shift+Delete (Chrome for Windows' key; `KeyChord.forwardDelete`), the command bar and Settings ▸ Privacy ▸ Data ▸ Clear… open Chrome's dialog in a tab; what it deletes from history leaves the command bar too (`BrowsingDataClear.watchScript`, the Mac's script). Not from a private window. |
@@ -646,3 +646,4 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 [#60]: https://github.com/vishnu597/cra-windows/pull/60
 [#61]: https://github.com/vishnu597/cra-windows/pull/61
 [#62]: https://github.com/vishnu597/cra-windows/pull/62
+[#63]: https://github.com/vishnu597/cra-windows/pull/63

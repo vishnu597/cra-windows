@@ -2541,11 +2541,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func appInfo() -> String {
         let info = Bundle.main.infoDictionary
         let os = ProcessInfo.processInfo.operatingSystemVersion
-        return """
-        Cra \(info?["CFBundleShortVersionString"] as? String ?? "") (\(info?["CFBundleVersion"] as? String ?? ""))
-        \(EngineVersion.label(chromium: CraCEFRuntime.chromiumVersion(), cef: CraCEFRuntime.cefVersion()))
-        macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion)
-        """
+        return CraInfo.text(app: CraInfo.appLine(version: info?["CFBundleShortVersionString"] as? String,
+                                                 build: info?["CFBundleVersion"] as? String),
+                            engine: EngineVersion.label(chromium: CraCEFRuntime.chromiumVersion(), cef: CraCEFRuntime.cefVersion()),
+                            system: "macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion)")
     }
 
     private func copy(_ s: String) {

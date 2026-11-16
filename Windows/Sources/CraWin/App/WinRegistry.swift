@@ -1,3 +1,4 @@
+import CraCore
 import Foundation
 import WinSDK
 
@@ -12,6 +13,8 @@ enum WinRegistry {
 
     /// HKEY_CLASSES_ROOT: the user's and the machine's Software\Classes together.
     static let classesRoot = HKEY(bitPattern: Int(Int32(bitPattern: 0x8000_0000)))
+    /// HKEY_LOCAL_MACHINE, read only here (Windows' own version).
+    static let localMachine = HKEY(bitPattern: Int(Int32(bitPattern: 0x8000_0002)))
 
     /// A REG_SZ value; `name` "" is the key's default value.
     static func string(_ key: String, _ name: String, root: HKEY? = nil) -> String? {
@@ -20,8 +23,8 @@ enum WinRegistry {
         return String(decoding: units.prefix { $0 != 0 }, as: UTF16.self)
     }
 
-    static func dword(_ key: String, _ name: String) -> UInt32? {
-        guard let bytes = read(key, name, type: typeDWORD), bytes.count >= 4 else { return nil }
+    static func dword(_ key: String, _ name: String, root: HKEY? = nil) -> UInt32? {
+        guard let bytes = read(key, name, type: typeDWORD, root: root), bytes.count >= 4 else { return nil }
         return bytes.prefix(4).enumerated().reduce(0) { $0 | UInt32($1.element) << (8 * UInt32($1.offset)) }
     }
 
@@ -72,6 +75,18 @@ enum WinRegistry {
                 return Array(bytes.prefix(Int(size)))
             }
         }
+    }
+}
+
+/// Windows' version as Settings ▸ System ▸ About shows it, for Copy Cra Info.
+enum WinVersion {
+    private static let key = #"SOFTWARE\Microsoft\Windows NT\CurrentVersion"#
+
+    static var line: String {
+        let build = WinRegistry.string(key, "CurrentBuildNumber", root: WinRegistry.localMachine).flatMap { Int($0) } ?? 0
+        return CraInfo.windowsLine(build: build,
+                                   displayVersion: WinRegistry.string(key, "DisplayVersion", root: WinRegistry.localMachine),
+                                   revision: WinRegistry.dword(key, "UBR", root: WinRegistry.localMachine).map { Int($0) })
     }
 }
 

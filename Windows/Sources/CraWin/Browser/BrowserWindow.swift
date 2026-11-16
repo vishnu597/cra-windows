@@ -769,6 +769,14 @@ final class BrowserWindow {
         case "clearToday": store.clearToday(store.focusedSpaceID(window: windowID), playing: [])
         case "showArchive": showLibrary(.archive)
         case "clearArchive": store.clearArchive()
+        case "revealData": Shell.open(WinPaths.native(WinPaths.supportDir))
+        case "copyAppInfo":
+            let engine = EngineVersion.label(chromium: String(cString: cra_cef_chromium_version()), cef: String(cString: cra_cef_version()))
+            if WinShell.copy(CraInfo.text(app: CraInfo.appLine(version: nil), engine: engine, system: WinVersion.line)) {
+                showToast("Copied Cra Info")
+            }
+        // Chromium's page edits the profile of the space it opens in, so not a private window's.
+        case "languageSettings": if !isIncognito { store.createTab(url: BrowserLanguages.settingsPage, window: windowID) }
         case "appearanceAutomatic", "appearanceLight", "appearanceDark":
             if let appearance = WebsiteAppearance(commandID: id) { store.settings.websiteAppearance = appearance }
         case "resetSpaceTabs": resetAllPinnedTabs()

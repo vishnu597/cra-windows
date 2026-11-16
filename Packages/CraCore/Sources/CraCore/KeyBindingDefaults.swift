@@ -291,6 +291,9 @@ public enum KeyBindingDefaults {
             "clearArchive": [],
             // View ▸ Appearance, from the command bar (no keys on the Mac either).
             "appearanceAutomatic": [], "appearanceLight": [], "appearanceDark": [],
+            // Help ▸ Troubleshooting's Reveal Cra Data and Copy Cra Info, and Language Settings
+            // (Chromium's page), from the command bar.
+            "revealData": [], "copyAppInfo": [], "languageSettings": [],
             "nextTab": [KeyChord(KeyChord.tab, ctrl)],
             "previousTab": [KeyChord(KeyChord.tab, ctrlShift)],
             "goBack": [KeyChord(KeyChord.left, alt)],
