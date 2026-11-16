@@ -166,10 +166,19 @@ enum WinShell {
 
     /// Windows' Save dialog for a PNG, opening in Downloads; the chosen path, nil if cancelled.
     static func savePNG(owner: UInt, title: String, fileName: String) -> String? {
+        save(owner: owner, title: title, fileName: fileName, typeName: "PNG image", fileExtension: "png")
+    }
+
+    /// Windows' Save dialog for one kind of file, in Downloads; the chosen path, nil if cancelled.
+    static func save(owner: UInt, title: String, fileName: String, typeName: String, fileExtension: String) -> String? {
         let capacity = 4096
         var buffer = [CChar](repeating: 0, count: capacity)
         let chosen = title.withCString { t in
-            fileName.withCString { f in cra_save_png_dialog(owner, t, f, &buffer, capacity) }
+            fileName.withCString { f in
+                typeName.withCString { n in
+                    fileExtension.withCString { e in cra_save_file_dialog(owner, t, f, n, e, &buffer, capacity) }
+                }
+            }
         }
         guard chosen != 0 else { return nil }
         return String(cString: buffer)

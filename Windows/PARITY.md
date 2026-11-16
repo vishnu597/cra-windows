@@ -32,11 +32,11 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Profiles, privacy and site data | 6 | 2 | 0 | 5 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 3 | 0 | 2 | 0 |
-| Settings | 2 | 6 | 0 | 3 | 0 |
+| Settings | 2 | 7 | 0 | 2 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 35 | 43 | 1 | 61 | 16 |
+| **All** | 35 | 44 | 1 | 60 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -213,7 +213,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Privacy | 🟡 [#45] | `PrivacyPane.swift` | `SecureDNS` | Windows has the Content blocking card's ad and tracker [#45] and cookie banner [#46] switches. Left: fingerprinting protection, secure connections and DNS, the Data card. |
 | Extensions | 🟡 | `ExtensionsPane.swift` | `ExtensionFolders`, `InstalledExtensions` | Windows lists every profile's installs once each, with Remove (Cra's own folder) or Remove… (chrome://extensions), Add Unpacked Extension… (Windows' folder picker) and Open Chrome's Extension Manager. Cra's folders load in every profile (stock CEF has no `extension-profiles.patch`). No Live Folder plugins under it yet (Plugins row). |
 | Plugins | ❌ | `PluginsPane.swift` | `LiveFolderPlugin`, `LiveFolderPluginPackage` | With the live-folder plugin runtime: install, permission summary, enable/disable, reload and remove packages. |
-| Advanced: engine, export bookmarks, versions | ❌ | `AdvancedPane.swift`, `SidebarExport.swift` | | The bookmarks-file writer in `SidebarExport.swift` can move to CraCore; the save dialog stays per platform. |
+| Advanced: engine, export bookmarks, versions | 🟡 [#65] | `AdvancedPane.swift`, `SidebarExport.swift` | `BookmarksExport` | The bookmarks-file writer is CraCore's `BookmarksExport` ([#65]); the Mac's `SidebarExport` keeps its save panel. Windows: Settings ▸ General ▸ Your data ▸ Export spaces and pinned tabs, with Windows' Save dialog. Left: the engine and version rows. |
 | Max, Performance | ❌ | `MaxPane.swift`, `PerformancePane.swift` | | See Arc Max and DevTools. |
 
 ## Import and onboarding
@@ -289,8 +289,8 @@ the next Windows PRs need:
 4. `EmojiCatalog+Data.swift`: data with no imports, for the space icon picker.
 5. `AppDelegate.handleInternalURL`'s reading of cra:// links: `CraLink` (#31) reads them the
    same way; the Mac can switch over to it.
-6. The bookmarks writer in `SidebarExport.swift` and the domain list behind `CraContentBlocker.h`
-   (a header both C++ bridges can include).
+6. The domain list behind `CraContentBlocker.h` (a header both C++ bridges can include). The
+   bookmarks writer moved to CraCore's `BookmarksExport` in #65.
 
 Windows code that repeats Mac logic instead of calling CraCore is a bug to fix the same way.
 
@@ -648,3 +648,4 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 [#62]: https://github.com/vishnu597/cra-windows/pull/62
 [#63]: https://github.com/vishnu597/cra-windows/pull/63
 [#64]: https://github.com/vishnu597/cra-windows/pull/64
+[#65]: https://github.com/vishnu597/cra-windows/pull/65
