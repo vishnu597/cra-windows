@@ -23,9 +23,9 @@ protocol LibraryActions: AnyObject {
 /// shortcut, Escape or the arrow, and opens it again on the page last shown.
 @MainActor
 final class LibraryView {
-    /// The pages Windows has: no Media (the Mac's MediaScanner), Easels (EaselCanvasView) or
-    /// Spaces (SpacesManagerView) yet.
-    static let pages: [LibraryPage] = [.downloads, .archive]
+    /// The pages Windows has, in the rail's order: no Media (the Mac's MediaScanner) or Easels
+    /// (EaselCanvasView) yet. A private window has no Spaces page (it shows only its own space).
+    let pages: [LibraryPage]
 
     let root = Grid()
     private(set) var page: LibraryPage = .downloads
@@ -34,6 +34,10 @@ final class LibraryView {
     private let thumbnails: DownloadThumbnails
     private let favicons: Favicons
     private weak var actions: LibraryActions?
+    /// The Spaces page (Manage Spaces…), over the search and list while it shows.
+    private let spaces: SpacesManagerView?
+    /// The search row and the list, which the Spaces page replaces.
+    private let listColumn = Grid()
 
     private let rail = Border()
     private var railButtons: [(page: LibraryPage, button: Button, glyph: FontIcon, label: TextBlock)] = []
@@ -59,8 +63,10 @@ final class LibraryView {
     private var builtFrom: Int?
 
     init(store: SidebarStore, history: DownloadHistory, dispatcher: WinAppSDK.DispatcherQueue, favicons: Favicons = .shared,
-         actions: LibraryActions) {
+         spaces: SpacesManagerView? = nil, actions: LibraryActions) {
         self.store = store
+        self.spaces = spaces
+        pages = spaces == nil ? [.downloads, .archive] : [.downloads, .spaces, .archive]
         self.history = history
         self.favicons = favicons
         self.actions = actions
@@ -69,6 +75,11 @@ final class LibraryView {
         root.columnDefinitions.append(UI.column(UI.star))
         makeRail()
         makeList()
+        if let spaces {
+            spaces.root.visibility = .collapsed
+            root.children.append(spaces.root)
+            try? Grid.setColumn(spaces.root, 1)
+        }
         root.keyDown.addHandler { [weak self] _, args in
             guard let self, let args, !args.handled, Int32(truncatingIfNeeded: args.key.rawValue) == 0x1B else { return }
             args.handled = true
@@ -92,11 +103,23 @@ final class LibraryView {
         search.text = ""
         search.placeholderText = page.searchPrompt
         builtFrom = nil
+        let cards = page == .spaces && spaces != nil
+        spaces?.root.visibility = cards ? .visible : .collapsed
+        listColumn.visibility = cards ? .collapsed : .visible
+    }
+
+    /// The width the Spaces page's cards need with the rail, while it shows.
+    var spacesWidth: Double? {
+        page == .spaces ? spaces?.cardsWidth : nil
     }
 
     /// The search takes the keyboard (the window has moved Win32 focus into the XAML first).
     func focusSearch() {
-        _ = try? search.focus(.programmatic)
+        if page == .spaces, let spaces {
+            spaces.focus()
+        } else {
+            _ = try? search.focus(.programmatic)
+        }
     }
 
     /// Draws the page for the focused space's colours. Everything it reads from the store and
@@ -118,6 +141,11 @@ final class LibraryView {
         self.palette = palette
         root.requestedTheme = dark ? .dark : .light
         applyColors(dark: dark)
+        // The cards read the spaces, their tabs and colours: drawn on every change they watch.
+        if page == .spaces, let spaces {
+            builtFrom = nil
+            return spaces.build(dark: dark)
+        }
         guard built != builtFrom else { return }
         builtFrom = built
         rows.children.clear()
@@ -137,7 +165,7 @@ final class LibraryView {
                 for item in section.items { addArchived(item) }
             }
             showEmpty(sections.isEmpty, LibraryList.empty(.archive, hasAny: !archive.isEmpty))
-        case .media, .easels, .spaces, .boosts:
+        case .media, .easels, .boosts, .spaces:
             showEmpty(true, LibraryList.Empty(symbol: page.symbol, title: "Not on Windows yet", detail: nil))
         }
     }
@@ -150,7 +178,7 @@ final class LibraryView {
         let group = StackPanel()
         group.spacing = 20
         group.horizontalAlignment = .center
-        for page in Self.pages {
+        for page in pages {
             let glyph = FontIcon()
             glyph.glyph = WinGlyph.code(page.symbol)
             glyph.fontSize = 17
@@ -197,7 +225,7 @@ final class LibraryView {
     // MARK: List
 
     private func makeList() {
-        let column = Grid()
+        let column = listColumn
         column.rowDefinitions.append(UI.row(UI.auto))
         column.rowDefinitions.append(UI.row(UI.star))
 
