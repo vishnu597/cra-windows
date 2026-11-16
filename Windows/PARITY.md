@@ -4,10 +4,10 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: c13a19c -->
-Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
-after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
-the Windows gaps below remain explicit rather than inheriting the Mac's status.
+<!-- upstream-reviewed: 8cda780 -->
+Upstream reviewed through **8cda780** (VictorKildahl/cra main, 16 Nov 2026), every commit triaged
+under Waiting in upstream (sync #22 is the latest). The Windows gaps below remain explicit rather
+than inheriting the Mac's status.
 
 **Status:** ✅ on Windows · 🟡 partly · 🔜 in review · ❌ not yet · ➖ Mac only, or replaced by a
 Windows counterpart
@@ -27,7 +27,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Command bar and shortcuts | 1 | 6 | 0 | 2 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
-| Tabs and memory | 2 | 2 | 0 | 3 | 0 |
+| Tabs and memory | 2 | 2 | 0 | 4 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
 | Profiles, privacy and site data | 6 | 2 | 0 | 5 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 4 | 2 | 0 | 10 | 8 |
-| **All** | 36 | 49 | 1 | 55 | 17 |
+| **All** | 36 | 49 | 1 | 56 | 17 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -148,6 +148,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Auto-archive Today tabs after a set time | ✅ [#14] | `TabsPane.swift` | `SidebarModel` (`AutoArchiveThreshold`) | Upstream 2e8a659 adds 90/180 days and tolerant decoding of newer values. Windows' picker lists the shared cases, so the new thresholds arrive with the model; recheck the menu in the sync PC test. |
 | Tab freezing and sleeping, Tab Cleanup timers, calls stay awake | 🟡 [#69] | `BrowserManager.swift` | `TabSleepPolicy`, `TabSleepProbe`, `MemoryReclaim` | The policy is shared; Windows needs the CEF discard calls and the two Settings ▸ Tabs switches. Since upstream 135f794 (#214) the policy reads a `PageState` per page and says why it passed one over. Since upstream c09f3c3 (#237) critical memory pressure closes 9 pages a pass and each pass logs one line per way of closing (`TabSleepPolicy.PassLog`). Windows [#69]: Settings ▸ Tabs ▸ Memory's switch and time, and the minute's pass per window (`TabSleepPolicy.timer`, candidates, holds): a page passing `TabSleepProbe` (no edited fields, no playing sound, no onbeforeunload) closes and its tab reloads its address when shown. Left: Chromium's discard that keeps back/forward history, freezing, the memory-pressure sweep, Chromium's audible state and freezing reasons (calls, devices). |
+| Tabs ▸ "Always keep these sites active" (#458): listed sites never sleep on the timer, and go last under memory pressure | ❌ | `KeepActiveSitesView.swift`, `ChromeKeepActiveSites.swift`, `TabsPane.swift` | `KeepActiveSites`, `TabSleepPolicy` (`Page.keptActive`) | Upstream 67ffea8. Windows' tab sleeping (#69) can pass `keptActive` once Settings ▸ Tabs has the list. |
 | Spare pages: a page made ahead for the next new tab, link or restored tab | ❌ | `SparePages.swift` | `SparePage` | Upstream 935cca1: CEF's window-making (~34 ms on the Mac) moves off the click. Windows makes each page on the click; its HWND cost is unmeasured. |
 | Mute a tab (`muteTab`), speaker icon, camera and microphone dot | 🟡 [#51] | `SidebarRowViews.swift` | `SidebarModel`, `TabSound` | Windows mutes from the tab menu (Mute / Unmute), the command bar (Mute / Unmute Tab) and a muted tab's speaker between its favicon and title (a click unmutes it). The mute is saved (`Tab.muted`) and the bridge keeps it on the next page, when the page is made again and after a relaunch. Left: the speaker on a tab that plays sound, the music notes and the camera dot need the page's audible state, which the Mac's CEF gets from a patch (`audible-state.patch`) the stock Windows CEF lacks; a favorite's tile has no Mute yet. |
 | Open links in new tabs in the background | ✅ [#48] | `TabsPane.swift` | `LinkMenu` | The page menu's Open Link in New Tab leaves the page in front, as in Arc; Settings ▸ Tabs ▸ "Switch to links opened in new tabs from the page menu" (`openLinksInForeground`, the Mac's Links pane row) brings the tab forward. Ctrl-click and Ctrl+Shift-click keep Chrome's meaning. |
@@ -595,7 +596,7 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 |---|---|---|
 | 0ea8123 | Theme grain: a pattern Core Animation tiles, not a drawn view | Mac drawing of the theme's grain (`ThemeNoise.swift`), in the theme row. Windows draws no grain yet. ➖ |
 
-Upstream sync #22 merged 163 commits after 0ea8123, to c13a19c. Most are upstream's Arc Max work
+Upstream sync #22 merged 165 commits after 0ea8123, to 8cda780. Most are upstream's Arc Max work
 (Varun's #440 to #444, landed as single commits) and its merge branches.
 
 | Commit | What | Windows |
@@ -633,6 +634,8 @@ Upstream sync #22 merged 163 commits after 0ea8123, to c13a19c. Most are upstrea
 | 726403b | Little Window: hide the toolbar until needed (#435, `autoHideLittleWindowToolbar`) | Little Windows row; the setting is shared in `AppSettings`. ❌ |
 | 114d317 | Cra listed in macOS' Default web browser menu (#452) | Default browser row: Mac `Info.plist`. ➖ |
 | 0fbf85c | Theme pad keeps a dark colour dark, no + on greys (#455) | Theme row (`SpaceColorPresets`). |
+| 67ffea8 | Tabs: Always keep these sites active (#458) | New keep-active row (`KeepActiveSites`). ❌ |
+| 8cda780 | Hidden traffic lights wait outside the window (#449) | Mac window buttons (`TrafficLightLayout`). ➖ |
 
 ## Keeping this current
 
