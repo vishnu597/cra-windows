@@ -1311,8 +1311,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let scripts = dict["mcpScripts"] { MCPServer.shared.allowsScripts = scripts == "on"; return }
             // mcpHistory=on|off: Settings ▸ Advanced ▸ Let agents read your history.
             if let history = dict["mcpHistory"] { MCPServer.shared.allowsHistory = history == "on"; return }
-            // mcpStop=1: the pill's Stop (every agent disconnects, MCP turns off).
-            if dict["mcpStop"] != nil { MCPServer.shared.stopFromPill(); return }
+            // mcpStop=1: the latest pill's Stop (that agent disconnects, MCP stays on).
+            if dict["mcpStop"] != nil { MCPServer.shared.stopLatestPill(); return }
             // translatePrompts=never:<host>|block:<lang>|reset|state[&profile=<name>][&label=<label>]: Settings ▸
             // Advanced ▸ Reset Translated-site Prompts and the translate choices it forgets, in every profile.
             if let t = dict["translatePrompts"] {
@@ -1445,6 +1445,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let step = dict["littleMenu"] { littleWindows.last?.debugMenu(step); return }
             // littleCard=<step>: the newest Little Window's card, see debugCardStep (#337).
             if let step = dict["littleCard"] { littleWindows.last?.debugCardStep(step); return }
+            // littleToolbar=<command>: the newest Little Window's floating toolbar, see debugToolbar (#435).
+            if let command = dict["littleToolbar"] { littleWindows.last?.debugToolbar(command); return }
             // inspectAt=x,y: Inspect in the page's right-click menu at that point of the page (the
             // newest Little Window's or Peek's with target=little); devToolsShown=<label>: where each
             // Little Window's and Peek's DevTools are, and whether the front tab has any (#348).
@@ -1613,11 +1615,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // lets it go half past that edge of the screen, as a mouse drag does (#332); pipClick=<n> clicks
             // the video, as the last of n quick clicks (2: a double click, back to the tab); pipSeek=<0…1>
             // presses the scrubber that far along; pipSize=<0…1> resizes it to that share of its
-            // display's width; pipButton=back|minimize|close clicks that hover button (#434).
+            // display's width; pipButton=back|minimize|close clicks that hover button (#434); pipShow=1
+            // shows the hover controls and keeps them up until the pointer comes and goes (#463).
             if let label = dict["pip"] { NSLog("Cra pip %@: %@", label, PictureInPictureChrome.shared.readout()); return }
             if let count = dict["pipClick"].flatMap(Int.init) { PictureInPictureChrome.shared.debugClick(count); return }
             if let at = dict["pipSeek"].flatMap(Double.init) { PictureInPictureChrome.shared.debugSeek(at); return }
             if let name = dict["pipButton"] { PictureInPictureChrome.shared.debugPress(name); return }
+            if dict["pipShow"] != nil { PictureInPictureChrome.shared.debugShow(); return }
             if let how = dict["pipKey"] { PictureInPictureChrome.shared.debugTakeKey(how); return }
             if let edge = dict["pipDrop"] { PictureInPictureChrome.shared.debugDrop(edge); return }
             if let share = dict["pipSize"].flatMap(Double.init) { PictureInPictureChrome.shared.debugSize(CGFloat(share)); return }

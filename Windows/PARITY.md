@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: c7d2622 -->
+<!-- upstream-reviewed: c13a19c -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -43,7 +43,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Browser window with pages inside it (CEF child windows), crash-safe start | ✅ [#2] [#3] | `main.swift`, `AppDelegate.swift`, `AppComposition.swift`, `MainWindowController.swift`, `ShellView.swift`, `BrowserManager.swift`, `EmbeddedPages.swift`, `ChromiumWindowCorners.swift`, `ChromiumChildHover.swift`, `ChromiumChildFullscreen.swift`, `WindowDragGesture.swift`, `CraCEF.mm`, `CraCEF.h`, `main.cc` | `ChromiumCrashState`, `JSONStore`, `Scheduling`, `ObserveChanges`, `TabActivationRaise` | Windows: `HostWindow`, `CraCEFWin.cpp`. Missing: Settings' edge-to-edge pages, Escape leaves video fullscreen (check). Upstream c795319 and 0051bb3 keep a background browser behind the app in use while pages are created or extensions select a tab; Windows needs its own focus regression checks. |
+| Browser window with pages inside it (CEF child windows), crash-safe start | ✅ [#2] [#3] | `main.swift`, `AppDelegate.swift`, `AppComposition.swift`, `MainWindowController.swift`, `ShellView.swift`, `BrowserManager.swift`, `EmbeddedPages.swift`, `ChromiumWindowCorners.swift`, `ChromiumChildHover.swift`, `ChromiumChildFullscreen.swift`, `WindowDragGesture.swift`, `CraCEF.mm`, `CraCEF.h`, `main.cc` | `ChromiumCrashState`, `JSONStore`, `Scheduling`, `ObserveChanges`, `TabActivationRaise`, `TrafficLightLayout` | Windows: `HostWindow`, `CraCEFWin.cpp`. Missing: Settings' edge-to-edge pages, Escape leaves video fullscreen (check). Upstream c795319 and 0051bb3 keep a background browser behind the app in use while pages are created or extensions select a tab; Windows needs its own focus regression checks. |
 | More than one window, window frames saved in `windows.json` | ✅ [#18] | `MainWindowController.swift` | `WindowFrame`, `SpaceWindow` | `SpaceWindow` picks the window a Little Window's page goes to (#23); `moveTabToSpaceN` still waits for a key. |
 | Private (incognito) windows | ✅ [#18] | `BrowserManager.swift` | `SidebarStore`, `IncognitoPages` | Upstream c7d26226 (#412): Chrome's Settings and Extensions pages opened from an incognito window go to the normal window (`IncognitoPages`); Windows to check. |
 | Blank Window (`newBlankWindow`, "This Window" with a sidebar of its own); a tab dragged out of the window opens in one | ❌ | `AppDelegate.swift`, `MainWindowController.swift`, `SidebarRowViews.swift` | `BlankWindow`, `TabTearOff`, `SidebarStore` (`addBlankWindow`, `moveToBlankWindow`, `isStandalone`) | Upstream #220, #219 (f1d9c56, 9de5a59). The store already saves Blank Windows' spaces outside `spaceOrder`, so Windows needs the window, its header and the drag out of the sidebar (which waits for drag and drop). |
@@ -188,7 +188,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | DevTools docked in the page's place (`devTools`, `inspectElement`, `jsConsole`), Chrome's dock sides and undocking | ✅ [#20] | `MainWindowController.swift` | `DevToolsToggle` | Moved to CraCore in #20; both apps decide each press with it. |
 | Developer Mode for a site (`toggleDeveloperMode`): the striped bar with the full URL edited in place, Copy, Console, Network, Inspect; host and port under the tab's title; the ring round the open tab | ✅ [#22] | `PaneToolbarView.swift`, `SidebarRowViews.swift` | `ToolbarComposition`, `DeveloperBar` (`SpaceTheme.developerBar`, `DeveloperStripes`, `DeveloperTabRing`, `OKLab`) | Windows: Ctrl+Shift+D (the Mac's ⌃D is Pin Tab there). The bar's colours, stripes and ring moved to CraCore in #22 for both apps. Not in a split, as on the Mac; Windows has no normal toolbar yet, so a split pane shows no bar. localhost, 127.0.0.1 and *.localhost start in Developer Mode on any port (upstream 0efe33a, 6d65cf8): Windows gets it from the shared `isDeveloperMode`. |
-| Performance recorder, Settings ▸ Performance, Export Diagnostics | ❌ | `PerformancePane.swift`, `Perf.swift`, `PerfCEF.swift`, `PerfFiles.swift`, `PerfRecorder.swift`, `PerfSamplers.swift`, `MainLoopObserver.swift`, `HitchMonitor.swift`, `Diagnostics.swift`, `CraLog.swift` | `PerfHistory`, `PerfInsights`, `PerfMetric`, `PerfProcessTable`, `PerfReport`, `PerfSampleStack`, `PerfSession`, `PerfStall`, `PerfState`, `LogHistogram`, `SiteNames`, `DiagnosticsRedaction`, `DisplayDiagnostics` | The recorder's model is shared; samplers are per platform. `CraLog.swift` is Foundation only: move it to CraCore so both apps log the same way. |
+| Performance recorder, Settings ▸ Performance, Export Diagnostics | ❌ | `PerformancePane.swift`, `Perf.swift`, `PerfCEF.swift`, `PerfFiles.swift`, `PerfRecorder.swift`, `PerfSamplers.swift`, `MainLoopObserver.swift`, `HitchMonitor.swift`, `Diagnostics.swift`, `CraLog.swift` | `PerfHistory`, `PerfInsights`, `PerfMetric`, `PerfProcessTable`, `PerfReport`, `PerfSampleStack`, `PerfSession`, `PerfStall`, `PerfState`, `LogHistogram`, `SiteNames`, `DiagnosticsRedaction`, `DisplayDiagnostics`, `PerfRunaway` | The recorder's model is shared; samplers are per platform. `CraLog.swift` is Foundation only: move it to CraCore so both apps log the same way. |
 
 ## Extensions
 
@@ -593,7 +593,7 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 |---|---|---|
 | 0ea8123 | Theme grain: a pattern Core Animation tiles, not a drawn view | Mac drawing of the theme's grain (`ThemeNoise.swift`), in the theme row. Windows draws no grain yet. ➖ |
 
-Upstream sync #22 merged 148 commits after 0ea8123, to c7d26226. Most are upstream's Arc Max work
+Upstream sync #22 merged 163 commits after 0ea8123, to c13a19c. Most are upstream's Arc Max work
 (Varun's #440 to #444, landed as single commits) and its merge branches.
 
 | Commit | What | Windows |
@@ -619,6 +619,18 @@ Upstream sync #22 merged 148 commits after 0ea8123, to c7d26226. Most are upstre
 | c7d2622 | Chrome's Settings and Extensions pages from incognito open in the normal window (#412) | Private windows row (`IncognitoPages`). Check on Windows. |
 | 3a11ffc, f27aa5c, 319d0a0, 5fc2322, 79ddc8e, 12d5dab, bfdbacb | Notification icon, theme grain scale, engine updates, build signing, live folder plug-in errors, xbench docs | Mac build and engine. ➖ |
 | 7d6b943, c2998e2 and the "remove" and docs commits | Test snapshots in sRGB, branch docs and selectors removed | Nothing for Windows. |
+| c13a19c | Picture in Picture's hover controls stay inside the window's rounded corners (#463) | Picture in Picture row. ❌ |
+| b165d96, 1875397, 6ad7cdb | Runaway pages: a hidden page whose process passes 8 GB sleeps (`PerfRunaway`, `TabSleepPolicy.runaway`) | Performance and tab sleeping rows. Windows' tab sleeping (#69) has the timer only. ❌ |
+| 6c3f292 | Ask on Page matches a hyphen for an en dash | Ask on Page row. ➖ |
+| 4234c1f | A double click on the sidebar's empty space opens the New Tab bar (#446) | Sidebar. Windows to do. ❌ |
+| c0a4b86 | Traffic lights keep the system's spacing (#445) | Mac window buttons (`TrafficLightLayout`). ➖ |
+| 1f0a1bb | Launch after deleting a profile no longer crashes (WebKit stores) | Mac WebKit data. ➖ |
+| 67b40a4 | Site Control Center lists each extension once | Site Control Center row; Windows lists no extensions there yet. |
+| 11784ca | Zen import draws favicons at favicon size | Mac import. ➖ |
+| 46991d9, 0bdc493 | Agents: Stop ends one agent's session; 32 connections | Agents row. ❌ |
+| 726403b | Little Window: hide the toolbar until needed (#435, `autoHideLittleWindowToolbar`) | Little Windows row; the setting is shared in `AppSettings`. ❌ |
+| 114d317 | Cra listed in macOS' Default web browser menu (#452) | Default browser row: Mac `Info.plist`. ➖ |
+| 0fbf85c | Theme pad keeps a dark colour dark, no + on greys (#455) | Theme row (`SpaceColorPresets`). |
 
 ## Keeping this current
 
