@@ -376,6 +376,10 @@ built release app with a test profile. Note anything that fails in the release's
   links or the address. Right-click the sidebar's Back: the earlier pages, nearest first, by
   title. Pick the oldest: the tab goes there. Right-click Forward: the later pages; pick one. In a
   fresh tab both say there are no pages. Needs real navigation history, so no scenario covers it.
+- **Windows Chromium language:** with Windows' display language set to German (or any
+  language besides English), launch Cra: chrome://settings and a page's right-click menu are in
+  that language, and `navigator.language` in DevTools answers it. Needs a Windows language pack,
+  so no scenario covers it.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.

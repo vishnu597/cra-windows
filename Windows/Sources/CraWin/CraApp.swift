@@ -249,16 +249,24 @@ public final class CraApp: SwiftApplication {
         cra_cef_set_extension_folders(ExtensionFolders.commandLineValue(paths: folders) ?? "")
         let cache = WinPaths.chromiumCache.path
         let log = WinPaths.log.path
+        // Chromium's language follows Windows' display language, as Chrome's does: its own
+        // pages, dialogs and menus, the voice for speech without a lang (#167), pages' default
+        // date format and a new profile's Accept-Language. Without it CEF is en-US.
+        let locale = WinLanguages.chromiumLocale(exeFolder: Self.exeFolder) ?? ""
+        CoreLog.note("chromium locale: \(locale.isEmpty ? "en-US (default)" : locale) for \(WinLanguages.preferred.prefix(3).joined(separator: ","))")
         return helper.withCString { h in
             cache.withCString { c in
                 log.withCString { l in
                     "Cra/1.0".withCString { product in
-                        var settings = CraCEFSettings()
-                        settings.helper_path = h
-                        settings.cache_root = c
-                        settings.log_path = l
-                        settings.user_agent_product = product
-                        return cra_cef_initialize(&settings) != 0
+                        locale.withCString { lang in
+                            var settings = CraCEFSettings()
+                            settings.helper_path = h
+                            settings.cache_root = c
+                            settings.log_path = l
+                            settings.user_agent_product = product
+                            settings.locale = lang
+                            return cra_cef_initialize(&settings) != 0
+                        }
                     }
                 }
             }
