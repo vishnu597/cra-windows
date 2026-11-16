@@ -74,6 +74,14 @@ void cra_cef_set_extensions_changed_handler(void *context, CraExtensionsChangedH
 /// "" loads none. Stock CEF loads them in every profile (the Mac's build picks the profiles).
 void cra_cef_set_extension_folders(const char *comma_separated);
 
+/// Third-party ad and tracker blocking (Sources/CraCEF/CraContentBlocker.h, the Mac's matcher):
+/// on or off live, for every page. The list is read from `path` (a domain or hosts-file line
+/// each) on a thread of its own; blocking starts once it's in.
+void cra_cef_set_content_blocking(int enabled);
+void cra_cef_load_blocked_domains(const char *path);
+/// The domains on the list read so far (0 until it's in).
+int cra_cef_blocked_domain_count(void);
+
 /// A profile preference as JSON, live from Chromium: Default's for a NULL or empty
 /// `profile_path`, else that loaded profile's. NULL before Chromium (or that profile) has
 /// loaded, while quitting, or for a preference it doesn't have. Free with cra_data_free.

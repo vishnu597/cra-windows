@@ -119,6 +119,38 @@ enum SettingsPanes {
         }
     }
 
+    // MARK: Privacy
+
+    /// Dia's "Content blocking" card (PrivacyPane on the Mac), with the switch Windows has so
+    /// far: the ad and tracker blocker. Cookie banners, fingerprinting, secure connections and
+    /// the Data card wait for their features.
+    static func privacy(store: SidebarStore, palette: SettingsPalette) -> SettingsPaneContent {
+        let stack = StackPanel()
+        stack.orientation = .vertical
+        stack.margin = Thickness(left: Double(DiaSettingsMetrics.paneInset), top: Double(DiaSettingsMetrics.paneTop),
+                                 right: Double(DiaSettingsMetrics.paneInset), bottom: 20)
+        stack.children.append(header("Content blocking", palette: palette))
+        let title = "Block ads and trackers"
+        let blocker = ToggleSwitch()
+        blocker.onContent = ""
+        blocker.offContent = ""
+        blocker.minWidth = 0
+        blocker.isOn = store.settings.blockAdsAndTrackers
+        blocker.toggled.addHandler { [weak blocker] _, _ in
+            guard let blocker else { return }
+            let on = blocker.isOn
+            if store.settings.blockAdsAndTrackers != on { store.settings.blockAdsAndTrackers = on }
+        }
+        try? AutomationProperties.setName(blocker, title)
+        stack.children.append(card([cardRow(title, detail: "Requests to known ad and tracker domains are cancelled, unless the domain belongs to the site you’re on.",
+                                            trailing: blocker, palette: palette)], palette: palette))
+        // The Site Control Center's switch and the onboarding change it too.
+        return SettingsPaneContent(element: stack) {
+            let on = store.settings.blockAdsAndTrackers
+            if blocker.isOn != on { blocker.isOn = on }
+        }
+    }
+
     // MARK: Tabs
 
     /// Dia's two-column form (TabsPane on the Mac): a label per group, checkboxes beside it.
@@ -434,16 +466,30 @@ enum SettingsPanes {
         return border
     }
 
-    /// Label on the left, control on the right, 43 DIPs tall.
-    private static func cardRow(_ title: String, trailing: FrameworkElement, palette: SettingsPalette) -> Grid {
+    /// Label on the left, control on the right, 43 DIPs tall. A `detail` goes under the label
+    /// in secondary text (the Mac's SettingsToggleRow), and the row grows to fit it.
+    private static func cardRow(_ title: String, detail: String? = nil, trailing: FrameworkElement, palette: SettingsPalette) -> Grid {
         let row = Grid()
         row.minHeight = Double(DiaSettingsMetrics.cardRowHeight)
-        row.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 0, right: Double(DiaSettingsMetrics.cardRowInset), bottom: 0)
+        let pad = detail == nil ? 0.0 : 10.0
+        row.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: pad, right: Double(DiaSettingsMetrics.cardRowInset), bottom: pad)
         row.columnDefinitions.append(UI.column(UI.star))
         row.columnDefinitions.append(UI.column(UI.auto))
         let label = UI.text(title, color: palette.text)
-        label.verticalAlignment = .center
-        row.children.append(label)
+        if let detail {
+            let words = StackPanel()
+            words.spacing = 2
+            words.verticalAlignment = .center
+            words.margin = Thickness(left: 0, top: 0, right: 16, bottom: 0)
+            words.children.append(label)
+            let more = UI.text(detail, size: 11, color: palette.secondaryText, trimmed: false)
+            more.textWrapping = .wrap
+            words.children.append(more)
+            row.children.append(words)
+        } else {
+            label.verticalAlignment = .center
+            row.children.append(label)
+        }
         trailing.verticalAlignment = .center
         row.children.append(trailing)
         try? Grid.setColumn(trailing, 1)

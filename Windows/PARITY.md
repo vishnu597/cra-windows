@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 72b25f2 -->
+<!-- upstream-reviewed: 4cf04e2 -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -29,14 +29,14 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 1 | 1 | 0 | 5 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
-| Profiles, privacy and site data | 2 | 2 | 0 | 9 | 0 |
+| Profiles, privacy and site data | 3 | 2 | 0 | 8 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 3 | 0 | 2 | 0 |
-| Settings | 2 | 5 | 0 | 4 | 0 |
+| Settings | 2 | 6 | 0 | 3 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 23 | 37 | 1 | 79 | 16 |
+| **All** | 24 | 38 | 1 | 77 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -55,7 +55,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Find in page with match count | ✅ [#10] | `Overlays.swift` | `FindInPage`, `FindBarPlacement` | Upstream 720ede7 (#418) hangs the find bar under an auto-hiding toolbar while it's out (`FindBarPlacement`); Windows has no toolbar yet. |
 | Back and Forward history menu: right-click or hold Back or Forward lists the tab's pages (#416) | ❌ | `BackForwardMenuView.swift`, `ButtonHold.swift` | `BackForwardMenu` | Upstream c61aab7: rows from DevTools' `Page.getNavigationHistory` and Arc's menu geometry in CraCore. Windows' sidebar Back and Forward buttons need the right-click/hold and a FloatingWindow menu. |
 | Toasts (copied URL with Share, captures, downloads) | ✅ [#17] | `ShinyToast.swift`, `Overlays.swift` | `ToastStyle`, `ShareRetry` | Windows uses DataTransferManager for Share. `ShareRetry` bounds temporary-busy retries and ends with one failure toast; commands, Site Controls and copied-URL toasts use the same path. The sheet opens with Cra's window in front (a toast's Share button hands the foreground back to its window first), and `ShareRetry.OwnerWatch` re-enables a window a sheet left disabled (gone, or in front but cloaked) and shows the failure toast when no sheet ever showed. A wedged Windows Share (ShellExperienceHost holding a dead sheet) needs a sign-out on the PC; the sheet's own close can't be driven by test input. |
-| Site Control Center, lock badge and certificate viewer | 🟡 [#17] | `SiteControlCenter.swift`, `CertificateWindow.swift` | `SiteControlCenter`, `ConnectionSecurity`, `PageCapture` | Windows shows the sliders in the sidebar's address pill. Missing: the protected-media card (Mac only, see Media) and upstream cbb5753's per-site Automatic Picture-In-Picture switch. |
+| Site Control Center, lock badge and certificate viewer | 🟡 [#17] | `SiteControlCenter.swift`, `CertificateWindow.swift` | `SiteControlCenter`, `ConnectionSecurity`, `PageCapture` | Windows shows the sliders in the sidebar's address pill. Its Settings section has the Developer Mode and Block Ads & Trackers switches [#45]. Missing: the protected-media card (Mac only, see Media) and upstream cbb5753's per-site Automatic Picture-In-Picture switch. |
 | Zoom (`zoomIn`, `zoomOut`, `resetZoom`), `print`, `viewSource` | 🟡 | `AppDelegate.swift` | `KeyBindingDefaults` | Left to Chromium's own keys on Windows: not in Cra's key table, the command bar or Settings ▸ Shortcuts. Add them to `KeyBindingDefaults.windowsShortcuts`. |
 | Page context menu: Open Link in New Tab and Open Link in Split View; Alt-click split | 🟡 | `BrowserManager.swift` | `LinkMenu`, `PageMenuLabels`, `LinkSplitClick` | Chromium's menu shows on Windows. Upstream 9630b47, 249adb7 and 8a6c6bf add a split action, one localized Open Link in New Tab item following the foreground setting, and Option-click split (Alt on Windows). Windows needs those policies wired to the page callbacks. |
 | Arc-style tooltips in the space's tones | ❌ | `ArcTooltip.swift` | `ThemeTones` (`TooltipTones`) | Windows uses plain WinUI tooltips. |
@@ -174,7 +174,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Rebuild profiles from Arc (`rebuildArcProfiles`) | ❌ | `ArcProfileRebuilder.swift` | `ArcProfileRebuild` | Waits for Arc import. |
 | Clear Cache, Clear Cookies | ✅ [#17] | `SiteData.swift` | `SiteDataClearing` | |
 | Clear Browsing Data (`clearBrowsingData`) | 🟡 | `AppDelegate.swift` | `BrowsingDataClear` | The store side is shared; the command and Chrome's dialog are missing. |
-| Ad and tracker blocker | ❌ | `CraContentBlocker.h`, `CraCEF.mm` | | `CraContentBlocker.h` is plain C++ with no Cocoa or CEF: `CraCEFWin.cpp` can include it as is, with the same domain list. |
+| Ad and tracker blocker | ✅ [#45] | `CraContentBlocker.h`, `CraCEF.mm` | `SiteControlCenter` | `CraCEFWin.cpp` includes the Mac's `CraContentBlocker.h` as is: the same matcher, the same third-party rule and the same `resources/blocklist` list, copied beside Cra.exe by build.ps1 and read off the UI thread at launch. The switch follows `blockAdsAndTrackers` live, from Settings ▸ Privacy, the Site Control Center and the onboarding. |
 | Block Cookie Banners (Arc's, off by default) | ❌ | `BrowserManager.swift`, `PrivacyPane.swift` | `CookieBanners`, `SidebarStore` (`cookieBannerCSS`) | Upstream 93b20a6. The stylesheet is shared; Windows injects it with the Privacy pane. |
 | Always use secure connections (HTTPS-only), Secure DNS | ❌ | `PrivacyPane.swift`, `SecureDNSSetting.swift` | `SecureDNS` | Both are Chromium prefs; the decisions are shared. |
 | Passwords and cookies encrypted with a key of Cra's own | ❌ | `SafeStorage.swift`, `keychain-service-name.patch` | | Windows counterpart: DPAPI, which Chromium uses by default. Confirm the stock CEF build does. |
@@ -204,13 +204,13 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Settings window, back and forward, panes listed by `DiaSettingsPane.windowsPanes` | 🟡 [#14] | `SettingsWindowController.swift`, `SettingsKit.swift`, `MemberCardView.swift`, `SettingsArt.swift`, `SettingsPictures.swift` | `DiaSettingsNavigation`, `DiaSettingsMetrics`, `SettingsTab`, `MemberCard`, `MaxMasterSwitch`, `TranslateReset` | Windows has General, Tabs, Profiles, Extensions and Shortcuts. Panes not on Windows yet: `links`, `max`, `privacy`, `plugins`, `performance`, `advanced`. Upstream d34987a/b4c20de add inset selection, pane clipping, descriptive rows and layout pictures; Windows needs those visual refinements. The #31 PC test still showed clipped Back/Forward focus outlines; keyboard reactivation needs a separate focused reproduction. Upstream 80cdfe7/caaa884 (#372) moved the Mac to Arc 1.172.2's window: 684 × 650 pt with ten tabs in a toolbar (`SettingsTab`), a member card first. Windows still draws Dia's sidebar window (its CraCore types are now `Dia*`); next: follow the tab toolbar. |
+| Settings window, back and forward, panes listed by `DiaSettingsPane.windowsPanes` | 🟡 [#14] | `SettingsWindowController.swift`, `SettingsKit.swift`, `MemberCardView.swift`, `SettingsArt.swift`, `SettingsPictures.swift` | `DiaSettingsNavigation`, `DiaSettingsMetrics`, `SettingsTab`, `MemberCard`, `MaxMasterSwitch`, `TranslateReset` | Windows has General, Tabs, Privacy, Profiles, Extensions and Shortcuts. Panes not on Windows yet: `links`, `max`, `plugins`, `performance`, `advanced`. Upstream d34987a/b4c20de add inset selection, pane clipping, descriptive rows and layout pictures; Windows needs those visual refinements. The #31 PC test still showed clipped Back/Forward focus outlines; keyboard reactivation needs a separate focused reproduction. Upstream 80cdfe7/caaa884 (#372) moved the Mac to Arc 1.172.2's window: 684 × 650 pt with ten tabs in a toolbar (`SettingsTab`), a member card first. Windows still draws Dia's sidebar window (its CraCore types are now `Dia*`); next: follow the tab toolbar. |
 | General | 🟡 [#14] [#29] | `GeneralPane.swift`, `AppIconPicker.swift` | | Windows has default-browser registration and Open at login. #31's PC test verified title-bar icons on browser, Settings and Little Windows; taskbar-button appearance remains unverified. Missing: the app icon picker, including upstream's Violet choice and 72 pt tiles (b454fdb, 5e5a220, 41deeb9). |
 | Tabs | 🟡 [#14] | `TabsPane.swift` | `SidebarModel`, `AddressBarPlacement` | New Tab placement, single-space header, cleanup, Peek, external links and the #31 Air Traffic Control sheet are present. Missing: address-bar position (3d560c2), current-space-only search (cab6d40), sleeping, shared favorites, background-tab preference, Little Window archive time and upstream's descriptive/pictured layout. |
 | Links | 🟡 [#31] | `LinksPane.swift`, `AirTrafficControlView.swift` | `LinkRouting`, `AirTrafficControl` | Upstream b4c20de moves Little Windows, Peek, foreground-link preference and Air Traffic Control out of Tabs into Settings ▸ Links. Windows keeps its implemented rows under Tabs; it does not list a Links pane yet. |
 | Shortcuts | ✅ [#15] | `ShortcutsPane.swift` | `KeyBindingRegistry` | |
 | Profiles | ✅ [#19] | `ProfilesPane.swift` | `SpaceProfiles` | |
-| Privacy | ❌ | `PrivacyPane.swift` | `SecureDNS` | With the blocker and HTTPS-only. |
+| Privacy | 🟡 [#45] | `PrivacyPane.swift` | `SecureDNS` | Windows has the Content blocking card's ad and tracker switch. Left: cookie banners, fingerprinting protection, secure connections and DNS, the Data card. |
 | Extensions | 🟡 | `ExtensionsPane.swift` | `ExtensionFolders`, `InstalledExtensions` | Windows lists every profile's installs once each, with Remove (Cra's own folder) or Remove… (chrome://extensions), Add Unpacked Extension… (Windows' folder picker) and Open Chrome's Extension Manager. Cra's folders load in every profile (stock CEF has no `extension-profiles.patch`). No Live Folder plugins under it yet (Plugins row). |
 | Plugins | ❌ | `PluginsPane.swift` | `LiveFolderPlugin`, `LiveFolderPluginPackage` | With the live-folder plugin runtime: install, permission summary, enable/disable, reload and remove packages. |
 | Advanced: engine, export bookmarks, versions | ❌ | `AdvancedPane.swift`, `SidebarExport.swift` | | The bookmarks-file writer in `SidebarExport.swift` can move to CraCore; the save dialog stays per platform. |
@@ -567,6 +567,12 @@ layer table, which keeps upstream's engine rows and the Windows rows. Windows st
 | e402f77 | cra://open closes the command bar that waited for a new tab | cra:// row. The fix is for the engine, where no page window takes the bar's key. On CEF, the Mac before it and Windows (`openCraLink` activates the window, and the bar closes when it loses the front), the bar already went. ➖ |
 | 8280b11, c33d3eb and the other engine bridge commits | The engine's page menu, infobars, favicons, find and zoom reach Cra as CEF's did | New Chrome bars row (`PageInfoBar`). Otherwise engine plumbing. ➖ |
 
+Upstream sync #18 merged one commit after 72b25f2, with no conflicts.
+
+| Commit | What | Windows |
+|---|---|---|
+| 4cf04e2 | The floating sidebar runs no pointer timer while the sidebar is anchored | Hidden and floating sidebar row; Windows has no floating sidebar yet. ❌ |
+
 ## Keeping this current
 
 - **Each upstream sync** (CONTRIBUTING's merge before each new PR): run
@@ -604,3 +610,4 @@ layer table, which keeps upstream's engine rows and the Windows rows. Windows st
 [#29]: https://github.com/vishnu597/cra-windows/pull/29
 [#31]: https://github.com/vishnu597/cra-windows/pull/31
 [#44]: https://github.com/vishnu597/cra-windows/pull/44
+[#45]: https://github.com/vishnu597/cra-windows/pull/45

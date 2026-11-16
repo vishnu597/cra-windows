@@ -20,7 +20,14 @@
 #include <string>
 #include <unordered_map>
 #include <algorithm>
+#include <fstream>
+#include <iterator>
+#include <thread>
 #include <vector>
+
+// The Mac's ad and tracker matcher, plain C++ with no CEF or Cocoa: the same domain list and
+// the same third-party rule on both platforms.
+#include "../../../Sources/CraCEF/CraContentBlocker.h"
 
 // libcef_dll_wrapper is built with MSVC, where CEF's TRIVIAL_ABI is empty. This file is built
 // with clang, where the same headers would mark CefRefPtr [[clang::trivial_abi]] and pass it in
@@ -807,6 +814,26 @@ private:
     IMPLEMENT_REFCOUNTING(DevToolsClient);
 };
 
+/// Cancels a page's third-party requests to listed ad and tracker domains, as the Mac's
+/// CraContentBlockingHandler does (IO thread; the list and the switch are global atomics).
+/// A top-level page always loads.
+class ContentBlockingHandler : public CefResourceRequestHandler {
+public:
+    ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
+                                     CefRefPtr<CefCallback> callback) override {
+        if (!cra_blocker::Enabled().load(std::memory_order_relaxed)) return RV_CONTINUE;
+        if (!browser || request->GetResourceType() == RT_MAIN_FRAME) return RV_CONTINUE;
+        CefRefPtr<CefFrame> top = browser->GetMainFrame();
+        if (!top) return RV_CONTINUE;
+        std::string pageHost = cra_blocker::WebHost(top->GetURL().ToString());
+        std::string requestHost = cra_blocker::WebHost(request->GetURL().ToString());
+        return cra_blocker::ShouldBlock(requestHost, pageHost) ? RV_CANCEL : RV_CONTINUE;
+    }
+
+private:
+    IMPLEMENT_REFCOUNTING(ContentBlockingHandler);
+};
+
 /// One page (or a popup host waiting for its popup). Holds its CraBrowser until OnBeforeClose.
 class CraClient : public CefClient,
                   public CefDisplayHandler,
@@ -1054,6 +1081,16 @@ public:
 
     // Request -------------------------------------------------------------
 
+    /// Ad and tracker blocking (IO thread): a page's subresources while it's on. Navigations
+    /// and downloads always load.
+    CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+                                                                   CefRefPtr<CefRequest> request, bool is_navigation, bool is_download,
+                                                                   const CefString &request_initiator,
+                                                                   bool &disable_default_handling) override {
+        if (is_download || is_navigation || !cra_blocker::Enabled().load(std::memory_order_relaxed)) return nullptr;
+        return blocker_;
+    }
+
     /// A link the user clicked in the page itself: Arc may open it in a Peek (another host's link
     /// from a pinned tab) instead of loading it here.
     bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request, bool user_gesture,
@@ -1217,6 +1254,7 @@ private:
     CraBrowser *Live() const { return owner_ && !owner_->close_requested ? owner_ : nullptr; }
 
     CraBrowser *owner_;
+    CefRefPtr<CefResourceRequestHandler> blocker_ = new ContentBlockingHandler();
     IMPLEMENT_REFCOUNTING(CraClient);
 };
 
@@ -1606,6 +1644,22 @@ extern "C" int cra_cef_live_browser_count(void) { return static_cast<int>(g_brow
 extern "C" void cra_cef_set_extension_folders(const char *comma_separated) {
     g_extensionFolders = comma_separated ? comma_separated : "";
 }
+
+extern "C" void cra_cef_set_content_blocking(int enabled) { cra_blocker::Enabled().store(enabled != 0); }
+
+extern "C" void cra_cef_load_blocked_domains(const char *path) {
+    if (!path || !*path) return;
+    std::wstring file = Wide(path);
+    // ~500 KB of domains: read and parsed off the main thread, then published in one go.
+    std::thread([file] {
+        std::ifstream in(file, std::ios::binary);
+        if (!in) return;
+        std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        cra_blocker::Publish(cra_blocker::ParseList(data));
+    }).detach();
+}
+
+extern "C" int cra_cef_blocked_domain_count(void) { return static_cast<int>(cra_blocker::Count()); }
 
 extern "C" void cra_cef_set_stray_page_handler(void *context, CraStrayPageHandler handler) {
     g_strayPageContext = context;
