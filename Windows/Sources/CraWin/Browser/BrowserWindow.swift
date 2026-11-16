@@ -164,7 +164,9 @@ final class BrowserWindow {
         sidebar = SidebarView(store: store, windowID: session.id, actions: self)
         downloads = DownloadsTray(history: .shared, dispatcher: dispatcher)
         sidebar.attachDownloads(button: downloads.button, list: downloads.list)
-        library = LibraryView(store: store, history: .shared, dispatcher: dispatcher, actions: self)
+        // A private window shows only its own space: no Spaces page (Manage Spaces…).
+        let spacesPage = incognito ? nil : SpacesManagerView(store: store, windowID: session.id, actions: self)
+        library = LibraryView(store: store, history: .shared, dispatcher: dispatcher, spaces: spacesPage, actions: self)
         downloads.onClick = { [weak self] in self?.toggleLibrary() }
         downloads.pointer = { [weak self] in
             guard let self, let window = self.window, let host = HWND(bitPattern: self.hwnd) else { return nil }
@@ -179,6 +181,7 @@ final class BrowserWindow {
         window.title = Self.title(nil, incognito: isIncognito)
         hwnd = window.hwnd
         window.onLayout = { [weak self] _ in
+            self?.syncLibraryWidth()
             self?.repositionPeeks()
             self?.layoutPanes()
             self?.placeCommandBar()
@@ -319,7 +322,10 @@ final class BrowserWindow {
             sidebarPanel.background = sidebar.fill
             applyPaneColors(store.focusedSpace(window: windowID).theme)
             downloads.apply(SidebarPalette(store.focusedSpace(window: windowID).theme), fill: sidebar.fill)
-            if libraryPage != nil { library.build(SidebarPalette(store.focusedSpace(window: windowID).theme), dark: sidebar.isDark) }
+            if libraryPage != nil {
+                library.build(SidebarPalette(store.focusedSpace(window: windowID).theme), dark: sidebar.isDark)
+                syncLibraryWidth()
+            }
             syncPages()
             syncSlowResponse()
             syncDeveloperBar()
@@ -776,6 +782,7 @@ final class BrowserWindow {
         case "openLibrary": toggleLibrary()
         case "viewArchive": showLibrary(.archive)
         case "viewDownloads": showLibrary(.downloads)
+        case "manageSpaces": if !isIncognito { showLibrary(.spaces) }
         case "closeTab": closeCurrentTab()
         case "reload": reload(ignoringCache: false)
         case "hardReload": reload(ignoringCache: true)
@@ -953,7 +960,21 @@ final class BrowserWindow {
     private func setLibraryShown(_ open: Bool) {
         for part in sidebarParts { part.visibility = open ? .collapsed : .visible }
         library.root.visibility = open ? .visible : .collapsed
-        window.sidebarWidth = Self.sidebarWidth + (open ? LibraryLayout.extraWidth : 0)
+        syncLibraryWidth()
+    }
+
+    /// The sidebar's width for what it shows: the tabs, the Library 70 DIPs wider for its rail, or
+    /// the Spaces page wide enough for every card while the window leaves the page 56 DIPs
+    /// (LibraryWidth, the Mac's), its cards scrolling sideways past that. A window resize and a
+    /// space added or removed size it again.
+    private func syncLibraryWidth() {
+        guard !closing, let window else { return }
+        var width = Self.sidebarWidth + (libraryPage != nil ? LibraryLayout.extraWidth : 0)
+        if libraryPage != nil, let cards = library.spacesWidth {
+            let windowWidth = Double(window.appWindow.clientSize.width) / window.scale
+            width = max(width, LibraryWidth.sidebar(spacesCards: cards, window: windowWidth))
+        }
+        if window.sidebarWidth != width { window.sidebarWidth = width }
     }
 
     private func reopenClosedTab() {
@@ -1958,6 +1979,24 @@ final class BrowserWindow {
 }
 
 // MARK: - Sidebar → window
+
+extension BrowserWindow: SpacesManagerActions {
+    func openFromLibrary(tab id: UUID) {
+        store.selectTab(id, window: windowID)
+        closeLibrary()
+    }
+
+    func openFromLibrary(space id: UUID) {
+        store.focusSpace(id, window: windowID)
+        closeLibrary()
+    }
+
+    /// The new space's card joins the page, which stays open (the Mac opens the space editor).
+    func newSpaceFromLibrary() {
+        guard !isIncognito else { return }
+        sidebar.newSpace()
+    }
+}
 
 extension BrowserWindow: LibraryActions {
     /// The Library takes over the sidebar, 70 DIPs wider for its rail; its search takes the keys.

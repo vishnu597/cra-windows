@@ -23,7 +23,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
 | Window, pages and toolbar | 9 | 6 | 0 | 10 | 1 |
-| Sidebar | 6 | 8 | 0 | 14 | 0 |
+| Sidebar | 6 | 9 | 0 | 13 | 0 |
 | Command bar and shortcuts | 1 | 5 | 0 | 3 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 4 | 2 | 0 | 9 | 8 |
-| **All** | 36 | 46 | 1 | 57 | 16 |
+| **All** | 36 | 47 | 1 | 56 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -85,7 +85,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Drag and drop: reorder, into folders and favorites, onto a space's icon, several picked tabs at once, reorder spaces, a link dropped in from a page or another app (#419) | ❌ | `SidebarListDrop.swift`, `SpaceListView.swift` | `SidebarStore`, `SidebarLinkDrop` | The store's moves are shared; upstream 115a201 adds where a dropped link lands (`SidebarLinkDrop`); the XAML drag layer is the work. Big item. Since 1f3c3d3 a tab dropped on any tab, pinned too, offers a split (no folder drop); since dfa3358 rows keep their hover through AppKit's stray exits (Mac only). |
 | Space menu: rename, icon, theme, profile, folder, export, delete | 🟡 [#5] [#19] | `MainWindowController+SpaceMenu.swift`, `EmojiLabel.swift`, `SidebarMenus.swift`, `SpaceIconPicker.swift`, `EmojiCatalog.swift`, `EmojiCatalog+Data.swift`, `SpaceIconImage.swift` | `SpaceProfiles`, `SpaceIcon` | Since upstream 8f511ac (#205) a space's icon can be a symbol (`Space.symbol`, `SpaceIcon`); Windows draws the emoji only. Upstream 0b20792 (#395) adds a PNG or SVG as an icon (`Space.iconImage`); Windows shows the emoji. Windows has Rename Space… (and a double-click on the name, `SidebarStore+Rename`'s `renameSpace`, [#44]), New Folder, New Space, Clear Today, Hide Space Header, Set Profile, Delete. `newSpace` is a command too [#61]. Missing `editSpace` (no editor yet) and `deleteSpace` (waits for a confirmation card) as commands, the emoji picker. `EmojiCatalog+Data.swift` has no imports: move it to CraCore for the Windows picker. |
 | Space theme editor: Arc's presets, light and dark halves, grain | ❌ | `SpaceStyleEditor.swift`, `SpaceEditorView.swift` | `SpaceTheme`, `SpaceThemeVariants`, `SpaceColorPresets`, `ArcThemeImport` | Windows draws themes it reads; editing is missing. The colour logic is all shared. Since 6e371cc swatches and knobs grow under the pointer and shrink when pressed. |
-| Manage Spaces page (`manageSpaces`) | ❌ | `SpacesManagerView.swift` | `SidebarStore` | |
+| Manage Spaces page (`manageSpaces`) | 🟡 [#70] | `SpacesManagerView.swift` | `SidebarStore`, `SpacesManagerLayout`, `LibraryWidth` | Windows [#70]: the Library's Spaces page (rail, the space menu's Manage Spaces… and the command): a card per space in its colours with its pinned and Today tabs (a click opens the tab), the move handle to drag a card along the row (Move Left and Move Right in its ⋯ menu too), Open Space, Clear Today, Delete Space, and the + for a new space; the Library widens to fit the cards and leaves the page 56 DIPs. Not yet: Edit Theme Color… (no editor on Windows), the card's full space menu, the page keeping its width past the window's edge (`LibraryWidth.page`), the cards' grain; the Mac still has its own `SpacesManagerMetrics` (move it onto `SpacesManagerLayout` with the next Mac change). |
 | Space tooltip with its profile and keys | ❌ | `SpaceDock.swift`, `ArcTooltip.swift` | `ThemeTones` | |
 | Jump pill back to the open tab | ❌ | `SidebarJumpPill.swift` | | |
 | Rename (`renameTab`), duplicate (`duplicateTab`), Add to Favorites (`favoriteTab`) as commands | ✅ [#44] | `SidebarMenus.swift` | `SidebarStore`, `KeyBindingDefaults` | Windows: Rename… on a tab or folder row (and a double-click) turns its name into a field (Return keeps it, Escape doesn't); a new folder starts named. All three are commands with no default key, as on the Mac. |
@@ -653,3 +653,4 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 [#67]: https://github.com/vishnu597/cra-windows/pull/67
 [#68]: https://github.com/vishnu597/cra-windows/pull/68
 [#69]: https://github.com/vishnu597/cra-windows/pull/69
+[#70]: https://github.com/vishnu597/cra-windows/pull/70
