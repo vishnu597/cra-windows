@@ -29,14 +29,14 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 2 | 1 | 0 | 4 | 0 |
 | Media and capture | 0 | 2 | 0 | 2 | 1 |
-| Profiles, privacy and site data | 4 | 2 | 0 | 7 | 0 |
+| Profiles, privacy and site data | 4 | 3 | 0 | 6 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 3 | 0 | 2 | 0 |
 | Settings | 2 | 6 | 0 | 3 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 29 | 41 | 1 | 69 | 16 |
+| **All** | 29 | 42 | 1 | 68 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -176,7 +176,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Clear Browsing Data (`clearBrowsingData`) | 🟡 | `AppDelegate.swift` | `BrowsingDataClear` | The store side is shared; the command and Chrome's dialog are missing. |
 | Ad and tracker blocker | ✅ [#45] | `CraContentBlocker.h`, `CraCEF.mm` | `SiteControlCenter` | `CraCEFWin.cpp` includes the Mac's `CraContentBlocker.h` as is: the same matcher, the same third-party rule and the same `resources/blocklist` list, copied beside Cra.exe by build.ps1 and read off the UI thread at launch. The switch follows `blockAdsAndTrackers` live, from Settings ▸ Privacy, the Site Control Center and the onboarding. |
 | Block Cookie Banners (Arc's, off by default) | ✅ [#46] | `BrowserManager.swift`, `PrivacyPane.swift` | `CookieBanners` (`pageScript`), `SidebarStore` (`cookieBannerCSS`) | Upstream 93b20a6. The stylesheet is shared. Windows: Settings ▸ Privacy's switch; each page adopts it as it commits (`cra_cef_set_page_start_script`, from the main world, where the Mac uses an isolated one; nothing is left on `window`). |
-| Always use secure connections (HTTPS-only), Secure DNS | ❌ | `PrivacyPane.swift`, `SecureDNSSetting.swift` | `SecureDNS` | Both are Chromium prefs; the decisions are shared. |
+| Always use secure connections (HTTPS-only), Secure DNS | 🟡 [#54] | `PrivacyPane.swift`, `SecureDNSSetting.swift` | `SecureDNS` | Both are Chromium prefs; the decisions are shared. Windows: Settings ▸ Privacy ▸ Connections has the HTTPS-only switch (`httpsOnly`, Chrome's `https_only_mode_enabled` on every profile, private windows and profiles that load later included). Left: Secure DNS, which lives in Chromium's Local State. |
 | Passwords and cookies encrypted with a key of Cra's own | ❌ | `SafeStorage.swift`, `keychain-service-name.patch` | | Windows counterpart: DPAPI, which Chromium uses by default. Confirm the stock CEF build does. |
 | Safe Browsing, Web Push | ❌ | `CraCEF.mm`, `safe-browsing-update-interval.patch`, `gcm-enabled.patch` | | Needs Cra's CEF patches on the Windows build (today it uses Spotify's stock build). |
 | Passkeys with the platform authenticator | ❌ | `webauthn-keychain-access-group.patch` | | Windows counterpart: Windows Hello, which Chromium uses on Windows. Check it works in CEF. |
@@ -631,3 +631,4 @@ Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
 [#51]: https://github.com/vishnu597/cra-windows/pull/51
 [#52]: https://github.com/vishnu597/cra-windows/pull/52
 [#53]: https://github.com/vishnu597/cra-windows/pull/53
+[#54]: https://github.com/vishnu597/cra-windows/pull/54

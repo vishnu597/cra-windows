@@ -190,6 +190,14 @@ public final class CraApp: SwiftApplication {
             cra_cef_set_link_menu_background(LinkMenu.item(switchesToTab: switches).opensInBackground ? 1 : 0)
         }
         followLinkMenu()
+        // Settings ▸ Privacy ▸ Always use secure connections (Chrome's HTTPS-only mode).
+        func followHttpsOnly() {
+            let on = withObservationTracking { store.settings.httpsOnly } onChange: {
+                onMain { _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { followHttpsOnly() } }
+            }
+            cra_cef_set_https_only(on ? 1 : 0)
+        }
+        followHttpsOnly()
     }
 
     private static var exeFolder: URL { URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent() }
