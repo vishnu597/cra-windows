@@ -29,6 +29,7 @@ public extension KeyChord {
         case Self.up: parts.append("Up")
         case Self.down: parts.append("Down")
         case Self.delete: parts.append("Backspace")
+        case Self.forwardDelete: parts.append("Delete")
         default: parts.append(functionNumber.map { "F\($0)" } ?? key.uppercased())
         }
         return parts.joined(separator: "+")
@@ -56,6 +57,7 @@ public extension KeyChord {
         case 0x41...0x5A, 0x30...0x39: key = String(UnicodeScalar(UInt8(vk))).lowercased()   // A-Z, 0-9
         case 0x60...0x69: key = String(vk - 0x60)                                           // the keypad's digits
         case 0x08: key = Self.delete
+        case 0x2E: key = Self.forwardDelete
         case 0x09: key = Self.tab
         case 0x25: key = Self.left
         case 0x26: key = Self.up
@@ -80,6 +82,7 @@ public extension KeyChord {
         if let n = functionNumber { return Int32(0x6F + n) }
         switch key {
         case Self.delete: return 0x08
+        case Self.forwardDelete: return 0x2E
         case Self.tab: return 0x09
         case Self.left: return 0x25
         case Self.up: return 0x26

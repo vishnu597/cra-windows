@@ -10,6 +10,39 @@ import Foundation
 /// 1 Nov 2026: cleared history kept showing in the command bar.
 public enum BrowsingDataClear {
     public static let pageURL = "chrome://settings/clearBrowserData"
+
+    /// What a chrome://settings page runs (DevTools Runtime.evaluate, awaiting the promise) to
+    /// hear the dialog's Delete: the message's arguments after the callback, as JSON, once. A
+    /// second run on the same page waits on the same promise.
+    public static let watchScript = """
+    (() => {
+      if (typeof chrome === 'undefined' || typeof chrome.send !== 'function') return null;
+      return window.__craClearBrowsingData ??= new Promise(resolve => {
+        const send = chrome.send;
+        chrome.send = function (name, args) {
+          if (name === 'clearBrowsingData') {
+            chrome.send = send;
+            window.__craClearBrowsingData = null;
+            resolve(JSON.stringify((args ?? []).slice(1)));
+          }
+          return send.apply(this, arguments);
+        };
+      });
+    })()
+    """
+
+    /// Runtime.evaluate's parameters for `watchScript`.
+    public static var watchParams: String {
+        let params: [String: Any] = ["expression": watchScript, "returnByValue": true, "awaitPromise": true]
+        return (try? JSONSerialization.data(withJSONObject: params)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
+
+    /// The string an evaluate answered with, or nil for an exception or anything else.
+    public static func stringResult(_ result: String?) -> String? {
+        guard let data = result?.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], json["exceptionDetails"] == nil else { return nil }
+        return (json["result"] as? [String: Any])?["value"] as? String
+    }
     /// browsing_data::prefs::kDeleteBrowsingHistory.
     public static let historyDataType = "browser.clear_data.browsing_history"
 

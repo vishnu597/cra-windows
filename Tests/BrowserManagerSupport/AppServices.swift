@@ -113,6 +113,7 @@ enum TestRoot { case today }
 }
 enum BrowsingDataClear {
     enum Range { case allTime }
+    static let watchParams = "{}"
     static func historyRange(messageJSON: String, now: Date) -> Range? { nil }
 }
 enum TabSwitcherMetrics { static let thumbnail = NSSize(width: 320, height: 200) }

@@ -76,3 +76,26 @@ struct BrowsingDataClearTests {
         #expect(BrowsingDataClear.keptArchive(archive, clearing: .allTime).isEmpty)
     }
 }
+
+/// The Windows app opens Chrome's dialog on Chrome for Windows' key and hears its Delete with the
+/// same script as the Mac.
+struct BrowsingDataClearWindowsTests {
+    @Test func ctrlShiftDeleteOpensIt() {
+        let windows = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.windows.map { ($0.id, $0) })
+        let chord = KeyChord(KeyChord.forwardDelete, [.control, .shift] as KeyChord.Modifiers)
+        #expect(windows["clearBrowsingData"]?.shortcuts == [chord])
+        #expect(chord.windowsDisplay == "Ctrl+Shift+Delete")
+        #expect(KeyChord(windowsVirtualKey: 0x2E, control: true, shift: true, alt: false) == chord)
+        #expect(chord.windowsVirtualKey == 0x2E)
+        #expect(KeyChord(windowsVirtualKey: 0x08, control: true, shift: true, alt: false)?.key == KeyChord.delete, "Backspace stays")
+    }
+
+    @Test func theWatchAwaitsTheDialogsMessage() throws {
+        let params = try #require(try JSONSerialization.jsonObject(with: Data(BrowsingDataClear.watchParams.utf8)) as? [String: Any])
+        #expect(params["awaitPromise"] as? Bool == true && params["returnByValue"] as? Bool == true)
+        #expect((params["expression"] as? String)?.contains("'clearBrowsingData'") == true)
+        #expect(BrowsingDataClear.stringResult(#"{"result":{"type":"string","value":"[[\"a\"],4]"}}"#) == #"[["a"],4]"#)
+        #expect(BrowsingDataClear.stringResult(#"{"result":{"type":"object"},"exceptionDetails":{}}"#) == nil)
+        #expect(BrowsingDataClear.stringResult(nil) == nil)
+    }
+}
