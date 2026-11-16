@@ -4,6 +4,11 @@ import Foundation
 /// special key as on the Mac, and the modifier bits are named after the keys, so on Windows
 /// `.control` is Ctrl, `.option` is Alt and `.command` the Windows key.
 public extension KeyChord {
+    /// Page Up and Page Down as AppKit writes them (NSPageUpFunctionKey, NSPageDownFunctionKey):
+    /// Chrome for Windows' Ctrl+PgUp / Ctrl+PgDn for the previous and next tab.
+    static let pageUp = "\u{F72C}"
+    static let pageDown = "\u{F72D}"
+
     /// F1...F19 as AppKit writes them (NSF1FunctionKey is U+F704).
     static func function(_ n: Int) -> String {
         String(UnicodeScalar(UInt32(0xF703 + n)).map(Character.init) ?? " ")
@@ -30,6 +35,8 @@ public extension KeyChord {
         case Self.down: parts.append("Down")
         case Self.delete: parts.append("Backspace")
         case Self.forwardDelete: parts.append("Delete")
+        case Self.pageUp: parts.append("PgUp")
+        case Self.pageDown: parts.append("PgDn")
         default: parts.append(functionNumber.map { "F\($0)" } ?? key.uppercased())
         }
         return parts.joined(separator: "+")
@@ -37,7 +44,7 @@ public extension KeyChord {
 
     /// The keys that are not characters, which a shortcut can use without Ctrl or Alt.
     var isSpecialKey: Bool {
-        [Self.tab, Self.left, Self.right, Self.up, Self.down].contains(key) || functionNumber != nil
+        [Self.tab, Self.left, Self.right, Self.up, Self.down, Self.pageUp, Self.pageDown].contains(key) || functionNumber != nil
     }
 
     // MARK: Virtual keys
@@ -59,6 +66,8 @@ public extension KeyChord {
         case 0x08: key = Self.delete
         case 0x2E: key = Self.forwardDelete
         case 0x09: key = Self.tab
+        case 0x21: key = Self.pageUp
+        case 0x22: key = Self.pageDown
         case 0x25: key = Self.left
         case 0x26: key = Self.up
         case 0x27: key = Self.right
@@ -84,6 +93,8 @@ public extension KeyChord {
         case Self.delete: return 0x08
         case Self.forwardDelete: return 0x2E
         case Self.tab: return 0x09
+        case Self.pageUp: return 0x21
+        case Self.pageDown: return 0x22
         case Self.left: return 0x25
         case Self.up: return 0x26
         case Self.right: return 0x27

@@ -294,8 +294,12 @@ public enum KeyBindingDefaults {
             // Help ▸ Troubleshooting's Reveal Cra Data and Copy Cra Info, and Language Settings
             // (Chromium's page), from the command bar.
             "revealData": [], "copyAppInfo": [], "languageSettings": [],
-            "nextTab": [KeyChord(KeyChord.tab, ctrl)],
-            "previousTab": [KeyChord(KeyChord.tab, ctrlShift)],
+            // Arc's ⌃Tab: the switcher over the space's recent tabs. Sidebar order moves to
+            // Chrome for Windows' other keys for it.
+            "recentTab": [KeyChord(KeyChord.tab, ctrl)],
+            "recentTabBackward": [KeyChord(KeyChord.tab, ctrlShift)],
+            "nextTab": [KeyChord(KeyChord.pageDown, ctrl)],
+            "previousTab": [KeyChord(KeyChord.pageUp, ctrl)],
             "goBack": [KeyChord(KeyChord.left, alt)],
             "goForward": [KeyChord(KeyChord.right, alt)],
             "settings": [KeyChord(",", ctrl)],
