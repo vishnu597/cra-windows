@@ -764,6 +764,11 @@ final class BrowserWindow {
         case "duplicateTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { _ = store.duplicateTab(t) }
         case "muteTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { toggleMute(t) }
         case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
+        case "newFolder": sidebar.newFolder()
+        case "newSpace": if !isIncognito { sidebar.newSpace() }
+        case "clearToday": store.clearToday(store.focusedSpaceID(window: windowID), playing: [])
+        case "showArchive": showLibrary(.archive)
+        case "clearArchive": store.clearArchive()
         case "resetSpaceTabs": resetAllPinnedTabs()
         case "favoriteTab": if let t = store.selectedTabID(window: windowID), !store.isFavorite(t) { store.addToFavorites(t) }
         case "nextTab": cycleTab(1)
