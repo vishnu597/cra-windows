@@ -121,34 +121,45 @@ enum SettingsPanes {
 
     // MARK: Privacy
 
-    /// Dia's "Content blocking" card (PrivacyPane on the Mac), with the switch Windows has so
-    /// far: the ad and tracker blocker. Cookie banners, fingerprinting, secure connections and
-    /// the Data card wait for their features.
+    /// Dia's "Content blocking" card (PrivacyPane on the Mac), with the switches Windows has so
+    /// far: the ad and tracker blocker and cookie banners. Fingerprinting, secure connections
+    /// and the Data card wait for their features.
     static func privacy(store: SidebarStore, palette: SettingsPalette) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
         stack.margin = Thickness(left: Double(DiaSettingsMetrics.paneInset), top: Double(DiaSettingsMetrics.paneTop),
                                  right: Double(DiaSettingsMetrics.paneInset), bottom: 20)
         stack.children.append(header("Content blocking", palette: palette))
-        let title = "Block ads and trackers"
-        let blocker = ToggleSwitch()
-        blocker.onContent = ""
-        blocker.offContent = ""
-        blocker.minWidth = 0
-        blocker.isOn = store.settings.blockAdsAndTrackers
-        blocker.toggled.addHandler { [weak blocker] _, _ in
-            guard let blocker else { return }
-            let on = blocker.isOn
-            if store.settings.blockAdsAndTrackers != on { store.settings.blockAdsAndTrackers = on }
+        var syncs: [() -> Void] = []
+        func switchRow(_ title: String, detail: String, _ key: WritableKeyPath<AppSettings, Bool>) -> Grid {
+            let toggle = ToggleSwitch()
+            toggle.onContent = ""
+            toggle.offContent = ""
+            toggle.minWidth = 0
+            toggle.isOn = store.settings[keyPath: key]
+            toggle.toggled.addHandler { [weak toggle] _, _ in
+                guard let toggle else { return }
+                let on = toggle.isOn
+                if store.settings[keyPath: key] != on { store.settings[keyPath: key] = on }
+            }
+            try? AutomationProperties.setName(toggle, title)
+            syncs.append {
+                let on = store.settings[keyPath: key]
+                if toggle.isOn != on { toggle.isOn = on }
+            }
+            return cardRow(title, detail: detail, trailing: toggle, palette: palette)
         }
-        try? AutomationProperties.setName(blocker, title)
-        stack.children.append(card([cardRow(title, detail: "Requests to known ad and tracker domains are cancelled, unless the domain belongs to the site you’re on.",
-                                            trailing: blocker, palette: palette)], palette: palette))
-        // The Site Control Center's switch and the onboarding change it too.
-        return SettingsPaneContent(element: stack) {
-            let on = store.settings.blockAdsAndTrackers
-            if blocker.isOn != on { blocker.isOn = on }
-        }
+        stack.children.append(card([
+            switchRow("Block ads and trackers",
+                      detail: "Requests to known ad and tracker domains are cancelled, unless the domain belongs to the site you’re on.",
+                      \.blockAdsAndTrackers),
+            // Arc: Settings ▸ General "Block Cookie Banners", off by default.
+            switchRow("Block cookie banners",
+                      detail: "Cookie banners from the common consent tools are hidden. Pages load again with the change.",
+                      \.blockCookieBanners),
+        ], palette: palette))
+        // The Site Control Center's switch and the onboarding change them too.
+        return SettingsPaneContent(element: stack) { syncs.forEach { $0() } }
     }
 
     // MARK: Tabs

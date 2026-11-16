@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -834,6 +835,16 @@ private:
     IMPLEMENT_REFCOUNTING(ContentBlockingHandler);
 };
 
+/// A script every page runs as it commits (cra_cef_set_page_start_script): the cookie banner
+/// stylesheet, while that setting is on. Set on the UI thread, read on it as pages commit.
+std::mutex g_pageStartScriptLock;
+std::string g_pageStartScript;
+
+std::string PageStartScript() {
+    std::lock_guard<std::mutex> lock(g_pageStartScriptLock);
+    return g_pageStartScript;
+}
+
 /// One page (or a popup host waiting for its popup). Holds its CraBrowser until OnBeforeClose.
 class CraClient : public CefClient,
                   public CefDisplayHandler,
@@ -1061,6 +1072,10 @@ public:
         CraBrowser *o = Live();
         if (!o || !frame->IsMain()) return;
         if (o->callbacks.background_color_reported) o->callbacks.background_color_reported(o->callbacks.context, "");
+        // The new document is there (CEF calls this once the navigation commits), as on the Mac's
+        // didChangeCommittedLoad.
+        std::string script = PageStartScript();
+        if (!script.empty()) frame->ExecuteJavaScript(script, frame->GetURL(), 0);
     }
 
     void OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, int httpStatusCode) override {
@@ -1660,6 +1675,11 @@ extern "C" void cra_cef_load_blocked_domains(const char *path) {
 }
 
 extern "C" int cra_cef_blocked_domain_count(void) { return static_cast<int>(cra_blocker::Count()); }
+
+extern "C" void cra_cef_set_page_start_script(const char *script) {
+    std::lock_guard<std::mutex> lock(g_pageStartScriptLock);
+    g_pageStartScript = script ? script : "";
+}
 
 extern "C" void cra_cef_set_stray_page_handler(void *context, CraStrayPageHandler handler) {
     g_strayPageContext = context;

@@ -23,4 +23,13 @@ public enum CookieBanners {
             + "body.onetrust-consent-sdk-open { overflow: auto !important; position: static !important; }"
         return hide + " " + unlock
     }()
+
+    /// A script that gives the page it runs in `css` as an adopted stylesheet, kept out of the
+    /// page's markup: Windows runs it as each page commits (the Mac adopts the same stylesheet
+    /// from an isolated world in BrowserManager). Nothing is left on `window`.
+    public static let pageScript: String = {
+        let literal = (try? JSONSerialization.data(withJSONObject: [css])).flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+        return "(()=>{const s=new CSSStyleSheet();s.replaceSync(\(literal)[0]);"
+            + "document.adoptedStyleSheets=[...document.adoptedStyleSheets,s];})()"
+    }()
 }
