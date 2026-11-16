@@ -22,7 +22,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 <!-- summary: parity.py summary --write -->
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
-| Window, pages and toolbar | 6 | 5 | 0 | 14 | 1 |
+| Window, pages and toolbar | 7 | 4 | 0 | 14 | 1 |
 | Sidebar | 6 | 7 | 0 | 15 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 32 | 40 | 1 | 67 | 16 |
+| **All** | 33 | 39 | 1 | 67 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -56,7 +56,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Back and Forward history menu: right-click or hold Back or Forward lists the tab's pages (#416) | ❌ | `BackForwardMenuView.swift`, `ButtonHold.swift` | `BackForwardMenu` | Upstream c61aab7: rows from DevTools' `Page.getNavigationHistory` and Arc's menu geometry in CraCore. Windows' sidebar Back and Forward buttons need the right-click/hold and a FloatingWindow menu. |
 | Toasts (copied URL with Share, captures, downloads) | ✅ [#17] | `ShinyToast.swift`, `Overlays.swift` | `ToastStyle`, `ShareRetry` | Windows uses DataTransferManager for Share. `ShareRetry` bounds temporary-busy retries and ends with one failure toast; commands, Site Controls and copied-URL toasts use the same path. The sheet opens with Cra's window in front (a toast's Share button hands the foreground back to its window first), and `ShareRetry.OwnerWatch` re-enables a window a sheet left disabled (gone, or in front but cloaked) and shows the failure toast when no sheet ever showed. A wedged Windows Share (ShellExperienceHost holding a dead sheet) needs a sign-out on the PC; the sheet's own close can't be driven by test input. |
 | Site Control Center, lock badge and certificate viewer | 🟡 [#17] | `SiteControlCenter.swift`, `CertificateWindow.swift` | `SiteControlCenter`, `ConnectionSecurity`, `PageCapture` | Windows shows the sliders in the sidebar's address pill. Its Settings section has the Developer Mode and Block Ads & Trackers switches [#45]. Missing: the protected-media card (Mac only, see Media) and upstream cbb5753's per-site Automatic Picture-In-Picture switch. |
-| Zoom (`zoomIn`, `zoomOut`, `resetZoom`), `print`, `viewSource` | 🟡 | `AppDelegate.swift` | `KeyBindingDefaults` | Left to Chromium's own keys on Windows: not in Cra's key table, the command bar or Settings ▸ Shortcuts. Add them to `KeyBindingDefaults.windowsShortcuts`. |
+| Zoom (`zoomIn`, `zoomOut`, `resetZoom`), `print`, `viewSource` | ✅ [#58] | `AppDelegate.swift` | `KeyBindingDefaults` | Windows takes Chrome's keys for them (Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+P, Ctrl+U) in its key table, the command bar and Settings ▸ Shortcuts, and zooms in the Mac's half-level steps. Ctrl+Shift+= stays Add Split View. |
 | Page context menu: Open Link in New Tab and Open Link in Split View; Alt-click split | 🟡 | `BrowserManager.swift` | `LinkMenu`, `PageMenuLabels`, `LinkSplitClick` | Chromium's menu shows on Windows. Upstream 9630b47, 249adb7 and 8a6c6bf add a split action, one localized Open Link in New Tab item following the foreground setting, and Option-click split (Alt on Windows). Windows: Chrome's Open Link in New Tab, under its own localized label, follows the setting [#48]. Left: Open Link in Split View, Open Link in Little Window, Alt-click split. |
 | Arc-style tooltips in the space's tones | ❌ | `ArcTooltip.swift` | `ThemeTones` (`TooltipTones`) | Windows uses plain WinUI tooltips. |
 | Theme, metrics and the brand mark | 🟡 | `Theme.swift`, `Tuning.swift`, `BrandMark.swift` | `SpaceTheme`, `ThemeTones`, `ArcMenuTones`, `SidebarTones`, `CardFill` | Sidebar palette from `SpaceTheme` is shared; Windows has its own metrics. Upstream's Arc menu, sidebar hover and card-fill policies are available but not all used by the Windows controls. Brand mark from `brand/`. |
@@ -635,3 +635,4 @@ Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
 [#55]: https://github.com/vishnu597/cra-windows/pull/55
 [#56]: https://github.com/vishnu597/cra-windows/pull/56
 [#57]: https://github.com/vishnu597/cra-windows/pull/57
+[#58]: https://github.com/vishnu597/cra-windows/pull/58

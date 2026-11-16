@@ -313,6 +313,13 @@ public enum KeyBindingDefaults {
             // Extensions is chrome://extensions.
             "openExtensions": [KeyChord("e", ctrl)],
             "manageExtensions": [],
+            // Chrome for Windows' page keys. Zoom In keeps only Ctrl+=: Ctrl+Shift+= (Chrome's
+            // Ctrl++) is Add Split View here, as ⌃⇧= is on the Mac.
+            "print": [KeyChord("p", ctrl)],
+            "viewSource": [KeyChord("u", ctrl)],
+            "resetZoom": [KeyChord("0", ctrl)],
+            "zoomIn": [KeyChord("=", ctrl)],
+            "zoomOut": [KeyChord("-", ctrl)],
         ]
         for n in 1...9 {
             table["item\(n)"] = [KeyChord("\(n)", ctrl)]

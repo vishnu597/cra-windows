@@ -776,6 +776,13 @@ final class BrowserWindow {
         case "toggleDeveloperMode": toggleDeveloperMode()
         case "goBack": shownPage?.goBack()
         case "goForward": shownPage?.goForward()
+        // The Mac's steps (MainWindowController.zoom(by:)): half a Chromium zoom level, which
+        // Chromium keeps for the site.
+        case "zoomIn": if let page = shownPage { page.zoomLevel += 0.5 }
+        case "zoomOut": if let page = shownPage { page.zoomLevel -= 0.5 }
+        case "resetZoom": shownPage?.zoomLevel = 0
+        case "print": shownPage?.printPage()
+        case "viewSource": shownPage?.viewSource()
         case "addSplitView": addSplitPane()
         case "closeSplitPane": if let t = store.selectedTabID(window: windowID) { closeSplitPane(t) }
         case "separateFromSplit": if let t = store.selectedTabID(window: windowID) { separatePane(t) }
