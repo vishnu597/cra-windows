@@ -30,7 +30,7 @@ struct SidebarDropPlanTests {
         return (0..<n).map { f.store.createTab(url: "https://\($0).test/").id }
     }
 
-    private func resolve(_ f: StoreFixture, _ id: UUID, _ x: Double = 50, _ y: Double, expanded: [UUID: [UUID]] = [:]) -> SidebarDropPlan.Drop {
+    private func resolve(_ f: StoreFixture, _ id: UUID, _ y: Double, x: Double = 50, expanded: [UUID: [UUID]] = [:]) -> SidebarDropPlan.Drop {
         SidebarDropPlan.resolve(dragged: id, at: (x, y), layout: layout(f, expanded: expanded), space: f.space.id, store: f.store)
     }
 
@@ -60,8 +60,8 @@ struct SidebarDropPlanTests {
         let f = StoreFixture()
         let t = todayTabs(f, 3)
         let middle = 10 + 15.0
-        #expect(resolve(f, t[2], 40, middle).target == .split(with: t[0], leading: true))
-        let drop = resolve(f, t[2], 160, middle)
+        #expect(resolve(f, t[2], middle, x: 40).target == .split(with: t[0], leading: true))
+        let drop = resolve(f, t[2], middle, x: 160)
         #expect(drop.target == .split(with: t[0], leading: false) && drop.lineY == nil && drop.combineRow == t[0])
         #expect(SidebarDropPlan.apply(drop, store: f.store, window: f.store.activeWindowID))
         let split = f.store.splitContaining(t[0])
