@@ -388,6 +388,12 @@ built release app with a test profile. Note anything that fails in the release's
   form on one and play a video on another, then leave them all hidden for 16 minutes. The plain
   tabs reload when opened again; the form keeps its text and the video kept playing. Needs real
   pages and wall-clock time, so no scenario covers it.
+- **Windows tab switcher:** with five tabs visited in a space, hold Ctrl and press Tab: after a
+  moment Arc's card panel shows in the middle of the window, the previous tab picked. More Tabs,
+  Shift+Tab and the arrows move round; letting go of Ctrl switches. A quick Ctrl+Tab switches to
+  the previous tab without showing it; Escape keeps the tab; moving the pointer over a card picks
+  it and a click switches. Ctrl+PgDn / Ctrl+PgUp go down and up the sidebar. Needs a held key, so
+  no scenario covers it.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.

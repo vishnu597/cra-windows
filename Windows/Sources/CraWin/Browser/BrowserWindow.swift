@@ -136,6 +136,8 @@ final class BrowserWindow {
     private var hiddenAt: [UUID: Date] = [:]
     private var sleepAskAfter: [UUID: Date] = [:]
     private var sleepTimer: WinAppSDK.DispatcherQueueTimer?
+    /// Arc's Ctrl+Tab switcher over the space's recent tabs.
+    private var tabSwitcher: TabSwitcherWindow!
     /// Each tab's wait for its first response, and the tab whose "Still waiting" toast is up
     /// (SlowResponseNotice, the Mac's MainWindowController).
     private var slowResponses = SlowResponseNotices()
@@ -238,6 +240,7 @@ final class BrowserWindow {
         makeSiteControlCenter()
         toast = ToastView(owner: window) { [weak self] in self?.pageOnScreen() }
         startTabSleeping()
+        makeTabSwitcher()
         // Chromium closes its pages before their parent window goes (CEF's DoClose order).
         window.shouldClose = { [weak self] in
             guard let self, !self.readyToClose else { return true }
@@ -527,7 +530,7 @@ final class BrowserWindow {
             guard let self, let args, !args.handled else { return }
             let key = KeyPress(keyCode: Int32(truncatingIfNeeded: args.key.rawValue), control: Self.isDown(0x11),
                                shift: Self.isDown(0x10), alt: Self.isDown(0x12))
-            if self.handleShortcut(key) { args.handled = true }
+            if self.tabSwitcher?.isOpen == true ? self.switcherKey(key) : self.handleShortcut(key) { args.handled = true }
         }
         return sidebarPanel
     }
@@ -820,6 +823,8 @@ final class BrowserWindow {
             if let appearance = WebsiteAppearance(commandID: id) { store.settings.websiteAppearance = appearance }
         case "resetSpaceTabs": resetAllPinnedTabs()
         case "favoriteTab": if let t = store.selectedTabID(window: windowID), !store.isFavorite(t) { store.addToFavorites(t) }
+        case "recentTab": cycleRecentTabs(1)
+        case "recentTabBackward": cycleRecentTabs(-1)
         case "nextTab": cycleTab(1)
         case "previousTab": cycleTab(-1)
         case "nextSpace": store.focusSpace(offset: 1, window: windowID)
@@ -945,6 +950,49 @@ final class BrowserWindow {
     }
 
     private static let sleepRefusalBackoff: TimeInterval = 10 * 60
+
+    // MARK: Tab switcher
+
+    private func makeTabSwitcher() {
+        guard let window else { return }
+        tabSwitcher = TabSwitcherWindow(owner: window) { [weak window] in
+            guard let window else { return nil }
+            let position = window.appWindow.position, size = window.appWindow.size
+            return (position.x, position.y, size.width, size.height, window.scale)
+        }
+        tabSwitcher.onCommit = { [weak self] id in
+            guard let self, id != self.store.selectedTabID(window: self.windowID) else { return }
+            self.store.selectTab(id, window: self.windowID)
+        }
+    }
+
+    /// Ctrl+Tab / Ctrl+Shift+Tab: Arc's switcher over the space's recent tabs
+    /// (MainWindowController.cycleRecentTabs).
+    private func cycleRecentTabs(_ delta: Int) {
+        let space = store.focusedSpace(window: windowID)
+        let selected = store.selectedTabID(window: windowID)
+        tabSwitcher.cycle(delta, theme: space.theme, dark: WinAppearance.isDark) {
+            let recent = store.recentTabs(in: space.id, limit: .max, window: windowID)
+            let ids = TabSwitcherCycle.cards(recent: recent, selected: selected, isPinned: { self.store.isPinned($0) },
+                                             isLoaded: { self.pages[$0] != nil })
+            return ids.compactMap { id in
+                guard let item = store.item(id), let tab = item.tab else { return nil }
+                return TabSwitcherWindow.Card(id: id, title: item.displayTitle, iconKey: tab.iconKey)
+            }
+        }
+    }
+
+    /// Every key is the switcher's while it is up; the user's own switcher keys move it.
+    private func switcherKey(_ key: KeyPress) -> Bool {
+        let chord = KeyChord(windowsVirtualKey: key.keyCode, control: key.control, shift: key.shift, alt: key.alt)
+        let direction: Int? = switch chord.flatMap({ WinKeyBindings.shared.action(matching: $0) })?.id ?? "" {
+        case "recentTab": 1
+        case "recentTabBackward": -1
+        default: nil
+        }
+        tabSwitcher.handle(key, direction: direction)
+        return true
+    }
 
     /// Selects the tab `delta` rows away in the space's favorites, pinned and Today tabs.
     private func cycleTab(_ delta: Int) {
@@ -2266,6 +2314,7 @@ extension BrowserWindow: WebPageDelegate {
     }
 
     func page(_ page: WebPage, handleKey key: KeyPress) -> Bool {
+        if tabSwitcher?.isOpen == true { return switcherKey(key) }
         guard !key.isRepeat || key.keyCode == 0x09 else { return false }
         return handleShortcut(key)
     }
