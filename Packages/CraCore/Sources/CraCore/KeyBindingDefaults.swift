@@ -289,6 +289,8 @@ public enum KeyBindingDefaults {
             "clearToday": [KeyChord("k", ctrlShift)],
             "showArchive": [],
             "clearArchive": [],
+            // View ▸ Appearance, from the command bar (no keys on the Mac either).
+            "appearanceAutomatic": [], "appearanceLight": [], "appearanceDark": [],
             "nextTab": [KeyChord(KeyChord.tab, ctrl)],
             "previousTab": [KeyChord(KeyChord.tab, ctrlShift)],
             "goBack": [KeyChord(KeyChord.left, alt)],

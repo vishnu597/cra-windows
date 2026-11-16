@@ -769,6 +769,8 @@ final class BrowserWindow {
         case "clearToday": store.clearToday(store.focusedSpaceID(window: windowID), playing: [])
         case "showArchive": showLibrary(.archive)
         case "clearArchive": store.clearArchive()
+        case "appearanceAutomatic", "appearanceLight", "appearanceDark":
+            if let appearance = WebsiteAppearance(commandID: id) { store.settings.websiteAppearance = appearance }
         case "resetSpaceTabs": resetAllPinnedTabs()
         case "favoriteTab": if let t = store.selectedTabID(window: windowID), !store.isFavorite(t) { store.addToFavorites(t) }
         case "nextTab": cycleTab(1)

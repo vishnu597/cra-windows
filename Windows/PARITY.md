@@ -22,7 +22,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 <!-- summary: parity.py summary --write -->
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
-| Window, pages and toolbar | 8 | 4 | 0 | 13 | 1 |
+| Window, pages and toolbar | 8 | 5 | 0 | 12 | 1 |
 | Sidebar | 6 | 8 | 0 | 14 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 2 | 2 | 0 | 1 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
 | System integration and release | 3 | 2 | 0 | 10 | 8 |
-| **All** | 34 | 40 | 1 | 65 | 16 |
+| **All** | 34 | 41 | 1 | 64 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -65,7 +65,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Arc's dialog sheet for every confirmation: one card, its buttons, keys and hover | ❌ | `AppDialog.swift`, `DialogComponents.swift`, `Colors.swift` | `DialogActions` | Upstream bc47470 (#224). Windows asks with WinUI flyouts and dialogs; `DialogActions` (which button Return and Escape press) is shared for the Windows card. `Colors.swift` is SwiftUI's hex colours. |
 | Stay On Top (`stayOnTop`), Save Page As (`savePageAs`), Copy URL as Quote (`copyURLQuote`), Copy URL without trackers | 🟡 [#52] | `MainWindowController.swift`, `AppDelegate.swift` | `CleanURL` | Upstream d110dc6. Windows: Copy URL and Copy URL as Markdown leave trackers out (`CleanURL`), Copy URL as Quote copies the selection with a text-fragment link, Stay On Top keeps the window (or a Little Window) above other apps' (`HWND_TOPMOST`); both from the command bar, no keys (the Mac's ⌃⇧⌘C has no free Windows counterpart). Left: Save Page As, and upstream cd8f3f5's copy of every selected sidebar tab's URL, which needs multi-selection. |
 | Find ▸ Use Selection to Find (`useSelectionForFind`), Jump to Selection (`jumpToSelection`) | ❌ | `MainWindowController.swift` | `FindInPage` | Upstream 894f1f6. Windows' find bar would take the page's selection. |
-| What websites see: View ▸ Appearance (`appearanceAutomatic`, `appearanceLight`, `appearanceDark`), sound effects, "Allow websites to get your theme data" | ❌ | `AppDelegate.swift`, `BrowserManager.swift`, `AdvancedPane.swift`, `CraCEF.mm` | `SidebarModel` (`WebsiteAppearance`), `ArcThemeData`, `ThemeTones`, `SidebarStore` (`themeDataCSS`) | Upstream 35bc84a, bfd9962. The settings are in the shared `settings.json`; Windows needs the CEF colour-scheme call and the `:root` style injection. |
+| What websites see: View ▸ Appearance (`appearanceAutomatic`, `appearanceLight`, `appearanceDark`), sound effects, "Allow websites to get your theme data" | 🟡 [#62] | `AppDelegate.swift`, `BrowserManager.swift`, `AdvancedPane.swift`, `CraCEF.mm` | `SidebarModel` (`WebsiteAppearance`), `ArcThemeData`, `ThemeTones`, `SidebarStore` (`themeDataCSS`) | Upstream 35bc84a, bfd9962. Windows has View ▸ Appearance as commands: every profile's CEF colour scheme follows it, and Light or Dark turn Settings and the Site Control Center too. Left: sound effects and the theme data `:root` style injection. |
 | "When opening Cra, restore windows from previous session" and "start on a new tab" | ✅ [#59] | `AppDelegate.swift`, `AdvancedPane.swift` | `SidebarModel` (`restoreWindows`), `SidebarStore`, `LaunchStart` | Upstream 337d5f8 and 7c98d46. Windows: Settings ▸ Advanced ▸ Opening and quitting has both switches. Off, only the window in use last comes back (`keepOnlyActiveWindow`); on a new tab, the window opens with no tab selected and the command bar making one, unless another app started Cra for a link. A link arriving later closes that bar. |
 | Slow first response: after 10 seconds, a waiting-page toast with Stop Loading | ✅ [#57] | `BrowserManager.swift`, `ShinyToast.swift` | `SlowResponseNotice`, `SlowResponseNotices` | Upstream 001afb2. Browser windows (front tab only) and Little Windows; the bridge reports commits and navigation starts, the toast stays with a ✕. |
 | Translate a page, Translation Available affordance and Arc's translate popover | ❌ | `BrowserManager+Translation.swift`, `TranslatePopover.swift`, `PaneToolbarView.swift` | `PageTranslation` | Upstream 386fbf8. Requires the translate CEF bridge/patch (`translate-ui.patch`) and native Windows popover; stock CEF alone does not provide Cra's state callback. |
@@ -437,7 +437,7 @@ types for Windows became `DiaSettingsPane`, `DiaSettingsNavigation` and `DiaSett
 | ba49acf, ebce13c, ea617f9 | Sync: later bundles apply by themselves; repairs (#352, #378) | Sync row; Windows has no sync. ❌ |
 | 068df70, 5e02b46 | Extension windows over a full-screen Cra; two displays and full-screen Spaces (#351, #354) | Mac only (macOS Spaces). ➖ |
 | e020f1d, d31a84f, 109c697, 9dd665f, b980028, 1f88af4 | Picked tabs: Arc's menu, Copy URLs, Share N Items; Share Folder… links; the "Send this Folder" warning (#356, #357) | Sidebar multi-selection row (`PickedTabsMenu`, `FolderShareLink`; its links are raw DEFLATE, which `RawDeflate` packs and reads off Apple platforms). Windows has no multi-selection. ❌ |
-| 2a0ee52 | Switch to Light/Dark Mode turns the browser too (#362) | Website appearance row; Windows has no appearance commands yet. ❌ |
+| 2a0ee52 | Switch to Light/Dark Mode turns the browser too (#362) | Website appearance row; Windows' Light and Dark turn its Settings and Site Control Center ([#62]). 🟡 |
 | 8f9af14, c0981c0, fccc893, 43afe0e | Peek grows from web-component links (#359); ⌘-click Expand loads in the source tab (#380); Peek buttons rise and press (#385); ⌘T in a Peek (#379) | Peek row (`PeekExpand`, `PeekControlLook`). Windows has none of these yet. ❌ |
 | eda6089, cba9995 | Copy URL glyph animates link → checkmark → link (#361); a Copy URL scenario (#322) | `CopyCheck`, `CopyCheckAnimation.swift`; Windows' Copy URL button doesn't animate. ❌ |
 | f5751d6, 537dc09 | ⌘W closes Settings, not the tab behind it (#364) | Windows Settings is its own window: Ctrl+W there should close it. Check on the PC. |
@@ -645,3 +645,4 @@ Upstream sync #21 merged one commit after 335bb79, with no conflicts.
 [#59]: https://github.com/vishnu597/cra-windows/pull/59
 [#60]: https://github.com/vishnu597/cra-windows/pull/60
 [#61]: https://github.com/vishnu597/cra-windows/pull/61
+[#62]: https://github.com/vishnu597/cra-windows/pull/62
