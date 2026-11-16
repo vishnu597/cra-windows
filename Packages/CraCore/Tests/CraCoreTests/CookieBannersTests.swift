@@ -23,7 +23,7 @@ struct CookieBannersTests {
         #expect(!script.contains("window."))
         // The stylesheet travels as a JSON string literal: read back, it is the CSS itself.
         let start = try #require(script.range(of: "s.replaceSync(")).upperBound
-        let end = try #require(script.range(of: ")[0]);", range: start..<script.endIndex)).lowerBound
+        let end = try #require(script.range(of: "[0]);", range: start..<script.endIndex)).lowerBound
         let decoded = try JSONSerialization.jsonObject(with: Data(script[start..<end].utf8)) as? [String]
         #expect(decoded == [CookieBanners.css])
     }
