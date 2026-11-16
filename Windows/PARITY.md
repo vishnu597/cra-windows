@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 335bb79 -->
+<!-- upstream-reviewed: 0ea8123 -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -59,7 +59,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Zoom (`zoomIn`, `zoomOut`, `resetZoom`), `print`, `viewSource` | ✅ [#58] | `AppDelegate.swift` | `KeyBindingDefaults` | Windows takes Chrome's keys for them (Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+P, Ctrl+U) in its key table, the command bar and Settings ▸ Shortcuts, and zooms in the Mac's half-level steps. Ctrl+Shift+= stays Add Split View. |
 | Page context menu: Open Link in New Tab and Open Link in Split View; Alt-click split | 🟡 | `BrowserManager.swift` | `LinkMenu`, `PageMenuLabels`, `LinkSplitClick` | Chromium's menu shows on Windows. Upstream 9630b47, 249adb7 and 8a6c6bf add a split action, one localized Open Link in New Tab item following the foreground setting, and Option-click split (Alt on Windows). Windows: Chrome's Open Link in New Tab, under its own localized label, follows the setting [#48]. Left: Open Link in Split View, Open Link in Little Window, Alt-click split. |
 | Arc-style tooltips in the space's tones | ❌ | `ArcTooltip.swift` | `ThemeTones` (`TooltipTones`) | Windows uses plain WinUI tooltips. |
-| Theme, metrics and the brand mark | 🟡 | `Theme.swift`, `Tuning.swift`, `BrandMark.swift` | `SpaceTheme`, `ThemeTones`, `ArcMenuTones`, `SidebarTones`, `CardFill` | Sidebar palette from `SpaceTheme` is shared; Windows has its own metrics. Upstream's Arc menu, sidebar hover and card-fill policies are available but not all used by the Windows controls. Brand mark from `brand/`. |
+| Theme, metrics and the brand mark | 🟡 | `Theme.swift`, `ThemeNoise.swift`, `Tuning.swift`, `BrandMark.swift` | `SpaceTheme`, `ThemeTones`, `ArcMenuTones`, `SidebarTones`, `CardFill` | Sidebar palette from `SpaceTheme` is shared; Windows has its own metrics. Upstream's Arc menu, sidebar hover and card-fill policies are available but not all used by the Windows controls. Brand mark from `brand/`. |
 | Sidebar blur, Reduce transparency, active/inactive look | ❌ | `ActiveAppearanceProbe.swift` | `SidebarBackdrop` | Windows counterpart: Mica or Acrylic, and Windows' transparency setting. Since f6b9fb6 a full-screen window keeps its active look while its Space slides away (AppKit's own answer, `windowActive(activeAppearance:)`). |
 | Only one Cra running (an older copy quits) | ➖ | `NewestCopy.swift` | | Windows: a single-instance mutex when the installer lands. |
 | Arc's dialog sheet for every confirmation: one card, its buttons, keys and hover | ❌ | `AppDialog.swift`, `DialogComponents.swift`, `Colors.swift` | `DialogActions` | Upstream bc47470 (#224). Windows asks with WinUI flyouts and dialogs; `DialogActions` (which button Return and Escape press) is shared for the Windows card. `Colors.swift` is SwiftUI's hex colours. |
@@ -584,6 +584,12 @@ Upstream sync #20 merged one commit after 7fc0341, with no conflicts.
 | Commit | What | Windows |
 |---|---|---|
 | 335bb79 | xbench reads the URL back before Return, and gains a probe mode | Mac benchmark tooling. ➖ |
+
+Upstream sync #21 merged one commit after 335bb79, with no conflicts.
+
+| Commit | What | Windows |
+|---|---|---|
+| 0ea8123 | Theme grain: a pattern Core Animation tiles, not a drawn view | Mac drawing of the theme's grain (`ThemeNoise.swift`), in the theme row. Windows draws no grain yet. ➖ |
 
 ## Keeping this current
 
