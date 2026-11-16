@@ -71,7 +71,10 @@ enum ThemeNoiseTests {
                     NSRect(origin: .zero, size: size).fill()
                     return
                 }
-                g.imageInterpolation = .none
+                // The context's own interpolation, as the layer's pattern draw uses: on a 2x screen the
+                // texture has 2x pixels and either way draws them 1:1, but on a 1x screen (a CI runner's
+                // display) lockFocus makes 1x pixels that both sides magnify, and `.none` alone didn't
+                // (fork: max difference 57 on the GitHub macOS runner).
                 let tile = NoiseTexture.image.size
                 for y in stride(from: 0, to: size.height, by: tile.height) {
                     for x in stride(from: 0, to: size.width, by: tile.width) {
