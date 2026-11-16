@@ -86,6 +86,10 @@ int cra_cef_blocked_domain_count(void);
 /// included; profiles that load later get it too.
 void cra_cef_set_https_only(int enabled);
 
+/// View ▸ Appearance, the light or dark websites see on every profile, private windows included:
+/// 0 Windows' own app mode, 1 light, 2 dark (`WebsiteAppearance.chromiumMode`).
+void cra_cef_set_website_appearance(int mode);
+
 /// Chromium's secure DNS in Local State: `name` is "dns_over_https.mode" or
 /// "dns_over_https.templates". NULL before Chromium is ready or when nothing set it; the string
 /// lasts until the next call.

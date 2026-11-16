@@ -160,10 +160,22 @@ void ApplyHttpsOnly(CefRefPtr<CefRequestContext> context) {
     }
 }
 
+/// View ▸ Appearance, what websites see (`WebsiteAppearance.chromiumMode`): 0 follows Windows,
+/// 1 light, 2 dark. The Mac's ApplyWebsiteAppearance.
+int g_websiteAppearance = 0;
+
+void ApplyWebsiteAppearance(CefRefPtr<CefRequestContext> context) {
+    if (!context) return;
+    cef_color_variant_t mode = g_websiteAppearance == 1 ? CEF_COLOR_VARIANT_LIGHT
+        : g_websiteAppearance == 2 ? CEF_COLOR_VARIANT_DARK : CEF_COLOR_VARIANT_SYSTEM;
+    if (context->GetChromeColorSchemeMode() != mode) context->SetChromeColorScheme(mode, 0);
+}
+
 /// What every profile gets once it loads (ApplyProfilePreferences in CraCEF.mm).
 void ApplyProfilePreferences(CefRefPtr<CefRequestContext> context) {
     HideDownloadBubble(context);
     ApplyHttpsOnly(context);
+    ApplyWebsiteAppearance(context);
 }
 
 /// Set once Cra starts quitting: no more extension calls into Swift.
@@ -1818,6 +1830,19 @@ extern "C" void cra_cef_set_https_only(int enabled) {
         if (g_readyProfiles.count(path)) ApplyHttpsOnly(context);
     }
     if (g_incognitoContext && g_incognitoReady) ApplyHttpsOnly(g_incognitoContext);
+}
+
+extern "C" void cra_cef_set_website_appearance(int mode) {
+    if (mode < 0 || mode > 2) mode = 0;
+    if (mode == g_websiteAppearance) return;
+    g_websiteAppearance = mode;
+    // Profiles that load later get it from ApplyProfilePreferences.
+    if (!g_contextInitialized || g_quitting) return;
+    ApplyWebsiteAppearance(CefRequestContext::GetGlobalContext());
+    for (auto &[path, context] : g_profileContexts) {
+        if (g_readyProfiles.count(path)) ApplyWebsiteAppearance(context);
+    }
+    if (g_incognitoContext && g_incognitoReady) ApplyWebsiteAppearance(g_incognitoContext);
 }
 
 extern "C" void cra_cef_load_blocked_domains(const char *path) {

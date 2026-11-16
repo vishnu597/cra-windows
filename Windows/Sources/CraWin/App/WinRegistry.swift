@@ -79,8 +79,13 @@ enum WinRegistry {
 enum WinAppearance {
     private static let personalize = #"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"#
 
-    /// Settings ▸ Personalization ▸ Colors ▸ "Choose your app mode": Dark.
-    static var isDark: Bool { WinRegistry.dword(personalize, "AppsUseLightTheme") == 0 }
+    /// View ▸ Appearance's Light (false) or Dark (true), which Cra's own windows take over Windows'
+    /// app mode; nil follows Windows (`WebsiteAppearance.forcesDark`).
+    nonisolated(unsafe) static var forcedDark: Bool?
+
+    /// Settings ▸ Personalization ▸ Colors ▸ "Choose your app mode": Dark, unless View ▸
+    /// Appearance picks Light or Dark.
+    static var isDark: Bool { forcedDark ?? (WinRegistry.dword(personalize, "AppsUseLightTheme") == 0) }
 
     /// The accent colour (DWM keeps it as 0xAABBGGRR); Windows 11's default blue without one.
     static var accent: (r: UInt8, g: UInt8, b: UInt8) {

@@ -1095,6 +1095,16 @@ public enum WebsiteAppearance: String, Codable, CaseIterable, Sendable {
         case .dark: "Dark"
         }
     }
+    /// The command that picks it ("appearanceLight"), as View ▸ Appearance and the command bar
+    /// name it.
+    public var commandID: String { "appearance" + title }
+
+    /// The appearance a View ▸ Appearance command picks; nil for any other command.
+    public init?(commandID: String) {
+        guard let match = Self.allCases.first(where: { $0.commandID == commandID }) else { return nil }
+        self = match
+    }
+
     /// What Chromium's colour mode takes: 0 the system's, 1 light, 2 dark.
     public var chromiumMode: Int {
         switch self {

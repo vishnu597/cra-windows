@@ -213,6 +213,16 @@ public final class CraApp: SwiftApplication {
             cra_cef_set_https_only(on ? 1 : 0)
         }
         followHttpsOnly()
+        // View ▸ Appearance: what websites see, and Light or Dark turn Cra's own Settings and
+        // Site Control Center too, as on the Mac (AppDelegate's websiteAppearance observer, #362).
+        func followWebsiteAppearance() {
+            let appearance = withObservationTracking { store.settings.websiteAppearance } onChange: {
+                onMain { _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { followWebsiteAppearance() } }
+            }
+            WinAppearance.forcedDark = appearance.forcesDark
+            cra_cef_set_website_appearance(Int32(appearance.chromiumMode))
+        }
+        followWebsiteAppearance()
     }
 
     private static var exeFolder: URL { URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent() }

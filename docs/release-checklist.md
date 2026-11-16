@@ -361,6 +361,11 @@ built release app with a test profile. Note anything that fails in the release's
   HttpListener), open it in a tab: after 10 s "Still waiting for localhost to respond" shows at the
   page's top right with Stop Loading and a ✕, and stays. Stop Loading stops the page and the toast
   goes. Again in a Little Window. Needs a slow real server and the screen, so no scenario covers it.
+- **Windows website appearance:** with Windows in light app mode, open a site that follows
+  `prefers-color-scheme` (github.com), run Switch to Dark Mode from the command bar: the page turns
+  dark without a reload, and Settings opens dark. Same in a private window and on another profile.
+  Switch to Light Mode, then Switch to Automatic Appearance: the page follows Windows again. Needs
+  the page's own rendering, so no scenario covers it.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.
