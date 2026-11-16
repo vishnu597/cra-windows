@@ -54,7 +54,8 @@ struct TabSwitcherCycleTests {
     @Test func thePanelIsArcsSize() {
         #expect(TabSwitcherLayout.panelSize(count: 3) == CGSize(width: 577, height: 190))
         #expect(TabSwitcherLayout.panelSize(count: 0) == TabSwitcherLayout.panelSize(count: 1))
-        #expect(TabSwitcherLayout.windowSize(count: 1).width == 213 + 80)
+        let window: CGFloat = 213 + 80
+        #expect(abs(TabSwitcherLayout.windowSize(count: 1).width - window) < 0.001)
     }
 
     @Test func theSelectedCardTakesTheSpacesHue() {
