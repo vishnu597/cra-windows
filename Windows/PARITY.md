@@ -4,7 +4,7 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 56be95d -->
+<!-- upstream-reviewed: 72b25f2 -->
 Upstream reviewed through **b517a00** (VictorKildahl/cra main, 12 Nov 2026), the 80 commits
 after 2bf4f8f triaged under Waiting in upstream. Upstream sync #9 carries them into the fork;
 the Windows gaps below remain explicit rather than inheriting the Mac's status.
@@ -23,7 +23,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
 | Window, pages and toolbar | 5 | 4 | 0 | 16 | 1 |
-| Sidebar | 3 | 7 | 0 | 18 | 0 |
+| Sidebar | 4 | 6 | 0 | 18 | 0 |
 | Command bar and shortcuts | 1 | 4 | 0 | 4 | 0 |
 | Split view | 1 | 1 | 0 | 3 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
@@ -35,8 +35,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Settings | 2 | 5 | 0 | 4 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 5 |
-| System integration and release | 3 | 2 | 0 | 9 | 6 |
-| **All** | 22 | 38 | 1 | 78 | 14 |
+| System integration and release | 3 | 2 | 0 | 10 | 8 |
+| **All** | 23 | 37 | 1 | 79 | 16 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -83,12 +83,12 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Folders: hinge animation, hover previews with search, tabs shown under a closed folder, icon picker | 🟡 | `FolderPreview.swift`, `FolderGlyphView.swift`, `FolderIconPicker.swift`, `FolderSymbolImages.swift` | `FolderPeek`, `FolderSymbol` | Windows has folders without previews or the animation. Since upstream 11ff4c9 (#234) the folder's emblem follows its front panel's perspective; 4fc05d2 adds Arc's picker and native symbol-mask rendering, still missing on Windows. |
 | Favorites | 🟡 [#5] | `SidebarRowViews.swift`, `TileColor.swift` | `FavoritesLayout`, `FavoritesSharing`, `FavoriteClick`, `FavoriteSelectionTint`, `FavoriteOutlineColors` | Missing: 4/2/1 columns by width (`FavoritesLayout`), tile colours and icons, "Drag to add Favorites" card, Settings' share-across-spaces switch, double-click returning to the pinned page (a17a8fe), and the opt-in logo-coloured outline/Arc hover fills (86dbb44, 9927600). |
 | Drag and drop: reorder, into folders and favorites, onto a space's icon, several picked tabs at once, reorder spaces, a link dropped in from a page or another app (#419) | ❌ | `SidebarListDrop.swift`, `SpaceListView.swift` | `SidebarStore`, `SidebarLinkDrop` | The store's moves are shared; upstream 115a201 adds where a dropped link lands (`SidebarLinkDrop`); the XAML drag layer is the work. Big item. Since 1f3c3d3 a tab dropped on any tab, pinned too, offers a split (no folder drop); since dfa3358 rows keep their hover through AppKit's stray exits (Mac only). |
-| Space menu: rename, icon, theme, profile, folder, export, delete | 🟡 [#5] [#19] | `MainWindowController+SpaceMenu.swift`, `EmojiLabel.swift`, `SidebarMenus.swift`, `SpaceIconPicker.swift`, `EmojiCatalog.swift`, `EmojiCatalog+Data.swift`, `SpaceIconImage.swift` | `SpaceProfiles`, `SpaceIcon` | Since upstream 8f511ac (#205) a space's icon can be a symbol (`Space.symbol`, `SpaceIcon`); Windows draws the emoji only. Upstream 0b20792 (#395) adds a PNG or SVG as an icon (`Space.iconImage`); Windows shows the emoji. Windows has New Folder, New Space, Clear Today, Hide Space Header, Set Profile, Delete. Missing `editSpace`, `deleteSpace` and `newSpace` as commands, rename, the emoji picker. `EmojiCatalog+Data.swift` has no imports: move it to CraCore for the Windows picker. |
+| Space menu: rename, icon, theme, profile, folder, export, delete | 🟡 [#5] [#19] | `MainWindowController+SpaceMenu.swift`, `EmojiLabel.swift`, `SidebarMenus.swift`, `SpaceIconPicker.swift`, `EmojiCatalog.swift`, `EmojiCatalog+Data.swift`, `SpaceIconImage.swift` | `SpaceProfiles`, `SpaceIcon` | Since upstream 8f511ac (#205) a space's icon can be a symbol (`Space.symbol`, `SpaceIcon`); Windows draws the emoji only. Upstream 0b20792 (#395) adds a PNG or SVG as an icon (`Space.iconImage`); Windows shows the emoji. Windows has Rename Space… (and a double-click on the name, `SidebarStore+Rename`'s `renameSpace`, [#44]), New Folder, New Space, Clear Today, Hide Space Header, Set Profile, Delete. Missing `editSpace`, `deleteSpace` and `newSpace` as commands, the emoji picker. `EmojiCatalog+Data.swift` has no imports: move it to CraCore for the Windows picker. |
 | Space theme editor: Arc's presets, light and dark halves, grain | ❌ | `SpaceStyleEditor.swift`, `SpaceEditorView.swift` | `SpaceTheme`, `SpaceThemeVariants`, `SpaceColorPresets`, `ArcThemeImport` | Windows draws themes it reads; editing is missing. The colour logic is all shared. Since 6e371cc swatches and knobs grow under the pointer and shrink when pressed. |
 | Manage Spaces page (`manageSpaces`) | ❌ | `SpacesManagerView.swift` | `SidebarStore` | |
 | Space tooltip with its profile and keys | ❌ | `SpaceDock.swift`, `ArcTooltip.swift` | `ThemeTones` | |
 | Jump pill back to the open tab | ❌ | `SidebarJumpPill.swift` | | |
-| Rename (`renameTab`), duplicate (`duplicateTab`), Add to Favorites (`favoriteTab`) as commands | 🟡 | `SidebarMenus.swift` | `SidebarStore` | Duplicate and favorites are in the row menu; rename is missing; none are commands yet. |
+| Rename (`renameTab`), duplicate (`duplicateTab`), Add to Favorites (`favoriteTab`) as commands | ✅ [#44] | `SidebarMenus.swift` | `SidebarStore`, `KeyBindingDefaults` | Windows: Rename… on a tab or folder row (and a double-click) turns its name into a field (Return keeps it, Escape doesn't); a new folder starts named. All three are commands with no default key, as on the Mac. |
 | Arc's other sidebar actions: Collapse Pinned Tabs (`collapsePinned`), Collapse and Expand All Folders (`collapseAllFolders`, `expandAllFolders`), Reveal Tab in Sidebar (`revealTab`), Reset all tabs in this Space (`resetSpaceTabs`), Archive Tabs Below, Change Icon…, Share ▸ | ❌ | `SidebarMenus.swift`, `MainWindowController.swift`, `SiteControlCenter.swift` | `SidebarStore` (`setAllFoldersExpanded`, `revealInSidebar`, `archiveTabsBelow`) | Upstream d110dc6, 6f3f298. The store side is shared; Windows needs the menu items and commands. |
 | Unread dots and theme colours | ✅ [#5] | `SidebarRowViews.swift` | `SidebarModel` | |
 | Tab row on hover: the name runs to 13 pt before the close button (#243) | ❌ | `SidebarRowViews.swift` | `TabRowTrailing` | Upstream 12ab4cf. Windows' row keeps a fixed gap; use `TabRowTrailing`'s insets. |
@@ -139,7 +139,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Library ▸ Media (`viewMedia`): screenshots, pictures and videos from the folders shown, after Arc's opt-in card | ❌ | `LibraryMedia.swift`, `LibraryView.swift`, `MediaPreviewWindow.swift` | `MediaLibrary`, `LibraryPage` | Upstream 2294e13. Windows needs the folder scan (Pictures, Screenshots, Videos) and the grid. Since a8fde87, bf6648e and f547bd8: Arc's media preview (`MediaPreview`), grid and menu. |
 | Easels (`newEasel`, `viewEasels`): Arc's canvas with text, shapes, freehand and captures, Library ▸ Easels | ❌ | `EaselBrowser.swift`, `EaselCanvasView.swift`, `LibraryView.swift`, `LibraryEaselGrid.swift` | `Easel`, `LibraryList` (`easels`) | Upstream f7e3b8f to 3e2757b. The model, tools, hit-testing and saving are shared; Windows needs the canvas (Win2D or a XAML Canvas). Since fea3d7c and f547bd8: Arc's grid of easel cards, pictures resized by their corners (`EaselResize`). |
 | Boosts (`newBoost`, `viewBoosts`): restyle a site (colours, fonts, Zap, CSS and JS code with the eyedropper and hammer), Library ▸ Boosts with each site's icon | ❌ | `BoostStore.swift`, `BoostEditor.swift`, `LibraryBoostRow.swift`, `SiteIconLoader.swift` | `Boost`, `BoostPicker`, `SiteIcon` | Upstream 415ff0e, 5da196f, 8878058, a8fde87, 6523975. The model, picker and icon choice are shared; Windows needs the editor panel and injecting the boost into pages through CEF. `LibraryPage.boosts` is in CraCore; Windows' rail doesn't show it yet. |
-| Now-playing player in the sidebar | ❌ | `NowPlayingTray.swift`, `NowPlaying.swift` | `AudibleHold` (Mac's WebKit tabs) | Windows counterpart for media keys: System Media Transport Controls. |
+| Now-playing player in the sidebar | ❌ | `NowPlayingTray.swift`, `NowPlaying.swift` | `AudibleHold` (Mac's WebKit tabs), `PlayerCardSession` | Windows counterpart for media keys: System Media Transport Controls. Upstream 44cce5e: on the Mac's Chromium engine the card follows the page's media session (`PlayerCardSession`); CEF pages follow the audible state. |
 | Downloads rename card | 🟡 | `DownloadRenameCard.swift` | `TidyDownloads` | The Windows list has open and Show in Folder; the rename card comes with Tidy Downloads. |
 
 ## Tabs and memory
@@ -256,6 +256,9 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | AppleScript with Arc's dictionary, JavaScript from Apple Events off by default (`allowAppleEventsJavaScript`) | ➖ | `AppleScripting.swift` | | macOS only (upstream de695e2). Windows' scripting goes through `cra://` (its own row). |
 | Keep Cra in the menu bar after quitting (#231) | ❌ | `MenuBarItem.swift` | `MenuBarMode` | Upstream 96c0255. Windows' counterpart is a notification-area icon that keeps Cra running. |
 | Open a Safari page handed off from an iPhone | ➖ | `AppDelegate+Handoff.swift` | | Upstream 4fd9b3e uses macOS Handoff/NSUserActivity. There is no direct Windows Handoff counterpart in this port. |
+| Chromium engine: Cra's own build of Chrome's framework in place of CEF, its version in Settings and About | ➖ | `EngineFramework.swift` | `EngineVersion` | Upstream 5bb7467 onward (Chrome 158.0.8127.37, `fetch-engine.sh`). The Mac leaves CEF; Windows stays on stock CEF (`fetch-deps.ps1` still reads `fetch-cef.sh`). A Windows engine build would be its own project. `EngineVersion.label` is portable for a Windows About line. |
+| Chrome's bars over a page ("<extension> started debugging this browser", #241) drawn by Cra | ➖ | `InfoBarStrip.swift` | `PageInfoBar` | Upstream: only the Mac engine reports infobars; on CEF, Windows included, Chrome draws its own. |
+| Launch migrations run when no other process holds the data folder, not when no other Cra runs (#299) | ❌ | `AppDelegate.swift` | `DataFolderOwner` | Upstream 2f5e3b0. Windows' launch steps (extension copies, `extensions-welcomed.json`) don't check the folder's `SingletonLock` yet. |
 | The iPhone app (Arc Search's design) and its Mac sync | ➖ | `iOS/Cra` | `MobileAI`, `MobileArchive`, `MobileBlockerNotices`, `MobileBlocklist`, `MobileBrowseForMe`, `MobileBrowseToggle`, `MobileChrome`, `MobileCoachMark`, `MobileDownloads`, `MobileFidget`, `MobileMotion`, `MobileOnboarding`, `MobilePageMenu`, `MobileSearchEngine`, `MobileSettings`, `MobileShareInbox`, `MobileSpaces`, `MobileSuggestions`, `MobileSummary`, `MobileSwipe`, `MobileSyncIntro`, `MobileTabCarousel`, `MobileTabs`, `MobileTranslate` | Upstream's iPhone app (iOS/, after Arc Search 1.49). Its decisions live in CraCore's Mobile folder and build on Linux and Windows too, but they serve the phone. Windows has nothing to port. |
 | Sync sidebar, settings and shortcuts through iCloud or a folder | ❌ | `SettingsSyncService.swift`, `SyncSection.swift` | `SettingsSync` | Upstream cae2918. Folder manifests, merge and conflict decisions are portable; Windows needs the folder chooser, file coordination/watching and settings UI. iCloud integration is Mac-specific. Sharing consent and MCP permissions do not sync. |
 | Agents in Cra: permissioned local MCP server and bridge | ❌ | `MCPServer.swift`, `MCPListener.swift`, `MCPConnection.swift`, `MCPPeer.swift`, `MCPInput.swift`, `MCPPage.swift`, `MCPTransfers.swift` | `MCPAgents`, `MCPAgentAids`, `MCPInputPlan`, `MCPProtocol`, `JSONNumber`, `MCPReferences`, `MCPSession`, `MCPUploadTarget` | Upstream 31187f8. Protocol/session/reference/input policies are shared. Windows needs transport/client identity, approval UI and native page/input/capture integration; this sync does not start an MCP listener on Windows. JavaScript and history access remain separate opt-ins in the model. |
@@ -551,6 +554,19 @@ iPhone app. Conflicts: CLAUDE.md's layer table (both rows kept) and `addEmptyPan
 | 56be95d and the other iPhone app commits | The iPhone app, its widgets and share extension, synced Spaces, CI's iPhone build | New iPhone app row (`Mobile*`). ➖ |
 | 2d7e110, docs commits | One repo for both apps: README, contributor docs, issue forms | Docs only. ➖ |
 
+Upstream sync #17 merged the 103 commits after 56be95d (5bb7467 to 72b25f2). Nearly all of them move the
+Mac from CEF to Cra's own build of Chrome's framework ("the engine"). The only conflict was CLAUDE.md's
+layer table, which keeps upstream's engine rows and the Windows rows. Windows stays on stock CEF
+(`fetch-cef.sh` is unchanged).
+
+| Commit | What | Windows |
+|---|---|---|
+| 5bb7467 to 72b25f2 (Chromium engine, Engine doc, fetch/publish-engine.sh, xbench) | The Mac runs on Chrome's framework with Cra's patches: Chrome 158, its own bars, pop-ups as tabs, keys to Cra, downloads, permissions, DevTools, Picture in Picture, Web Store installs | New Chromium engine row (`EngineVersion`). ➖ |
+| 44cce5e | The sidebar player card follows the page's media session (#411) | Now-playing row (`PlayerCardSession`). ❌ |
+| 2f5e3b0 | A Cra owns its data folder when no other process holds it (#299) | New data folder row (`DataFolderOwner`). ❌ |
+| e402f77 | cra://open closes the command bar that waited for a new tab | cra:// row. The fix is for the engine, where no page window takes the bar's key. On CEF, the Mac before it and Windows (`openCraLink` activates the window, and the bar closes when it loses the front), the bar already went. ➖ |
+| 8280b11, c33d3eb and the other engine bridge commits | The engine's page menu, infobars, favicons, find and zoom reach Cra as CEF's did | New Chrome bars row (`PageInfoBar`). Otherwise engine plumbing. ➖ |
+
 ## Keeping this current
 
 - **Each upstream sync** (CONTRIBUTING's merge before each new PR): run
@@ -587,3 +603,4 @@ iPhone app. Conflicts: CLAUDE.md's layer table (both rows kept) and `addEmptyPan
 [#27]: https://github.com/vishnu597/cra-windows/pull/27
 [#29]: https://github.com/vishnu597/cra-windows/pull/29
 [#31]: https://github.com/vishnu597/cra-windows/pull/31
+[#44]: https://github.com/vishnu597/cra-windows/pull/44

@@ -38,6 +38,8 @@
 #                               relaunch drops it)
 #   extension <folder>          copied into the data folder's Extensions/ before launch, as an
 #                               import leaves an extension
+#   profile <folder>            its contents copied into the data folder before launch: files an
+#                               older Cra left (Tests/Fixtures/CEFProfile, Cra on CEF's cookies)
 #   home                        a throwaway home folder, so downloads stay out of ~/Downloads
 #   crash-report <file>         copied into the throwaway home's Library/Logs/DiagnosticReports
 #                               before launch, as macOS leaves one (needs home)
@@ -82,7 +84,9 @@ fi
 NAME="${1:?usage: scripts/scenario.sh <name>|all}"
 FILE="Tests/Scenarios/$NAME.scenario"
 [ -f "$FILE" ] || { echo "No scenario $FILE"; exit 2; }
-[ -x "$APP/Contents/MacOS/Cra" ] || { echo "No Cra at $APP (scripts/build.sh; budgets are a release build's)"; exit 2; }
+# The app's executable: Cra, or CraEngine for a build on Chrome's own framework (CRA_ENGINE=chromium).
+EXE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist" 2>/dev/null || echo Cra)"
+[ -x "$EXE" ] || { echo "No Cra at $APP (scripts/build.sh; budgets are a release build's)"; exit 2; }
 if grep -q '^requires screen' "$FILE" && [ "${CRA_SCENARIO_SCREEN:-}" != "1" ]; then
   echo "$NAME: skipped (takes over the screen; CRA_SCENARIO_SCREEN=1 runs it)"; exit 0
 fi
@@ -91,7 +95,12 @@ OUT="$ROOT/build/scenarios/$NAME${CRA_FLAGS:+-${CRA_FLAGS//[^a-z]/}}"
 rm -rf "$OUT" && mkdir -p "$OUT"
 # The physical path: /tmp is a link to /private/tmp, and CEF takes a profile's folder for one
 # outside root_cache_path through it (in-memory storage instead), so spaces on a profile need it.
-DATA="$(cd "$(mktemp -d /tmp/cra-scenario.XXXXXX)" && pwd -P)"
+# CRA_SCENARIO_DATA keeps the data folder for the next scenario (scripts/engine-migration.sh).
+if [ -n "${CRA_SCENARIO_DATA:-}" ]; then
+  mkdir -p "$CRA_SCENARIO_DATA" && DATA="$(cd "$CRA_SCENARIO_DATA" && pwd -P)"
+else
+  DATA="$(cd "$(mktemp -d /tmp/cra-scenario.XXXXXX)" && pwd -P)"
+fi
 CMD="$OUT/commands"
 HITCH="$OUT/hitch.log"
 LOG="$DATA/cra.log"
@@ -238,12 +247,13 @@ expand() { local s="$1"; s="${s//\$\{FIXTURES\}/$FIXTURES}"; s="${s//\$\{ORIGIN\
 app_args=(-ApplePersistenceIgnoreState YES)
 while read -r _ a; do app_args+=("$(expand "$a")"); done < <(grep '^arg ' "$FILE")
 while read -r _ f; do mkdir -p "$DATA/Extensions" && cp -R "$(expand "$f")" "$DATA/Extensions/"; done < <(grep '^extension ' "$FILE")
+while read -r _ f; do cp -R "$(expand "$f")/." "$DATA/"; done < <(grep '^profile ' "$FILE")
 while read -r _ f; do mkdir -p "$DATA/home/Library/Logs/DiagnosticReports" && cp "$(expand "$f")" "$DATA/home/Library/Logs/DiagnosticReports/"; done < <(grep '^crash-report ' "$FILE")
 for i in "${!app_env[@]}"; do app_env[$i]="$(expand "${app_env[$i]}")"; done
 
 CRA_DATA_DIR="$DATA" CRA_COMMAND_FILE="$CMD" CRA_HITCH_LOG="$HITCH" CRA_TEST_BACKGROUND=1 CRA_WEBKIT_HOSTS=localhost \
   CRA_ARC_DIR="$FIXTURES/Arc" CRA_FLAGS="${CRA_FLAGS:-}" \
-  "${app_env[@]}" "$APP/Contents/MacOS/Cra" ${app_args[@]+"${app_args[@]}"} >"$OUT/stdout.log" 2>&1 &
+  "${app_env[@]}" "$EXE" ${app_args[@]+"${app_args[@]}"} >"$OUT/stdout.log" 2>&1 &
 PID=$!
 PIDS+=("$PID")
 
@@ -251,7 +261,7 @@ cleanup() {
   for p in "${PIDS[@]}"; do kill -KILL "$p" 2>/dev/null; done
   kill "$SERVER" "$STALLER" "$TRICKLER" "$WS_SERVER" 2>/dev/null
   cp "$DATA"/cra*.log "$OUT/" 2>/dev/null
-  rm -rf "$DATA"
+  [ -n "${CRA_SCENARIO_DATA:-}" ] || rm -rf "$DATA"
 }
 trap cleanup EXIT
 
@@ -346,7 +356,7 @@ while IFS= read -r raw || [ -n "$raw" ]; do
         [ -x "$OUT/compare-png" ] || xcrun swiftc -O "$ROOT/scripts/compare-png.swift" -o "$OUT/compare-png" 2>"$OUT/compare-png.log"
         verdict=$("$OUT/compare-png" "$ref" "$shot" "$OUT/snapshots/$3.diff.png" 2>&1) || budget_problem "snapshot $3: $verdict"
       fi ;;
-    fresh|requires|port|seed|env|arg|extension|home|crash-report) ;;
+    fresh|requires|port|seed|env|arg|extension|profile|home|crash-report) ;;
     *) problem "unknown scenario line: $line" ;;
   esac
 done < "$FILE"

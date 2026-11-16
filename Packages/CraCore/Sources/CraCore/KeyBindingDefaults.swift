@@ -264,6 +264,10 @@ public enum KeyBindingDefaults {
             "newProfile": [],
             "share": [],
             "pinTab": [KeyChord("d", ctrl)],
+            // The sidebar's row commands; the Mac gives them no keys either.
+            "favoriteTab": [],
+            "renameTab": [],
+            "duplicateTab": [],
             "nextTab": [KeyChord(KeyChord.tab, ctrl)],
             "previousTab": [KeyChord(KeyChord.tab, ctrlShift)],
             "goBack": [KeyChord(KeyChord.left, alt)],
