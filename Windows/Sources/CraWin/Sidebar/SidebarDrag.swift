@@ -21,6 +21,8 @@ enum SidebarDragTarget: Equatable {
     case space(UUID)
     /// A dragged space's icon lets go in this cell of the dock.
     case spaceCell(Int)
+    /// Over the page, where the window offers a split (BrowserWindow.splitDragMoved).
+    case page
 }
 
 /// One item's row in the list as drawn: what SidebarDropPlan needs besides its frame.
@@ -48,6 +50,15 @@ final class SidebarDragState {
     var lastTick = Date()
     /// The space icon the drag rests on, and since when (it comes forward after a while).
     var spaceHover: (id: UUID, since: Date)?
+    /// The tab open before the press (the press opens the one it is on): a drop on the page
+    /// splits with it.
+    var tabBeforePress: UUID?
+    /// A link dragged in from a page or another app (#419): the tab it would open, once read
+    /// from the drag's data, and a drop that waits for that read.
+    var link: SidebarLinkDrop.Tab?
+    var linkPending: SidebarDropPlan.Drop?
+    var linkRead = false
+    var linkDrag = 0
 
     let line = Border()
     let ring = WinUI.Ellipse()  // not GDI's Ellipse
@@ -172,6 +183,7 @@ extension SidebarView {
         drag.dragging = false
         drag.target = nil
         drag.undoPress = undo
+        drag.tabBeforePress = store.selectedTabID(window: windowID)
         drag.lastTick = Date()
         guard let queue = (try? WinAppSDK.DispatcherQueue.getForCurrentThread()) ?? nil, let timer = try? queue.createTimer() else {
             drag.source = nil
@@ -202,7 +214,7 @@ extension SidebarView {
         guard Self.buttonDown() else {
             let target = drag.target
             let source = drag.source
-            endDrag()
+            endDrag(landing: true)
             if let source, let target { land(source, on: target) }
             return
         }
@@ -229,8 +241,10 @@ extension SidebarView {
         return item.displayTitle.isEmpty ? "New Tab" : item.displayTitle
     }
 
-    /// Stops following the mouse and takes the drag's marks away.
-    func endDrag() {
+    /// Stops following the mouse and takes the drag's marks away; unless `landing`, a split the
+    /// page offered goes away too.
+    func endDrag(landing: Bool = false) {
+        if !landing, drag.target == .page, let id = drag.draggedItem { actions?.splitDragEnded(tab: id, drop: false) }
         try? drag.timer?.stop()
         drag.timer = nil
         let wasDragging = drag.dragging
@@ -279,6 +293,7 @@ extension SidebarView {
         autoscroll(p, dt: dt)
         let target = target(at: p)
         if target != drag.target {
+            if drag.target == .page, let id = drag.draggedItem { actions?.splitDragEnded(tab: id, drop: false) }
             drag.target = target
             if case .favorites? = target { showFavoritesCard() } else if favoritesCard.visibility == .visible { showFavoritesCard() }
         }
@@ -297,6 +312,10 @@ extension SidebarView {
             return cells[i].0 == id ? nil : .spaceCell(i)
         }
         guard let id = drag.draggedItem, store.item(id) != nil else { return nil }
+        // Off the sidebar: the page may offer a split.
+        if let bounds = frame(of: root), !bounds.contains(p) {
+            return store.item(id)?.isTab == true && actions?.splitDragMoved(tab: id, before: drag.tabBeforePress) == true ? .page : nil
+        }
         // Another space's icon.
         for cell in spaceCells where cell.id != store.spaceID(ofItem: id) {
             if let f = frame(of: cell.element), f.contains(p) {
@@ -313,7 +332,12 @@ extension SidebarView {
             let resting = favoriteTiles.filter { $0.id != id }.count
             return .favorites(slot: min(resting, Int(row * columns + column)))
         }
-        // The list.
+        return listDrop(id, at: p).map(SidebarDragTarget.list)
+    }
+
+    /// Where `id` (or SidebarDropPlan.link) lands in the list at `p`; nil off the list.
+    private func listDrop(_ id: UUID, at p: (x: Double, y: Double)) -> SidebarDropPlan.Drop? {
+        let space = store.focusedSpaceID(window: windowID)
         guard let viewport = frame(of: scroll), viewport.contains(p) else { return nil }
         let rows = rowMeta.compactMap { meta -> SidebarDropPlan.Row? in
             guard let f = frame(of: meta.element) else { return nil }
@@ -325,7 +349,7 @@ extension SidebarView {
         let line = divider.flatMap(frame(of:))
         let layout = SidebarDropPlan.Layout(rows: rows, pinnedMinY: top, pinnedMaxY: line.map { $0.y - 6 } ?? top,
                                             todayMinY: line.map { $0.maxY + 6 } ?? top, rowSpacing: Double(list.spacing))
-        return .list(SidebarDropPlan.resolve(dragged: id, at: p, layout: layout, space: space, store: store))
+        return SidebarDropPlan.resolve(dragged: id, at: p, layout: layout, space: space, store: store)
     }
 
     /// Resting on another space's icon brings that space forward, so the drop can go anywhere in it.
@@ -413,6 +437,8 @@ extension SidebarView {
             }
         case .space(let id)?:
             outline = spaceCells.first { $0.id == id }.flatMap { frame(of: $0.element) }
+        case .page?:
+            break
         case .spaceCell(let i)?:
             let cells = spaceCells.compactMap { frame(of: $0.element) }
             let from = spaceCells.firstIndex { $0.id == d.draggedSpace } ?? 0
@@ -455,6 +481,8 @@ extension SidebarView {
             SidebarDropPlan.dropOnFavorites(id, slot: slot, space: store.focusedSpaceID(window: windowID), store: store)
         case (.item(let id), .space(let space)):
             SidebarDropPlan.dropOnSpace(id, space: space, store: store)
+        case (.item(let id), .page):
+            actions?.splitDragEnded(tab: id, drop: true)
         case (.space(let id), .spaceCell(let cell)):
             if let index = SidebarDropPlan.spaceOrderIndex(moving: id, toCell: cell, shown: spaceCells.map(\.id), store: store) {
                 store.moveSpace(id, to: index)
@@ -464,3 +492,110 @@ extension SidebarView {
         }
     }
 }
+
+// MARK: - Links dragged in
+
+/// A link dragged onto the list from a page or another app opens there as a new tab, behind the
+/// page you're on (Arc 1.172.1, #419; the Mac's SpaceListView.dragUpdated and dropLink). That drag
+/// is an OLE one, so XAML's drop events bring it; its data is read once per drag, asynchronously.
+extension SidebarView {
+    func makeLinkDropTarget() {
+        root.allowDrop = true
+        let queue = (try? WinAppSDK.DispatcherQueue.getForCurrentThread()) ?? nil
+        root.dragEnter.addHandler { [weak self] _, args in
+            guard let self, let args else { return }
+            self.readLink(args, queue: queue)
+            self.linkDragOver(args)
+        }
+        root.dragOver.addHandler { [weak self] _, args in
+            guard let self, let args else { return }
+            self.linkDragOver(args)
+        }
+        root.dragLeave.addHandler { [weak self] _, _ in self?.clearLinkDrag() }
+        root.drop.addHandler { [weak self] _, args in
+            guard let self, let args else { return }
+            self.linkDropped(args)
+        }
+    }
+
+    /// Reads the drag's address: a web link, Chromium's and Edge's URL format, or plain text.
+    private func readLink(_ args: DragEventArgs, queue: WinAppSDK.DispatcherQueue?) {
+        drag.linkDrag += 1
+        drag.link = nil
+        drag.linkRead = false
+        drag.linkPending = nil
+        let mark = drag.linkDrag
+        guard let view = args.dataView else { return }
+        let deliver: (String?, Bool) -> Void = { [weak self] text, isURL in
+            _ = try? queue?.tryEnqueue {
+                MainActor.assumeIsolated {
+                    guard let self, self.drag.linkDrag == mark else { return }
+                    self.drag.linkRead = true
+                    guard let text else { return }
+                    let item = isURL ? SidebarLinkDrop.Item(url: text) : SidebarLinkDrop.Item(text: text)
+                    self.drag.link = SidebarLinkDrop.tab(from: [item])
+                    if let drop = self.drag.linkPending, let link = self.drag.link {
+                        self.drag.linkPending = nil
+                        SidebarDropPlan.dropLink(link, drop: drop, space: self.store.focusedSpaceID(window: self.windowID), store: self.store,
+                                                 window: self.windowID)
+                    }
+                }
+            }
+        }
+        if (try? view.contains("WebLink")) == true, let op = try? view.getWebLinkAsync() {
+            op.completed = { op, _ in
+                let uri: WindowsFoundation.Uri? = (try? op?.getResults()) ?? nil
+                deliver(uri?.absoluteUri, true)
+            }
+        } else if (try? view.contains("UniformResourceLocatorW")) == true, let op = try? view.getTextAsync("UniformResourceLocatorW") {
+            op.completed = { op, _ in
+                let text: String? = (try? op?.getResults()) ?? nil
+                deliver(text, true)
+            }
+        } else if (try? view.contains("Text")) == true, let op = try? view.getTextAsync() {
+            op.completed = { op, _ in
+                let text: String? = (try? op?.getResults()) ?? nil
+                deliver(text, false)
+            }
+        }
+    }
+
+    /// Something that may be a link is over the sidebar: where it would land, shown as a row drag's
+    /// line is. A sidebar row's own drag never comes this way (it isn't an OLE drag).
+    private func linkDragOver(_ args: DragEventArgs) {
+        guard drag.source == nil, let view = args.dataView,
+              ["WebLink", "UniformResourceLocatorW", "Text"].contains(where: { (try? view.contains($0)) == true }),
+              let point = try? args.getPosition(overlay) else {
+            args.acceptedOperation = .none
+            return
+        }
+        let p = (x: Double(point.x), y: Double(point.y))
+        // Text that turns out not to be an address takes nothing.
+        let drop = drag.linkRead && drag.link == nil ? nil : listDrop(SidebarDropPlan.link, at: p)
+        let target = drop.flatMap { $0.target == nil ? nil : SidebarDragTarget.list($0) }
+        drag.target = target
+        args.acceptedOperation = target == nil ? .none : .copy
+        args.handled = true
+        drawPreview(p)
+    }
+
+    private func linkDropped(_ args: DragEventArgs) {
+        defer { clearLinkDrag() }
+        guard drag.source == nil, case .list(let drop)? = drag.target else { return }
+        args.acceptedOperation = .copy
+        args.handled = true
+        if let link = drag.link {
+            SidebarDropPlan.dropLink(link, drop: drop, space: store.focusedSpaceID(window: windowID), store: store, window: windowID)
+        } else {
+            // Still reading: it opens when the address arrives.
+            drag.linkPending = drop
+        }
+    }
+
+    private func clearLinkDrag() {
+        guard drag.source == nil else { return }
+        drag.target = nil
+        drawPreview((x: -1, y: -1))
+    }
+}
+
