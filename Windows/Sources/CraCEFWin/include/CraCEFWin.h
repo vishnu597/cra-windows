@@ -90,6 +90,12 @@ void cra_cef_set_https_only(int enabled);
 /// 0 Windows' own app mode, 1 light, 2 dark (`WebsiteAppearance.chromiumMode`).
 void cra_cef_set_website_appearance(int mode);
 
+/// Arc's "Allow window dragging from the top of webpages": a plain left press within `band` DIPs
+/// of a page's top (less `trailing_inset` DIPs at its right edge, for the scrollbar), over the
+/// ordinary arrow, moves the window once the pointer passes Windows' drag distance; the page gets
+/// the release. A band of 0 turns it off. Not in the Peek's card, which its bar moves.
+void cra_cef_set_page_top_drag(double band, double trailing_inset);
+
 /// Chromium's secure DNS in Local State: `name` is "dns_over_https.mode" or
 /// "dns_over_https.templates". NULL before Chromium is ready or when nothing set it; the string
 /// lasts until the next call.

@@ -366,6 +366,12 @@ built release app with a test profile. Note anything that fails in the release's
   dark without a reload, and Settings opens dark. Same in a private window and on another profile.
   Switch to Light Mode, then Switch to Automatic Appearance: the page follows Windows again. Needs
   the page's own rendering, so no scenario covers it.
+- **Windows page-top window drag:** press on a blank spot within the top ~60 px of a page
+  (example.com's margin) and drag: the window moves, and the page shows no selection or click
+  afterwards. A press on a link or text there clicks or selects as usual; a double click there
+  doesn't move the window. Turn off Settings ▸ Advanced ▸ Allow window dragging from the top of
+  webpages: the same drag selects nothing and the window stays. Needs real mouse drags, so no
+  scenario covers it.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.
