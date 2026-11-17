@@ -48,7 +48,14 @@ struct DiaSettingsNavigationTests {
         #expect(DiaSettingsPane.windowsPanes.allSatisfy { DiaSettingsPane.allCases.contains($0) })
         let order = DiaSettingsPane.windowsPanes.compactMap { DiaSettingsPane.allCases.firstIndex(of: $0) }
         #expect(order == order.sorted(), "in the Mac's order")
-        #expect(DiaSettingsPane.windowsPanes == [.general, .tabs, .privacy, .profiles, .extensions, .shortcuts])
+        #expect(DiaSettingsPane.windowsPanes == [.general, .tabs, .privacy, .profiles, .extensions, .shortcuts, .advanced])
+    }
+
+    /// The Windows app builds an Advanced pane (Opening and quitting, page-top dragging), but its
+    /// sidebar lists only `windowsPanes`: left out, the pane can't be opened (PC test, 17 Nov).
+    @Test func windowsListsTheAdvancedPaneItBuilds() {
+        #expect(DiaSettingsPane.windowsPanes.contains(.advanced))
+        #expect(DiaSettingsPane.windowsPanes.last == .advanced)
     }
 
     /// Dia's measurements: the content column fits beside the sidebar, the form's controls start
