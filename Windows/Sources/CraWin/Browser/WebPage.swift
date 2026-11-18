@@ -249,6 +249,7 @@ final class WebPage: @unchecked Sendable {
 
     /// CEF's ViewSource opens a temporary text file through Windows. The app command and the
     /// page/frame menu instead use the same shared address policy as the Mac, in a Cra tab.
+    @MainActor
     private func viewSource(of address: String) {
         guard !isClosed, let source = ViewSource.address(for: address) else { return }
         delegate?.page(self, requestsNewTabWithURL: source, inBackground: false)
