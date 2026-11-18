@@ -35,7 +35,25 @@ final class SpacesManagerView {
     private var cards: [UUID: Border] = [:]
     private var shifts: [UUID: TranslateTransform] = [:]
     /// The card being dragged by its handle: where the press was, how far it has gone.
-    private var dragging: (id: UUID, startX: Double, dx: Double)?
+    private var dragging: (id: UUID, origin: SpacesManagerLayout.Drag, dx: Double)?
+    private var dragHandle: Border?
+    private var menuOpen = false
+    private var rebuildPending = false
+    private var lastDark = false
+    private struct CardState: Equatable {
+        var space: Space
+        var pinned: [UUID]
+        var today: [UUID]
+        var items: [SidebarItem]
+        var expanded: Set<UUID>
+    }
+    private struct BuildState: Equatable {
+        var cards: [CardState]
+        var plusTheme: SpaceTheme
+        var icons: Int
+        var dark: Bool
+    }
+    private var builtFrom: BuildState?
     /// Controls a handler reaches weakly (winrt-weak-wrappers: a WinRT control made in Swift is
     /// freed once Swift lets go of it).
     private var kept: [AnyObject] = []
@@ -55,6 +73,11 @@ final class SpacesManagerView {
         // arrow keys scroll the cards.
         scroll.isTabStop = true
         root.children.append(scroll)
+        root.keyDown.addHandler { [weak self] _, args in
+            guard let self, let args, self.dragging != nil, Int32(truncatingIfNeeded: args.key.rawValue) == 0x1B else { return }
+            args.handled = true
+            if let id = self.dragging?.id { self.endDrag(id, commit: false) }
+        }
     }
 
     /// The keyboard to the cards' row (the window has moved Win32 focus into the XAML first).
@@ -71,11 +94,19 @@ final class SpacesManagerView {
         SpacesManagerLayout.spaces(order: store.spaceOrder, standalone: { [store] in store.isStandalone(space: $0) })
     }
 
-    /// Draws every card again from the store (what it reads is what a change redraws, as with the
-    /// rest of the Library). A drag in progress keeps the cards it moves until it ends.
+    /// Keep the card controls when their contents have not changed: a page's unrelated refresh
+    /// must not replace a pointer capture or the button anchoring an open menu.
     func build(dark: Bool) {
+        lastDark = dark
         let ids = shownSpaces()
-        guard dragging == nil else { return }
+        // Read the inputs even while an interaction holds the controls. BrowserWindow's
+        // observation then continues watching these values when a rebuild is deferred.
+        let state = BuildState(cards: ids.compactMap(cardState), plusTheme: store.focusedSpace(window: windowID).theme,
+                               icons: favicons.revision, dark: dark)
+        guard state != builtFrom else { return }
+        guard dragging == nil, !menuOpen else { rebuildPending = true; return }
+        builtFrom = state
+        rebuildPending = false
         strip.children.clear()
         cards = [:]
         shifts = [:]
@@ -88,6 +119,31 @@ final class SpacesManagerView {
             strip.children.append(card)
         }
         strip.children.append(makePlus(palette: SidebarPalette(store.focusedSpace(window: windowID).theme)))
+    }
+
+    private func cardState(_ id: UUID) -> CardState? {
+        guard let space = store.space(id) else { return nil }
+        let pinned = store.listedPinnedItems(in: space, window: windowID)
+        let today = store.children(of: space.todayContainerID)
+        var items: [SidebarItem] = [], expanded: Set<UUID> = [], seen: Set<UUID> = []
+        func read(_ item: SidebarItem) {
+            guard seen.insert(item.id).inserted else { return }
+            items.append(item)
+            let open = item.isFolder && store.isExpanded(item.id)
+            if open { expanded.insert(item.id) }
+            if open || item.isSplit { store.children(of: item.id).forEach(read) }
+        }
+        (pinned + today).forEach(read)
+        return CardState(space: space, pinned: pinned.map(\.id), today: today.map(\.id), items: items, expanded: expanded)
+    }
+
+    private func finishInteraction() {
+        guard rebuildPending else { return }
+        // Leave a menu's Closed/pointer callback before replacing its native anchor.
+        _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { [weak self] in
+            guard let self else { return }
+            self.build(dark: self.lastDark)
+        }
     }
 
     // MARK: Card
@@ -163,11 +219,17 @@ final class SpacesManagerView {
         moreGlyph.fontSize = 13
         moreGlyph.foreground = palette.secondaryText
         let more = UI.button(moreGlyph, padding: Thickness(left: 6, top: 6, right: 6, bottom: 6)) {}
+        // This button only opens its native flyout; it does not need the sidebar row's
+        // press-mode action. Keep the release from bubbling to Library's background tap,
+        // which otherwise refocuses the scroll viewer underneath the new menu.
+        more.clickMode = .release
+        more.tapped.addHandler { _, args in args?.handled = true }
         more.verticalAlignment = .center
         more.flyout = cardMenu(id)
         try? ToolTipService.setToolTip(more, "More")
         try? AutomationProperties.setName(more, "\(space.title) options")
         footer.children.append(more)
+        kept.append(more)
         try? Grid.setColumn(more, 2)
         grid.children.append(footer)
         try? Grid.setRow(footer, 2)
@@ -181,6 +243,12 @@ final class SpacesManagerView {
     /// Arc's ⋯ on a card. Move Left and Move Right reorder from the keyboard too.
     private func cardMenu(_ id: UUID) -> MenuFlyout {
         let menu = MenuFlyout()
+        menu.opening.addHandler { [weak self] _, _ in self?.menuOpen = true }
+        menu.closed.addHandler { [weak self] _, _ in
+            self?.menuOpen = false
+            self?.finishInteraction()
+        }
+        kept.append(menu)
         menu.items.append(UI.menuItem("Open Space") { [weak self] in self?.actions?.openFromLibrary(space: id) })
         menu.items.append(MenuFlyoutSeparator())
         let left = UI.menuItem("Move Left") { [weak self] in self?.move(id, by: -1) }
@@ -281,39 +349,56 @@ final class SpacesManagerView {
         // Weakly: `kept` holds the handle while it is on screen, and a strong capture in its own
         // handler would keep it forever.
         handle.pointerPressed.addHandler { [weak self, weak handle] _, args in
-            guard let self, let handle, let args, let point = try? args.getCurrentPoint(nil) else { return }
+            guard let self, let handle, let args, self.dragging == nil, let index = self.shown.firstIndex(of: id),
+                  let point = try? args.getCurrentPoint(self.root),
+                  args.pointer?.pointerDeviceType != .mouse || point.properties?.isLeftButtonPressed == true,
+                  (try? handle.capturePointer(args.pointer)) == true else { return }
             args.handled = true
-            self.dragging = (id, Double(point.position.x), 0)
-            _ = try? handle.capturePointer(args.pointer)
+            self.dragging = (id, SpacesManagerLayout.Drag(pointerX: Double(point.position.x), scrollOffset: self.scroll.horizontalOffset,
+                                                         index: index, count: self.shown.count), 0)
+            self.dragHandle = handle
             if let card = self.cards[id] { try? Canvas.setZIndex(card, 1) }
         }
         handle.pointerMoved.addHandler { [weak self] _, args in
             guard let self, let args, let drag = self.dragging, drag.id == id,
-                  let point = try? args.getCurrentPoint(nil) else { return }
+                  let point = try? args.getCurrentPoint(self.root) else { return }
             args.handled = true
-            let dx = Double(point.position.x) - drag.startX
-            self.dragging = (id, drag.startX, dx)
-            self.shifts[id]?.x = dx
+            self.moveDrag(id, pointerX: Double(point.position.x))
         }
-        handle.pointerReleased.addHandler { [weak self, weak handle] _, args in
+        handle.pointerReleased.addHandler { [weak self] _, args in
+            guard let self else { return }
             args?.handled = true
-            _ = try? handle?.releasePointerCaptures()
-            self?.endDrag(id)
+            if let args, let point = try? args.getCurrentPoint(self.root) {
+                self.moveDrag(id, pointerX: Double(point.position.x))
+            }
+            self.endDrag(id, commit: true)
         }
-        handle.pointerCaptureLost.addHandler { [weak self] _, _ in self?.endDrag(id) }
+        handle.pointerCaptureLost.addHandler { [weak self] _, _ in self?.endDrag(id, commit: false) }
+        handle.pointerCanceled.addHandler { [weak self] _, _ in self?.endDrag(id, commit: false) }
         kept.append(handle)
         return handle
     }
 
-    private func endDrag(_ id: UUID) {
+    private func moveDrag(_ id: UUID, pointerX: Double) {
+        guard let drag = dragging, drag.id == id else { return }
+        let dx = drag.origin.offset(pointerX: pointerX, scrollOffset: scroll.horizontalOffset)
+        dragging = (id, drag.origin, dx)
+        shifts[id]?.x = dx
+    }
+
+    private func endDrag(_ id: UUID, commit: Bool) {
         guard let drag = dragging, drag.id == id else { return }
         dragging = nil
+        let handle = dragHandle
+        dragHandle = nil
+        _ = try? handle?.releasePointerCaptures()
         shifts[id]?.x = 0
         if let card = cards[id] { try? Canvas.setZIndex(card, 0) }
         // The store's change draws the cards again in their new order.
-        if let to = SpacesManagerLayout.drop(id, dx: drag.dx, shown: shown, spaceOrder: store.spaceOrder) {
+        if commit, let to = SpacesManagerLayout.drop(id, dx: drag.dx, shown: shown, spaceOrder: store.spaceOrder) {
             store.moveSpace(id, to: to)
         }
+        finishInteraction()
     }
 
     // MARK: New Space

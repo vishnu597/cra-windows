@@ -21,6 +21,32 @@ public enum SpacesManagerLayout {
     public static let listTop = 40.5
     public static let footerHeight = 42.0
 
+    /// One card dragged in the strip's fixed viewport coordinates (DIPs), not in the
+    /// translated card's coordinates. Scrolling the viewport moves the card's content origin
+    /// too. Its translation stops at the first/last real card instead of following the pointer
+    /// arbitrarily far beyond the strip.
+    public struct Drag: Equatable, Sendable {
+        private let pointerX: Double
+        private let scrollOffset: Double
+        private let minimum: Double
+        private let maximum: Double
+
+        public init(pointerX: Double, scrollOffset: Double, index: Int, count: Int) {
+            self.pointerX = pointerX
+            self.scrollOffset = scrollOffset
+            let last = max(0, count - 1)
+            let start = min(max(0, index), last)
+            let pitch = SpacesManagerLayout.card + SpacesManagerLayout.gap
+            minimum = -Double(start) * pitch
+            maximum = Double(last - start) * pitch
+        }
+
+        public func offset(pointerX: Double, scrollOffset: Double) -> Double {
+            let moved = pointerX - self.pointerX + scrollOffset - self.scrollOffset
+            return min(maximum, max(minimum, moved))
+        }
+    }
+
     /// The width the cards need with the Library's rail (`rail` wide) on their left: what
     /// `LibraryWidth.sidebar(spacesCards:window:)` widens the Library to.
     public static func width(spaces n: Int, rail: Double) -> Double {
