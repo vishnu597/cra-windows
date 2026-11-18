@@ -141,9 +141,10 @@ public final class DownloadHistory {
         return entry
     }
 
-    /// A renamed (or reverted) file keeps its place in the list.
-    public func move(from old: String, to new: String) {
-        guard let i = entries.lastIndex(where: { $0.path == old }) else { return }
+    /// A renamed (or reverted) file keeps its place in the list; `id` picks the entry when two
+    /// share a path (Tidy Downloads, upstream #441).
+    public func move(from old: String, to new: String, id: UUID? = nil) {
+        guard let i = entries.lastIndex(where: { $0.path == old && (id == nil || $0.id == id) }) else { return }
         entries[i].path = new
         file?.save(entries)
     }

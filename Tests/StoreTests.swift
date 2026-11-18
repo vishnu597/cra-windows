@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import Foundation
 import Observation
@@ -23,7 +24,10 @@ enum StoreTests {
         try diaImport()
         chromiumProfile()
         deletedBrowserStillImports()
+        protectedBrowserAsksForFullDiskAccess()
+        signedInChromeProfileImports()
         chromiumManifestV2Import()
+        zenFaviconSize()
         autoArchive()
         longAutoArchive()
         tabSleepCadence()
@@ -44,6 +48,7 @@ enum StoreTests {
         stampsUseTheClock()
         persistenceFaults()
         incognitoStaysOffDisk()
+        chromePagesLeaveIncognito()
         mcpExcludesPrivateTabs()
         pinnedURL()
         tabFavicons()
@@ -63,6 +68,9 @@ enum StoreTests {
         try arcSpaceIconTabGlyphImports()
         littleWindowProfile()
         tidyTabs()
+        tidyExistingGroupIdentity()
+        tidyConsideredSnapshots()
+        tidySingletonGroups()
         pinHook()
         dropOnPinnedTabSplits()
         reopenClosedTabs()
@@ -287,6 +295,51 @@ enum StoreTests {
         let empty = ImportSource(id: "chrome", name: "Chrome", bundleID: "app.cra.tests.not-installed", kind: .chromium,
                                  dataDir: firefoxRoot.appendingPathComponent("none"))
         expect(!empty.isAvailable, "no profile, nothing to offer")
+    }
+
+    /// Current macOS can keep Chrome's and Brave's folders from other apps. Cra listed only the
+    /// browsers it could read, so Chrome vanished from the picker while Ardia, which asks for
+    /// Full Disk Access instead, imported it (X DM, 15 Nov). A folder that is there but refused
+    /// is offered, flagged as needing Full Disk Access.
+    private static func protectedBrowserAsksForFullDiskAccess() {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("cra-protected-\(UUID().uuidString)", isDirectory: true)
+        try? fm.createDirectory(at: root.appendingPathComponent("Default"), withIntermediateDirectories: true)
+        fm.createFile(atPath: root.appendingPathComponent("Default/History").path, contents: Data())
+        let chrome = ImportSource(id: "chrome", name: "Chrome", bundleID: "app.cra.tests.not-installed", kind: .chromium, dataDir: root)
+        expect(chrome.isAvailable && !chrome.needsFullDiskAccess, "a readable Chrome folder needs nothing more")
+        try? fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+            try? fm.removeItem(at: root)
+        }
+        expect(chrome.isAvailable, "a Chrome folder macOS won't let Cra read is still offered")
+        expect(chrome.needsFullDiskAccess, "and it asks for Full Disk Access")
+        let missing = ImportSource(id: "brave", name: "Brave", bundleID: "app.cra.tests.not-installed", kind: .chromium,
+                                   dataDir: root.deletingLastPathComponent().appendingPathComponent("cra-none-\(UUID().uuidString)"))
+        expect(!missing.isAvailable && !missing.needsFullDiskAccess, "a browser never used is neither offered nor asks")
+    }
+
+    /// Chrome signed in to a Google account keeps the bookmarks saved there in AccountBookmarks,
+    /// and Local State lists every profile folder. Ardia reads both; Cra looked only for
+    /// Bookmarks, History, Cookies and Login Data in folders named Default or "Profile N".
+    private static func signedInChromeProfileImports() {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("cra-signed-in-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let profile = root.appendingPathComponent("Work", isDirectory: true)
+        try? fm.createDirectory(at: profile, withIntermediateDirectories: true)
+        try? Data(#"{"profile":{"info_cache":{"Work":{"name":"Work"}},"profiles_order":["Work"]}}"#.utf8)
+            .write(to: root.appendingPathComponent("Local State"))
+        try? Data("{}".utf8).write(to: profile.appendingPathComponent("Preferences"))
+        try? Data(#"{"roots":{"bookmark_bar":{"children":[{"type":"url","name":"Docs","url":"https://docs.example.com/"}]}}}"#.utf8)
+            .write(to: profile.appendingPathComponent("AccountBookmarks"))
+        let profiles = ChromiumImporter.profiles(userData: root)
+        expect(profiles.map(\.id) == ["Work"] && profiles.first?.name == "Work", "a profile Local State lists is found by its folder")
+        expect(ChromiumImporter.bookmarks(profile: profile).bar.map(\.url) == ["https://docs.example.com/"],
+               "bookmarks saved to the Google account come over")
+        let chrome = ImportSource(id: "chrome", name: "Chrome", bundleID: "app.cra.tests.not-installed", kind: .chromium, dataDir: root)
+        expect(chrome.isAvailable, "a signed-in Chrome with only account bookmarks is offered")
     }
 
     // promise: #228
@@ -784,6 +837,35 @@ enum StoreTests {
         expect(store.mcpTab(UUID()) == nil, "MCP refuses unknown IDs")
         expect(store.spaces.values.allSatisfy { store.mcpTab($0.todayContainerID) == nil },
                "MCP refuses containers")
+    }
+
+    // promise: #412
+    /// Chrome keeps chrome://extensions, settings, history and the password manager out of
+    /// incognito; Cra built the incognito page for chrome://extensions and quit (#412). From an
+    /// incognito window they open in the normal window in use last, which becomes the active one;
+    /// pages Chrome allows there stay.
+    @MainActor
+    private static func chromePagesLeaveIncognito() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let normal = store.activeWindowID
+        let normalSpace = store.focusedSpaceID(window: normal)
+        let incognito = store.addIncognitoWindow(frame: nil)
+        store.activeWindowID = incognito.id
+        var fronted: [UUID] = []
+        store.pageLeftIncognito = { fronted.append($0) }
+        let extensions = store.createTab(url: "chrome://extensions", select: true, window: incognito.id)
+        expect(store.spaceID(ofItem: extensions.id) == normalSpace, "chrome://extensions from incognito opens in the normal window's space")
+        expect(store.selectedTabID(window: normal) == extensions.id, "and is the tab the normal window shows")
+        expect(store.selectedTabID(window: incognito.id) == nil, "the incognito window keeps none")
+        expect(store.activeWindowID == normal && fronted == [normal], "and the normal window comes to the front")
+        let settings = store.createTab(url: "chrome://settings/privacy", in: incognito.focusedSpaceID, select: false)
+        expect(store.spaceID(ofItem: settings.id) == normalSpace, "a page asked for in the incognito space by name goes too")
+        store.activeWindowID = incognito.id
+        let version = store.createTab(url: "chrome://version", select: true, window: incognito.id)
+        expect(store.isIncognito(item: version.id) && store.activeWindowID == incognito.id, "chrome://version stays in incognito, as in Chrome")
+        let web = store.createTab(url: "https://example.com", select: true, window: incognito.id)
+        expect(store.isIncognito(item: web.id), "and so does a web page")
+        expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
     }
 
     /// Incognito tabs never reach sidebar.json (#46's review: updateTab saved every item), and
@@ -1656,7 +1738,7 @@ enum StoreTests {
         let fresh = store.createTab(url: "https://example.org/Jupiter", in: sid, select: false)
         expect(store.canTidy(sid), "a new loose tab brings Tidy back")
         let loose2 = store.looseTodayTabs(sid).map(\.id)
-        let existing = store.tabGroups(in: sid).map { $0.title ?? "" }
+        let existing = store.tabGroups(in: sid).map { TidyTabs.ExistingGroup(id: $0.id, name: $0.title ?? "") }
         let join = TidyTabs.plan([.init(name: "planets", tabs: [loose2.firstIndex(of: fresh.id)!])], tabCount: loose2.count, existingGroups: existing)
         store.applyTidy(join, tabIDs: loose2, in: sid)
         groups = store.tabGroups(in: sid)
@@ -1696,6 +1778,192 @@ enum StoreTests {
         store.archiveTab(byName["Croissant"]!, reason: .manual)
         expect(store.item(bread.id) == nil && !store.item(today)!.children.contains(bread.id), "its last tab takes the header with it")
         expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
+    /// A model result retains the original destination while headers and tab membership change.
+    @MainActor
+    private static func tidyExistingGroupIdentity() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        for change in ["remove earlier header", "reorder headers", "rename destination", "remove destination",
+                       "replace destination", "close destination", "pin destination"] {
+            let space = store.createSpace(title: "Pending tidy", emoji: "🧹")
+            for i in 0..<6 { store.createTab(url: "https://example.org/identity/\(i)", in: space.id, select: false) }
+            let tabs = store.looseTodayTabs(space.id).map(\.id)
+            let initial = TidyTabs.plan([.init(name: "A", tabs: [0, 1]), .init(name: "B", tabs: [2, 3]),
+                                         .init(name: "C", tabs: [4, 5])], tabCount: tabs.count, existingGroups: [])
+            store.applyTidy(initial, tabIDs: tabs, in: space.id)
+            let groups = store.tabGroups(in: space.id)
+            let destination = groups[1].id
+            let fresh = store.createTab(url: "https://example.org/identity/fresh", in: space.id, select: false).id
+            let pending = TidyTabs.plan([.init(name: "B", tabs: [0])], tabCount: 1,
+                                        existingGroups: groups.map { TidyTabs.ExistingGroup(id: $0.id, name: $0.title ?? "") })
+            switch change {
+            case "remove earlier header": store.removeGroupHeader(groups[0].id)
+            case "reorder headers": store.moveItem(destination, to: space.todayContainerID, index: 0)
+            case "rename destination": store.rename(destination, to: "Renamed B")
+            case "remove destination": store.removeGroupHeader(destination)
+            case "replace destination":
+                store.removeGroupHeader(destination)
+                let replacement = TidyTabs.plan([.init(name: "B", tabs: [0, 1])], tabCount: 2, existingGroups: [])
+                store.applyTidy(replacement, tabIDs: groups[1].children, in: space.id)
+            case "close destination": store.deleteFolder(destination)
+            case "pin destination": store.folderFromGroup(destination)
+            default: fatalError("unknown destination change")
+            }
+            let destinationSurvives = ["remove earlier header", "reorder headers", "rename destination"].contains(change)
+            let before = store.item(space.todayContainerID)!.children
+            store.applyTidy(pending, tabIDs: [fresh], in: space.id)
+            expect(store.item(fresh)?.parentID == (destinationSurvives ? destination : space.todayContainerID),
+                   "pending tidy uses original group identity after \(change)")
+            expect(!store.item(groups[2].id)!.children.contains(fresh), "pending tidy never retargets neighboring C after \(change)")
+            if destinationSurvives {
+                expect(store.undoTidy() && store.item(fresh)?.parentID == space.todayContainerID
+                       && store.item(space.todayContainerID)?.children == before && store.item(destination) != nil,
+                       "undo restores loose order and retains original destination after \(change)")
+            } else {
+                expect(!store.undoTidy(), "skipping a removed destination creates no tidy undo after \(change)")
+            }
+            expect(store.integrityProblems().isEmpty, "pending tidy preserves sidebar integrity after \(change)")
+        }
+
+        let space = store.createSpace(title: "Changed members", emoji: "🧹")
+        for i in 0..<4 { store.createTab(url: "https://example.org/members/grouped/\(i)", in: space.id, select: false) }
+        let grouped = store.looseTodayTabs(space.id).map(\.id)
+        store.applyTidy(TidyTabs.plan([.init(name: "Destination", tabs: [0, 1]), .init(name: "Other", tabs: [2, 3])],
+                                     tabCount: grouped.count, existingGroups: []), tabIDs: grouped, in: space.id)
+        let groups = store.tabGroups(in: space.id)
+        let members = (0..<5).map { store.createTab(url: "https://example.org/members/pending/\($0)", in: space.id, select: false).id }
+        let pending = TidyTabs.plan([.init(name: "Destination", tabs: Array(members.indices))], tabCount: members.count,
+                                    existingGroups: groups.map { TidyTabs.ExistingGroup(id: $0.id, name: $0.title ?? "") })
+        store.archiveTab(members[0], reason: .manual)
+        store.moveItem(members[1], to: space.pinnedContainerID, index: nil)
+        store.moveItem(members[2], to: groups[1].id, index: nil)
+        let elsewhere = store.createSpace(title: "Elsewhere", emoji: "🌍")
+        store.moveItem(members[3], to: elsewhere.todayContainerID, index: nil)
+        store.applyTidy(pending, tabIDs: members, in: space.id)
+        expect(store.item(groups[0].id)?.children == grouped.prefix(2) + [members[4]],
+               "pending tidy joins only original members still loose in the source Today")
+        expect(store.item(members[0]) == nil && store.item(members[1])?.parentID == space.pinnedContainerID
+               && store.item(members[2])?.parentID == groups[1].id && store.item(members[3])?.parentID == elsewhere.todayContainerID,
+               "pending tidy does not revive closed tabs or steal pinned, grouped or moved tabs")
+        expect(store.undoTidy() && store.item(members[4])?.parentID == space.todayContainerID
+               && store.item(groups[0].id)?.children == Array(grouped.prefix(2)), "undo moves back only the surviving joined member")
+        expect(store.integrityProblems().isEmpty, "changed-member completion and undo preserve integrity")
+    }
+
+    /// Only successfully considered request IDs are consumed, including when requests fit a prefix.
+    @MainActor
+    private static func tidyConsideredSnapshots() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        for groupsTabs in [false, true] {
+            let space = store.createSpace(title: "Tidy snapshot", emoji: "🧹")
+            for i in 0..<6 { store.createTab(url: "https://example.org/snapshot/\(i)", in: space.id, select: false) }
+            let captured = store.looseTodayTabs(space.id).map(\.id)
+            let plan = TidyTabs.plan(groupsTabs ? [.init(name: "Captured", tabs: [0, 1])] : [],
+                                     tabCount: captured.count, existingGroups: [])
+            let arrival = store.createTab(url: "https://example.org/snapshot/new", in: space.id, select: false)
+            store.applyTidy(plan, tabIDs: captured, in: space.id)
+            expect(store.canTidy(space.id) && store.item(arrival.id)?.parentID == space.todayContainerID,
+                   "a \(groupsTabs ? "grouping" : "successful empty") request leaves an unseen arrival eligible")
+            expect(store.tidiedTabs[space.id] == Set(captured), "successful tidy consumes only its captured snapshot")
+            if groupsTabs {
+                expect(store.undoTidy() && store.tidiedTabs[space.id] == nil && store.canTidy(space.id),
+                       "undo clears considered state after a snapshot-only grouping")
+            } else {
+                store.applyTidy(TidyTabs.plan([], tabCount: 1, existingGroups: []), tabIDs: [arrival.id], in: space.id)
+                expect(!store.canTidy(space.id) && store.tidiedTabs[space.id] == Set(captured + [arrival.id]),
+                       "successfully considering the arrival retains earlier considered IDs and ends offered state")
+            }
+            expect(store.integrityProblems().isEmpty, "snapshot-only completion and undo preserve integrity")
+        }
+
+        let mixed = store.createSpace(title: "Prompt priority", emoji: "🧹")
+        for i in 0..<6 { store.createTab(url: "https://example.org/priority/\(i)", in: mixed.id, select: false) }
+        let old = store.looseTodayTabs(mixed.id).map(\.id)
+        store.applyTidy(TidyTabs.plan([], tabCount: old.count, existingGroups: []), tabIDs: old, in: mixed.id)
+        let fresh = (0..<2).map { store.createTab(url: "https://example.org/priority/new/\($0)", in: mixed.id, select: false).id }
+        store.moveItem(old[0], to: mixed.todayContainerID, index: 0)
+        let before = store.item(mixed.todayContainerID)!.children
+        let request = store.tidyCandidates(mixed.id).map(\.id)
+        expect(request == fresh.reversed() + old, "request priority retains unseen-first mapping even when an old tab leads Today")
+        func at(_ id: UUID) -> Int { request.firstIndex(of: id)! }
+        let plan = TidyTabs.plan([.init(name: "Second", tabs: [at(fresh[1]), at(old[1])]),
+                                  .init(name: "First", tabs: [at(fresh[0]), at(old[0])])],
+                                 tabCount: request.count, existingGroups: [])
+        expect(plan.newGroups.map(\.name) == ["Second", "First"], "model plan remains in captured request order")
+        store.applyTidy(plan, tabIDs: request, in: mixed.id)
+        let groups = store.tabGroups(in: mixed.id)
+        expect(groups.map(\.title) == ["First", "Second"], "new groups follow visible Today order, not unseen-first prompt priority")
+        expect(groups[0].children == [old[0], fresh[0]] && groups[1].children == [fresh[1], old[1]],
+               "group members retain Today order while resolving the captured prompt mapping")
+        expect(store.undoTidy() && store.item(mixed.todayContainerID)?.children == before,
+               "undo restores exact Today order after a prioritized request")
+        expect(store.integrityProblems().isEmpty, "prioritized mapping and undo preserve sidebar integrity")
+
+        for limit in [TidyTabs.maximumTabs, 7] {
+            let space = store.createSpace(title: "Fitted tidy", emoji: "🧹")
+            for i in 0..<75 { store.createTab(url: "https://example.org/fitted/\(i)", in: space.id, select: false) }
+            let original = store.looseTodayTabs(space.id).map(\.id)
+            var seen = Set<UUID>()
+            let attempts = (original.count + limit - 1) / limit
+            for attempt in 0..<attempts {
+                expect(store.canTidy(space.id), "a fitted request leaves unconsidered tabs eligible before attempt \(attempt)")
+                let selected = Array(store.tidyCandidates(space.id).prefix(limit).map(\.id))
+                let unseen = original.filter { !seen.contains($0) }
+                expect(Array(selected.prefix(unseen.count)) == Array(unseen.prefix(limit)),
+                       "each fitted request prioritizes remaining unseen IDs in Today order")
+                store.applyTidy(TidyTabs.plan([], tabCount: selected.count, existingGroups: []), tabIDs: selected, in: space.id)
+                seen.formUnion(selected)
+                expect(store.tidiedTabs[space.id] == seen, "successful fitted prefixes accumulate considered IDs")
+                expect(store.canTidy(space.id) == (seen.count < original.count),
+                       "fitted requests remain offered exactly while an unseen loose tab survives")
+            }
+            expect(seen == Set(original) && !store.canTidy(space.id),
+                   "successful empty requests converge across all 75 tabs with prefix limit \(limit)")
+            let old = original[0]
+            store.archiveTab(old, reason: .manual)
+            let arrival = store.createTab(url: "https://example.org/fitted/new", in: space.id, select: false)
+            let selected = Array(store.tidyCandidates(space.id).prefix(limit).map(\.id))
+            expect(selected.first == arrival.id, "new loose tabs precede previously considered context")
+            store.applyTidy(TidyTabs.plan([], tabCount: selected.count, existingGroups: []), tabIDs: selected, in: space.id)
+            expect(!store.canTidy(space.id) && store.tidiedTabs[space.id] == Set(original.filter { $0 != old } + [arrival.id]),
+                   "completion prunes absent IDs while retaining all surviving considered tabs")
+            expect(store.item(space.todayContainerID)?.children == [arrival.id] + original.filter { $0 != old },
+                   "request prioritization never reorders the visible loose tabs")
+            expect(store.integrityProblems().isEmpty, "fitted request convergence preserves sidebar integrity")
+        }
+    }
+
+    /// Arc's decoded singleton example must survive live filtering, undo and empty-header pruning.
+    @MainActor
+    private static func tidySingletonGroups() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let space = store.createSpace(title: "Singleton tidy", emoji: "🧹")
+        for i in 0..<6 { store.createTab(url: "https://example.org/singleton/\(i)", in: space.id, select: false) }
+        let original = store.looseTodayTabs(space.id).map(\.id)
+        let calendar = TidyTabs.Plan(newGroups: [.init(name: "Calendar", tabs: [0])], joins: [:])
+        store.applyTidy(calendar, tabIDs: original, in: space.id)
+        var groups = store.tabGroups(in: space.id)
+        expect(groups.count == 1 && groups[0].children == [original[0]], "a live singleton assignment creates its named header")
+        expect(store.undoTidy() && store.tabGroups(in: space.id).isEmpty
+               && store.item(space.todayContainerID)?.children == original,
+               "undo restores exact loose order and prunes the new singleton header")
+        let pair = TidyTabs.Plan(newGroups: [.init(name: "Survivor", tabs: [0, 1])], joins: [:])
+        store.archiveTab(original[0], reason: .manual)
+        store.applyTidy(pair, tabIDs: original, in: space.id)
+        groups = store.tabGroups(in: space.id)
+        expect(groups.count == 1 && groups[0].children == [original[1]], "one eligible survivor of a pair still forms a valid group")
+        let groupID = groups[0].id
+        store.archiveTab(original[1], reason: .manual)
+        expect(store.item(groupID) == nil && store.tabGroups(in: space.id).isEmpty, "closing the sole member prunes its empty header")
+        store.applyTidy(pair, tabIDs: original, in: space.id)
+        expect(store.tabGroups(in: space.id).isEmpty, "zero surviving eligible members never create an empty header")
+        store.applyTidy(calendar, tabIDs: [original[2]], in: space.id)
+        let removedHeader = store.tabGroups(in: space.id)[0].id
+        store.removeGroupHeader(removedHeader)
+        expect(store.item(removedHeader) == nil && store.item(original[2])?.parentID == space.todayContainerID,
+               "Remove header leaves a singleton loose and prunes its former header")
+        expect(store.integrityProblems().isEmpty, "singleton application, undo and pruning preserve sidebar integrity")
     }
 
     /// Tidy Tab Titles hears of a tab pinned from elsewhere, once, and only while it has no name.
@@ -2706,6 +2974,22 @@ enum StoreTests {
         clock.advance(by: 1)
         store.selectTab(link.id)
         expect(store.recentTabs(in: sid, limit: .max) == [link.id, source.id, older.id], "on it, the next tab is the one it came from")
+    }
+
+    /// Zen's favicons come from Firefox's favicons.sqlite, where the widest icon is often an SVG,
+    /// and an SVG can say it is any size. Drawn at that size it ran a 0.1.43 import out of memory
+    /// (two crash reports in tiffRepresentation under ZenImporter.plan); each icon is written small.
+    private static func zenFaviconSize() {
+        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="2000"><rect width="3000" height="2000" fill="orange"/></svg>"#
+        guard let huge = NSImage(data: Data(svg.utf8)) else { return expect(false, "an SVG favicon loads") }
+        let png = ZenImporter.faviconPNG(huge).flatMap(NSBitmapImageRep.init(data:))
+        expect(png != nil, "a huge SVG favicon is written")
+        expect((png?.pixelsWide ?? .max) <= 64 && (png?.pixelsHigh ?? .max) <= 64, "at favicon size, not the size the SVG declares")
+        expect(png.map { $0.pixelsWide > $0.pixelsHigh } == true, "keeping its shape")
+
+        let small = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { r in NSColor.red.setFill(); r.fill(); return true }
+        let smallPNG = ZenImporter.faviconPNG(small).flatMap(NSBitmapImageRep.init(data:))
+        expect(smallPNG?.pixelsWide == 16, "a 16 px favicon stays 16 px")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

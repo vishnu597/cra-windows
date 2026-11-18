@@ -30,7 +30,20 @@ public final class SidebarStore {
             notifyItemReaders(of: oldValue)
         }
     }
-    public var settings = AppSettings() { didSet { settingsStore.save(settings) } }
+    public var settings = AppSettings() {
+        didSet {
+            // Deliver the disable edge inline, including master-switch/replacement and same-turn off/on.
+            if oldValue.askOnPage && !settings.askOnPage {
+                NotificationCenter.default.post(name: AskOnPage.disabledNotification, object: self)
+            }
+            settingsStore.save(settings)
+            if settings.tidyDownloads != oldValue.tidyDownloads { tidyDownloadsChanged(settings.tidyDownloads) }
+            if settings.tidyTabs != oldValue.tidyTabs { tidyTabsChanged(settings.tidyTabs) }
+            if settings.fiveSecondPreviews != oldValue.fiveSecondPreviews { fiveSecondPreviewsChanged(settings.fiveSecondPreviews) }
+            if settings.tidyTabTitles != oldValue.tidyTabTitles { tidyTabTitlesChanged(settings.tidyTabTitles) }
+        }
+    }
+    @ObservationIgnored public var fiveSecondPreviewsChanged: (Bool) -> Void = { _ in }
     public private(set) var history: [String: HistoryEntry] = [:]
     public private(set) var ranking = RankingData()
     /// Bumped on every structural change; cheap way for AppKit code to observe.
@@ -58,6 +71,25 @@ public final class SidebarStore {
     /// A tab came into a space's pinned tabs from elsewhere (⌘D, a drag, a menu): Tidy Tab Titles
     /// may give it a shorter name (TidyTitlesService).
     @ObservationIgnored public var tabPinned: (UUID) -> Void = { _ in }
+    /// A page Chrome keeps out of incognito was opened from an incognito window and went to this
+    /// normal window instead (#412): AppDelegate brings that window to the front.
+    @ObservationIgnored public var pageLeftIncognito: (UUID) -> Void = { _ in }
+    /// Synchronous so an off/on change in one actor turn cannot revive an older download name.
+    @ObservationIgnored public var tidyDownloadsChanged: (Bool) -> Void = { _ in }
+    @ObservationIgnored public var tidyTabsChanged: (Bool) -> Void = { _ in }
+    @ObservationIgnored public var tidyTabsSpaceRemoved: (UUID) -> Void = { _ in }
+    /// The UI window performing a synchronous tree edit; nested edits restore their caller's origin.
+    @ObservationIgnored public private(set) var pinningWindowID: UUID?
+
+    public func withPinningWindow(_ windowID: UUID, _ change: () -> Void) {
+        let previous = pinningWindowID
+        pinningWindowID = windowID
+        defer { pinningWindowID = previous }
+        change()
+    }
+
+    /// Settings replacement and Turn Off Max must invalidate any outstanding title generation.
+    @ObservationIgnored public var tidyTabTitlesChanged: (Bool) -> Void = { _ in }
     @ObservationIgnored public var liveFolderChanged: (UUID) -> Void = { _ in }
     @ObservationIgnored private var liveFolderVersions: [UUID: UUID] = [:]
 
@@ -315,6 +347,7 @@ public final class SidebarStore {
         pinnedPeeks[id] = nil
         if activeWindowID == id { activeWindowID = prefs.windows.first { !isStandalone(window: $0.id) }?.id ?? prefs.windows[0].id }
         if let sid = own, let space = spaces[sid] {
+            invalidateTidySpace(sid)
             var ids = Set<UUID>()
             collectSubtree(of: space, into: &ids)
             for i in ids { items[i] = nil }
@@ -591,7 +624,16 @@ public final class SidebarStore {
     public func createTab(url: String, title: String = "", in spaceID: UUID? = nil, pinned: Bool = false,
                    select: Bool = true, parent: UUID? = nil, index: Int? = nil, window: UUID? = nil,
                    referrer: UUID? = nil) -> SidebarItem {
-        let sid = spaceID ?? focusedSpaceID(window: window)
+        var sid = spaceID ?? focusedSpaceID(window: window), window = window, parent = parent, index = index
+        // Chrome's Settings, Extensions, History and password pages never load in incognito: as in
+        // Chrome they open in the normal window in use last, which comes to the front (#412).
+        let leavesIncognito = isIncognito(space: sid) && !IncognitoPages.allows(url)
+        if leavesIncognito {
+            window = lastNormalWindowID
+            sid = focusedSpaceID(window: lastNormalWindowID)
+            parent = nil
+            index = nil
+        }
         let space = spaces[sid] ?? focusedSpace(window: window)
         let requestedParent = parent ?? (pinned ? space.pinnedContainerID : space.todayContainerID)
         let parentID = liveFolder(containing: requestedParent) == nil ? requestedParent : space.todayContainerID
@@ -611,6 +653,10 @@ public final class SidebarStore {
         p.children.insert(tab.id, at: min(max(0, at), p.children.count))
         items[parentID] = p
         if select { selectTab(tab.id, window: window) } else { touch() }
+        if leavesIncognito, let window {
+            activeWindowID = window
+            pageLeftIncognito(window)
+        }
         return tab
     }
 
@@ -836,11 +882,17 @@ public final class SidebarStore {
     /// Repaired like a file at launch, so a profile the other Mac deleted leaves its spaces on
     /// Default, and a window whose space is gone shows the first.
     public func replace(document synced: SidebarDocument) {
+        let previousAskProfiles = askProfileOwnership(of: allTabs().map(\.id))
+        let previousSpaceProfiles = spaces.mapValues(\.profileID)
+        defer {
+            let changedSpaces = Set(previousSpaceProfiles.keys.filter { previousSpaceProfiles[$0]! != spaces[$0]?.profileID })
+            notifyAskProfileChanges(previousAskProfiles, spaces: changedSpaces)
+        }
         let doc = synced.forSync()
         var kept = Set<UUID>()
         for sid in incognitoSpaceIDs.union(blankSpaceIDs) { if let s = spaces[sid] { collectSubtree(of: s, into: &kept) } }
         for id in items.all.keys where !kept.contains(id) { items[id] = nil }
-        for (id, _) in spaces where !isStandalone(space: id) { spaces[id] = nil }
+        for (id, _) in spaces where !isStandalone(space: id) { invalidateTidySpace(id); spaces[id] = nil }
         storedThemes = [:]
         previousTab = [:]
         for s in doc.spaces { spaces[s.id] = s }
@@ -954,6 +1006,8 @@ public final class SidebarStore {
         if fromParent != newParent, let from = fromParent, let live = liveFolder(containing: from) { hideLiveItem(id, in: live.id) }
         let oldIndex = fromParent.flatMap { items[$0]?.children.firstIndex(of: id) }
         let wasPinned = fromParent.map { if case .pinned? = rootContainerKind($0) { return true } else { return false } } ?? false
+        let previousAskProfiles = askProfileOwnership(of: it.isTab ? [id] : tabs(under: id).map(\.id))
+        defer { notifyAskProfileChanges(previousAskProfiles) }
         if it.isFolder, !it.isTabGroup, case .today? = rootContainerKind(newParent) {
             // Unpack: move the folder's tabs instead.
             let kids = it.children
@@ -1060,6 +1114,8 @@ public final class SidebarStore {
             for t in tabs where t.id != first.id { addToSplit(existing.id, tabID: t.id, at: nil) }
             return items[existing.id]
         }
+        let previousAskProfiles = askProfileOwnership(of: tabs.map(\.id))
+        defer { notifyAskProfileChanges(previousAskProfiles) }
         // Observed in Arc 1.170: splitting a favorite or pinned tab leaves it in
         // place and builds the split in Today from a copy of the page; a Today
         // tab moves into the split at its own slot.
@@ -1173,6 +1229,8 @@ public final class SidebarStore {
             if let i = index, let sp = items[splitID], sp.children.firstIndex(of: tabID) != nil { moveWithinSplit(splitID, tabID: tabID, to: i) }
             return
         }
+        let previousAskProfiles = askProfileOwnership(of: [tabID])
+        defer { notifyAskProfileChanges(previousAskProfiles) }
         let from = tab.parentID
         var paneID = tabID
         if isPinned(tabID), let data = tab.tab {
@@ -1371,12 +1429,16 @@ public final class SidebarStore {
     public func moveFavorite(_ id: UUID, toProfile profileID: UUID?) {
         let id = splitContaining(id)?.id ?? id
         guard let from = profileList(ofItem: id), from.profileID != profileID, profileID == nil || profile(profileID) != nil else { return }
+        let previousAskProfiles = askProfileOwnership(of: items[id]?.isTab == true ? [id] : tabs(under: id).map(\.id))
+        defer { notifyAskProfileChanges(previousAskProfiles) }
         reparent(id, to: profileList(profileID))
         touch()
     }
 
     /// Makes the sidebar match FavoritesSharing.share; nothing changes when it already does.
     private func shareFavorites() {
+        let previousAskProfiles = askProfileOwnership(of: allTabs().filter { isFavorite($0.id) }.map(\.id))
+        defer { notifyAskProfileChanges(previousAskProfiles) }
         profileFavorites.removeAll { items[$0.containerID] == nil }
         let lists = profileFavorites.map { FavoritesSharing.ProfileList($0, items: entries($0.containerID)) }
         let plan = FavoritesSharing.share(favoritesBySpace(), lists: lists)
@@ -1417,6 +1479,8 @@ public final class SidebarStore {
     /// Each space showing a list gets one of its own: the first takes the favorites and their
     /// pages, the others copies. A list no space shows stays with its profile for next time.
     private func unshareFavorites() {
+        let previousAskProfiles = askProfileOwnership(of: allTabs().filter { isFavorite($0.id) }.map(\.id))
+        defer { notifyAskProfileChanges(previousAskProfiles) }
         let splits = FavoritesSharing.unshare(favoritesBySpace(), lists: profileFavorites)
         guard !splits.isEmpty else { return }
         var windows = prefs.windows
@@ -2087,7 +2151,7 @@ public final class SidebarStore {
 
     /// Spaces whose Today tabs the model is sorting: the divider draws its squiggle meanwhile.
     public private(set) var tidyingSpaces: Set<UUID> = []
-    /// Per space, Today's tabs when Tidy last ran: Tidy waits for a new loose tab (TidyTabs.offers).
+    /// Per space, Today's tabs already considered by Tidy; an unseen loose tab keeps it offered.
     /// Not saved, like Arc's.
     public private(set) var tidiedTabs: [UUID: Set<UUID>] = [:]
     /// What ⌘Z puts back: the last tidy, until a tab closes or a group's header is used.
@@ -2097,6 +2161,12 @@ public final class SidebarStore {
     public func looseTodayTabs(_ sid: UUID) -> [SidebarItem] {
         guard let space = spaces[sid] else { return [] }
         return children(of: space.todayContainerID).filter(\.isTab)
+    }
+
+    /// Request priority is separate from visible order: a fitted prefix must not starve unseen tabs.
+    public func tidyCandidates(_ sid: UUID) -> [SidebarItem] {
+        TidyTabs.requestOrder(looseTabs: looseTodayTabs(sid).map(\.id), tidied: tidiedTabs[sid])
+            .compactMap { items[$0] }
     }
 
     public func tabGroups(in sid: UUID) -> [SidebarItem] {
@@ -2121,22 +2191,28 @@ public final class SidebarStore {
     public func applyTidy(_ plan: TidyTabs.Plan, tabIDs: [UUID], in sid: UUID) {
         guard let space = spaces[sid] else { return }
         let today = space.todayContainerID
+        if plan.newGroups.isEmpty && plan.joins.isEmpty { markTidied(sid, tabIDs: tabIDs); return }
         let before = items[today]?.children ?? []
-        let groups = tabGroups(in: sid)
-        let loose = Set(looseTodayTabs(sid).map(\.id))
+        let looseOrder = Dictionary(uniqueKeysWithValues: looseTodayTabs(sid).enumerated().map { ($0.element.id, $0.offset) })
         func ids(_ indices: [Int]) -> [UUID] {
-            indices.compactMap { tabIDs.indices.contains($0) ? tabIDs[$0] : nil }.filter(loose.contains)
+            indices.compactMap { tabIDs.indices.contains($0) ? tabIDs[$0] : nil }
+                .filter { looseOrder[$0] != nil }.sorted { looseOrder[$0]! < looseOrder[$1]! }
         }
         var moved: [UUID] = []
-        for (g, indices) in plan.joins.sorted(by: { $0.key < $1.key }) where groups.indices.contains(g) {
+        // Match captured identities against live Today headers, never against their current indexes.
+        for group in tabGroups(in: sid) {
+            guard let indices = plan.joins[group.id] else { continue }
             let tabs = ids(indices)
-            moveItems(tabs, to: groups[g].id, index: nil)
+            moveItems(tabs, to: group.id, index: nil)
             moved += tabs
         }
+        // Prompt priority can differ from Today order; it must not reorder the resulting rows.
+        let proposals = plan.newGroups.map { (name: $0.name, tabs: ids($0.tabs)) }
+            .filter { !$0.tabs.isEmpty }
+            .sorted { looseOrder[$0.tabs[0]]! < looseOrder[$1.tabs[0]]! }
         var newGroups: [UUID] = []
-        for p in plan.newGroups {
-            let tabs = ids(p.tabs)
-            guard tabs.count >= 2 else { continue }
+        for p in proposals {
+            let tabs = p.tabs
             var g = SidebarItem.tabGroup(p.name, parent: today)
             g.createdAt = clock.now
             items[g.id] = g
@@ -2153,14 +2229,22 @@ public final class SidebarStore {
             items[today] = t
         }
         lastTidy = moved.isEmpty ? nil : (sid, before, moved)
-        tidiedTabs[sid] = Set(tabs(under: today).map(\.id))
+        markTidied(sid, tabIDs: tabIDs)
         touch()
     }
 
-    /// A run that ended without a plan (the model failed or had nothing to say) still hides Tidy.
-    public func markTidied(_ sid: UUID) {
+    /// The tabs a run sent stop offering Tidy, whatever came back (Arc hid it even after a run that
+    /// grouped nothing); tabs the run had no room for still do.
+    public func markTidied(_ sid: UUID, tabIDs: [UUID]) {
         guard let space = spaces[sid] else { return }
-        tidiedTabs[sid] = Set(tabs(under: space.todayContainerID).map(\.id))
+        let surviving = Set(tabs(under: space.todayContainerID).map(\.id))
+        tidiedTabs[sid] = (tidiedTabs[sid] ?? []).union(tabIDs).intersection(surviving)
+    }
+
+    private func invalidateTidySpace(_ sid: UUID) {
+        tidyTabsSpaceRemoved(sid)
+        tidyingSpaces.remove(sid)
+        tidiedTabs[sid] = nil
     }
 
     /// ⌘Z after a tidy: the tabs it moved go back where they were, its new groups go with them.
@@ -2274,7 +2358,12 @@ public final class SidebarStore {
     }
 
     public func updateSpace(_ space: Space) {
-        guard spaces[space.id] != nil else { return }
+        guard let previous = spaces[space.id] else { return }
+        defer {
+            if previous.profileID != space.profileID {
+                NotificationCenter.default.post(name: AskOnPage.profileChangedNotification, object: self, userInfo: ["spaceID": space.id])
+            }
+        }
         storedThemes[space.id] = nil
         spaces[space.id] = space
         touch()
@@ -2302,6 +2391,7 @@ public final class SidebarStore {
 
     public func deleteSpace(_ id: UUID) {
         guard spaceOrder.count > 1, spaceOrder.contains(id), let space = spaces[id] else { return }
+        invalidateTidySpace(id)
         // A profile's favorites stay with the profile (Arc).
         let shared = isProfileList(space.favoritesContainerID)
         let favorites = shared ? [] : [space.favoritesContainerID]
@@ -2346,6 +2436,31 @@ public final class SidebarStore {
     }
 
     // MARK: Profiles
+
+    /// Temporary snapshots at actual profile/tree mutations, not a store-wide owner registry.
+    private struct AskProfileOwnership: Equatable {
+        let profileID: UUID?
+        let path: String?
+        let incognito: Bool
+    }
+
+    private func askProfileOwnership(of id: UUID) -> AskProfileOwnership? {
+        guard items[id]?.isTab == true else { return nil }
+        return AskProfileOwnership(profileID: profileID(item: id), path: profilePath(item: id), incognito: isIncognito(item: id))
+    }
+
+    private func askProfileOwnership(of ids: [UUID]) -> [UUID: AskProfileOwnership] {
+        var result: [UUID: AskProfileOwnership] = [:]
+        for id in Set(ids) { if let ownership = askProfileOwnership(of: id) { result[id] = ownership } }
+        return result
+    }
+
+    private func notifyAskProfileChanges(_ previous: [UUID: AskProfileOwnership], spaces: Set<UUID> = []) {
+        let tabs = Set(previous.keys.filter { previous[$0] != askProfileOwnership(of: $0) })
+        guard !tabs.isEmpty || !spaces.isEmpty else { return }
+        NotificationCenter.default.post(name: AskOnPage.profileChangedNotification, object: self,
+                                        userInfo: ["tabIDs": tabs, "spaceIDs": spaces])
+    }
 
     public func profile(_ id: UUID?) -> BrowserProfile? { id.flatMap { p in profiles.first { $0.id == p } } }
     public func spaces(usingProfile id: UUID?) -> [Space] { orderedSpaces.filter { $0.profileID == id } }
@@ -2442,6 +2557,7 @@ public final class SidebarStore {
         if isProfileList(s.favoritesContainerID) { s.favoritesContainerID = profileList(profileID) }
         s.profileID = profileID
         spaces[id] = s
+        NotificationCenter.default.post(name: AskOnPage.profileChangedNotification, object: self, userInfo: ["spaceID": id])
         for (folder, profile) in previousProfiles where profileDirectoryName(item: folder) != profile {
             invalidateLiveFolder(folder)
         }
@@ -2461,6 +2577,9 @@ public final class SidebarStore {
     /// folder open, so it goes at the next launch (the app's `onProfileDeleted`).
     public func deleteProfile(_ id: UUID) {
         guard let p = profile(id), spaces.values.allSatisfy({ $0.profileID != id }) else { return }
+        let previousAskProfiles = askProfileOwnership(of: profileFavorites.filter { $0.profileID == id }
+            .flatMap { tabs(under: $0.containerID).map(\.id) })
+        defer { notifyAskProfileChanges(previousAskProfiles) }
         profiles.removeAll { $0.id == id }
         // Its favorites go with it.
         for l in profileFavorites where l.profileID == id {

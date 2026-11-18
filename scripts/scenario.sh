@@ -1,7 +1,8 @@
 #!/bin/bash
 # Drives the real Cra.app through a user journey (Tests/Scenarios/<name>.scenario) on a
 # throwaway profile, behind your other windows, then checks the same invariants for every
-# scenario: still running, no new crash report, no fault in cra.log, the sidebar sound,
+# scenario: still running, no new crash report, no page crash ("Aw, Snap!") in the performance
+# recorder's report, no fault in cra.log, the sidebar sound,
 # main-thread stalls and memory inside the scenario's budget, helper processes back to
 # baseline after tabs close, and a clean quit. Never asserts on pixels.
 #
@@ -27,7 +28,8 @@
 #   helpers baseline | helpers settle [slack]
 #   renderers <max>             at most that many renderer processes (within 5 s)
 #   relaunch                    cra://debug?relaunch=1, then follow the new process
-#   expect-log <regex>          a line Cra logged (cra.log or stdout), or ${WS}'s "ws open" / "ws closed"
+#   expect-log <regex>          a line Cra logged (cra.log or stdout), ${WS}'s "ws open" / "ws closed", or a
+#                               request the fixture server answered ("GET /page.html?n=1 HTTP/1.1")
 #   reject-log <regex>          no such line logged so far
 #   snapshot <View[,n]> <name>  the nth visible view of that class drawn to PNG and compared with
 #                               Tests/Snapshots/<name>.png (CRA_SNAPSHOT_RECORD=1 records it)
@@ -46,6 +48,7 @@
 #                               before launch, as macOS leaves one (needs home)
 #   requires screen
 #   port <n>                    serve ${PAGE} on a fixed port (snapshots show the address)
+# The fixture server answers an address with ?delay=<s> (or &delay=<s>) that many seconds late.
 # ${FIXTURES}, ${ORIGIN} (that server's http://127.0.0.1:<port>, which also answers a POST with 204,
 # logs it to server.log and keeps its body in posts/), ${PAGE} (Tests/Fixtures/Pages/page.html from a local server, so it has a host
 # for developer mode and tab sleep), ${WEBKIT} (that server as http://localhost:<port>, a host the
@@ -154,6 +157,14 @@ class Server(http.server.ThreadingHTTPServer):
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
 class Handler(http.server.SimpleHTTPRequestHandler):
+    # ?delay=<s> anywhere in the address: the answer (a page, or a 404) comes that many seconds late.
+    def do_GET(self):
+        import re, time
+        m = re.search(r"[?&]delay=([0-9.]+)", self.path)
+        if m:
+            time.sleep(float(m.group(1)))
+            self.path = self.path.split("?", 1)[0]
+        super().do_GET()
     # Settings ▸ Privacy sharing posts here under CRA_SHARING_ENDPOINT=${ORIGIN}.
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
@@ -345,11 +356,11 @@ while IFS= read -r raw || [ -n "$raw" ]; do
       sleep 2 ;;
     expect-log)
       shift; re="$*"; found=""
-      for _ in $(seq 1 150); do grep -Eq "$re" "$DATA"/cra*.log "$OUT/stdout.log" "$OUT/ws.log" 2>/dev/null && { found=1; break; }; sleep 0.2; done
+      for _ in $(seq 1 150); do grep -Eq "$re" "$DATA"/cra*.log "$OUT/stdout.log" "$OUT/ws.log" "$OUT/server.log" 2>/dev/null && { found=1; break; }; sleep 0.2; done
       [ -n "$found" ] || problem "no log line matching: $re" ;;
     reject-log)
       shift; re="$*"
-      ! grep -Eq "$re" "$DATA"/cra*.log "$OUT/stdout.log" "$OUT/ws.log" 2>/dev/null || problem "a log line matching: $re" ;;
+      ! grep -Eq "$re" "$DATA"/cra*.log "$OUT/stdout.log" "$OUT/ws.log" "$OUT/server.log" 2>/dev/null || problem "a log line matching: $re" ;;
     snapshot)
       shot="$OUT/snapshots/$3.png"; ref="$ROOT/Tests/Snapshots/$3.png"
       # A name shot twice (before and after a relaunch) must not find the first file and stop waiting.
@@ -416,10 +427,17 @@ print(f"perf: recording costs {cpu:.3f} % of a core (budget {budget}); stalls �
 if cpu > budget: print(f"PROBLEM the performance recorder costs {cpu:.3f} % of a core, budget {budget} %")
 # This run's HitchMonitor log starts after the launch the recorder also saw; a few either way is timing.
 if abs(seen - hitch) > max(2, hitch // 5): print(f"PROBLEM the recorder counted {seen} stalls of 250 ms or more, HitchMonitor {hitch}")
+# What the app does, so never a budget: no scenario crashes a page, and a renderer Cra let go
+# (tab sleep's discard) is no crash either (0.1.44 counted each one).
+ended = r["counters"].get("rendererTerminated", {})
+if ended: print("CRASH pages crashed (“Aw, Snap!”) per the recorder: " + ", ".join(f"{k} ×{n}" for k, n in sorted(ended.items())))
 PY
 )
     echo "  $(head -1 <<< "$verdict")"
-    while IFS= read -r l; do [[ "$l" == PROBLEM* ]] && budget_problem "${l#PROBLEM }"; done <<< "$verdict"
+    while IFS= read -r l; do
+      [[ "$l" == PROBLEM* ]] && budget_problem "${l#PROBLEM }"
+      [[ "$l" == CRASH* ]] && problem "${l#CRASH }"
+    done <<< "$verdict"
   fi
 fi
 
