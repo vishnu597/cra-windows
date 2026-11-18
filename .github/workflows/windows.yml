@@ -26,6 +26,9 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: Tab sleep page probe regressions
+        run: node Tests/TabSleepProbeDOMTests.js
+
       - name: Build and test CraCore
         run: swift test --package-path Packages/CraCore
 

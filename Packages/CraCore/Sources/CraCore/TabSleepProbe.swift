@@ -2,18 +2,72 @@ import Foundation
 
 /// The question a page is asked before tab sleeping closes it on Windows, where Chromium's
 /// discard and Cra's isolated-world recorder (the Mac's BrowserManager.sleepProbe) aren't
-/// there: in the page's own world, does it hold something it would lose? Edited form fields,
-/// a playing, unmuted audio or video element, and the page's own onbeforeunload each keep it
-/// awake. A false "awake" only costs memory; a false "asleep" loses the user's work, so
-/// anything unclear (an exception, no reply) keeps the page.
+/// there. Trusted input is recorded before the page's scripts run, as PageScript does on the
+/// Mac: a framework updating defaultValue cannot erase evidence of the user's edit. Running
+/// Web Audio contexts, media elements and the page's own onbeforeunload also keep it awake.
+/// A false "awake" only costs memory; a false "asleep" loses work, so anything unclear keeps it.
 public enum TabSleepProbe {
+    /// Install in each new main-frame context, before page scripts can make an AudioContext or
+    /// hear input. The recorder retains no text copies and exposes only the reason to stay awake.
+    /// A full navigation replaces the context; a same-document SPA route must keep its edits.
+    public static let documentStartScript = """
+    (() => {
+      if (Object.prototype.hasOwnProperty.call(window, '__craTabSleep')) return;
+      const typed = new Set(), contexts = new Set();
+      let failed = false;
+      const edited = e => e.isContentEditable ? e.textContent.trim() !== ''
+        : e.type === 'checkbox' || e.type === 'radio' ? e.checked !== e.defaultChecked
+        : e.tagName === 'SELECT' ? [...e.options].some(o => o.selected !== o.defaultSelected)
+        : e.type === 'hidden' || e.type === 'submit' || e.type === 'button' ? false
+        : (e.value ?? '') !== '';
+      Object.defineProperty(window, '__craTabSleep', { value: () => {
+        for (const e of typed) {
+          if (!e.isConnected) { typed.delete(e); continue; }
+          if (edited(e)) return 'typed';
+        }
+        for (const context of contexts) {
+          if (context.state === 'closed') contexts.delete(context);
+          else if (context.state === 'running') return 'sound';
+        }
+        return failed ? 'probe failed' : '';
+      } });
+      addEventListener('input', event => {
+        if (!event.isTrusted) return;
+        const target = event.composedPath()[0];
+        if (!(target instanceof Element)) return;
+        typed.add(target.isContentEditable ? target.closest('[contenteditable]') ?? target : target);
+      }, true);
+      for (const name of ['AudioContext', 'webkitAudioContext']) {
+        const Original = window[name];
+        if (typeof Original !== 'function') continue;
+        try {
+          const Wrapped = new Proxy(Original, { construct(target, args, newTarget) {
+            const context = Reflect.construct(target, args, newTarget);
+            contexts.add(context);
+            context.addEventListener('statechange', () => {
+              if (context.state === 'closed') contexts.delete(context);
+            });
+            return context;
+          } });
+          window[name] = Wrapped;
+          if (window[name] !== Wrapped) failed = true;
+        } catch { failed = true; }
+      }
+    })()
+    """
+
+    /// Ask the document-start recorder first, then retain the original DOM checks as a fallback.
     public static let script = """
     (() => {
+      if (typeof window.__craTabSleep !== 'function') return 'no recorder';
+      const recorded = window.__craTabSleep();
+      if (typeof recorded !== 'string') return 'probe failed';
+      if (recorded) return recorded;
       const edited = e => e.isContentEditable ? false
         : e.type === 'checkbox' || e.type === 'radio' ? e.checked !== e.defaultChecked
         : e.tagName === 'SELECT' ? [...e.options].some(o => o.selected !== o.defaultSelected)
         : e.type === 'hidden' || e.type === 'submit' || e.type === 'button' ? false
-        : (e.value ?? '') !== (e.defaultValue ?? '');
+        : (e.value ?? '') !== '' && (e.value ?? '') !== (e.defaultValue ?? '');
       for (const e of document.querySelectorAll('input, textarea, select')) {
         if (edited(e)) return 'typed';
       }

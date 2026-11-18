@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Tab sleep state fixture</title>
+<style>
+  body { background: white; color: #171717; font: 18px system-ui; max-width: 760px; margin: 40px auto; }
+  label { display: block; margin: 20px 0; }
+  input, button { font: inherit; margin: 4px; }
+  [contenteditable] { border: 1px solid #888; padding: 8px; min-height: 40px; }
+</style>
+<h1>Tab sleep state fixture</h1>
+<p>Use synthetic text only. After typing or starting sound, switch to another tab and let this tab reach its sleep threshold. Return and check that your text or sound remains.</p>
+<label>Plain field <input id="plain" aria-label="Plain field"></label>
+<label>Controlled field <input id="controlled" aria-label="Controlled field"></label>
+<p>The controlled field updates its own default value on each input, as a page framework may do.</p>
+<div contenteditable="true" role="textbox" aria-label="Editable draft"></div>
+<p><button id="route">Change the page’s route</button> retains the same document and its text.</p>
+<h2>Web Audio tone</h2>
+<p>The quiet tone uses Web Audio without an audio element.</p>
+<button id="start">Play tone</button>
+<button id="pause">Pause tone</button>
+<button id="resume">Resume tone</button>
+<button id="stop">Stop tone</button>
+<p id="status" role="status">Sound: stopped</p>
+<p>Pause or stop the tone and clear every field to check that the tab can sleep again.</p>
+<script>
+  const controlled = document.getElementById('controlled');
+  controlled.addEventListener('input', () => { controlled.defaultValue = controlled.value; });
+  let step = 0;
+  document.getElementById('route').onclick = () => history.pushState({}, '', '?step=' + ++step);
+  let context;
+  const status = document.getElementById('status');
+  function showState() { status.textContent = 'Sound: ' + (context?.state ?? 'stopped'); }
+  document.getElementById('start').onclick = async () => {
+    if (context && context.state !== 'closed') { await context.resume(); return; }
+    context = new AudioContext();
+    const oscillator = context.createOscillator(), gain = context.createGain();
+    oscillator.frequency.value = 440;
+    gain.gain.value = 0.005;
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start();
+    context.addEventListener('statechange', showState);
+    await context.resume();
+    showState();
+  };
+  document.getElementById('pause').onclick = async () => { if (context?.state === 'running') await context.suspend(); };
+  document.getElementById('resume').onclick = async () => { if (context?.state === 'suspended') await context.resume(); };
+  document.getElementById('stop').onclick = async () => { if (context && context.state !== 'closed') await context.close(); };
+</script>

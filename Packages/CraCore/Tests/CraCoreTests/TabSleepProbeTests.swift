@@ -20,6 +20,12 @@ struct TabSleepProbeTests {
         #expect(json["userGesture"] as? Bool == false)
     }
 
+    @Test func soundAndRecorderFailureBothRefuseSleeping() {
+        #expect(TabSleepProbe.refusal(fromReply: #"{"result":{"type":"string","value":"sound"}}"#) == "sound")
+        #expect(TabSleepProbe.refusal(fromReply: #"{"result":{"type":"string","value":"no recorder"}}"#) == "no recorder")
+        #expect(TabSleepProbe.refusal(fromReply: #"{"result":{"type":"boolean","value":false}}"#) == "no reply")
+    }
+
     @Test func theSettingsNoteSaysWhichTabsStay() {
         #expect(TabSleepPolicy.settingsNote(timerOn: true, after: .fourHours).hasSuffix("So do the 10 tabs you used last."))
         #expect(!TabSleepPolicy.settingsNote(timerOn: true, after: .fifteenMinutes).contains("10 tabs"))

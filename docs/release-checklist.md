@@ -350,6 +350,15 @@ built release app with a test profile. Note anything that fails in the release's
   after a restart. Escape leaves the old name. Double-click a tab, a folder and the space's name:
   each turns into a field. Rename Space… on the space's menu and New Folder (which starts named)
   work the same, and the keys go back to the page afterwards.
+  Use a real mouse for the double-clicks, including a tab that was not selected before the first
+  click and a closed folder. Dragging a row first must not make its next single click rename it.
+- **Windows drag targets and Manage Spaces:** in a test space with no favorites, start dragging
+  a Today row: the Add to Favorites target appears without moving any existing row. Drop before
+  and after adjacent rows, into a folder and onto that target; each lands where its indicator was.
+  Cancel with Escape and repeat after scrolling. In Manage Spaces, left-click a card's ⋯: its menu
+  stays open and Move Left / Move Right work. Drag a card's handle one slot, pause, then continue
+  across the row and release; it follows the pointer without accelerating or stalling. Repeat
+  after scrolling and at a second display scale, and verify the saved order after a restart.
 - **Windows ad and tracker blocker:** with an isolated test profile, the log says "Cra: ad and
   tracker list: N domains" with N in the tens of thousands (0 means blocklist\domains.txt is
   missing beside Cra.exe). On a news site with third-party ads, the ad slots stay empty; turn
@@ -442,6 +451,16 @@ built release app with a test profile. Note anything that fails in the release's
   HttpListener), open it in a tab: after 10 s "Still waiting for localhost to respond" shows at the
   page's top right with Stop Loading and a ✕, and stays. Stop Loading stops the page and the toast
   goes. Again in a Little Window. Needs a slow real server and the screen, so no scenario covers it.
+  Also put the delayed page in an unfocused split pane while its neighbor has already loaded.
+  Its notice appears over the waiting pane and Stop Loading stops that pane, keeping the neighbor
+  untouched. With both panes waiting, closing one notice lets the other due notice show; a new
+  navigation gets its own ten-second wait. A hidden tab never lends its notice to a visible pane.
+- **Windows View Source:** on a synthetic page, press Ctrl+U and use the page menu's View Page
+  Source: each opens a foreground Cra tab whose address starts with view-source: and shows the
+  HTML, without a Windows Open With prompt. Repeat from a named profile, private window and a
+  frame's View Frame Source menu; the source keeps the originating profile and private mode.
+  As on the Mac, a Little Window opens its source in another Little Window using the opener's
+  profile, while a Peek opens its source as a foreground tab in its parent browser window.
 - **Windows website appearance:** with Windows in light app mode, open a site that follows
   `prefers-color-scheme` (github.com), run Switch to Dark Mode from the command bar: the page turns
   dark without a reload, and Settings opens dark. Same in a private window and on another profile.
@@ -451,8 +470,9 @@ built release app with a test profile. Note anything that fails in the release's
   (example.com's margin) and drag: the window moves, and the page shows no selection or click
   afterwards. A press on a link or text there clicks or selects as usual; a double click there
   doesn't move the window. Turn off Settings ▸ Advanced ▸ Allow window dragging from the top of
-  webpages: the same drag selects nothing and the window stays. Needs real mouse drags, so no
-  scenario covers it.
+  webpages: the window stays. Open Advanced from the Settings sidebar first and verify that
+  switch is on for the first check. Use a real mouse in a restored window, with the toolbar both
+  shown and hidden; simulated input alone does not establish whether this gesture works.
 - **Windows Back and Forward history:** in one tab open example.com, then three more pages by
   links or the address. Right-click the sidebar's Back: the earlier pages, nearest first, by
   title. Pick the oldest: the tab goes there. Right-click Forward: the later pages; pick one. In a
@@ -469,12 +489,18 @@ built release app with a test profile. Note anything that fails in the release's
   form on one and play a video on another, then leave them all hidden for 16 minutes. The plain
   tabs reload when opened again; the form keeps its text and the video kept playing. Needs real
   pages and wall-clock time, so no scenario covers it.
+  Include an input whose script mirrors its value into defaultValue on every input, a controlled
+  search field, an editable element in an open shadow root and a Web Audio oscillator started
+  before load finishes. Keep those pages hidden for the same pass: typed values remain and the
+  tone continues. Clearing the typed fields or suspending/closing the AudioContext releases those
+  holds; a same-document history/URL change alone does not discard an edit.
 - **Windows tab switcher:** with five tabs visited in a space, hold Ctrl and press Tab: after a
   moment Arc's card panel shows in the middle of the window, the previous tab picked. More Tabs,
   Shift+Tab and the arrows move round; letting go of Ctrl switches. A quick Ctrl+Tab switches to
-  the previous tab without showing it; Escape keeps the tab; moving the pointer over a card picks
-  it and a click switches. Ctrl+PgDn / Ctrl+PgUp go down and up the sidebar. Needs a held key, so
-  no scenario covers it.
+  the previous tab without showing it. To cancel, keep Ctrl held and click outside the card panel,
+  then release Ctrl: the original tab stays. Do not use Ctrl+Escape for this Windows check; Windows
+  reserves it for Start. Moving the pointer over a card picks it and a click switches.
+  Ctrl+PgDn / Ctrl+PgUp go down and up the sidebar. Needs a held key, so no scenario covers it.
 - **#111:** reset Cra's camera access (`tccutil reset Camera <bundle id>`), open Meet, click "Use
   microphone and camera" and Allow. One Cra prompt shows, then macOS's own dialog, and nothing
   crashes.
