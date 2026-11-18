@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 /// Which releases a Mac updates to (GitHub #476). New takes each release the day it ships; Stable takes a release
 /// once Victor has promoted it (`scripts/promote.sh`), so a release that breaks something can be left behind.
