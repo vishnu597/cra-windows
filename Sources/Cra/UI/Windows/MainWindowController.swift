@@ -1197,7 +1197,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// good. A row that hasn't heard from Chromium for a while reads the file instead:
     /// gone means it ended, the full size with no .crdownload beside it means it's done.
     private func checkStalledDownloads() {
-        guard DownloadHistory.shared.isRunning(anyOf: windowDownloads) else {
+        let inProgress = DownloadHistory.shared.live.filter { $0.running && windowDownloads.contains($0.id) }
+        guard !inProgress.isEmpty else {
             downloadWatchdog?.invalidate()
             downloadWatchdog = nil
             return
