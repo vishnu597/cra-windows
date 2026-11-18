@@ -16,10 +16,11 @@ function fixture({installRecorder = true, audio = true} = {}) {
   const listeners = new Map(), fields = [], media = [];
   class Element {
     constructor(properties = {}) {
-      Object.assign(this, {tagName: 'INPUT', type: 'text', value: '', defaultValue: '', isConnected: true,
+      Object.assign(this, {tagName: 'INPUT', type: 'text', name: '', form: null, value: '', defaultValue: '', isConnected: true,
         isContentEditable: false, textContent: '', checked: false, defaultChecked: false}, properties);
     }
     closest() { return this.editableRoot ?? this; }
+    getRootNode() { return document; }
   }
   class AudioContext {
     constructor(options = {}) { this.state = options.state ?? 'running'; this.listeners = []; }
@@ -28,6 +29,7 @@ function fixture({installRecorder = true, audio = true} = {}) {
   }
   const document = {querySelectorAll(selector) {
     if (selector === 'input, textarea, select') return fields;
+    if (selector === 'input[type="radio"]') return fields.filter(field => field.type === 'radio');
     if (selector === 'audio, video') return media;
     throw new Error('Unexpected selector ' + selector);
   }};
@@ -115,6 +117,54 @@ test('checkboxes and selections release after returning to their original choice
   select.options[0].selected = false;
   expect(f.ask() === '', 'the original choices release the hold');
 });
+
+test('controlled checkboxes and radios retain their original choice before framework defaults change', () => {
+  for (const type of ['checkbox', 'radio']) {
+    const f = fixture(), field = new f.Element({type, checked: true, defaultChecked: false});
+    f.fields.push(field);
+    f.input(field);
+    field.defaultChecked = field.checked;
+    expect(f.ask() === 'typed', 'a framework changing defaultChecked cannot hide the trusted ' + type + ' change');
+    field.checked = false;
+    f.input(field);
+    field.defaultChecked = field.checked;
+    expect(f.ask() === '', 'returning to the original ' + type + ' choice releases the hold');
+  }
+}, true);
+
+test('a controlled selection retains original choices before framework defaults change', () => {
+  const f = fixture(), first = {selected: false, defaultSelected: true}, second = {selected: true, defaultSelected: false};
+  const field = new f.Element({tagName: 'SELECT', options: [first, second]});
+  f.fields.push(field);
+  f.input(field);
+  for (const option of field.options) option.defaultSelected = option.selected;
+  expect(f.ask() === 'typed', 'a framework changing defaultSelected cannot hide a trusted selection');
+  first.selected = true;
+  second.selected = false;
+  f.input(field);
+  for (const option of field.options) option.defaultSelected = option.selected;
+  expect(f.ask() === '', 'returning to the original selection releases the hold');
+}, true);
+
+test('returning to the original controlled radio-group choice releases both radios', () => {
+  const f = fixture(), first = new f.Element({type: 'radio', name: 'choice', checked: true, defaultChecked: true});
+  const second = new f.Element({type: 'radio', name: 'choice'});
+  const other = new f.Element({type: 'radio', name: 'other', checked: false, defaultChecked: true});
+  f.fields.push(first, second);
+  // A same-form group in this document only: another group must not become a recorded user edit.
+  const query = f.sandbox.document.querySelectorAll;
+  f.sandbox.document.querySelectorAll = selector => selector === 'input[type="radio"]' ? [first, second, other] : query(selector);
+  first.checked = false;
+  second.checked = true;
+  f.input(second);
+  for (const field of [first, second]) field.defaultChecked = field.checked;
+  expect(f.ask() === 'typed', 'switching to another radio retains the group edit');
+  first.checked = true;
+  second.checked = false;
+  f.input(first);
+  for (const field of [first, second]) field.defaultChecked = field.checked;
+  expect(f.ask() === '', 'returning the group to its initial choice releases both original baselines');
+}, true);
 
 test('suspended and closed realtime contexts release the sound hold', () => {
   const f = fixture(), audio = new f.sandbox.AudioContext();

@@ -13,17 +13,17 @@ public enum TabSleepProbe {
     public static let documentStartScript = """
     (() => {
       if (Object.prototype.hasOwnProperty.call(window, '__craTabSleep')) return;
-      const typed = new Set(), contexts = new Set();
+      const typed = new Map(), contexts = new Set();
       let failed = false;
-      const edited = e => e.isContentEditable ? e.textContent.trim() !== ''
-        : e.type === 'checkbox' || e.type === 'radio' ? e.checked !== e.defaultChecked
-        : e.tagName === 'SELECT' ? [...e.options].some(o => o.selected !== o.defaultSelected)
+      const edited = (e, original) => e.isContentEditable ? e.textContent.trim() !== ''
+        : e.type === 'checkbox' || e.type === 'radio' ? e.checked !== original
+        : e.tagName === 'SELECT' ? [...e.options].some(o => o.selected !== (original.get(o) ?? false))
         : e.type === 'hidden' || e.type === 'submit' || e.type === 'button' ? false
         : (e.value ?? '') !== '';
       Object.defineProperty(window, '__craTabSleep', { value: () => {
-        for (const e of typed) {
+        for (const [e, original] of typed) {
           if (!e.isConnected) { typed.delete(e); continue; }
-          if (edited(e)) return 'typed';
+          if (edited(e, original)) return 'typed';
         }
         for (const context of contexts) {
           if (context.state === 'closed') contexts.delete(context);
@@ -35,7 +35,14 @@ public enum TabSleepProbe {
         if (!event.isTrusted) return;
         const target = event.composedPath()[0];
         if (!(target instanceof Element)) return;
-        typed.add(target.isContentEditable ? target.closest('[contenteditable]') ?? target : target);
+        const field = target.isContentEditable ? target.closest('[contenteditable]') ?? target : target;
+        // Capture the original choices before a framework's own input handler changes the defaults.
+        // A radio also changes the rest of its group, including the one a user may switch back to.
+        const fields = field.type === 'radio' && field.name
+          ? [...field.getRootNode().querySelectorAll('input[type="radio"]')]
+            .filter(radio => radio.name === field.name && radio.form === field.form) : [field];
+        for (const e of fields) if (!typed.has(e)) typed.set(e, e.tagName === 'SELECT'
+          ? new Map([...e.options].map(option => [option, option.defaultSelected])) : e.defaultChecked);
       }, true);
       for (const name of ['AudioContext', 'webkitAudioContext']) {
         const Original = window[name];

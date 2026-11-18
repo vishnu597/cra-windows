@@ -9,13 +9,14 @@
 </style>
 <h1>Tab sleep state fixture</h1>
 <p>Use synthetic text only. After typing or starting sound, switch to another tab and let this tab reach its sleep threshold. Return and check that your text or sound remains.</p>
+<p><a href="?mode=form">Form check</a> · <a href="?mode=audio">Audio check</a>. Use separate tabs so a form hold cannot hide an audio failure.</p>
 <label>Plain field <input id="plain" aria-label="Plain field"></label>
 <label>Controlled field <input id="controlled" aria-label="Controlled field"></label>
 <p>The controlled field updates its own default value on each input, as a page framework may do.</p>
 <div contenteditable="true" role="textbox" aria-label="Editable draft"></div>
 <p><button id="route">Change the page’s route</button> retains the same document and its text.</p>
 <h2>Web Audio tone</h2>
-<p>The quiet tone uses Web Audio without an audio element.</p>
+<p>The quiet tone uses Web Audio without an audio element. In the Audio check, the page creates its context in this first inline script; sound starts only after Play tone.</p>
 <button id="start">Play tone</button>
 <button id="pause">Pause tone</button>
 <button id="resume">Resume tone</button>
@@ -27,17 +28,21 @@
   controlled.addEventListener('input', () => { controlled.defaultValue = controlled.value; });
   let step = 0;
   document.getElementById('route').onclick = () => history.pushState({}, '', '?step=' + ++step);
-  let context;
+  // Construct before load completes: a recorder installed only after load would miss this.
+  let context = new URLSearchParams(location.search).get('mode') === 'audio' ? new AudioContext() : null;
+  let connected = false;
   const status = document.getElementById('status');
   function showState() { status.textContent = 'Sound: ' + (context?.state ?? 'stopped'); }
   document.getElementById('start').onclick = async () => {
-    if (context && context.state !== 'closed') { await context.resume(); return; }
-    context = new AudioContext();
-    const oscillator = context.createOscillator(), gain = context.createGain();
-    oscillator.frequency.value = 440;
-    gain.gain.value = 0.005;
-    oscillator.connect(gain).connect(context.destination);
-    oscillator.start();
+    if (!context || context.state === 'closed') { context = new AudioContext(); connected = false; }
+    if (!connected) {
+      const oscillator = context.createOscillator(), gain = context.createGain();
+      oscillator.frequency.value = 440;
+      gain.gain.value = 0.005;
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      connected = true;
+    }
     context.addEventListener('statechange', showState);
     await context.resume();
     showState();
