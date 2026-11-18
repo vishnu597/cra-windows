@@ -53,6 +53,17 @@ struct SiteControlCenterTests {
             == ["Clear Cache", "Clear Cookies", "Manage Extensions", "Add Extension", "All Site Settings"])
     }
 
+    @Test func platformsWithBoostsIncludeTheirOwnMenuGroup() {
+        #expect(SiteControlCenter.moreMenu(extensions: true, boosts: true) == [
+            [.clearCache, .clearCookies], [.manageBoosts, .newBoost], [.manageExtensions, .addExtension], [.siteSettings],
+        ])
+        #expect(SiteControlCenter.moreMenu(extensions: false, boosts: true) == [
+            [.clearCache, .clearCookies], [.manageBoosts, .newBoost], [.siteSettings],
+        ])
+        #expect(SiteControlCenter.MoreItem.manageBoosts.title == "Manage Boosts…")
+        #expect(SiteControlCenter.MoreItem.newBoost.title == "New Boost…")
+    }
+
     @Test func siteSettingsURL() {
         #expect(SiteControlCenter.siteSettingsURL(for: "https://mail.google.com/mail/u/0/")
             == "chrome://settings/content/siteDetails?site=https%3A%2F%2Fmail%2Egoogle%2Ecom")

@@ -24,6 +24,25 @@ struct DownloadHistoryTests {
         #expect(h.recent.first?.subtitle(now: t0) == "2 MB of 10 MB — 1 MB/s")
     }
 
+    @Test func repeatedUnchangedReportsDoNotKeepAStuckDownloadBinOpen() {
+        let h = history()
+        h.report(id: 1, name: "a.zip", path: "", received: 0, total: 100, percent: 0,
+                 complete: false, cancelled: false, failed: false, now: t0)
+        let later = t0.addingTimeInterval(60)
+        h.report(id: 1, name: "a.zip", path: "", received: 0, total: 100, percent: 0,
+                 complete: false, cancelled: false, failed: false, now: later)
+        #expect(h.live.first?.updated == later && h.live.first?.moved == t0)
+        #expect(!DownloadList.holdsBin(h.live, now: later))
+        h.report(id: 1, name: "a.zip", path: "", received: 1, total: 100, percent: 1,
+                 complete: false, cancelled: false, failed: false, now: later)
+        #expect(DownloadList.holdsBin(h.live, now: later))
+        h.report(id: 1, name: "a.zip", path: "", received: 1, total: 100, percent: 1,
+                 complete: false, cancelled: false, failed: false, paused: true, now: later.addingTimeInterval(1))
+        h.report(id: 1, name: "a.zip", path: "", received: 1, total: 100, percent: 1,
+                 complete: false, cancelled: false, failed: false, now: later.addingTimeInterval(50))
+        #expect(h.live.first?.moved == later.addingTimeInterval(50), "resuming starts a fresh progress window")
+    }
+
     @Test func aFinishedDownloadLeavesLiveForTheList() {
         let h = history()
         h.report(id: 1, name: "a.zip", path: "/d/a.zip", received: 5, total: 10, percent: 50, complete: false, cancelled: false, failed: false, now: t0)

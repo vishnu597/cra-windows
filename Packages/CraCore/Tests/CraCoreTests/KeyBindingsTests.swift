@@ -34,8 +34,10 @@ struct KeyBindingsTests {
         #expect(mac["moveTabToSpace9"]?.shortcuts == [Self.chord("9", [.command, .control])])
         #expect(mac["clearBrowsingData"]?.symbol == "trash")
         #expect(mac["newWindow"]?.inCommandBar == false)
-        // 106 built-in commands, four split-pane actions and 27 numbered tab/space actions.
-        #expect(KeyBindingDefaults.mac.count == 106 + 4 + 27)
+        #expect(mac["recentTabAllSpaces"]?.shortcuts == [Self.chord(KeyChord.tab, [.control, .option])])
+        #expect(mac["pauseAllMedia"]?.shortcuts == [])
+        // 109 built-in commands, four split-pane actions and 27 numbered tab/space actions.
+        #expect(KeyBindingDefaults.mac.count == 109 + 4 + 27)
     }
 
     /// Windows' table names only actions the Mac has, in the Mac's order, and its keys don't
@@ -82,7 +84,7 @@ struct KeyBindingsTests {
         }
         let mac = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.mac.map { ($0.id, $0) })
         #expect(ShortcutDescriptions.text(for: mac["newFolder"]!, custom: "Add a folder from this plugin.") == "Add a folder from this plugin.")
-        #expect(ShortcutDescriptions.text(for: mac["item2"]!) == "Switch to the 2. tab in the sidebar.")
+        #expect(ShortcutDescriptions.text(for: mac["item2"]!) == "Switch to the 2. item in the sidebar. A split counts as one.")
         #expect(ShortcutDescriptions.text(for: mac["space4"]!) == "Switch to the 4. space.")
         #expect(ShortcutDescriptions.text(for: mac["moveTabToSpace5"]!).hasPrefix("Move the current tab"))
         #expect(ShortcutDescriptions.text(for: KeyAction(id: "x", name: "Something", section: .none, shortcuts: [])) == "Something.")

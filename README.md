@@ -77,6 +77,7 @@ Embedded Framework, so sites and Chrome extensions work as they do in Chrome.
 | Easels | ✅ |
 | Boosts | ✅ |
 | Peek | ✅ |
+| Netflix, Disney+, Spotify and other DRM streaming | ✅ In Safari's engine with Apple's FairPlay; Disney+ and Prime Video [confirmed playing signed in](docs/protected-media.md#confirmed-playing), and any other site that asks for DRM can switch over |
 | Notes | Left out: Arc itself no longer makes new Notes |
 | Arc Max | Ask on Page, Instant Links, Tidy Tabs, Tidy Tab Titles, Tidy Downloads and 5-Second Previews, on the Mac's Apple Intelligence; only Instant Links' search queries leave the Mac, to the search engine |
 
@@ -88,6 +89,8 @@ On first launch, or later from Cra ▸ Import from Arc or Dia…, Cra brings ove
 
 - **Arc:** spaces, pinned tabs, folders, favorites and the archive, plus passwords and
   sign-ins.
+- **Yab and Ardia:** spaces, pinned tabs, folders and favorites, plus sign-ins and
+  extensions, and Ardia's passwords. A space with sign-ins of its own lands on a Cra profile.
 - **Dia, Chrome, Brave, Edge, Opera, Vivaldi, Chromium, Helium:** tabs, bookmarks, history,
   passwords, sign-ins and extensions.
 - **Zen and Firefox:** open tabs, bookmarks and history, and Zen's spaces, Essentials and

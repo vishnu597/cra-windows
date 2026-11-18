@@ -44,6 +44,7 @@ struct TestItem {
 }
 enum TestRoot { case today }
 @MainActor final class SidebarStore {
+    static let documentReplaced = Notification.Name("CraSidebarDocumentReplaced")
     struct Settings {
         var autoPictureInPicture = false
         /// Hosts whose Site Control Center switch turned automatic Picture in Picture off.
@@ -54,6 +55,10 @@ enum TestRoot { case today }
         var shareThemeWithWebsites = true
         var blockCookieBanners = false
         var littleWindowOnOptionCommandClick = false
+        /// Settings ▸ Links ▸ a middle click in a split adds a pane (#498), off by default.
+        var splitMiddleClickAddsPane = false
+        /// Settings ▸ Links ▸ "Open background tabs below the current tab" (#532), off by default.
+        var backgroundTabsBelowCurrent = false
         /// Settings ▸ Tabs ▸ "Always keep these sites active" (#458), by host; AppSettings matches subdomains.
         var keepActiveHosts: Set<String> = []
         func keepsActive(url: String) -> Bool { keepActiveHosts.contains(URL(string: url)?.host ?? "") }
@@ -81,7 +86,20 @@ enum TestRoot { case today }
         if split.children.contains(tabID) { return tabID }
         return split.children.first { items[$0]?.tab?.activeTabBeforeCreationID == tabID }
     }
+    /// A split's panes, as SidebarStore reads them (#498): the tab alone when it isn't in one.
+    func paneTabIDs(for tabID: UUID) -> [UUID] { splitContaining(tabID)?.children ?? [tabID] }
+    var splitPaneLimit: Int { 4 }
+    /// The panes a middle click in a split added (#498), in order.
+    var linkPanes: [String] = []
+    func openLinkInSplit(_ url: String, from tabID: UUID, window: UUID? = nil) -> TestItem? {
+        guard paneTabIDs(for: tabID).count < splitPaneLimit else { return nil }
+        linkPanes.append(url)
+        return createTab(url: url)
+    }
     func rootContainer(of: UUID) -> TestRoot? { nil }
+    /// The slot below a link's source tab (#532); CraCore's LinkTabPlacementTests pin where it is.
+    struct LinkSlot { let parent: UUID; let index: Int }
+    func linkTabSlot(below source: UUID, afterEarlierLinks: Bool) -> LinkSlot? { nil }
     func updateTab(_ id: UUID, url: String? = nil, title: String? = nil) {
         if let url { items[id]?.tab?.url = url }
         if let title { items[id]?.tab?.savedTitle = title }
@@ -130,6 +148,16 @@ enum EmbeddedPages {
     static var viewsByHost: [ObjectIdentifier: [NSView]] = [:]
     static func isHost(_ window: NSWindow) -> Bool { viewsByHost[ObjectIdentifier(window)] != nil }
     static func pageViews(of window: NSWindow) -> [NSView]? { viewsByHost[ObjectIdentifier(window)] }
+}
+/// The engine's DevTools in a card (Sources/Cra/UI/Windows/EmbeddedDevTools.swift): the same rule for whose they
+/// are, and no card here, so no frontend is ever in one.
+@MainActor enum EmbeddedDevTools {
+    final class Holder: NSView {}
+    static func applies(to browser: CraBrowser?) -> Bool {
+        guard let browser else { return false }
+        return browser.hostWindow == nil && !(browser is WebKitBrowser)
+    }
+    static func holder(of w: NSWindow?) -> Holder? { nil }
 }
 final class LiveFolderManager {
     static let shared = LiveFolderManager()

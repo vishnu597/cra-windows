@@ -63,6 +63,12 @@ struct LinksPane: View {
                             Text("Hold ⌘ while you click a Peek’s Expand to open the page in the tab you were peeking from. Back takes that tab to where it was.")
                                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
+                        SettingsCardDivider()
+                        // Not in Arc (GitHub #493): the Peek's bar floats over its page (ToolbarAutoHide.peekFloats).
+                        SettingsSwitchLine("Hide the Peek toolbar until you need it", isOn: $store.settings.autoHidePeekToolbar) {
+                            Text("The page takes the toolbar’s room. Move the pointer to the top of the Peek and the toolbar slides in over the page. ⌘L still edits the address.")
+                                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     .padding(.top, 20)
 
@@ -84,6 +90,24 @@ struct LinksPane: View {
                         SettingsToggleRow("Switch to links opened in new tabs",
                                           detail: "“Open Link in New Tab” brings the new tab to the front. Off, the page you’re reading stays in front, as in Arc. ⌘-click opens a link behind the page and ⇧⌘-click switches to it either way.",
                                           isOn: $store.settings.openLinksInForeground)
+                        SettingsCardDivider()
+                        // Not in Arc's settings (GitHub #532), off by default: Arc puts a link's tab below its source.
+                        SettingsToggleRow("Open background tabs below the current tab",
+                                          detail: "A link you ⌘-click or middle-click opens right below the tab you’re reading, in the order you open them, instead of with your other new tabs. Links from pinned tabs and favorites still open with your new tabs.",
+                                          isOn: $store.settings.backgroundTabsBelowCurrent)
+                    }
+
+                    // Not in Arc (GitHub #498): both off by default, a split holds Arc's four panes and a middle
+                    // click opens a tab behind the page.
+                    SettingsHeader("Split View").padding(.top, 20)
+                    SettingsFeatureCard {
+                        SettingsToggleRow("Middle-click a link in a split to add a pane",
+                                          detail: "In a split view, a link you click with the middle mouse button opens as a new pane beside the page. Outside a split it still opens a tab behind the page.",
+                                          isOn: $store.settings.splitMiddleClickAddsPane)
+                        SettingsCardDivider()
+                        SettingsToggleRow("More than four panes in a split",
+                                          detail: "A split view holds up to \(SplitPaneLimit.more) panes instead of Arc’s four.",
+                                          isOn: $store.settings.splitMorePanes)
                     }
                 }
                 .padding(.horizontal, SettingsMetrics.paneInset)

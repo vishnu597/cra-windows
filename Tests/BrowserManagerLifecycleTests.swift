@@ -206,13 +206,16 @@ enum BrowserManagerLifecycleTests {
         await splitCopySleepsPinnedTabCase()
         await coveredWindowPictureInPictureCase()
         pictureInPictureMinimizeCase()
+        pictureInPictureMinimizeSilentCase()
         await callPictureInPictureCase()
         await playerMediaSessionCase()
         pageColoursCase()
+        syncedDocumentKeepsLivePagesCase()
         extensionPageRetryCase()
         await sleepCase("malformed or missing replies cannot authorize sleeping", reply: nil) { _, _ in }
         await pageProbeCase()
         await pageEngineCase()
+        await backgroundTabToastCase()
         pageHistoryCase()
         await permissionWaitsForItsTabCase()
         permissionPopoverStepsAsideCase()
@@ -599,6 +602,36 @@ enum BrowserManagerLifecycleTests {
             runtime.browser.finishClose()
             source.closeAll()
         }
+    }
+
+    // promise: #543
+    /// Every tab a page opens behind it reaches the window, which toasts it while the sidebar is hidden
+    /// (BackgroundTabToast): a ⌘-click or middle click (Chromium's new page, popupHostForURL) and Open
+    /// Link in New Tab (requestsNewTabWithURL), not only ⌘Return in the bar. A tab in front says nothing.
+    @MainActor
+    private static func backgroundTabToastCase() async {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let observer = Observer()
+        manager.delegate = observer
+        let source = store.createTab(url: "https://example.test/source").id
+        manager.show(source, focus: false)
+        let page = manager.runtime(for: source)!.browser
+
+        _ = manager.browser(page, popupHostForURL: "https://example.test/clicked", inBackground: true)
+        let clicked = store.items.values.first { $0.tab?.url == "https://example.test/clicked" }?.id
+        expect(clicked != nil && observer.backgroundTabs == [clicked!], "a ⌘-clicked link's background tab reaches the window")
+
+        manager.browser(page, requestsNewTabWithURL: "https://example.test/menu", inBackground: true)
+        let menu = store.items.values.first { $0.tab?.url == "https://example.test/menu" }?.id
+        expect(menu != nil && observer.backgroundTabs == [clicked!, menu!], "Open Link in New Tab's background tab reaches the window")
+
+        _ = manager.browser(page, popupHostForURL: "https://example.test/front", inBackground: false)
+        manager.browser(page, requestsNewTabWithURL: "https://example.test/front2", inBackground: false)
+        expect(observer.backgroundTabs.count == 2, "a tab opened in front is no background tab")
+        manager.browser(page, requestsNewTabWithURL: "cra://action/nextTab", inBackground: true)
+        expect(observer.backgroundTabs.count == 2, "a cra:// link opens nothing, so nothing is said")
+        manager.closeAll()
     }
 
     /// DRM services open in WebKit (ProtectedMediaSites); a popup keeps its opener's engine; a
@@ -2023,6 +2056,29 @@ enum BrowserManagerLifecycleTests {
         manager.closeAll()
     }
 
+    // promise: #434
+    /// A video in Picture in Picture whose tab has no player card (on CEF the card follows sound, so
+    /// a muted one has none; the engine drops it after the media session ends): Minimize makes it,
+    /// with the Picture in Picture button, or the video would be left with no way back but its tab
+    /// (#475, Peter Nielsen).
+    @MainActor
+    private static func pictureInPictureMinimizeSilentCase() {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let np = NowPlaying()
+        manager.nowPlaying = np
+        let a = store.createTab(url: "https://example.test/muted").id
+        let ra = manager.ensureRuntime(for: a)!
+        ra.browser.isInPictureInPicture = true
+        manager.browser(ra.browser, didChangePictureInPicture: true)
+        PictureInPictureChrome.shared.actions?.minimize()
+        expect(!ra.browser.isInPictureInPicture, "Minimize leaves Picture in Picture")
+        manager.browser(ra.browser, didChangePictureInPicture: false)
+        expect(np.shown.map(\.id) == [a], "a minimized video without a card gets one in the sidebar player")
+        expect(np.shown.first?.hasVideo == true, "its card has the Picture in Picture button to bring it back")
+        manager.closeAll()
+    }
+
     // promise: #46 #84
     /// A woken page's toolbar starts in the colour its page last reported (Arc, #46), and a tab
     /// coming on screen asks its page for its background again unless the page is still loading.
@@ -2046,6 +2102,34 @@ enum BrowserManagerLifecycleTests {
         expect(woken.browser.backgroundProbes == 1, "a loaded page coming on screen is asked for its background")
         manager.show(a, focus: false)
         expect(woken.browser.backgroundProbes == 1, "one already on screen is not asked again")
+        manager.closeAll()
+    }
+
+    /// A synced sidebar from the other Mac replaced the document while this Mac's page stayed
+    /// where it was: the bar showed the other Mac's address over this page (seen once, 13 Nov
+    /// 2026). The page's own address and title go back into its tab. A tab asleep has no page:
+    /// the bundle's address is what it loads when it wakes.
+    @MainActor
+    private static func syncedDocumentKeepsLivePagesCase() {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView(), clock: ManualScheduler())
+        let id = store.createTab(url: "https://example.test/here").id
+        let rt = manager.ensureRuntime(for: id)!
+        rt.browser.currentURL = "https://example.test/here"
+        rt.browser.currentTitle = "Here"
+        manager.browser(rt.browser, didChangeURL: "https://example.test/here")
+        let asleep = store.createTab(url: "https://example.test/sleep").id
+        let sleeping = manager.ensureRuntime(for: asleep)!
+        sleeping.browser.currentURL = "https://example.test/sleep"
+        sleeping.discarded = true
+        // The other Mac's bundle has both tabs elsewhere.
+        store.items[id]?.tab?.url = "https://example.test/there"
+        store.items[id]?.tab?.savedTitle = "There"
+        store.items[asleep]?.tab?.url = "https://example.test/sleep-there"
+        NotificationCenter.default.post(name: SidebarStore.documentReplaced, object: store)
+        expect(store.item(id)?.tab?.url == "https://example.test/here", "a page on screen keeps its own address in the bar after a synced sidebar")
+        expect(store.item(id)?.tab?.savedTitle == "Here", "and its own title")
+        expect(store.item(asleep)?.tab?.url == "https://example.test/sleep-there", "a tab asleep takes the synced address: it loads that when it wakes")
         manager.closeAll()
     }
 
@@ -2319,4 +2403,6 @@ private final class Observer: BrowserManagerDelegate {
     func browserManagerCaptureImage(at point: NSPoint, tabID: UUID) { capturedImages.append((point, tabID)) }
     var splitLinks: [(url: String, tab: UUID)] = []
     func browserManagerOpenLinkInSplit(_ url: String, fromTab tabID: UUID) { splitLinks.append((url, tabID)) }
+    var backgroundTabs: [UUID] = []
+    func browserManagerOpenedInBackground(_ tabID: UUID) { backgroundTabs.append(tabID) }
 }

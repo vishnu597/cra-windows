@@ -116,6 +116,11 @@ public enum KeyBindingDefaults {
             KeyAction(id: "revealTab", name: "Reveal Tab in Sidebar", section: .tabs, shortcuts: [KeyChord(KeyChord.space, KeyChord.Modifiers.control)], triggers: ["reveal", "find tab"]),
             KeyAction(id: "recentTab", name: "Next Recent Tab", section: .tabs, shortcuts: [KeyChord(KeyChord.tab, KeyChord.Modifiers.control)], inCommandBar: false),
             KeyAction(id: "recentTabBackward", name: "Previous Recent Tab", section: .tabs, shortcuts: [KeyChord(KeyChord.tab, [.control, .shift] as KeyChord.Modifiers)], inCommandBar: false),
+            // Not in Arc (#467): the same switcher over every space's tabs.
+            KeyAction(id: "recentTabAllSpaces", name: "Next Recent Tab in All Spaces", section: .tabs,
+                      shortcuts: [KeyChord(KeyChord.tab, [.control, .option] as KeyChord.Modifiers)], inCommandBar: false),
+            KeyAction(id: "recentTabAllSpacesBackward", name: "Previous Recent Tab in All Spaces", section: .tabs,
+                      shortcuts: [KeyChord(KeyChord.tab, [.control, .option, .shift] as KeyChord.Modifiers)], inCommandBar: false),
             KeyAction(id: "clearToday", name: "Clear Today", section: .tabs, shortcuts: [KeyChord("k", cmdShift)], triggers: ["clear", "tidy"]),
             KeyAction(id: "favoriteTab", name: "Add to Favorites", section: .tabs, shortcuts: [], triggers: ["favorite", "top app"]),
             // Arc's Join Meeting ⌃⌘J (Settings ▸ Shortcuts; the command bar's "Join next video conference"):
@@ -126,6 +131,9 @@ public enum KeyBindingDefaults {
             KeyAction(id: "duplicateTab", name: "Duplicate Tab", section: .tabs, shortcuts: [], triggers: ["duplicate"]),
             KeyAction(id: "resetTab", name: "Reset Pinned Tab", section: .tabs, shortcuts: [], triggers: ["reset", "home"]),
             KeyAction(id: "muteTab", name: "Mute / Unmute Tab", section: .tabs, shortcuts: [], triggers: ["mute"]),
+            // Not in Arc (#438): pauses what plays in every loaded page; also AppleScript's `pause media`.
+            KeyAction(id: "pauseAllMedia", name: "Pause All Media", section: .none, shortcuts: [],
+                      triggers: ["pause", "pause all", "stop music", "stop video", "media", "silence"], symbol: "pause.fill"),
             KeyAction(id: "resetSpaceTabs", name: "Reset all tabs in this Space", section: .tabs, shortcuts: [], triggers: ["reset all", "reset pinned"]),
             // Arc lists these in Settings ▸ Shortcuts and the command bar only.
             KeyAction(id: "collapseAllFolders", name: "Collapse All Folders", section: .none, shortcuts: [], triggers: ["collapse folders", "close folders"]),
@@ -361,7 +369,7 @@ public enum ShortcutDescriptions {
         if let custom { return custom }
         if let windows = KeyBindingDefaults.windowsText[a.id], windows.name == a.name { return windows.description }
         if let t = table[a.id] { return t }
-        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). tab in the sidebar." }
+        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). item in the sidebar. A split counts as one." }
         if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return "Switch to the \(n). space." }
         if a.id.hasPrefix("splitPane"), let n = a.id.dropFirst(9).first { return "Switch to the \(n). pane of the open split." }
         if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return "Move the current tab, or a Little Window's page, to the \(n). space and switch to it." }
@@ -456,6 +464,9 @@ public enum ShortcutDescriptions {
         "previousTab": "Switch to the previous tab.",
         "recentTab": "Open the tab switcher and cycle through recent tabs, like ⌘Tab for apps.",
         "recentTabBackward": "Cycle backwards through recent tabs in the tab switcher.",
+        "recentTabAllSpaces": "Open the tab switcher on recent tabs from every space. Picking one goes to its space; a quick tap goes back.",
+        "recentTabAllSpacesBackward": "Cycle backwards through recent tabs from every space.",
+        "pauseAllMedia": "Pause the audio and video playing in every window, space and profile. Sleeping tabs stay asleep, and nothing starts playing again by itself.",
         "clearToday": "Archive today’s tabs, except the one on screen and any playing sound.",
         "favoriteTab": "Add the tab to the favorites grid.",
         "renameTab": "Give the tab a name of your own.",

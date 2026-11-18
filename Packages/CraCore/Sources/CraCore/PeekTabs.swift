@@ -4,22 +4,21 @@ import Foundation
 /// Add To Split on the Mac).
 extension SidebarStore {
     /// A link a page opens in a new tab (target=_blank, Ctrl-click, a link leaving a Peek, #202):
-    /// in the space of the tab it came from, right below that tab when it is a Today tab (Arc),
-    /// otherwise where new tabs go. A background tab is left unread.
+    /// in the space of the tab it came from, right below that tab or its split when it is a Today
+    /// tab (Arc), otherwise where new tabs go. With backgroundTabsBelowCurrent on, background
+    /// tabs go after the earlier tabs it opened. A background tab is left unread.
     @discardableResult
     public func openLinkTab(_ url: String, from source: UUID?, inBackground background: Bool, window: UUID? = nil) -> SidebarItem {
         let space = source.flatMap { spaceID(ofItem: $0) }
-        var parent: UUID?, index: Int?
-        if let source, let item = item(source), let p = item.parentID, case .today = rootContainer(of: source) {
-            parent = p
-            index = (self.item(p)?.children.firstIndex(of: source) ?? -1) + 1
+        let slot = source.flatMap {
+            linkTabSlot(below: $0, afterEarlierLinks: background && settings.backgroundTabsBelowCurrent)
         }
-        return createTab(url: url, in: space, select: !background, parent: parent, index: index, window: window, referrer: source)
+        return createTab(url: url, in: space, select: !background, parent: slot?.parent, index: slot?.index, window: window, referrer: source)
     }
 
-    /// A split under `source` can take another pane (Arc stops at four).
+    /// A split under `source` can take another pane (Arc's four, or Cra's eight with the setting on).
     public func canAddPane(to source: UUID) -> Bool {
-        paneTabIDs(for: source).count < SplitPaneLayout.Constants.maximumPanes
+        paneTabIDs(for: source).count < splitPaneLimit
     }
 
     /// Add To Split from a Peek (Arc's openInSplit), first half: the peeked page as a new tab in

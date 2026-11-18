@@ -68,6 +68,7 @@ public enum TabSwitcherLayout {
     public static let cornerRadius: CGFloat = 26
     public static let cardCornerRadius: CGFloat = 8
     public static let thumbnailCornerRadius: CGFloat = 6.5
+    public static let paneCornerRadius: CGFloat = 4.5
     public static let favicon: CGFloat = 16
     /// Room around the panel for its shadow (the window is this much larger on each side).
     public static let shadowMargin: CGFloat = 40

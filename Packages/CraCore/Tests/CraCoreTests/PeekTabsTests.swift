@@ -22,6 +22,16 @@ struct PeekTabsTests {
         _ = (a, b)
     }
 
+    @Test func backgroundLinksFollowEarlierLinksWhenTheSettingIsOn() {
+        let f = StoreFixture()
+        f.store.settings.backgroundTabsBelowCurrent = true
+        let source = f.store.createTab(url: "https://source.example", select: true)
+        let first = f.store.openLinkTab("https://first.example", from: source.id, inBackground: true)
+        let second = f.store.openLinkTab("https://second.example", from: source.id, inBackground: true)
+        #expect(f.today() == [source.id, first.id, second.id])
+        #expect(f.store.selectedTabID == source.id)
+    }
+
     @Test func aLinkFromAPinnedTabGoesWhereNewTabsGo() {
         let f = StoreFixture()
         let pinned = f.store.createTab(url: "https://pinned.example", pinned: true, select: true)
@@ -85,6 +95,19 @@ struct PeekTabsTests {
         let tabs = f.today().count
         #expect(f.store.peekSplitTabs(url: "https://e.example", title: "", beside: a.id) == nil, "Cannot Add New Pane")
         #expect(f.today().count == tabs, "and nothing was made")
+        #expect(f.sound)
+    }
+
+    @Test func addToSplitUsesTheLargerPaneLimitWhenEnabled() throws {
+        let f = StoreFixture()
+        f.store.settings.splitMorePanes = true
+        let source = f.store.createTab(url: "https://source.example", select: true)
+        for index in 1..<8 {
+            let made = try #require(f.store.peekSplitTabs(url: "https://pane\(index).example", title: "", beside: source.id))
+            f.store.joinSplit(made.tab, with: made.partner)
+        }
+        #expect(f.store.paneTabIDs(for: source.id).count == 8)
+        #expect(!f.store.canAddPane(to: source.id))
         #expect(f.sound)
     }
 

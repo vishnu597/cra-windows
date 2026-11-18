@@ -186,12 +186,14 @@ switch, idle CPU, idle wakeups: "Speed, 14 Nov" below) are fixed ("15 Nov, -7").
   site's pop-up setting, ad and tracker blocking, the camera/microphone indicator, process events, browser
   fetches with a profile's cookies, Arc's page menu, document start scripts, restored history, spare and side
   panel pages, extension tabs and windows, stray windows, a second launch's URLs.
-  - engine/chromium/patches: 19 of Cra's CEF patches (their CEF hooks now call Cra's layer) and 13 of the
+  - engine/chromium/patches: 20 of Cra's CEF patches (their CEF hooks now call Cra's layer) and 13 of the
     layer's own (cra-hosted-pages, cra-keys, cra-downloads, cra-download-tabs, cra-permissions,
     cra-fullscreen-status, cra-devtools, cra-content-blocking, cra-page-menu, cra-relaunch, cra-prefs, …).
     fingerprinting-protection is rebased and waits for a full rebuild; spare-pages isn't needed (spares stay out
     of the tab strip); gcm-enabled, extension-trigger-action-null-checks and extensions-normal-windows aren't
-    needed on 157.
+    needed on 157. context-menu-embedded-view came late (#466): 0.1.44 and 0.1.45 built page menus and never
+    showed them, and only `page-menu-shows` checks that a menu opens (the other menu scenarios run a command
+    instead).
   - Scenarios passing on the new engine: fifty-tabs, sleep-tabs, cookie-banners, restore-windows-off,
     library-width, solid-spaces, dev-mode, developer-bar, find-selection, app-shortcuts, devtools-close-tab,
     permission-card, download-actions, app-icon-download. Not yet: start-on-new-tab (background command bar),
@@ -298,3 +300,15 @@ switch, idle CPU, idle wakeups: "Speed, 14 Nov" below) are fixed ("15 Nov, -7").
   - 16 Nov, -9: the hidden window that holds a profile's pages kept an about:blank tab, and with it a renderer
     process for as long as Cra ran. Its blank page is now a page that never loads, which has no renderer
     (`one-tab-renderers`).
+  - 17 Nov, -18 (#484): Chrome hangs an extension's browser-modal dialogs (chrome://extensions' Remove asks
+    first) on the current browser window, which is the hidden page host, so Remove did nothing at all. Such a
+    dialog now gets no parent and Cra shows it over its own window, as on CEF (`cra-extension-dialogs-parent.patch`,
+    `extension-remove`). And Chrome on macOS takes its language from the app bundle's translation folders, which
+    Cra's doesn't have, so it ignored `--lang` and stayed English, extensions' chrome.i18n too; it reads `--lang`
+    now (`cra-locale.patch`, `chromium-locale`).
+  - 17 Nov, -18: a page's DevTools were a window of their own beside the page whose frontend believed itself
+    undocked (no close button, no dock menu) and whose keys went to Chrome's hidden DevTools window (⌥⌘I did nothing
+    inside DevTools). The frontend now loads dockable while Chrome's window stays undocked, its dock calls come back
+    to Cra as on CEF, and its view goes into the card under the page (`cra-devtools.patch`, `EmbeddedDevTools`);
+    Chrome's hidden DevTools window never becomes key, which had cost clicks and hover (`devtools-docked`,
+    `devtools-docked-clicks`).

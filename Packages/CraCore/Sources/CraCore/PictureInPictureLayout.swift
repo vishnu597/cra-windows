@@ -13,6 +13,17 @@ public enum PictureInPictureLayout {
     public static let scrimAlpha: CGFloat = 0.33
     public static let fadeDuration: Double = 0.2
     public static let addressFontSize: CGFloat = 11
+
+    /// Whether a tracking area in Chromium's PiP window hears the pointer come, move or go
+    /// (`options`: `NSTrackingArea.Options`' raw value). Chromium's view keeps one on a floating
+    /// window whatever is in front of it, and its mouse-entered and -moved events fade Chrome's own
+    /// controls in, behind Arc's (#535); Cra takes every such area away. One that only sets the
+    /// cursor stays: the overlay in front sets it.
+    public static func hearsPointer(trackingOptions options: UInt) -> Bool {
+        options & (mouseEnteredAndExited | mouseMoved) != 0
+    }
+    static let mouseEnteredAndExited: UInt = 0x01
+    static let mouseMoved: UInt = 0x02
     /// The address keeps this far from a button, and isn't shown in less room than this.
     static let addressGap: CGFloat = 8
     static let addressMinWidth: CGFloat = 24
@@ -58,21 +69,20 @@ public enum PictureInPictureLayout {
     public static func labelsBackToTab(width: CGFloat) -> Bool { width >= 400 }
 
     /// Arc's Minimize (`minus`, "Minimize") sits left of Close and leaves Picture in Picture with
-    /// the video playing on in its tab (#434). Arc draws it from its small size class: the #246
-    /// reporter's Arc windows had none at 224 and 277 pt wide and had it at 396 (the cut at 280,
-    /// where the class starts, is inferred).
-    public static func showsMinimize(width: CGFloat) -> Bool { width >= 280 }
+    /// the video playing on in its tab (#434). Arc leaves it out of its smallest windows (none at
+    /// 224 and 277 pt wide in the #246 reporter's captures, there at 396); Cra shows it at every
+    /// size, since a tiny window has room for it too (the maintainer's decision, #462).
     /// Between Minimize and Close: the 6 pt next to the pair in Arc 1.173's binary (inferred to be
     /// the group's spacing).
     static let minimizeGap: CGFloat = 6
 
     /// The top bar in a window `width` wide, y going down from the top edge: back to tab on the
     /// left (`backWidth` wide: a glyph, or the glyph and its words), close on the right with
-    /// minimize before it when the window is wide enough, the address centred on the window
+    /// minimize before it, the address centred on the window
     /// between them (truncated in the middle when it doesn't fit; nil when there's no room at all).
     public struct TopBar: Equatable, Sendable {
         public var back: CGRect
-        public var minimize: CGRect?
+        public var minimize: CGRect
         public var close: CGRect
         public var address: CGRect?
     }
@@ -82,9 +92,8 @@ public enum PictureInPictureLayout {
         let y = c - b / 2
         let back = CGRect(x: c - b / 2, y: y, width: backWidth ?? b, height: b)
         let close = CGRect(x: width - c - b / 2, y: y, width: b, height: b)
-        let minimize = showsMinimize(width: width) ? CGRect(x: close.minX - minimizeGap - b, y: y, width: b, height: b) : nil
-        let right = minimize?.minX ?? close.minX
-        let room = 2 * (min(width / 2 - back.maxX, right - width / 2) - addressGap)
+        let minimize = CGRect(x: close.minX - minimizeGap - b, y: y, width: b, height: b)
+        let room = 2 * (min(width / 2 - back.maxX, minimize.minX - width / 2) - addressGap)
         let w = min(addressWidth, room)
         let address = addressWidth > 0 && w >= addressMinWidth
             ? CGRect(x: width / 2 - w / 2, y: c - addressFontSize, width: w, height: 2 * addressFontSize) : nil

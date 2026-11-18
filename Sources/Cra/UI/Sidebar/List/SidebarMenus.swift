@@ -14,6 +14,12 @@ enum SidebarMenus {
         MenuItems.add(menu, title, enabled: enabled, on: on, run)
     }
 
+    @discardableResult
+    private static func add(_ menu: NSMenu, _ title: SpaceMenuTitle.Value, enabled: Bool = true, on: Bool? = nil,
+                            _ run: @escaping () -> Void) -> NSMenuItem {
+        MenuItems.add(menu, title, enabled: enabled, on: on, run)
+    }
+
     /// A row for a KeyBindings command, with its shortcut (MenuItems.add(_:action:)).
     @discardableResult
     private static func add(_ menu: NSMenu, action id: String, _ title: String? = nil, enabled: Bool = true, on: Bool? = nil,
@@ -136,7 +142,9 @@ enum SidebarMenus {
         menu.addItem(.separator())
         let spaces = submenu(menu, "Move to Space")
         for s in store.orderedSpaces {
-            add(spaces, s.labeled, enabled: !store.isInSpace(id, s.id)) { store.moveTab(id, toSpace: s.id, window: ui.windowID) }
+            add(spaces, SpaceMenuTitle.plain(s.labeled), enabled: !store.isInSpace(id, s.id)) {
+                store.moveTab(id, toSpace: s.id, window: ui.windowID)
+            }
         }
         folderItems(menu, [id], list: list)
         menu.addItem(.separator())
@@ -166,7 +174,8 @@ enum SidebarMenus {
                                          clickedInToday: !store.isPinned(clicked),
                                          allMuted: !tabs.isEmpty && tabs.allSatisfy { $0.1.muted },
                                          anySound: tabs.contains { $0.1.muted || ui.audibleTabIDs.contains($0.0) },
-                                         anyInSplit: ids.contains { store.splitContaining($0) != nil })
+                                         anyInSplit: ids.contains { store.splitContaining($0) != nil },
+                                         paneLimit: store.splitPaneLimit)
         for (i, section) in PickedTabsMenu.shown(for: picks).enumerated() {
             if i > 0 { menu.addItem(.separator()) }
             for row in section {
@@ -209,7 +218,7 @@ enum SidebarMenus {
                     let sub = submenu(menu, title)
                     let own = store.spaceID(ofItem: ids[0])
                     for s in store.orderedSpaces {
-                        add(sub, s.labeled, on: s.id == own) {
+                        add(sub, SpaceMenuTitle.plain(s.labeled), on: s.id == own) {
                             guard s.id != own else { return }
                             for id in ids { store.moveTab(id, toSpace: s.id, window: ui.windowID) }
                             ui.clearPicks()
@@ -358,7 +367,7 @@ enum SidebarMenus {
         let spaces = submenu(menu, "Move to")
         for space in store.orderedSpaces {
             let current = store.isInSpace(id, space.id)
-            add(spaces, space.labeled, on: current) {
+            add(spaces, SpaceMenuTitle.plain(space.labeled), on: current) {
                 if !current { store.moveTab(id, toSpace: space.id, window: ui.windowID) }
             }
         }
@@ -458,7 +467,7 @@ enum SidebarMenus {
         let children = panes.map(\.id)
         add(menu, "Separate All Tabs") { store.separateAll(id) }
         // Arc greys it out while the split is closed (no pane to add next to).
-        add(menu, action: "addSplitView", "Add Tab…", enabled: open && children.count < 4) {
+        add(menu, action: "addSplitView", "Add Tab…", enabled: open && children.count < store.splitPaneLimit) {
             if let first = children.first {
                 actions.focusPane(first)
                 actions.performAction("addSplitView")
@@ -481,7 +490,9 @@ enum SidebarMenus {
         let spaces = submenu(menu, "Move to")
         for s in store.orderedSpaces {
             let current = store.isInSpace(id, s.id)
-            add(spaces, s.labeled, on: current) { if !current { store.moveTab(id, toSpace: s.id, window: ui.windowID) } }
+            add(spaces, SpaceMenuTitle.plain(s.labeled), on: current) {
+                if !current { store.moveTab(id, toSpace: s.id, window: ui.windowID) }
+            }
         }
         menu.addItem(.separator())
         add(menu, "Archive Item") { for c in children { store.archiveTab(c, reason: .manual) } }
