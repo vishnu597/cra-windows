@@ -8,7 +8,7 @@ xcrun swiftc -swift-version 5 -emit-module -emit-object -parse-as-library -modul
   Tests/LinkSummarySupport/CraCEF.swift -emit-module-path "$TEST_DIR/CraCEF.swiftmodule" -o "$TEST_DIR/CraCEF.o"
 xcrun swiftc -swift-version 5 -parse-as-library ${CRA_TEST_SWIFTC_FLAGS:-} -I "$TEST_DIR" "$TEST_DIR/CraCEF.o" \
   Packages/CraCore/Sources/CraCore/*.swift Packages/CraCore/Sources/CraCore/Perf/*.swift Sources/Cra/Perf/Perf.swift \
-  Sources/Cra/Services/Import/*.swift Sources/Cra/Services/SidebarStore.swift Sources/Cra/Services/SidebarIntegrity.swift \
+  Sources/Cra/Services/Import/*.swift Sources/Cra/Services/SidebarStore+App.swift \
   Sources/Cra/Services/Persistence.swift Sources/Cra/Services/SettingsSyncService.swift \
   Tests/Support/LegacyLiveFolderResults.swift Sources/Cra/Services/FaviconCache.swift Sources/Cra/Services/SafeStorage.swift Sources/Cra/App/EngineFramework.swift \
   Sources/Cra/Services/CraLog.swift Sources/Cra/Services/Scheduler.swift Sources/Cra/Services/TidyTabsService.swift Sources/Cra/Services/TidyTabsModel.swift \
