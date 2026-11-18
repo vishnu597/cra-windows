@@ -15,7 +15,7 @@ trap cleanup EXIT
 C=Packages/CraCore/Sources/CraCore
 { echo "import Foundation"; sed -n '/^public enum SiteKey {/,/^}/p' "$C/LinkRouting.swift"; } > "$TEST_DIR/SiteKey.swift"
 xcrun swiftc -swift-version 5 -parse-as-library ${CRA_TEST_SWIFTC_FLAGS:-} \
-  "$C/LinkSummary.swift" "$C/LinkSummaryCard.swift" "$TEST_DIR/SiteKey.swift" Sources/Cra/Services/Scheduler.swift \
+  "$C/LinkSummary.swift" "$C/LinkSummaryCard.swift" "$TEST_DIR/SiteKey.swift" "$C/Scheduling.swift" Sources/Cra/Services/Scheduler.swift \
   Tests/Support/ManualScheduler.swift Sources/Cra/Services/LinkSummaryImageFetch.swift \
   Tests/LinkSummaryImageTests.swift -o "$TEST_DIR/link-summary-image-tests"
 mkfifo "$TEST_DIR/ready"

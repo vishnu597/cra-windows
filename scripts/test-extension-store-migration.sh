@@ -3,11 +3,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cra-extension-migration.XXXXXX")"
 trap 'rm -rf "$TEST_DIR"' EXIT
+C=Packages/CraCore/Sources/CraCore
+# ExtensionImport shares this profile-folder predicate with the bookmark/session importer.
+# Compile its production method without pulling that importer's unrelated model dependencies.
+{ echo "public enum ChromiumImporter {"; sed -n '/^    public static func isProfileFolder(/,/^    }/p' "$C/ChromiumImport.swift"; echo "}"; } \
+  > "$TEST_DIR/ChromiumProfileFolders+Production.swift"
+test "$(grep -c '^    public static func isProfileFolder(' "$TEST_DIR/ChromiumProfileFolders+Production.swift")" -eq 1
 xcrun swiftc -swift-version 5 -emit-module -emit-library -module-name CraCEF \
   Tests/ExtensionStoreSupport/CraCEF.swift -o "$TEST_DIR/libCraCEF.dylib" \
   -emit-module-path "$TEST_DIR/CraCEF.swiftmodule"
 xcrun swiftc -swift-version 5 -parse-as-library ${CRA_TEST_SWIFTC_FLAGS:-} \
   -I "$TEST_DIR" -L "$TEST_DIR" -lCraCEF -Xlinker -rpath -Xlinker "$TEST_DIR" \
+  "$TEST_DIR/ChromiumProfileFolders+Production.swift" \
   Packages/CraCore/Sources/CraCore/ExtensionProfiles.swift \
   Packages/CraCore/Sources/CraCore/WebStoreInstalls.swift \
   Packages/CraCore/Sources/CraCore/UnpackedCopies.swift \

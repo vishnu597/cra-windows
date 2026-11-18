@@ -17,8 +17,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The test-only CI job has no app build to fetch the pinned framework for it.
+scripts/fetch-sparkle.sh
 xcrun swiftc -swift-version 5 Tests/UpdateFeedCheck.swift -F vendor/sparkle -framework Sparkle \
-  -Xlinker -rpath -Xlinker "$ROOT/vendor/sparkle" -o "$DIR/feedcheck" 2>&1 | grep -v warning || true
+  -Xlinker -rpath -Xlinker "$ROOT/vendor/sparkle" -o "$DIR/feedcheck"
 mkdir -p "$DIR/feed"
 python3 scripts/appcast-feeds.py "$DIR/feed" "" Tests/Fixtures/Appcast/newest.xml 0.1.46 Tests/Fixtures/Appcast/stable.xml 0.1.43 >/dev/null
 (cd "$DIR/feed" && exec python3 -I -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1) &
