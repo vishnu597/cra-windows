@@ -68,6 +68,11 @@ final class BrowserWindow {
     /// The same layout in DIPs from the page area's top left, for hit-testing the dividers.
     private var paneLayoutResult = SplitPaneLayout.Result()
     private var paneOrientation: SplitOrientation = .horizontal
+    /// A sidebar tab dragged over the panes: the split it would make, the window over the region
+    /// that shows it, and the tab shown in place of the dragged one (splitDragMoved).
+    private var splitDropTarget: SplitDropProposal.Target?
+    private var splitDropOverlay: UInt = 0
+    private var splitDropSwap: (dragged: UUID, shown: UUID)?
     /// A divider being dragged: the one after pane `divider`, where it was pressed, and the
     /// factors then. `factors` follows the pointer and is saved to the split on release.
     private var paneDrag: (divider: Int, x: Int32, y: Int32, start: [UUID: CGFloat], factors: [UUID: CGFloat])?
@@ -2472,3 +2477,135 @@ struct WeakPage {
     weak var page: WebPage?
     init(_ page: WebPage) { self.page = page }
 }
+
+// MARK: - A sidebar tab dropped onto the page
+
+/// Arc's drag-to-split (the Mac's PageSplitDrop): a sidebar tab dragged over the panes proposes a
+/// split where it would land (CraCore's SplitDropProposal), shown by a tinted window over that
+/// part of the page, and letting go makes it (SplitDrop.drop). The sidebar follows the drag
+/// (SidebarDrag.swift) and asks here while the pointer is off the sidebar.
+extension BrowserWindow {
+    /// The region id the proposal's layout gives the drop region.
+    private static let splitDropRegion = UUID()
+
+    /// The panes laid out in DIPs from the page area's bottom left, y up (the proposal's
+    /// coordinates), with the drop region in them when `insert` is given.
+    private func splitDropFrames(inserting insert: SplitDropProposal.Insert?) -> [UUID: CGRect] {
+        let area = window.contentFrame, scale = window.scale
+        let split = paneIDs.first.flatMap { store.splitContaining($0) }
+        let factors = SplitPaneLayout.normalizedFactors(ids: paneIDs, stored: split?.split?.widthFactors ?? [:])
+        var panes = paneIDs.map { SplitPaneLayout.Pane(id: $0, factor: factors[$0] ?? 1 / CGFloat(max(1, paneIDs.count))) }
+        var orientation = paneOrientation
+        if let insert {
+            panes = SplitDropProposal.panes(panes, inserting: Self.splitDropRegion, at: insert)
+            if paneIDs.count <= 1 { orientation = insert.orientation }
+        }
+        return SplitPaneLayout(panes: panes, orientation: orientation,
+                               containerSize: CGSize(width: Double(area.width) / scale, height: Double(area.height) / scale),
+                               backingScaleFactor: CGFloat(scale), flipped: false).compute().frames
+    }
+
+    /// The pointer moved with sidebar tab `id` off the sidebar: whether the panes offer a split
+    /// there (and the window shows it). `before`: the tab open before the press that started the
+    /// drag (the press opened the dragged one).
+    func splitDragMoved(tab id: UUID, before: UUID?) -> Bool {
+        guard let window, !closing, store.item(id)?.isTab == true, !paneIDs.isEmpty, let host = HWND(bitPattern: hwnd) else {
+            clearSplitDrop()
+            return false
+        }
+        var p = POINT()
+        guard GetCursorPos(&p) else { return false }
+        _ = ScreenToClient(host, &p)
+        let area = window.contentFrame, scale = window.scale
+        let size = CGSize(width: Double(area.width) / scale, height: Double(area.height) / scale)
+        let point = CGPoint(x: Double(p.x - area.x) / scale, y: size.height - Double(p.y - area.y) / scale)
+        var swapTo: UUID?
+        if splitDropSwap == nil {
+            switch SplitDrop.showing(dragging: id, panes: paneIDs, before: before, store: store) {
+            case .refused:
+                clearSplitDrop()
+                return false
+            case .swap(let to):
+                swapTo = to
+            case .asIs:
+                break
+            }
+        }
+        let region = splitDropTarget?.insert.flatMap { splitDropFrames(inserting: $0)[Self.splitDropRegion] }
+        guard let proposal = SplitDropProposal.propose(at: point, ids: paneIDs, frames: splitDropFrames(inserting: nil), orientation: paneOrientation,
+                                                       area: CGRect(origin: .zero, size: size), region: region, current: splitDropTarget,
+                                                       sidebarSide: true) else {
+            clearSplitDrop()
+            return false
+        }
+        if let swapTo {
+            // Arc shows the page from before the press again and splits with it.
+            splitDropSwap = (id, swapTo)
+            store.selectTab(swapTo, window: windowID)
+            refresh()
+        }
+        splitDropTarget = proposal
+        showSplitDropRegion(proposal)
+        return true
+    }
+
+    /// The drag left the page, or ended: `drop` lets go of tab `id` where the split was offered.
+    func splitDragEnded(tab id: UUID, drop: Bool) {
+        let target = splitDropTarget
+        if drop, let target, store.item(id) != nil {
+            splitDropTarget = nil
+            splitDropSwap = nil
+            removeSplitDropOverlay()
+            if SplitDrop.drop(.tab(id), at: target, panes: paneIDs, splitOrientation: paneOrientation, store: store, window: windowID) != nil {
+                refresh()
+                return
+            }
+        }
+        clearSplitDrop()
+    }
+
+    /// Takes the region away and shows the dragged tab again.
+    private func clearSplitDrop() {
+        splitDropTarget = nil
+        removeSplitDropOverlay()
+        guard let swap = splitDropSwap else { return }
+        splitDropSwap = nil
+        if store.item(swap.dragged) != nil {
+            store.selectTab(swap.dragged, window: windowID)
+            refresh()
+        }
+    }
+
+    private func removeSplitDropOverlay() {
+        guard splitDropOverlay != 0 else { return }
+        cra_overlay_destroy(splitDropOverlay)
+        splitDropOverlay = 0
+    }
+
+    /// Tints the region a new pane would take, or the pane a drop would replace.
+    private func showSplitDropRegion(_ target: SplitDropProposal.Target) {
+        guard let window, let host = HWND(bitPattern: hwnd) else { return }
+        let area = window.contentFrame, scale = window.scale
+        var rect: PixelRect?
+        switch target {
+        case .insert(let insert):
+            if let r = splitDropFrames(inserting: insert)[Self.splitDropRegion] {
+                let height = Double(area.height) / scale
+                func px(_ v: CGFloat) -> Int32 { Int32((Double(v) * scale).rounded()) }
+                rect = PixelRect(x: area.x + px(r.minX), y: area.y + Int32(((height - Double(r.maxY)) * scale).rounded()),
+                                 width: px(r.width), height: px(r.height))
+            }
+        case .replace(let index):
+            rect = paneIDs.indices.contains(index) ? paneFrames[paneIDs[index]] : nil
+        }
+        guard let rect else { return removeSplitDropOverlay() }
+        var origin = POINT(x: rect.x, y: rect.y)
+        _ = ClientToScreen(host, &origin)
+        if splitDropOverlay == 0 {
+            // Cra's blue (brand), see-through, over the page; it takes no clicks while the drag holds the mouse.
+            splitDropOverlay = cra_overlay_create(UInt(hwnd), 0x3F6DF5, 70, nil, nil)
+        }
+        cra_overlay_place(splitDropOverlay, origin.x, origin.y, rect.width, rect.height, 0)
+    }
+}
+
