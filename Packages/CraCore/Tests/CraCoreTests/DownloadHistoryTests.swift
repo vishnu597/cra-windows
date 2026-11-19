@@ -126,13 +126,27 @@ struct DownloadHistoryTests {
 
     @Test func aPathIsListedOnceWithItsNewestDownload() {
         let h = history()
-        h.add(path: "/d/a.dat", now: t0)
-        h.add(path: "/d/b.dat", now: t0.addingTimeInterval(1))
+        let original = h.add(path: "/d/a.dat", now: t0)
+        let other = h.add(path: "/d/b.dat", now: t0.addingTimeInterval(1))
         // a.dat was deleted, and a new download got its name.
-        h.add(path: "/d/a.dat", now: t0.addingTimeInterval(2))
-        #expect(h.entries.map(\.path) == ["/d/b.dat", "/d/a.dat"])
+        let replacement = h.add(path: "/d/a.dat", now: t0.addingTimeInterval(2))
+        #expect(h.entries.map(\.id) == [original.id, other.id, replacement.id], "history keeps each completed download's identity")
         #expect(h.recent.map(\.name) == ["b.dat", "a.dat"])
         #expect(h.recent.last?.date == t0.addingTimeInterval(2))
+        #expect(h.library(query: "").map(\.name) == ["a.dat", "b.dat"], "both lists show only the newest download at a path")
+    }
+
+    @Test func aLateRenameReconcilesItsHistoryIDWithoutRewritingTheReplacement() {
+        let h = history()
+        let original = h.add(path: "/d/report.pdf", now: t0)
+        let replacement = h.add(path: "/d/report.pdf", now: t0.addingTimeInterval(1))
+        // An old physical move may finish before its publication returns to the main actor;
+        // a new download can already have completed at the vacated original path.
+        h.move(from: "/d/report.pdf", to: "/d/Old Report.pdf", id: original.id)
+        #expect(h.entries.count == 2)
+        #expect(h.entries.first { $0.id == original.id }?.path == "/d/Old Report.pdf")
+        #expect(h.entries.first { $0.id == replacement.id } == replacement, "the replacement's path and identity stay untouched")
+        #expect(h.recent.map(\.name) == ["Old Report.pdf", "report.pdf"])
     }
 
     @Test func olderFilesWithAPathTwiceListItOnce() throws {
