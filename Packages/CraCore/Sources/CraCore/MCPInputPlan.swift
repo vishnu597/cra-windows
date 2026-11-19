@@ -14,7 +14,12 @@ public enum MCPInputPlan {
     /// movement, without the second-long glides that made every click slow.
     public static func movement(from start: CGPoint, to end: CGPoint, variation: Double) -> [Move] {
         let distance: CGFloat = hypot(end.x - start.x, end.y - start.y)
-        let duration: Double = min(0.24, 0.06 + Double(distance) / 4000)
+        return movement(from: start, to: end, variation: variation, duration: min(0.24, 0.06 + Double(distance) / 4000))
+    }
+
+    /// The same eased, gently bent path over `duration` seconds, a step a frame.
+    public static func movement(from start: CGPoint, to end: CGPoint, variation: Double, duration: Double) -> [Move] {
+        let distance: CGFloat = hypot(end.x - start.x, end.y - start.y)
         let steps = max(4, Int(duration / 0.016))
         let bend: CGFloat = CGFloat(min(1, max(0, variation)) - 0.5) * min(40, distance * 0.1)
         let length: CGFloat = max(1, distance)

@@ -18,20 +18,35 @@ Commands for each piece are in [development.md](development.md#tests).
    profile in that browser's own format under `Tests/Fixtures/<Browser>` (no real browsing
    data). Parsers are tested on those files, and the fuzzer mutates them.
 5. **A bug fix comes with the test that would have caught it**, written first and seen failing
-   on the unfixed code. That holds for every bug, with or without an issue; one with an issue is
-   also locked (rule 8). If no test can reach it, the fix moves the decision into CraCore or adds
+   on the unfixed code. That holds for every bug, with or without an issue; one with an issue, or
+   from a crash report, is also locked (rule 8). If no test can reach it, the fix moves the decision into CraCore or adds
    the debug readout a scenario needs; only what takes a real site, the GPU or a person's eye
    becomes a line in [release-checklist.md](release-checklist.md).
+   The same goes for everything built and everything reported: a new feature (Mac or iPhone,
+   asked for or not) ships with tests that pin it, and a report that turns out not to be a bug
+   still gets the test that proves the behaviour, tagged with its issue (CLAUDE.md rule 7).
 6. **Never assert on a fake's bookkeeping alone.** A test whose only check is "the fake
    recorded a call" tests the fake.
 7. **A flaky test is rewritten on the clock or deleted**, never retried or given a sleep.
+   `scripts/test-store.sh` runs every test in one process on one data folder, and a store saves
+   0.4 s later in real time: a new store loads whatever earlier tests' saves have landed, their
+   clocks hours ahead of yours. A test that reads state it didn't make puts it on disk itself
+   (`saveAll()`) so it is there every time, then copes with it (`startAfterLoadedTabs`, a change
+   that flips a setting instead of assuming it is off). Stress such a test with ten copies of the
+   kept binary at once (`CRA_TEST_KEEP`): two checks passed alone and failed most of those runs.
 8. **What a closed issue shipped is pinned.** The test that proves an issue's fix carries
-   `.bug("https://github.com/VictorKildahl/cra/issues/<n>")`, and `Tests/promises.lock` holds a
+   `.bug("https://github.com/VictorKildahl/cra/issues/<n>")` (`// promise: #<n>` above a harness
+   func or an iPhone UI test in iOS/CraUITests), and `Tests/promises.lock` holds a
    hash of each such test (`scripts/promises.py`, run by `scripts/test.sh` and by a hook before
    every `git push`). Changing, renaming or deleting one fails until `scripts/promises.py --update`;
    do that only when the issue's behaviour is meant to change, say why in the commit and tell the
    reporter. 0.1.30 rewrote the #155 test together with the change that broke it, and nothing
    failed until the reporter wrote back.
+   A fix for a crash report with no issue is pinned the same way under a crash ID, `crash-` and a
+   few lowercase words naming the crash: `.bug(id: "crash-perf-counter-overflow")`,
+   `// promise: crash-zen-favicon-size` or `# promise: crash-fedcm-dialog` at the top of a scenario.
+   #111's crash came back with the engine switch; the crash fixes after it had tests, but nothing
+   kept those tests as they were. `Tests/test_promises.py` tests the lock itself.
    What no test can pin yet is a manual check in [release-checklist.md](release-checklist.md).
 
 ## Layers
@@ -132,6 +147,10 @@ which half each window draws (`cra://debug?themeShown=<label>`): an Auto space m
 window content and sidebar both ways, and a Light one must not (#155).
 
 `fullscreen` takes over a Space and runs only with `CRA_SCENARIO_SCREEN=1` (CI does).
+So do `pip-window-covered` and `pip-window-minimised`: a background copy reports every window
+visible, so automatic Picture in Picture of a window out of sight only runs on screen. They cover
+the window with `cra://debug?coverWindow=` and play `sound-video.html`, the fixture that makes sound
+(#117, #533).
 `CRA_FLAGS=backdrop=material` runs any scenario on the sidebar's `NSVisualEffectView` path
 instead of the private `CABackdropLayer` one (`FeatureFlags`); nightly runs both, so a macOS
 that breaks the private path fails a run instead of shipping.

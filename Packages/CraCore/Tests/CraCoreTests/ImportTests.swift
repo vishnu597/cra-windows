@@ -84,6 +84,13 @@ struct ImportTests {
         #expect(plan?.spaces.first?.today.count == 2)
     }
 
+    @Test func discoversYabSpaceProfilesWithoutLocalState() {
+        let root = Self.fixtures.appendingPathComponent("Yab/Chromium", isDirectory: true)
+        #expect(ChromiumImporter.profiles(userData: root).map(\.id) == [
+            "Default", "space-00000000-0000-0000-0000-000000000001", "space-9C6B1E52-3D1F-4C2B-8E37-5A0F1D2C3B4A",
+        ])
+    }
+
     @Test func ordersChromiumProfilesAsTheBrowserDoes() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

@@ -24,10 +24,11 @@ or Arc-only service), per CONTRIBUTING.md.
 | Save Page As | File ▸ Save Page As ⇧⌘S | done | |
 | File menu: Share…, New Profile, Arc's sections | File ▸ Share…, File ▸ New Profile | done | GitHub #279: the File menu has Arc 1.172.1's five sections and rows (FileMenu); Share… opens the system share list under the toolbar, New Profile the New Profile dialog; Close Tab shows only with a tab selected; New Space… moved to Spaces, New Folder… to Tabs. |
 | Capture Full Page / Portrait Mode | File, URL-bar menu | done | Portrait: 390 × 844 pt at 3x. |
+| Capture | File ▸ Capture… ⇧⌘2, Site Control Center camera | done | Arc's mode: grey page, lens, click or drag, Copy / Save… / Send via iMessage… / Retake / New Easel (CaptureOverlay). A click takes Arc's choice (its score, from the binary). Cra's own, not in Arc: holding ⌥ takes the element right under the pointer instead, a title line, a button, inside open shadow roots too (GitHub #451, Victor 16 Nov 2026, `ContentCapture.choose`). |
 | Copy URL without trackers | Copy URL ⇧⌘C ("Copy the current tab's URL without trackers") | done | utm_* and click ids dropped (CleanURL). |
 | Menu on several picked tabs | ⌘/⇧-click tabs, right-click one | done | Arc 1.17x's rows, read over AX (PickedTabsMenu, #356): Copy Links, Share N Items… \| Change Icon… (dimmed), Mute \| Open in Split View (dimmed past four), Duplicate, Move to ▸ (spaces, New Space…), New Folder with N Items \| Archive Tabs (pinned picks too), Archive Tabs Below (dimmed, Today rows only); with an Easel among the picks the short menu ending in Archive Items. Share asks first with Arc's "Send this Folder to anyone, on any browser." sheet (AppDialog.shareLink), as Share Folder… now does. |
 | Copy URL as Quote | Edit ▸ ⌃⇧⌘C, "Enable Shared Quotes when highlighting text" | done | Arc links to arc.net (cloud); Cra copies a text-fragment link. |
-| AppleScript dictionary | Arc.sdef, View ▸ Developer ▸ Allow JavaScript from Apple Events | done | Arc's terms and codes (resources/Cra.sdef); `execute javascript` only after View ▸ Developer ▸ Allow JavaScript from Apple Events (off by default, as in Arc). `make new window`, incognito with `{incognito:true}` (#427). `tabs of window` lists every space's tabs like Arc, the open space first so `tab 3` is still ⌘3 (#428). |
+| AppleScript dictionary | Arc.sdef, View ▸ Developer ▸ Allow JavaScript from Apple Events | done | Arc's terms and codes (resources/Cra.sdef); `execute javascript` only after View ▸ Developer ▸ Allow JavaScript from Apple Events (off by default, as in Arc). `make new window`, incognito with `{incognito:true}` (#427). `tabs of window` lists every space's tabs like Arc, the open space first so `tab 3` is still ⌘3 (#428). Cra's own, not in Arc (#438): `pause media [only …] [except …] [profile "…"] [closing picture in picture …]`, the command bar's Pause All Media for scripts, answering `{paused:n, kept playing:{titles}}`; and a space's `profile` (its profile's name). |
 | Cast | View ▸ Cast | done | Chrome's Cast bubble (IDC_ROUTE_MEDIA). |
 | Page translation | Toolbar `character.bubble`, URL field "Translation Available", popover | done | GitHub #310: Arc's button (left of the sliders), the URL field's line with the toolbar hidden, the popover (Options: Choose Another Language ▸, Never Translate This Site, Language Settings; Translate / Show Original) and its toasts, on Chromium's translate state instead of Chrome's bubble (scripts/cef-patches/translate-ui.patch). Never Translate This Site uses Chromium's per-profile list, not Arc's `translateNeverHosts`; Settings ▸ Advanced ▸ "Reset Translated-site Prompts" (GitHub #373) forgets the sites and the languages always or never to translate (Arc's `translateNeverHosts` and `translateSourceLanguagesAlwaysOrNever`) in every profile, each put back to Chromium's default as `TranslatePrefs::ResetToDefaults` does (`TranslateReset`); a profile not loaded that session has its Preferences file reset. |
 | Find and Replace, Use Selection to Find, Jump to Selection | Edit ▸ Find | done | Use Selection to Find and Jump to Selection (⌘J) done. *skip*: Find and Replace (⌥⌘F). Checked live in Arc 1.172.2 on 11 Nov: it does nothing anywhere Cra has a counterpart. In an Easel text box with the caret in it, the whole Find submenu is off and ⌥⌘F does nothing; on a web page Find… is on but Find and Replace stays off. It was for Notes, which Arc 1.172 no longer has. |
@@ -68,6 +69,7 @@ Arc's actions (Settings ▸ Shortcuts, 106 rows) that Cra has no action for:
 | Switch to Split View 1–4 | ⌃⇧1…4 | done |
 | Expand Current Split | — | done | View ▸ Expand Current Split and the command bar ("expand", "maximize"), no default shortcut, as in Arc 1.172.2 (measured live 11 Nov 2026, docs/arc-reverse-engineering.md "Expand Current Split"). The focused pane takes the window and the others keep the 220 pt minimum, stored as width factors 1 and 0; laid out in one frame. Cra's pane minimum went from 200 to Arc's 220 pt with it. |
 | Drag a tab onto the page to split | drag a sidebar tab over the page | done | Arc 1.173.1, measured with real drags (13 Nov 2026, docs/arc-reverse-engineering.md "Drag and drop"): on a lone page the nearest edge opens an empty pane there, left or right side by side, top or bottom stacked; in a split a pane's sides (a fifth each) and the gaps open one between panes, and a pane's middle rings it to be replaced (it goes back to the sidebar). Nothing next to the sidebar (40 pt), no fifth pane. The page shows the tab from before the press while the drag offers a split, and the drag image is Arc's dark card. *Cra's own (Victor, 13 Nov 2026, #419):* a page's link does the same near a pane's edge (60 pt), never replaces a pane, and leaves the rest of the page to the page; Arc takes no link there. Not measured: how far in a pane's edge reaches in a split (Arc: past 20 pt, short of a quarter), the region's colour on light themes. |
+| Hold a dragged tab at the sidebar's edge to change space | drag a sidebar tab to the sidebar's left or right edge and hold it there | done | Arc's `TablistEdgeDragController` (fields `timer`, `proposedDirection: Direction` = `next`/`previous`, `lastDragPosition`, `switchThreshold`, read from its Swift metadata 17 Nov 2026) pages the sidebar while a tab is held at its edge (#499, a user's muscle memory from Arc). Cra (`SidebarEdgeDrag`): the right edge, from 6 pt inside the sidebar to 30 pt over the page or past the window, pages to the next space and the left edge to the previous one, every 0.5 s the tab stays, stopping at the first and last space; the drag goes on in the new space's list. Not measured: Arc's `switchThreshold` (0.5 s is Cra's space-icon wait), the band's width, whether Arc wraps past the last space, any highlight at the edge. |
 | Open Extensions | ⌘E | done |
 | Show Little Arc "Open In" Menu | ⇧⌘O | done |
 | Open Little Arc or Peek in… | ⌘O | done | 11 Nov, Arc 1.172.2: Tabs ▸ "Open in <space>" after Pin Tab, with the space's icon, shown only while a Little Window or Peek is in front, out of the Window menu; ⌘O moves the page there at once (the picker is ⇧⌘O). Settings ▸ Shortcuts lists it under Tabs as "Open Little Window or Peek in…". |
@@ -102,8 +104,8 @@ Privacy and Extensions follow Advanced. Tabs, Plugins and Performance have no ta
 | General | Previews Settings… lists all seven of Arc's previews in its order (#376). Outlook Mail and Calendar read with the page's own sign-in (a hidden Outlook page's own service requests), not Arc's Microsoft Graph sign-in; Notion Calendar shows the profile's Google calendar, as Arc's does. Live Calendar in the Calendar favorite's menu, as in Arc; Block Cookie Banners done, under Privacy |
 | Profiles | "New documents" app (GitHub #375); Search engine, Archive tabs after and Download location are on each profile's card (the engine and the archive time are one setting for all profiles); Privacy, Passwords, Credit Cards, Notifications and Clear Browsing Data done |
 | Max | ChatGPT in the Command Bar is out of scope (a cloud AI partner); "Automatically enable future Arc Max features" has nothing to enable yet |
-| Shortcuts | (The choice per shortcut of Cra or the website done, GitHub #374: Arc's pop-up and lines with Cra for Arc, saved as `priority` on the action's chords in keybindings.json. Each action starts where Cra had it: the formerly reserved ones Prefer Cra, the rest Prefer Websites, not Arc's own per-action defaults. The menu's order, Prefer Cra / Use Both / Prefer Websites, is Arc's `priority` declaration order from the binary, not seen in Arc's open menu. Use Both: a press the page doesn't hand back within 0.5 s counts as kept, Cra shows "Press ⌘W again to Close Tab" with Arc's "Edit the shortcut" and takes the next press while the toast shows; Arc's toast text is built in code, so that sentence is inferred from its comment "<do something> again to <do action>") |
-| Links | ("Open Little Arc when clicking on links with ⌥⌘ held" done, GitHub #373, as "⌥⌘-click opens a Little Window". *Deviation, pending Victor:* off by default where Arc's is on, because since 0.1.38 a ⌘⌥-click opens Split View (#298, Chromium 156's split view click) and the switch takes that click over. The click itself isn't measured in Arc; see `LittleWindowTrigger`); Archive Little Windows after done. Cra's own, not in Arc: "⌘-click Expand opens in the tab" (GitHub #380, off by default as Victor asked, 12 Nov 2026), a ⌘-click on a Peek's Expand loads the page in the tab the Peek came from (`PeekExpand`) |
+| Shortcuts | (The choice per shortcut of Cra or the website done, GitHub #374: Arc's pop-up and lines with Cra for Arc, saved as `priority` on the action's chords in keybindings.json. Each action starts where Cra had it: the formerly reserved ones Prefer Cra, the rest Prefer Websites, not Arc's own per-action defaults. The menu's order, Prefer Cra / Use Both / Prefer Websites, is Arc's `priority` declaration order from the binary, not seen in Arc's open menu. Use Both: a press the page doesn't hand back within 0.5 s counts as kept, Cra shows "Press ⌘W again to Close Tab" with Arc's "Edit the shortcut" and takes the next press while the toast shows; Arc's toast text is built in code, so that sentence is inferred from its comment "<do something> again to <do action>". A page never keeps Quit, Hide, Hide Others or Minimize (Arc measured for ⌘Q and ⌘M), and keeps ⌃⌘F only to enter full screen, as in Arc (GitHub #480, PR #485)) |
+| Links | ("Open Little Arc when clicking on links with ⌥⌘ held" done, GitHub #373, as "⌥⌘-click opens a Little Window". *Deviation, pending Victor:* off by default where Arc's is on, because since 0.1.38 a ⌘⌥-click opens Split View (#298, Chromium 156's split view click) and the switch takes that click over. The click itself isn't measured in Arc; see `LittleWindowTrigger`); Archive Little Windows after done. Cra's own, not in Arc: "⌘-click Expand opens in the tab" (GitHub #380, off by default as Victor asked, 12 Nov 2026), a ⌘-click on a Peek's Expand loads the page in the tab the Peek came from (`PeekExpand`); Split View's "Middle-click a link in a split to add a pane" and "More than four panes in a split" (GitHub #498, both off by default as Victor asked, 18 Nov 2026; `LinkSplitClick.middleClickAddsPane`, `SplitPaneLimit`) |
 | Advanced | Shared Quotes (arc.net); "Show full URL when Toolbar is enabled", "More Settings…" and "Reset Translated-site Prompts" done (GitHub #373); Export Data (Arc's Markdown of every space and tab) isn't in Cra |
 | Icon | Cra has its own icon picker |
 
@@ -241,6 +243,46 @@ The easel file: items Cra 0.1.40 can read stay in `items`; link cards and captur
 fails on a kind it doesn't know, and would show the easel empty); each item carries `z`, its place in the stack
 (fixtures `easel-0140.json` and `easel.json` in CraCore's Fixtures/Model).
 
+## Capture menu, measured (Arc 1.173.1, 17 Nov 2026)
+
+Read from a 2x still of the menu beside a capture, with two easels ("Test", "Movies") in the library
+(CraCore `CaptureMenuLayout`; the app's `CaptureMenu`).
+
+- 273 pt wide and, with nine rows, 433 pt tall: a field 12 pt down, 30 pt tall and 10 pt in from both
+  sides, with the prompt "Send To…" and the caret in it as the menu shows; the first row 7.5 pt under it;
+  40 pt rows; sections 9 pt apart; 5.5 pt under the last row.
+- Rows: Save to Library, Copy, Save..., Send via iMessage... | Edit, Retake | New Easel (a plus), then
+  each easel by name with the easel squiggle. An easel is picked in the menu itself: there is no
+  "Send To…" row opening a second list, which is what Cra had.
+- Cra: the same field and rows without Save to Library and Edit (no counterpart yet). Typing narrows
+  every row by its title, Return runs the picked row or the first one left, ↑ ↓ move, Escape ends the
+  mode. At most eight easels are listed, the latest edited first; typing reaches the others. What the
+  field does in Arc wasn't tried (Arc can only be looked at here), so the narrowing is Cra's reading
+  of it.
+- A capture sent to an easel that is open in a tab goes onto its canvas, which shows and saves it.
+  Before, it was written to the easel's file and the tab then saved its older copy over it, so the
+  capture never showed. Library ▸ Easels now follows an easel made, renamed or deleted while it shows.
+
+## Easel toolbar, measured (Arc 1.173.1, 17 Nov 2026)
+
+Read from 2x captures of a purple space's easel with the pointer over each button in turn, and from
+key presses on the canvas (CraCore `EaselToolbarLayout`, `Easel.Tool.key`; the app's `EaselToolbar`).
+
+- The bar is 44 pt tall, its 36 pt buttons 38 pt apart and 4 pt in. After Freehand comes a 5 pt gap
+  with a 1 pt line in its middle (#20212A on the bar's #080913), then Duplicate, 4 pt from the end:
+  313 pt in all.
+- The picked tool sits on #4E4F7F. A button under the pointer gets a darker fill, #393A58, Duplicate
+  too; the picked tool's fill doesn't change under the pointer. Cra's bar keeps its own fixed colours,
+  so the two fills are the same steps over it (white at 22 % and 14.5 %).
+- A tool under the pointer, and the picked tool, show their key in the button's bottom right corner:
+  a bold lowercase letter of about 10 pt, its right edge 5.5 pt in and its baseline 4.2 pt up. Image
+  i, Text t, Ellipse o, Rectangle r, Arrow a, Freehand p. The Pointer's button and Duplicate show none.
+- With the canvas holding the keyboard, R picked the rectangle, O the ellipse and V the pointer, and
+  Escape went from Freehand back to the pointer. I, T, A and P are taken from the letters drawn; they
+  weren't each pressed. Nothing happens until the canvas has been clicked.
+- Not measured: whether ⇧ with a letter picks the tool (Cra takes either case), and Arc's own cursors
+  per tool (its bundle has Pencil, Shape, Text and Arrow cursor pictures; Cra uses the system's).
+
 ## Boosts, measured (Arc 1.172.1, Victor's Arc, 7 Nov 2026)
 
 - The command bar's "New Boost" opens the editor for the open site: a 183 × 588 pt floating panel 10 pt in
@@ -255,6 +297,28 @@ fails on a kind it doesn't know, and would show the easel empty); each item carr
   after a click, "Copy selector for this", "Copy selector for related", "Zap all related elements"), the hammer "Show /
   Hide Developer Tools", and an arrow.clockwise "Refresh this Page" (Cra shows it for JS, which runs on load). Delete asks "Delete this Boost?" in Arc's
   dialog. Reference captures: docs/screenshots/arc-boost-*.png.
+
+## Boosts, measured again (Arc 1.172.2, Victor's Arc on iana.org, 17 Nov 2026, #478)
+
+- The colour wheel (BoostsEditor.ColorPicker: HueRingBackdrop, DraggablePuck, ComplementaryColorControl;
+  CraCore BoostWheel): the big handle goes where it is dragged, up to 56 pt from the middle of the 133 pt
+  dotted square. Its direction is the hue, clockwise from 3 o'clock (red; yellow at 6, cyan at 9, purple
+  at 12), its distance the strength (236/248/236 a few points out, 193/163/81 at 56 pt toward half past 4).
+  The small handle trails it by an eighth of a turn at the same distance in a dark shade of that hue
+  (71/88/46 against the colour above), a 2 pt line joins them, and a faint circle through both shows
+  the orbit. Untinted, both are grey (130 and 68) and rest 40 pt out at 3 o'clock, in the brushed grey
+  frame; once tinted, the frame is a ring of every hue in the same order, not one saturation all round
+  (226/104/81 red, 168/244/243 cyan, 141/90/239 purple, read every 15°).
+- Advanced color controls: a light popover under its button, arrow up, about 224 pt wide.
+- The Site Control Center's actions are Share, New Boost (a flat brush with a sparkle; tooltip "New
+  Boost"), Capture and Capture Full Page. A site with boosts gets a "Boosts" section between Extensions and
+  Settings ("Manage" on hover, like Extensions): one row per boost in the settings rows' style (glyph in a
+  circle, name, "Enabled" or "Disabled"; grey when off). A click on the row turns it on or off and keeps
+  the popover open; on hover a chevron shows at the right end, which opens that boost in the editor. The
+  More menu: Clear Cache, Clear Cookies, ─, Manage Boosts…, New Boost…, ─, Manage Extensions…, Add
+  Extension…. Cra keeps Copy URL in the second slot where a page can't be boosted (Arc not measured there).
+- Not matched: the code editor's first click in Arc wasn't measured (Cra's now focuses it at once), and
+  the faint colour wash in the middle of Arc's wheel.
 
 ## Zap, measured (Arc 1.172.2, Victor's Arc on example.com, 12 Nov 2026)
 
@@ -335,6 +399,12 @@ fails on a kind it doesn't know, and would show the easel empty); each item carr
   AirDrop, —, Show in Finder, —, Hide from Arc (Cra: "Hide from Cra"; the file stays on disk).
 - The selected rail page's glyph and the Spaces page's + take the space's colours (an olive space: a
   cream disc with a dark mark), not a fixed blue.
+- An easel's tile under the pointer (Arc 1.173.1, a 120 Hz screen recording read frame by frame,
+  17 Nov 2026): the tile grows about its centre from 128.6 to 136.3 pt (× 1.06; the edges read to
+  about ± 0.5 px, so 1.0625 nearly fits too) in 0.1 s, fast first with no overshoot, and its backing
+  stands twice as far from the sidebar's colour; the same way back when the pointer leaves. Cra:
+  CraCore EaselTileHover; the list leaves the top row's tiles room to grow. Not found in Arc's binary:
+  the constant itself (its code holds 1.06 once, in an unrelated angle).
 - Boost rows: the site's icon on a 43 pt light tile with a white rim, name 14 pt over the site; under
   the pointer a rounded card and a 36 × 22 pt switch; off = the tile struck through; right-click
   Rename (in place), Delete.

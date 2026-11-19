@@ -40,6 +40,15 @@ final class SpaceColumnView: NSView {
 
     override var isFlipped: Bool { true }
 
+    // A press between the favorites, the header and the list (or in the favorites' gaps, which pass
+    // it on) moves the window once it moves 3 pt, as the list's empty space does (#547).
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    private var press = WindowDragGesture(source: "sidebar column")
+    override func mouseDown(with event: NSEvent) { press.begin(event) }
+    override func mouseDragged(with event: NSEvent) { press.drag(event) }
+    override func mouseUp(with event: NSEvent) { _ = press.finish() }
+
     private func relayout(animated: Bool) {
         guard animated, window != nil else { needsLayout = true; return }
         NSAnimationContext.runAnimationGroup { ctx in
@@ -372,10 +381,12 @@ final class SpaceHeaderView: NSView, NSTextFieldDelegate {
     private func moveToMenu() -> NSMenu {
         let m = NSMenu()
         for space in store.orderedSpaces {
-            let item = BlockMenuItem(title: space.emoji.isEmpty ? space.title : "\(space.emoji)  \(space.title)") { [store, actions, spaceID] in
+            let title = SpaceMenuTitle.plain(space.emoji.isEmpty ? space.title : "\(space.emoji)  \(space.title)")
+            let item = BlockMenuItem(title: title.title) { [store, actions, spaceID] in
                 guard store.isBlank(space: spaceID) else { return }
                 actions.moveBlankWindow(space.id)
             }
+            SpaceMenuTitle.apply(title, to: item)
             item.image = SpaceIconImage.glyph(for: space, points: 13)
             m.addItem(item)
         }
@@ -406,6 +417,9 @@ final class SpaceHeaderView: NSView, NSTextFieldDelegate {
         refresh()
         DispatchQueue.main.async { [weak self, weak f] in
             guard let f, let w = self?.window else { return }
+            // The sidebar sliding out at the edge is a panel that becomes key only when a click needs
+            // it, and a click on a row doesn't: the field showed selected while keys went to the page (#424).
+            w.makeKey()
             w.makeFirstResponder(f)
             f.currentEditor()?.selectAll(nil)
         }
@@ -427,8 +441,14 @@ final class SpaceHeaderView: NSView, NSTextFieldDelegate {
         let name = f.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         endRename()
         guard !name.isEmpty, name != space.title else { return }
-        space.title = name
+        space.rename(to: name)
         store.updateSpace(space)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, shouldChangeCharactersIn range: NSRange,
+                 replacementString string: String?) -> Bool {
+        let next = (textView.string as NSString).replacingCharacters(in: range, with: string ?? "")
+        return next.count <= Space.maximumTitleLength
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
@@ -490,9 +510,12 @@ enum SpaceMenu {
         case .liveFolders:
             SidebarMenus.addLiveFolderPlugins(to: MenuItems.submenu(m, "Live Folders"), space: id, store: store, window: anchor.window)
         case .export:
-            let export = MenuItems.submenu(m, "Export “\(space.title)” into Folder")
+            let title = SpaceMenuTitle.named(space.title, prefix: "Export “", suffix: "” into Folder")
+            let export = MenuItems.submenu(m, title)
             for s in store.orderedSpaces {
-                MenuItems.add(export, s.title, enabled: s.id != id) { store.exportSpace(id, intoFolderIn: s.id) }
+                MenuItems.add(export, SpaceMenuTitle.plain(s.title), enabled: s.id != id) {
+                    store.exportSpace(id, intoFolderIn: s.id)
+                }
             }
         case .manageSpaces:
             MenuItems.add(m, action: "manageSpaces") { actions.manageSpaces() }
@@ -542,6 +565,14 @@ enum MenuItems {
         return item
     }
 
+    @discardableResult
+    static func add(_ menu: NSMenu, _ title: SpaceMenuTitle.Value, enabled: Bool = true, on: Bool? = nil,
+                    image: NSImage? = nil, _ run: @escaping () -> Void) -> NSMenuItem {
+        let item = add(menu, title.title, enabled: enabled, on: on, image: image, run)
+        SpaceMenuTitle.apply(title, to: item)
+        return item
+    }
+
     /// A row for a KeyBindings command: its name, unless the menu words it its own way (Arc's
     /// "Pin Tab" for pinTab), and its shortcut on the right, as in the menu bar (#89).
     @discardableResult
@@ -556,6 +587,16 @@ enum MenuItems {
         let sub = NSMenu()
         sub.autoenablesItems = false
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.submenu = sub
+        menu.addItem(item)
+        return sub
+    }
+
+    static func submenu(_ menu: NSMenu, _ title: SpaceMenuTitle.Value) -> NSMenu {
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+        let item = NSMenuItem(title: title.title, action: nil, keyEquivalent: "")
+        SpaceMenuTitle.apply(title, to: item)
         item.submenu = sub
         menu.addItem(item)
         return sub
@@ -1348,6 +1389,8 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
         // Its Previews card comes as for the pointer (#376).
         if let url = previewURL, let store = grid?.store { FavoritePreviewCard.shared.hover(self, target: previewTarget(url, store: store)) }
     }
+    /// Scenarios (cra://debug?pointerOn=…&tile=1): whether the tile has the pointer (#527).
+    var debugHovering: Bool { hovering }
     /// Scenarios (cra://debug?favoriteBadges=): the Peek badge's frame in the tile, nil without one (#381).
     var peekBadgeReadout: String? {
         guard let b = peekBadge else { return nil }
@@ -1575,14 +1618,24 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
         ArcTooltipController.shared.mouseMoved(in: self)
     }
 
-    override func mouseEntered(with event: NSEvent) {
+    override func mouseEntered(with event: NSEvent) { pointerAt(event) }
+    override func mouseMoved(with event: NSEvent) { pointerAt(event) }
+
+    /// The tracking area covers the visible rect, which for another space's tile on the strip lies
+    /// beside the sidebar, under the page: a pointer there is not on the tile (#527).
+    private func pointerAt(_ event: NSEvent) {
+        guard shows(event) else {
+            if hovering { mouseExited(with: event) }
+            return
+        }
+        let entering = !hovering
         hovering = true
         trackPointer(event)
-        if let url = previewURL, let store = grid?.store {
+        if entering, let url = previewURL, let store = grid?.store {
             FavoritePreviewCard.shared.hover(self, target: previewTarget(url, store: store))
         }
     }
-    override func mouseMoved(with event: NSEvent) { trackPointer(event) }
+
     override func mouseExited(with event: NSEvent) {
         hovering = false
         hoveredCell = nil

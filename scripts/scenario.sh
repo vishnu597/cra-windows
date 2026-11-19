@@ -46,9 +46,12 @@
 #   home                        a throwaway home folder, so downloads stay out of ~/Downloads
 #   crash-report <file>         copied into the throwaway home's Library/Logs/DiagnosticReports
 #                               before launch, as macOS leaves one (needs home)
+#   bare-helper <suffix>        runs the engine's "Cra Helper (<suffix>)" with no arguments, as macOS launches the
+#                               Alerts helper for a notification click after it quit; fails unless it exits 0 in 10 s
 #   requires screen
-#   port <n>                    serve ${PAGE} on a fixed port (snapshots show the address)
-# The fixture server answers an address with ?delay=<s> (or &delay=<s>) that many seconds late.
+#   port <n>                   serve ${PAGE} on a fixed port (snapshots show the address)
+# The fixture server answers an address with ?delay=<s> (or &delay=<s>) that many seconds late, and /auth with an
+# HTTP sign-in (401 Basic) until the browser sends a user name and password.
 # ${FIXTURES}, ${ORIGIN} (that server's http://127.0.0.1:<port>, which also answers a POST with 204,
 # logs it to server.log and keeps its body in posts/), ${PAGE} (Tests/Fixtures/Pages/page.html from a local server, so it has a host
 # for developer mode and tab sleep), ${WEBKIT} (that server as http://localhost:<port>, a host the
@@ -159,7 +162,26 @@ class Server(http.server.ThreadingHTTPServer):
 class Handler(http.server.SimpleHTTPRequestHandler):
     # ?delay=<s> anywhere in the address: the answer (a page, or a 404) comes that many seconds late.
     def do_GET(self):
-        import re, time
+        import base64, html, re, time
+        # /auth: a page behind a user name and password (HTTP Basic), as a router or an intranet asks for one:
+        # 401 until the browser sends credentials, then a page titled with the user it signed in as.
+        if self.path.startswith("/auth"):
+            sent = self.headers.get("Authorization", "")
+            if not sent.startswith("Basic "):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", "Basic realm=\"Cra fixture\"")
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b"<title>needs sign-in</title>401")
+                return
+            user = base64.b64decode(sent[6:]).decode("utf-8", "replace").split(":", 1)[0]
+            body = f"<title>signed in as {html.escape(user)}</title>ok".encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         m = re.search(r"[?&]delay=([0-9.]+)", self.path)
         if m:
             time.sleep(float(m.group(1)))
@@ -169,7 +191,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
         kind = self.headers.get("Content-Type")
-        print(f"POST {self.path} {len(body)} bytes {kind}", flush=True)
+        # The install check-in is three short fields: logged whole, so a scenario can expect its id.
+        shown = " " + " ".join(body.decode("utf-8", "replace").split()) if self.path.endswith("/checkin") else ""
+        print(f"POST {self.path} {len(body)} bytes {kind}{shown}", flush=True)
         os.makedirs(sys.argv[3], exist_ok=True)
         name = self.path.strip("/").replace("/", "-")
         open(os.path.join(sys.argv[3], f"{name}-{len(os.listdir(sys.argv[3])) + 1}.json"), "wb").write(body)
@@ -378,6 +402,20 @@ while IFS= read -r raw || [ -n "$raw" ]; do
       else
         [ -x "$OUT/compare-png" ] || xcrun swiftc -O "$ROOT/scripts/compare-png.swift" -o "$OUT/compare-png" 2>"$OUT/compare-png.log"
         verdict=$("$OUT/compare-png" "$ref" "$shot" "$OUT/snapshots/$3.diff.png" 2>&1) || budget_problem "snapshot $3: $verdict"
+      fi ;;
+    bare-helper)
+      helper="Cra Helper (${line#bare-helper })"
+      exe="$APP/Contents/Frameworks/Cra Framework.framework/Versions/Current/Helpers/$helper.app/Contents/MacOS/$helper"
+      if [ ! -x "$exe" ]; then problem "no $helper in the engine"
+      else
+        "$exe" >"$OUT/bare-helper.log" 2>&1 & hp=$!
+        for _ in $(seq 1 50); do kill -0 "$hp" 2>/dev/null || break; sleep 0.2; done
+        if kill -0 "$hp" 2>/dev/null; then kill -9 "$hp" 2>/dev/null; wait "$hp" 2>/dev/null; problem "$helper launched bare still runs after 10 s"
+        else
+          wait "$hp"; hs=$?
+          echo "  $helper launched bare: exit $hs"
+          [ "$hs" -eq 0 ] || problem "$helper launched bare exited $hs$([ "$hs" -gt 128 ] && echo " (signal $((hs - 128)))")"
+        fi
       fi ;;
     fresh|requires|port|seed|env|arg|extension|profile|home|crash-report) ;;
     *) problem "unknown scenario line: $line" ;;

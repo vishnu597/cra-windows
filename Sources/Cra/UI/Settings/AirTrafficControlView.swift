@@ -130,7 +130,8 @@ struct AirTrafficControlView: View {
             Picker("Open in", selection: shown) {
                 Section(AirTrafficControl.openInSpaceTitle) {
                     ForEach(spaceChoices, id: \.destination) { choice in
-                        Text(choice.title).tag(choice.destination)
+                        let title = SpaceMenuTitle.plain(choice.title)
+                        Text(title.title).help(title.fullTitle).tag(choice.destination)
                     }
                 }
                 Divider()
@@ -144,7 +145,8 @@ struct AirTrafficControlView: View {
                 Picker("Little Window space", selection: littleSpace) {
                     Section(AirTrafficControl.littleWindowInTitle) {
                         ForEach(AirTrafficControl.littleWindowChoices(spaces: spaces), id: \.destination) { choice in
-                            Text(choice.title).tag(choice.destination)
+                            let title = SpaceMenuTitle.plain(choice.title)
+                            Text(title.title).help(title.fullTitle).tag(choice.destination)
                         }
                     }
                 }

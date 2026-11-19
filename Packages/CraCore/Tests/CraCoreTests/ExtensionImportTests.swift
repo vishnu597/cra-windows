@@ -54,6 +54,18 @@ struct ExtensionImportTests {
         #expect(ExtensionImport.candidates(inUserData: userData.appendingPathComponent("none")).isEmpty)
     }
 
+    @Test func offersExtensionsFromYabSpaceProfiles() throws {
+        let root = try Self.temp()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profile = try Self.profile("space-9C6B1E52-3D1F-4C2B-8E37-5A0F1D2C3B4A", in: root, settings: [
+            "notes": ["location": 1, "path": "notes/1_0"],
+        ])
+        try Self.write(#"{"name":"Notes","version":"1"}"#, to: profile.appendingPathComponent("Extensions/notes/1_0/manifest.json"))
+        let offered = ExtensionImport.candidates(inUserData: root)
+        #expect(offered.map(\.id) == ["notes"])
+        #expect(offered.first?.profiles == ["space-9C6B1E52-3D1F-4C2B-8E37-5A0F1D2C3B4A": true])
+    }
+
     @Test func turnedOnOnesNotInCraAreTicked() {
         let manifest = ExtensionManifest(name: "E", version: "1")
         let folder = FileManager.default.temporaryDirectory

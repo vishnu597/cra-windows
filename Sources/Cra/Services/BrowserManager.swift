@@ -126,6 +126,9 @@ protocol BrowserManagerDelegate: AnyObject {
     func browserManagerOpenLinkInSplit(_ url: String, fromTab tabID: UUID)
     /// The page's context menu on an image: Capture Image… (page points from the top left).
     func browserManagerCaptureImage(at point: NSPoint, tabID: UUID)
+    /// A page made tab `tabID` behind it (a ⌘-click, a middle click, Open Link in New Tab, a Peek's
+    /// ⌘-click): Arc says so in its toast while the sidebar is hidden (BackgroundTabToast, #543).
+    func browserManagerOpenedInBackground(_ tabID: UUID)
 }
 
 /// A page's permission request on its way to Cra's card (#371); `completion` answers it in Chromium.
@@ -190,9 +193,41 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
         self.favicons = favicons
         self.container = container
         self.clock = clock ?? LiveScheduler.shared
+        super.init()
+        PageMiddleClick.install()
+        documentObserver = NotificationCenter.default.addObserver(forName: SidebarStore.documentReplaced, object: store, queue: nil) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reassertLivePages() }
+        }
+    }
+
+    deinit { if let documentObserver { NotificationCenter.default.removeObserver(documentObserver) } }
+
+    private var documentObserver: NSObjectProtocol?
+
+    /// A synced sidebar (SettingsSyncService) replaced the document, with the other Mac's address
+    /// and title for each tab. A page here did not move: its tab shows what the page shows, as the
+    /// bar did before (seen with the other Mac's address over this page, 13 Nov 2026). A tab asleep
+    /// has no page and takes the synced address. In the replacement itself, so the sync service's
+    /// hashes have it and nothing goes back to the other Mac for it.
+    func reassertLivePages() {
+        for (id, rt) in runtimes where !rt.discarded {
+            let url = rt.browser.currentURL
+            guard !url.isEmpty, url != "about:blank", !url.hasPrefix("data:text/html;base64,") else { continue }
+            let title = rt.browser.currentTitle
+            store.updateTab(id, url: url, title: title.isEmpty ? nil : title)
+        }
     }
 
     func runtime(for tabID: UUID) -> TabRuntime? { runtimes[tabID] }
+
+    /// A shown page that is not in its pane: show placed it before the window had made the
+    /// pane's card. A link opened in a new tab is shown from inside the page's pop-up request,
+    /// before the window lays out the tab, and its page waited outside the card for good: the
+    /// tab stayed blank (GitHub #469). The window shows its panes again until each page is in.
+    func waitsForItsPane(_ tabID: UUID) -> Bool {
+        guard let rt = runtimes[tabID], rt.browser.hostWindow == nil, let host = paneHost?(tabID) else { return false }
+        return rt.browser.containerView.superview !== host
+    }
     /// The tab whose page the download being reported came from (set only during that report).
     private(set) var downloadSourceTab: UUID?
     var visibleRuntime: TabRuntime? { visibleTabID.flatMap { runtimes[$0] } }
@@ -511,6 +546,10 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
+    /// The width-to-height ratio a tab's thumbnail is taken at: the switcher's card, or a split
+    /// pane's place on its split's card (#554). The window sets it.
+    var snapshotAspect: (UUID) -> CGFloat? = { _ in nil }
+
     /// The visible viewport, cropped to the switcher's thumbnail shape from the top.
     /// No `clip`: a clipped screenshot makes Chromium emulate the clip's size and scale on
     /// the live page, which drew the page shrunk into its corner for a few frames, a
@@ -518,10 +557,12 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
     /// already on screen, and the crop and downscale happen here instead.
     func captureSnapshot(_ id: UUID, completion: (() -> Void)? = nil) {
         guard let rt = runtimes[id], visibleTabIDs.contains(id) else { completion?(); return }
+        let thumb = TabSwitcherMetrics.thumbnail
+        let aspect = snapshotAspect(id) ?? thumb.width / thumb.height
         rt.browser.sendDevToolsMethod("Page.captureScreenshot", params: #"{"format":"jpeg","quality":80,"optimizeForSpeed":true}"#) { [weak self, weak rt] shot, _ in
             DispatchQueue.global(qos: .utility).async {
                 let image = shot.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-                    .flatMap { $0["data"] as? String }.flatMap { Data(base64Encoded: $0) }.flatMap(Self.thumbnail(fromViewport:))
+                    .flatMap { $0["data"] as? String }.flatMap { Data(base64Encoded: $0) }.flatMap { Self.thumbnail(fromViewport: $0, aspect: aspect) }
                 DispatchQueue.main.async {
                     if let image, let rt, self?.runtimes[id] === rt { rt.snapshot = image }
                     completion?()
@@ -530,17 +571,16 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
         }
     }
 
-    /// The top of the viewport at the thumbnail's aspect ratio, centred horizontally,
-    /// at most twice the thumbnail's width in pixels.
-    nonisolated private static func thumbnail(fromViewport data: Data) -> NSImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+    /// The top of the viewport at `aspect` (width to height), centred horizontally, at most
+    /// twice the thumbnail's width and height in pixels.
+    nonisolated private static func thumbnail(fromViewport data: Data, aspect: CGFloat) -> NSImage? {
+        guard aspect > 0, let source = CGImageSourceCreateWithData(data as CFData, nil),
               let full = CGImageSourceCreateImageAtIndex(source, 0, nil), full.width > 0, full.height > 0 else { return nil }
         let thumb = TabSwitcherMetrics.thumbnail
-        let aspect = thumb.width / thumb.height
         let w = CGFloat(full.width), h = CGFloat(full.height)
         let cw = min(w, h * aspect), ch = cw / aspect
         guard let crop = full.cropping(to: CGRect(x: ((w - cw) / 2).rounded(), y: 0, width: cw.rounded(), height: ch.rounded())) else { return nil }
-        let outW = Int(min(cw, thumb.width * 2).rounded()), outH = Int((CGFloat(outW) / aspect).rounded())
+        let outW = Int(min(cw, thumb.width * 2, thumb.height * 2 * aspect).rounded()), outH = Int((CGFloat(outW) / aspect).rounded())
         guard outW > 0, outH > 0,
               let ctx = CGContext(data: nil, width: outW, height: outH, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
@@ -1066,6 +1106,24 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
     /// Chrome closes the window automatic Picture in Picture opened when its tab is in front
     /// again, and the page takes its content back as the window goes (Meet's call returns to the
     /// tab). A window the page was still opening (the user came straight back) is closed once it
+    /// Arc's Minimize on the Picture in Picture window: the video leaves the window and plays on
+    /// in its tab, without going to it, and the sidebar's player has the tab with its Picture in
+    /// Picture button, which brings the video back out (#434). A tab without a card (on CEF the
+    /// card follows sound, so a muted video has none; the engine takes it away 2.5 s after the media
+    /// session ends, #411) gets one here, or Minimize would leave it with no way back but its tab.
+    func minimizePictureInPicture(_ id: UUID) {
+        guard let rt = runtimes[id], rt.browser.isInPictureInPicture else { return }
+        log(id, "minimizes Picture in Picture, keeps playing")
+        if let np = nowPlaying {
+            if np.entries.contains(where: { $0.id == id }) {
+                np.update(id) { $0.hasVideo = true }
+            } else {
+                np.entries.append(.init(id: id, playing: rt.browser.isPictureInPicturePlaying, hasVideo: true))
+            }
+        }
+        rt.browser.exitPictureInPicture()
+    }
+
     /// is up, a second later, if the tab is still in front.
     private func closeAutomaticPictureInPicture(_ rt: TabRuntime, again: Bool) {
         rt.browser.sendDevToolsMethod("Cra.autoPictureInPicture", params: #"{"tab":"shown"}"#) { _, _ in }
@@ -1092,10 +1150,7 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
                 skip: { [weak browser] s in browser?.skipPictureInPicture(by: s) },
                 seek: { [weak browser] s in browser?.seekPictureInPicture(to: s) },
                 close: { [weak browser] in browser?.closePictureInPicture() },
-                minimize: { [weak self, weak browser] in
-                    self?.log(id, "minimizes Picture in Picture, keeps playing")
-                    browser?.exitPictureInPicture()
-                })
+                minimize: { [weak self] in self?.minimizePictureInPicture(id) })
             PictureInPictureChrome.shared.isPlaying = browser.isPictureInPicturePlaying
             PictureInPictureChrome.shared.time = (0, 0)   // the page says where its video is right after
             PictureInPictureChrome.shared.address = PictureInPictureLayout.address(of: browser.currentURL)
@@ -1615,7 +1670,30 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
     }
 
     func browser(_ browser: CraBrowser, requestsNewTabWithURL url: String, inBackground background: Bool) {
+        if background, middleClickAddsPane(url, in: browser) { return }
         openLinkTab(url, from: tabID(of: browser), inBackground: background)
+    }
+
+    /// A link middle-clicked in a split's pane opens as a pane beside it, with Settings ▸ Links ▸
+    /// "Middle-click a link in a split adds a pane" on (GitHub #498, not in Arc). Chromium asks for
+    /// a tab behind the page, as for a ⌘-click; the page's last middle click tells them apart.
+    private func middleClickAddsPane(_ url: String, in browser: CraBrowser) -> Bool {
+        guard let id = tabID(of: browser), middleClickMakesPane(url, in: browser, tab: id) else { return false }
+        // After Chromium's call returns: the pane makes a page of its own.
+        DispatchQueue.main.async { [weak self] in self?.delegate?.browserManagerOpenLinkInSplit(url, fromTab: id) }
+        return true
+    }
+
+    /// Whether the link `browser`'s page (tab `id`) asks to open behind it is a middle click that adds a
+    /// pane (`LinkSplitClick.middleClickAddsPane`); the click is used up when it is.
+    private func middleClickMakesPane(_ url: String, in browser: CraBrowser, tab id: UUID) -> Bool {
+        let click = PageMiddleClick.last(in: browser.containerView)
+        guard LinkSplitClick.middleClickAddsPane(url, enabled: store.settings.splitMiddleClickAddsPane,
+                                                 panes: store.paneTabIDs(for: id).count, limit: store.splitPaneLimit,
+                                                 clickAge: click.age, modifiers: click.modifiers) else { return false }
+        PageMiddleClick.taken()
+        CraLog.note("middle click: pane for a link in a split")
+        return true
     }
 
     func browser(_ browser: CraBrowser, requestsCaptureOfImageAt point: NSPoint) {
@@ -1651,6 +1729,7 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
         let tab = store.openLinkTab(url, from: source, inBackground: background, window: windowID)
         if background {
             ensureRuntime(for: tab.id)  // load it so the title and favicon fill in
+            delegate?.browserManagerOpenedInBackground(tab.id)
         }
     }
 
@@ -1660,11 +1739,24 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
         // The page opened a pop-up Chromium blocked before (a shared folder's next click): the
         // blocked pop-ups button no longer offers it (#357).
         if let source, runtimes[source]?.blockedPopups.markOpened(url: url) == true { delegate?.browserManagerDidUpdate(source) }
+        // A middle click in a split's pane with Split View's switch on: the page Chromium made is a new pane
+        // beside it, the opened page keeping its opener as a tab's does (#498).
+        if background, let source, middleClickMakesPane(url, in: browser, tab: source),
+           let pane = store.openLinkInSplit(url, from: source, window: windowID) {
+            let host = makePopupHost(for: pane.id, opener: browser)
+            show(pane.id, focus: true)
+            return host
+        }
         let sourceSpace = source.flatMap { store.spaceID(ofItem: $0) }
-        let tab = store.createTab(url: url, in: sourceSpace, select: !background, window: windowID, referrer: source)
+        // A ⌘-click or middle click goes where new tabs go, or with "Open background tabs below the
+        // current tab" on right below `source`, after the tabs it opened before (#532).
+        let slot = background && store.settings.backgroundTabsBelowCurrent
+            ? source.flatMap { store.linkTabSlot(below: $0, afterEarlierLinks: true) } : nil
+        let tab = store.createTab(url: url, in: sourceSpace, select: !background, parent: slot?.parent, index: slot?.index,
+                                  window: windowID, referrer: source)
         if background { store.markUnread(tab.id, true) }
         let host = makePopupHost(for: tab.id, opener: browser)
-        if !background { show(tab.id, focus: true) }
+        if background { delegate?.browserManagerOpenedInBackground(tab.id) } else { show(tab.id, focus: true) }
         return host
     }
 
@@ -1774,7 +1866,10 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
         guard let id = tabID(of: browser) else { return }
         // Undocked frontends still report bounds (device mode); only setIsDocked changes the dock state.
         guard devToolsDockedState[id] != false else { return }
-        let size = devToolsViews[id]?.window?.contentView?.bounds.size ?? NSSize(width: bounds.maxX, height: bounds.maxY)
+        // The frontend's size: its card's area when the engine's frontend is in one (EmbeddedDevTools), else its window's.
+        let window = devToolsViews[id]?.window
+        let embedded = EmbeddedDevTools.holder(of: window).flatMap { $0.superview != nil ? $0 : nil }
+        let size = embedded?.bounds.size ?? window?.contentView?.bounds.size ?? NSSize(width: bounds.maxX, height: bounds.maxY)
         devToolsPlaceholders[id] = DevToolsPlaceholder(bounds: bounds, frontendSize: size)
         delegate?.browserManagerDevToolsPageBoundsChanged()
     }
@@ -1802,7 +1897,7 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
         var out: [UUID: NSWindow] = [:]
         for id in visibleTabIDs {
             guard let w = devToolsViews[id]?.window else { continue }
-            if id == visibleTabID || runtimes[id]?.hostWindow != nil { out[id] = w }
+            if id == visibleTabID || runtimes[id]?.hostWindow != nil || EmbeddedDevTools.applies(to: runtimes[id]?.browser) { out[id] = w }
         }
         return out
     }
@@ -1955,4 +2050,37 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
         // window.close() (a sign-in or payment popup finishing): the tab goes, like Chrome.
         if browser.closedByPage { log(id, "closed by its page"); delegate?.browserManagerPageClosedTab(id) }
     }
+}
+
+/// The last middle click (button 2's release) in any of Cra's windows: the view under it, the keys
+/// held and when (GitHub #498). Chromium opens a middle-clicked link as a tab behind the page, as it
+/// does a ⌘-click, and only a click on the left button is noted by the engine.
+@MainActor
+enum PageMiddleClick {
+    private static weak var view: NSView?
+    private static var time: TimeInterval = -1
+    private static var modifiers: UInt = 0
+    private static var monitor: Any?
+
+    static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseUp) { event in
+            guard event.buttonNumber == 2, let window = event.window else { return event }
+            let root = window.contentView?.superview ?? window.contentView
+            view = root?.hitTest(event.locationInWindow)
+            modifiers = event.modifierFlags.rawValue
+            time = event.timestamp
+            return event
+        }
+    }
+
+    /// Seconds since the last middle click and its keys, when it landed in `page` (a page's view);
+    /// age -1 when it didn't. Split panes share a window, so the pane is the page under the click.
+    static func last(in page: NSView) -> (age: TimeInterval, modifiers: UInt) {
+        guard time >= 0, let view, view.isDescendant(of: page) else { return (-1, 0) }
+        return (ProcessInfo.processInfo.systemUptime - time, modifiers)
+    }
+
+    /// One click, one pane.
+    static func taken() { time = -1 }
 }

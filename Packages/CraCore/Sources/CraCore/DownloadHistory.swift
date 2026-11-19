@@ -80,6 +80,7 @@ public final class DownloadHistory {
             (l.sampleBytes, l.sampleAt) = (received, now)
         }
         l.updated = now
+        if received != l.received || (paused && !failed && !cancelled) != l.paused { l.moved = now }
         l.name = name
         if !path.isEmpty { l.path = path }
         l.received = received
@@ -133,8 +134,8 @@ public final class DownloadHistory {
     @discardableResult
     public func add(path: String, profile: String? = nil, now: Date = Date()) -> Entry {
         let entry = Entry(path: path, date: now, profile: profile)
-        // A new file at a path replaces what was there.
-        entries.removeAll { $0.path == path }
+        // A path can be reused while an older rename still has a publication to reconcile by
+        // ID. Keep both history entries; newestPerPath deduplicates only what the lists show.
         entries.append(entry)
         if entries.count > Self.keep { entries.removeFirst(entries.count - Self.keep) }
         file?.save(entries)

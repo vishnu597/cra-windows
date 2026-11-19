@@ -217,6 +217,8 @@ struct SidebarStoreTreeTests {
 
     @Test func panesAreAddedMovedAndSeparated() {
         let f = StoreFixture()
+        // This mutation sequence uses six panes; #498 now limits the default split to four.
+        f.store.settings.splitMorePanes = true
         let a = f.store.createTab(url: "https://a.test/")
         let empty = f.store.addEmptyPane(nextTo: a.id)!
         let split = f.store.splitContaining(a.id)!

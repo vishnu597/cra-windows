@@ -455,8 +455,8 @@ final class SidebarTopBarView: NSView {
             p.dismiss()
         }
         let toggle = narrowWidth
-            ? button("toggleS", symbol: "sidebar.left", help: help, size: 28, height: 28, iconSize: 15.5, active: active) { [weak self] in self?.actions.toggleSidebar() }
-            : button("toggle", symbol: "sidebar.left", help: help, size: 32, height: 32, iconSize: 15.5, active: active) { [weak self] in self?.actions.toggleSidebar() }
+            ? button("toggleS", symbol: store.settings.sidebarSide.toggleSymbol, help: help, size: 28, height: 28, iconSize: 15.5, active: active) { [weak self] in self?.actions.toggleSidebar() }
+            : button("toggle", symbol: store.settings.sidebarSide.toggleSymbol, help: help, size: 32, height: 32, iconSize: 15.5, active: active) { [weak self] in self?.actions.toggleSidebar() }
         var shown = narrow ? [] : [toggle]
         if narrow {
             shown.append(button("nback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
@@ -583,7 +583,7 @@ final class SidebarTopBarView: NSView {
         let hasTab = store.selectedTab(window: ui.windowID) != nil
         let panel = SidebarMorePanel(items: [
             .init(symbol: "arrow.clockwise", title: "Reload", keys: keys("reload"), enabled: hasTab) { [weak self] in self?.actions.reload() },
-            .init(symbol: "sidebar.left", title: "Toggle Sidebar", keys: keys("toggleSidebar"), enabled: true) { [weak self] in self?.actions.toggleSidebar() },
+            .init(symbol: store.settings.sidebarSide.toggleSymbol, title: "Toggle Sidebar", keys: keys("toggleSidebar"), enabled: true) { [weak self] in self?.actions.toggleSidebar() },
         ], ink: store.focusedSpace(window: ui.windowID).theme.shadedDark)
         panel.onClose = { [weak self] in
             self?.morePanel = nil
@@ -597,7 +597,7 @@ final class SidebarTopBarView: NSView {
     // A double click on the empty strip does the title bar's double-click action; a drag moves
     // the window (from the floating sidebar too, without tearing its panel off).
     override var mouseDownCanMoveWindow: Bool { false }
-    private var press = WindowDragGesture()
+    private var press = WindowDragGesture(source: "sidebar top")
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2, convert(event.locationInWindow, from: nil).y < CraMetrics.titleAreaHeight {
             _ = press.finish()
@@ -642,17 +642,23 @@ private final class DevMenuChevron: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        ReloadMenu.make(actions).popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: self)
+    }
+}
+
+/// Arc's menu (Reload ✓ ⌘R, Refresh (Ignore Cache) ⇧⌘R | Clear Cookies and Refresh) in the
+/// registry's words, with Clear Cache beside Clear Cookies and Cra's developer items under
+/// them (#89). Developer Mode's ⌄ after ↻ opens it, and so does a right-click on the toolbar's ↻.
+@MainActor
+enum ReloadMenu {
+    static func make(_ actions: SidebarActions) -> NSMenu {
         let m = NSMenu()
         m.autoenablesItems = false
-        let a = actions
-        // Arc's menu (Reload ✓ ⌘R, Refresh (Ignore Cache) ⇧⌘R | Clear Cookies and Refresh) in the
-        // registry's words, with Clear Cache beside Clear Cookies and Cra's developer items under
-        // them (#89).
         for group in [["reload", "hardReload"], ["clearCookies", "clearCache"], ["viewSource", "devTools"]] {
             if m.numberOfItems > 0 { m.addItem(.separator()) }
-            for id in group { MenuItems.add(m, action: id, on: id == "reload" ? true : nil) { a.performAction(id) } }
+            for id in group { MenuItems.add(m, action: id, on: id == "reload" ? true : nil) { actions.performAction(id) } }
         }
-        m.popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: self)
+        return m
     }
 }
 
@@ -1048,7 +1054,7 @@ final class SpaceDockView: NSView {
         let selected = store.selectedTabID(window: ui.windowID)
         let url = selected.flatMap { store.item($0)?.tab?.url }.flatMap(URL.init(string:))
         let canBoost = ["http", "https"].contains(url?.scheme?.lowercased() ?? "") && url?.host != nil
-        let canSplit = selected.map { store.paneTabIDs(for: $0).count < 4 } ?? false
+        let canSplit = selected.map { store.paneTabIDs(for: $0).count < store.splitPaneLimit } ?? false
         let entries: [(String, String, String, Bool)] = [
             ("newSpace", "New Space", "plus.rectangle.on.rectangle", true),
             ("newFolder", "New Folder", "folder", true),
@@ -1652,10 +1658,25 @@ final class LibraryButtonView: NSView {
         badge.frame = NSRect(x: bin.bounds.maxX - b + 4, y: -4, width: b, height: b)
     }
 
+    /// The bin reveals its file when clicked. Until the download has one, the part hanging over the
+    /// sidebar's next button leaves that button its clicks (#491).
+    private var binHasFile: Bool { !bin.isHidden && ui.recentDownload?.path.isEmpty == false }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
-        if !bin.isHidden, bin.frame.contains(p) { return self }
+        if binHasFile, bin.frame.contains(p) { return self }
         return bounds.contains(p) ? self : nil
+    }
+
+    /// For `cra://debug?downloadState`: whether the bin is up, and what a press on its right edge
+    /// (outside the Library button) lands on, as the window's hit test finds it (#491).
+    var binReadout: String {
+        guard !bin.isHidden, let window, let root = window.contentView?.superview else { return "none" }
+        // Its right edge, over the next button in the bar.
+        let edge = convert(NSPoint(x: bin.frame.maxX - 2, y: bin.frame.midY), to: nil)
+        let hit = root.hitTest(root.superview?.convert(edge, from: nil) ?? edge)
+        let file = binHasFile ? "file" : "no file"
+        return "shown (\(file)), its edge hits \(hit === self ? "the bin" : hit.map { String(describing: type(of: $0)) } ?? "nothing")"
     }
 
     override func updateTrackingAreas() {
@@ -1668,7 +1689,7 @@ final class LibraryButtonView: NSView {
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        if !bin.isHidden, bin.frame.contains(p), let path = ui.recentDownload?.path {
+        if binHasFile, bin.frame.contains(p), let path = ui.recentDownload?.path {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         } else if bounds.contains(p) {
             actions.toggleLibrary()

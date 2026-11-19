@@ -24,6 +24,25 @@ struct DownloadHistoryTests {
         #expect(h.recent.first?.subtitle(now: t0) == "2 MB of 10 MB — 1 MB/s")
     }
 
+    @Test func repeatedUnchangedReportsDoNotKeepAStuckDownloadBinOpen() {
+        let h = history()
+        h.report(id: 1, name: "a.zip", path: "", received: 0, total: 100, percent: 0,
+                 complete: false, cancelled: false, failed: false, now: t0)
+        let later = t0.addingTimeInterval(60)
+        h.report(id: 1, name: "a.zip", path: "", received: 0, total: 100, percent: 0,
+                 complete: false, cancelled: false, failed: false, now: later)
+        #expect(h.live.first?.updated == later && h.live.first?.moved == t0)
+        #expect(!DownloadList.holdsBin(h.live, now: later))
+        h.report(id: 1, name: "a.zip", path: "", received: 1, total: 100, percent: 1,
+                 complete: false, cancelled: false, failed: false, now: later)
+        #expect(DownloadList.holdsBin(h.live, now: later))
+        h.report(id: 1, name: "a.zip", path: "", received: 1, total: 100, percent: 1,
+                 complete: false, cancelled: false, failed: false, paused: true, now: later.addingTimeInterval(1))
+        h.report(id: 1, name: "a.zip", path: "", received: 1, total: 100, percent: 1,
+                 complete: false, cancelled: false, failed: false, now: later.addingTimeInterval(50))
+        #expect(h.live.first?.moved == later.addingTimeInterval(50), "resuming starts a fresh progress window")
+    }
+
     @Test func aFinishedDownloadLeavesLiveForTheList() {
         let h = history()
         h.report(id: 1, name: "a.zip", path: "/d/a.zip", received: 5, total: 10, percent: 50, complete: false, cancelled: false, failed: false, now: t0)
@@ -107,13 +126,27 @@ struct DownloadHistoryTests {
 
     @Test func aPathIsListedOnceWithItsNewestDownload() {
         let h = history()
-        h.add(path: "/d/a.dat", now: t0)
-        h.add(path: "/d/b.dat", now: t0.addingTimeInterval(1))
+        let original = h.add(path: "/d/a.dat", now: t0)
+        let other = h.add(path: "/d/b.dat", now: t0.addingTimeInterval(1))
         // a.dat was deleted, and a new download got its name.
-        h.add(path: "/d/a.dat", now: t0.addingTimeInterval(2))
-        #expect(h.entries.map(\.path) == ["/d/b.dat", "/d/a.dat"])
+        let replacement = h.add(path: "/d/a.dat", now: t0.addingTimeInterval(2))
+        #expect(h.entries.map(\.id) == [original.id, other.id, replacement.id], "history keeps each completed download's identity")
         #expect(h.recent.map(\.name) == ["b.dat", "a.dat"])
         #expect(h.recent.last?.date == t0.addingTimeInterval(2))
+        #expect(h.library(query: "").map(\.name) == ["a.dat", "b.dat"], "both lists show only the newest download at a path")
+    }
+
+    @Test func aLateRenameReconcilesItsHistoryIDWithoutRewritingTheReplacement() {
+        let h = history()
+        let original = h.add(path: "/d/report.pdf", now: t0)
+        let replacement = h.add(path: "/d/report.pdf", now: t0.addingTimeInterval(1))
+        // An old physical move may finish before its publication returns to the main actor;
+        // a new download can already have completed at the vacated original path.
+        h.move(from: "/d/report.pdf", to: "/d/Old Report.pdf", id: original.id)
+        #expect(h.entries.count == 2)
+        #expect(h.entries.first { $0.id == original.id }?.path == "/d/Old Report.pdf")
+        #expect(h.entries.first { $0.id == replacement.id } == replacement, "the replacement's path and identity stay untouched")
+        #expect(h.recent.map(\.name) == ["Old Report.pdf", "report.pdf"])
     }
 
     @Test func olderFilesWithAPathTwiceListItOnce() throws {

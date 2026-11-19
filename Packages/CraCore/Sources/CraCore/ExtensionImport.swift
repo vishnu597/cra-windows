@@ -34,11 +34,11 @@ public enum ExtensionImport {
     }
 
     /// Every Web Store and unpacked extension in the profiles under a Chromium "User Data" folder
-    /// (Default and "Profile <n>"), one entry per extension ID with the profiles that have it.
+    /// (Default, "Profile <n>" and Yab's "space-<id>"), one entry per extension ID with the profiles that have it.
     /// The folder of the first profile that has it is the one copied. In name order.
     public static func candidates(inUserData userData: URL) -> [Candidate] {
         let profiles = ((try? FileManager.default.contentsOfDirectory(atPath: userData.path)) ?? [])
-            .filter { $0 == "Default" || $0.hasPrefix("Profile ") }.sorted()
+            .filter(ChromiumImporter.isProfileFolder).sorted()
         var out: [Candidate] = []
         for profile in profiles {
             let dir = userData.appendingPathComponent(profile, isDirectory: true)

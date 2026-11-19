@@ -124,12 +124,14 @@ public enum SiteControlCenter {
 
     /// The footer's "…" menu entries.
     public enum MoreItem: String, Sendable {
-        case clearCache, clearCookies, manageExtensions, addExtension, siteSettings
+        case clearCache, clearCookies, manageBoosts, newBoost, manageExtensions, addExtension, siteSettings
 
         public var title: String {
             switch self {
             case .clearCache: "Clear Cache"
             case .clearCookies: "Clear Cookies"
+            case .manageBoosts: "Manage Boosts…"
+            case .newBoost: "New Boost…"
             case .manageExtensions: "Manage Extensions"
             case .addExtension: "Add Extension"
             case .siteSettings: "All Site Settings"
@@ -137,10 +139,11 @@ public enum SiteControlCenter {
         }
     }
 
-    /// Arc's More menu, in groups a separator divides. The extension entries only where Cra
-    /// runs extensions.
-    public static func moreMenu(extensions: Bool) -> [[MoreItem]] {
-        [[.clearCache, .clearCookies]] + (extensions ? [[.manageExtensions, .addExtension]] : []) + [[.siteSettings]]
+    /// Arc's More menu, in groups a separator divides. Boost and extension entries only where
+    /// the platform supports them.
+    public static func moreMenu(extensions: Bool, boosts: Bool = false) -> [[MoreItem]] {
+        [[.clearCache, .clearCookies]] + (boosts ? [[.manageBoosts, .newBoost]] : [])
+            + (extensions ? [[.manageExtensions, .addExtension]] : []) + [[.siteSettings]]
     }
 
     public static let addExtensionURL = "https://chromewebstore.google.com/category/extensions"

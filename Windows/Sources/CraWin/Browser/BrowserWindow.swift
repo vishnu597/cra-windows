@@ -1897,6 +1897,8 @@ final class BrowserWindow {
         case .siteSettings: if let settings = SiteControlCenter.siteSettingsURL(for: url) { store.createTab(url: settings, window: windowID) }
         case .manageExtensions: store.createTab(url: SiteControlCenter.manageExtensionsURL, window: windowID)
         case .addExtension: store.createTab(url: SiteControlCenter.addExtensionURL, window: windowID)
+        // The shared Mac menu can offer Boosts; Windows does not request that group yet.
+        case .manageBoosts, .newBoost: break
         }
     }
 

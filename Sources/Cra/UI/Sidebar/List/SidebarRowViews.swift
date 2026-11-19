@@ -298,6 +298,9 @@ final class SidebarGlyphButton: NSView {
         setHelp(help)
     }
 
+    /// cra://debug?glyphs=: the symbol it shows and its tip, as `symbol "tip"`.
+    var debugReadout: String { "\(shownSymbol ?? "none") \"\(tip?.text ?? "")\"" }
+
     func setHelp(_ help: String) {
         if let tip { (tip.text, tip.keys) = ArcTooltipLabel.split(help) } else if !help.isEmpty { tip = ArcTooltipAnchorView.attach(to: self, help: help) }
     }
@@ -828,6 +831,8 @@ struct TabRowModel: Equatable {
     var selected: Bool
     var highlighted: Bool
     var capturing: Bool
+    /// An MCP agent works in the tab: its face sits where the close button shows on hover.
+    var agent: Bool = false
     var audible: Bool
     var muted: Bool
     var unread: Bool
@@ -1222,6 +1227,7 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
     private static let soundGlyphWidth: CGFloat = 17.5
     private var showsSound = false
     private lazy var peekBadge = SidebarFaviconView()
+    private lazy var agentFace = AgentFaceView()
     private lazy var unreadDot: NSView = {
         let dot = NSView(frame: NSRect(x: 0, y: 0, width: 6, height: 6))
         dot.wantsLayer = true
@@ -1251,6 +1257,10 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         }
         soundButton.isHidden = !sound
         if sound != showsSound { showsSound = sound; needsLayout = true }
+        if m.agent && !isHovered && !m.editing {
+            agentFace.show(fill: colors.textPrimary)
+            shown.append(agentFace)
+        }
         if let peek = m.peekIcon, !isHovered {
             peekBadge.show(peek, flip: false, colors: colors)
             shown.append(peekBadge)
@@ -1314,7 +1324,7 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         // The unread dot and a peek badge are centred where the close button shows on hover, which
         // is also under a live folder's refresh button (FolderRowView, Arc lines them up too).
         let trailing = TabRowTrailing.layout(rowWidth: bounds.width, textX: x, controls: accessories.map {
-            TabRowTrailing.Control(width: $0.frame.width, slot: $0 === unreadDot || $0 === peekBadge ? Self.closeSize : nil)
+            TabRowTrailing.Control(width: $0.frame.width, slot: $0 === unreadDot || $0 === peekBadge || $0 === agentFace ? Self.closeSize : nil)
         })
         for (v, vx) in zip(accessories, trailing.controlX) {
             let s = v.frame.size
@@ -1356,6 +1366,9 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         needsLayout = true
         DispatchQueue.main.async { [weak self, weak f] in
             guard let f, let w = self?.window else { return }
+            // The sidebar sliding out at the edge is a panel that becomes key only when a click needs
+            // it, and a click on a row doesn't: the field showed selected while keys went to the page (#424).
+            w.makeKey()
             w.makeFirstResponder(f)
         }
     }
@@ -1372,8 +1385,11 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
 
     private func commitRename() {
         guard let m = model, let list, list.ui.renamingID == m.id, let f = renameField else { return }
-        list.store.rename(m.id, to: f.stringValue)
+        let typed = f.stringValue
+        list.store.rename(m.id, to: typed)
         list.ui.renamingID = nil
+        // Whether typed keys reached the field (#424), without the name itself.
+        CraLog.note(typed == m.renameText ? "sidebar rename: name unchanged" : "sidebar rename: new name, \(typed.count) characters")
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
@@ -1470,10 +1486,8 @@ struct FolderRowModel: Equatable {
     var back: NSColor
     var tabCount: Int
     var liveBusy: Bool
-    /// The warning button's tip after a failed refresh.
-    var liveError: String?
-    /// Where the warning button signs in, when GitHub asked for that (else it tries again).
-    var liveSignInURL: String?
+    /// The warning button after a failed refresh or while single sign-on hides some of the folder.
+    var liveWarning: LiveFolderWarning?
     var liveHelp: String
     var liveIcon: NSImage? = nil
     var symbol: FolderSymbol? = nil
@@ -1548,11 +1562,12 @@ final class FolderRowView: SidebarRowView, NSTextFieldDelegate {
                 p.startAnimation(nil)
                 slot.addSubview(p)
                 accessory = slot
-            } else if let error = m.liveError {
-                // Arc keeps the warning on hover too ("Sign back in to GitHub."): a click signs in, or tries again.
-                let signIn = m.liveSignInURL
-                accessory = SidebarGlyphButton(symbol: "exclamationmark.triangle", size: 26, iconSize: 13, weight: .regular,
-                                               help: error, colors: colors) { [weak list] in
+            } else if let warning = m.liveWarning {
+                // Arc keeps the warning on hover too ("Sign back in to GitHub.", or a key for "Login with
+                // SSO to unlock this folder"): a click signs in, or tries again.
+                let signIn = warning.signInURL
+                accessory = SidebarGlyphButton(symbol: warning.symbol, size: 26, iconSize: 13, weight: .regular,
+                                               help: warning.help, colors: colors) { [weak list] in
                     if let signIn { list?.actions.openURL(signIn) } else { LiveFolderManager.shared.refresh(id) }
                 }
             } else if hover {
@@ -1610,6 +1625,9 @@ final class FolderRowView: SidebarRowView, NSTextFieldDelegate {
         needsLayout = true
         DispatchQueue.main.async { [weak self, weak f] in
             guard let f, let w = self?.window else { return }
+            // The sidebar sliding out at the edge is a panel that becomes key only when a click needs
+            // it, and a click on a row doesn't: the field showed selected while keys went to the page (#424).
+            w.makeKey()
             w.makeFirstResponder(f)
         }
     }
@@ -1892,6 +1910,9 @@ final class SplitRowView: SidebarRowView, NSTextFieldDelegate, ArcTooltipTarget 
         needsLayout = true
         DispatchQueue.main.async { [weak self, weak f] in
             guard let f, let w = self?.window else { return }
+            // The sidebar sliding out at the edge is a panel that becomes key only when a click needs
+            // it, and a click on a row doesn't: the field showed selected while keys went to the page (#424).
+            w.makeKey()
             w.makeFirstResponder(f)
         }
     }
