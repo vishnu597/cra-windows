@@ -430,9 +430,11 @@ built release app with a test profile. Note anything that fails in the release's
 
 - **Windows, CEF #4353:** in an isolated profile, keep a normal page open while opening and
   closing DevTools repeatedly, including undocked DevTools. After each close, navigate the
-  normal page again and confirm it still renders and accepts input. Repeat with a Little
-  Window and with hidden tabs that have slept and reloaded, then close the last main window
-  from Manage Spaces with its options menu open. All Cra/Helper processes exit, with no new
+  normal page again and confirm it still renders and accepts input. Close the last live tab
+  while keeping the main window open, then open a new page and confirm it renders and accepts
+  input. Repeat with a Little Window and with hidden tabs that have slept and reloaded, then
+  close the last main window from Manage Spaces with its options menu open. All Cra/Helper
+  processes exit, with no new
   application-error event or crash dump. Record the exact CEF build. Stock .26 lacked the
   external-loop keep-alive; .27 includes the upstream fix. Real CEF/window teardown is required;
   cache-version tests cannot establish this lifecycle behavior.
