@@ -12,7 +12,10 @@ if [ "$(cat vendor/sparkle/VERSION 2>/dev/null)" != "$SPARKLE_VERSION" ]; then
   echo "Downloading Sparkle ${SPARKLE_VERSION}..."
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
-  curl -fL --progress-bar -o "$TMP/Sparkle.tar.xz" \
+  # GitHub's DNS can fail briefly on a runner; ordinary --retry does not cover every DNS error.
+  # Bound both individual transfers and retries, and keep checksum verification mandatory below.
+  curl -fL --progress-bar --retry 2 --retry-all-errors --retry-delay 5 \
+    --connect-timeout 15 --max-time 180 --retry-max-time 300 -o "$TMP/Sparkle.tar.xz" \
     "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
   echo "${SPARKLE_SHA256}  $TMP/Sparkle.tar.xz" | shasum -a 256 -c - >/dev/null
   mkdir "$TMP/x"
