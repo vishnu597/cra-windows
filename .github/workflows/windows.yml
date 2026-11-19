@@ -26,6 +26,9 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: CEF dependency cache regressions
+        run: ./Windows/scripts/test-cef-cache-version.ps1
+
       - name: Tab sleep page probe regressions
         run: node Tests/TabSleepProbeDOMTests.js
 

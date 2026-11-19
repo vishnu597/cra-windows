@@ -14,11 +14,17 @@ toolchain for Windows (6.1+) and the Windows App Runtime 1.7:
     pwsh Windows/scripts/build.ps1     # fetches CEF and the projections, builds Windows/build/Cra
     Windows/build/Cra/Cra.exe
 
-`Windows/scripts/fetch-deps.ps1` reads the Chromium version from `scripts/fetch-cef.sh`, so
-both apps run the same Chromium. It uses Spotify's stock CEF build for now (no H.264/AAC,
-none of `scripts/cef-patches`). When the Mac pins a CEF that upstream builds itself, which
-Spotify doesn't publish, `$stockPin` in that script holds Windows on the newest stock build:
-156.0.26 (Chromium 156.0.8078.88) while the Mac runs 156.0.27 on Chromium 156.0.8078.96.
+`Windows/scripts/fetch-deps.ps1` reads the Mac's legacy CEF pin from `scripts/fetch-cef.sh`,
+with `$stockPin` for a custom version Spotify does not publish. Windows uses stock CEF
+156.0.27 (Chromium 156.0.8078.88), without H.264/AAC or `scripts/cef-patches`; the Mac's
+legacy CEF build carries Chromium .96. The Mac's newer Chrome engine is a separate parity gap.
+Stock .27 adds CEF's [external-message-loop shutdown fix](https://github.com/chromiumembedded/cef/commit/a10dae3408911466b2d90409cc3355cbf6043ffb)
+over .26. Its archive is checked against the official build manifest's checksum.
+
+An existing CEF cache must have the selected full version in `include/cef_version.h`.
+The fetch script rejects a stale or unverifiable cache before using its DLL or wrapper;
+clear `Windows/vendor/cef` and rerun the build when that check fails. Run the filesystem
+regressions with `pwsh Windows/scripts/test-cef-cache-version.ps1`.
 
 ## Rules
 
