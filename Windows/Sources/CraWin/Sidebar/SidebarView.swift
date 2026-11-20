@@ -36,6 +36,8 @@ protocol SidebarActions: AnyObject {
     func separatePinnedTab(_ id: UUID)
     /// Manage Spaces…: the Library's Spaces page.
     func showLibrary(_ page: LibraryPage)
+    /// Delete Space…: Arc asks first.
+    func confirmDeleteSpace(_ id: UUID)
     /// A sidebar tab dragged off the sidebar, over the page: whether the panes offer a split at
     /// the pointer (the window shows it). `before`: the tab open before the press.
     func splitDragMoved(tab id: UUID, before: UUID?) -> Bool
@@ -75,6 +77,7 @@ final class SidebarView {
     /// The space header's name button, where Change Space Icon… points its picker, and the open picker.
     var headerTitle: FrameworkElement?
     var iconPicker: SpaceIconPickerView?
+    var styleEditor: SpaceStyleEditorView?
     let store: SidebarStore
     /// The window it draws: its space, its selected tab (SidebarStore.WindowSession).
     let windowID: UUID
@@ -818,6 +821,7 @@ final class SidebarView {
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Rename Space…") { [weak self] in self?.beginRename(space: space.id) })
             menu.items.append(UI.menuItem("Change Space Icon…") { [weak self] in self?.showIconPicker(space: space.id) })
+            menu.items.append(UI.menuItem("Edit Theme Color…") { [weak self] in self?.showStyleEditor(space: space.id) })
         }
         menu.items.append(UI.menuItem("New Folder") { [weak self] in self?.newFolder(in: space, atTop: false) })
         if !store.isIncognito(space: space.id) {
@@ -835,7 +839,7 @@ final class SidebarView {
         }
         if store.spaceOrder.count > 1 {
             menu.items.append(MenuFlyoutSeparator())
-            menu.items.append(UI.menuItem("Delete Space") { [weak self] in self?.store.deleteSpace(space.id) })
+            menu.items.append(UI.menuItem("Delete Space…") { [weak self] in self?.actions?.confirmDeleteSpace(space.id) })
         }
         return menu
     }
@@ -873,6 +877,16 @@ final class SidebarView {
         }
         iconPicker = picker
         picker.show(at: target)
+    }
+
+    /// Edit Theme Color… (and Edit Space…): Arc's theme editor against the sidebar's edge. The
+    /// sidebar redraws under it as the theme changes, so it hangs off the sidebar itself.
+    func showStyleEditor(space id: UUID) {
+        guard let space = store.space(id) else { return }
+        try? styleEditor?.flyout.hide()
+        let editor = SpaceStyleEditorView(store: store, space: space)
+        styleEditor = editor
+        editor.show(beside: root)
     }
 
     /// New Folder in the pinned section of `space` (the one in front by default), named at once

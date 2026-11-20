@@ -104,6 +104,8 @@ final class SpaceIconPickerView {
         try? Grid.setRow(iconScroll, 1)
 
         flyout.content = root
+        // A windowed popup: over the page's own window, which XAML inside the island would sit under.
+        flyout.shouldConstrainToRootBounds = false
         flyout.opened.addHandler { [weak self] _, _ in self?.opened() }
         fillEmoji()
         showTab(icons: current.symbol != nil)

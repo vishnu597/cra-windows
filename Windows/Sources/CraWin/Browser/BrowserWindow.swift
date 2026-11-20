@@ -829,6 +829,9 @@ final class BrowserWindow {
         case "viewArchive": showLibrary(.archive)
         case "viewDownloads": showLibrary(.downloads)
         case "manageSpaces": if !isIncognito { showLibrary(.spaces) }
+        // Edit Space…: Arc's theme editor beside the sidebar (Windows has no Edit Space sheet yet).
+        case "editSpace": if !isIncognito { sidebar.showStyleEditor(space: store.focusedSpaceID(window: windowID)) }
+        case "deleteSpace": if !isIncognito { confirmDeleteSpace(store.focusedSpaceID(window: windowID)) }
         case "closeTab": closeCurrentTab()
         case "reload": reload(ignoringCache: false)
         case "hardReload": reload(ignoringCache: true)
@@ -2163,6 +2166,15 @@ extension BrowserWindow: SpacesManagerActions {
     func newSpaceFromLibrary() {
         guard !isIncognito else { return }
         sidebar.newSpace()
+    }
+
+    /// Delete Space…: Arc's question first, since the space's tabs and folders are archived; the
+    /// last space only says it has to stay (SpaceDeleteConfirmation).
+    func confirmDeleteSpace(_ id: UUID) {
+        guard let space = store.space(id) else { return }
+        let prompt = SpaceDeleteConfirmation.prompt(title: space.title, spaceCount: store.spaceOrder.count)
+        guard prompt.canDelete else { return WinDialog.notice(owner: hwnd, title: prompt.title) }
+        if WinDialog.confirm(owner: hwnd, title: prompt.title, message: prompt.message ?? "") { store.deleteSpace(id) }
     }
 }
 
