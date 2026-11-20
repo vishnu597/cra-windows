@@ -274,7 +274,7 @@ final class WebPage: @unchecked Sendable {
 
     /// File ▸ Save Page As (the Mac's PageCommands.savePageAs): Windows' Save dialog with
     /// Chrome's two kinds, then the file from DevTools (SavePage). `report` gets the toast.
-    func savePageAs(owner: UInt, title: String, report: @escaping @MainActor (String) -> Void) {
+    @MainActor func savePageAs(owner: UInt, title: String, report: @escaping @MainActor (String) -> Void) {
         let formats = SavePage.Format.allCases
         guard !isClosed,
               let chosen = WinShell.save(owner: owner, title: "Save Page As", fileName: SavePage.suggestedFileName(title: title),
