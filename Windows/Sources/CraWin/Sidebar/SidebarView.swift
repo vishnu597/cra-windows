@@ -649,22 +649,22 @@ final class SidebarView {
         let menu = MenuFlyout()
         let favorite = store.isFavorite(id), pinned = store.isPinned(id)
         if favorite {
-            menu.items.append(UI.menuItem("Remove from Favorites") { [weak self] in self?.store.removeFromFavorites(id) })
+            menu.items.append(UI.menuItem("Remove from Favorites", action: "favoriteTab") { [weak self] in self?.store.removeFromFavorites(id) })
         } else {
-            menu.items.append(UI.menuItem("Add to Favorites") { [weak self] in self?.store.addToFavorites(id) })
-            menu.items.append(UI.menuItem(pinned ? "Unpin" : "Pin") { [weak self] in self?.store.togglePinned(id) })
+            menu.items.append(UI.menuItem("Add to Favorites", action: "favoriteTab") { [weak self] in self?.store.addToFavorites(id) })
+            menu.items.append(UI.menuItem(pinned ? "Unpin" : "Pin", action: "pinTab") { [weak self] in self?.store.togglePinned(id) })
         }
         if item.isTab {
             // Favorites draw as tiles, which have no name to edit.
-            if !favorite { menu.items.append(UI.menuItem("Rename…") { [weak self] in self?.beginRename(item: id) }) }
+            if !favorite { menu.items.append(UI.menuItem("Rename…", action: "renameTab") { [weak self] in self?.beginRename(item: id) }) }
             // Arc: "Add Split View" on the open tab, "Open in Split View" on another in its space.
             if store.isSelected(id, window: windowID) {
-                menu.items.append(UI.menuItem("Add Split View") { [weak self] in self?.actions?.addSplitView() })
+                menu.items.append(UI.menuItem("Add Split View", action: "addSplitView") { [weak self] in self?.actions?.addSplitView() })
             } else if store.selectedTabID(window: windowID) != nil, store.spaceID(ofItem: id) == store.focusedSpaceID(window: windowID) {
                 menu.items.append(UI.menuItem("Open in Split View") { [weak self] in self?.actions?.openInSplitView(id) })
             }
-            menu.items.append(UI.menuItem("Duplicate") { [weak self] in _ = self?.store.duplicateTab(id) })
-            menu.items.append(UI.menuItem(TabSound.menuTitle(muted: item.tab?.muted ?? false)) { [weak self] in
+            menu.items.append(UI.menuItem("Duplicate", action: "duplicateTab") { [weak self] in _ = self?.store.duplicateTab(id) })
+            menu.items.append(UI.menuItem(TabSound.menuTitle(muted: item.tab?.muted ?? false), action: "muteTab") { [weak self] in
                 self?.actions?.toggleMute(id)
             })
             // A pinned tab away from its pinned page (the Mac's tab menu).
@@ -684,7 +684,7 @@ final class SidebarView {
             menu.items.append(move)
         }
         menu.items.append(MenuFlyoutSeparator())
-        menu.items.append(UI.menuItem(pinned ? "Close (Unload)" : "Close Tab") { [weak self] in self?.actions?.closeTab(id) })
+        menu.items.append(UI.menuItem(pinned ? "Close (Unload)" : "Close Tab", action: "closeTab") { [weak self] in self?.actions?.closeTab(id) })
         // Arc's Today tab menu: Archive Tabs Below, when there are tabs below it.
         if let parent = item.parentID, let rows = store.item(parent)?.children, rows.last != id,
            store.spaceID(ofItem: id).flatMap(store.space)?.todayContainerID == parent {
@@ -704,7 +704,7 @@ final class SidebarView {
         add.isEnabled = open && panes.count < SplitPaneLayout.Constants.maximumPanes
         menu.items.append(add)
         let vertical = split.split?.orientation == .vertical
-        menu.items.append(UI.menuItem(vertical ? "Convert to Horizontal Split View" : "Convert to Vertical Split View") { [weak self] in
+        menu.items.append(UI.menuItem(vertical ? "Convert to Horizontal Split View" : "Convert to Vertical Split View", action: "flipSplitOrientation") { [weak self] in
             self?.store.flipSplitOrientation(id)
         })
         menu.items.append(MenuFlyoutSeparator())
@@ -729,23 +729,23 @@ final class SidebarView {
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Rename Space…") { [weak self] in self?.beginRename(space: space.id) })
         }
-        menu.items.append(UI.menuItem("New Folder") { [weak self] in self?.newFolder(in: space, atTop: false) })
+        menu.items.append(UI.menuItem("New Folder", action: "newFolder") { [weak self] in self?.newFolder(in: space, atTop: false) })
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("New Space") { [weak self] in self?.newSpace() })
         }
-        menu.items.append(UI.menuItem("Clear Today") { [weak self] in self?.store.clearToday(space.id, playing: []) })
+        menu.items.append(UI.menuItem("Clear Today", action: "clearToday") { [weak self] in self?.store.clearToday(space.id, playing: []) })
         if !store.isIncognito(space: space.id) { menu.items.append(profileMenu(space)) }
         if !store.isIncognito(space: space.id) {
             // Arc's group of Manage Spaces… and, with one space, Hide Space Header (SpaceMenuLayout).
             menu.items.append(MenuFlyoutSeparator())
-            menu.items.append(UI.menuItem("Manage Spaces…") { [weak self] in self?.actions?.showLibrary(.spaces) })
+            menu.items.append(UI.menuItem("Manage Spaces…", action: "manageSpaces") { [weak self] in self?.actions?.showLibrary(.spaces) })
         }
         if store.spaceOrder.count == 1 && !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Hide Space Header") { [weak self] in self?.store.settings.showSpaceHeaderOnSingleSpace = false })
         }
         if store.spaceOrder.count > 1 {
             menu.items.append(MenuFlyoutSeparator())
-            menu.items.append(UI.menuItem("Delete Space") { [weak self] in self?.store.deleteSpace(space.id) })
+            menu.items.append(UI.menuItem("Delete Space", action: "deleteSpace") { [weak self] in self?.store.deleteSpace(space.id) })
         }
         return menu
     }

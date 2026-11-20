@@ -24,6 +24,19 @@ struct KeyBindingsTests {
         }
     }
 
+    /// The commands Windows' sidebar menus label with their keys (UI.menuItem(_:action:)), as the Mac's
+    /// SidebarMenus does: each is a command of the table, so a renamed id can't drop its keys unseen,
+    /// and those Windows binds read as Windows writes keys.
+    @Test func sidebarMenuShortcutsAreCommands() {
+        let ids = ["favoriteTab", "pinTab", "renameTab", "addSplitView", "duplicateTab", "muteTab", "closeTab",
+                   "flipSplitOrientation", "newFolder", "clearToday", "manageSpaces", "deleteSpace"]
+        let mac = Set(KeyBindingDefaults.mac.map(\.id))
+        for id in ids { #expect(mac.contains(id), "\(id) is a command") }
+        let windows = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.windows.map { ($0.id, $0) })
+        #expect(windows["closeTab"]?.primary?.windowsDisplay == "Ctrl+W")
+        for id in ids { if let keys = windows[id]?.primary { #expect(!keys.windowsDisplay.isEmpty) } }
+    }
+
     /// Arc's keys on the Mac, kept as they were when the table lived in the app.
     @Test func macKeepsArcsKeys() {
         let mac = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.mac.map { ($0.id, $0) })
