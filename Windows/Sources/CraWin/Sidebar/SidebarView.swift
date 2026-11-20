@@ -112,6 +112,8 @@ final class SidebarView {
     private static let spaceEmoji = ["🌱", "💼", "🎮", "📚", "🎨", "🏠", "✈️", "🧪"]
     /// The sidebar's content width before its first layout (BrowserWindow's 280 less 10 each side).
     private static let restingWidth = 260.0
+    /// The close button's square and the unread dot centred where it shows (Arc 1.171, #139).
+    private static let closeSize = 24.0, unreadDotSize = 6.0
     /// The favorites' columns as drawn, nil with none.
     private var favoritesColumns: Int?
 
@@ -557,10 +559,72 @@ final class SidebarView {
         row.children.append(pick)
         try? Grid.setColumn(pick, 0)
 
+        // Arc's trailing end (TabRowTrailing, #243): at rest the name runs to 21 DIPs from the
+        // pill's end and an unread tab shows a dot where the close button goes; on hover the
+        // close button shows inside the pill, 6 DIPs from its end, and the name stops 15 before it.
         if let id = closable {
-            let close = UI.button("✕", color: palette.secondaryText) { [weak self] in self?.actions?.closeTab(id) }
+            let rest = Double(TabRowTrailing.tail(controls: []))
+            let hover = Double(TabRowTrailing.tail(controls: [TabRowTrailing.Control(width: CGFloat(Self.closeSize))]))
+            let padding = pick.padding
+            let pad: @MainActor (Button?, Double) -> Void = { button, tail in
+                button?.padding = Thickness(left: padding.left, top: padding.top, right: tail, bottom: padding.bottom)
+            }
+            pad(pick, rest)
+            let tab = store.item(id)?.tab
+            let pinned = store.isPinned(id)
+            let kind = SidebarClose.tab(pinned: pinned, current: selected, navigatedAway: pinned && tab.map { $0.url != $0.savedURL } == true,
+                                        peeked: false)
+            let glyph = FontIcon()
+            glyph.glyph = WinGlyph.code(kind.minus ? "minus" : "xmark")
+            glyph.fontSize = 11
+            glyph.foreground = palette.secondaryText
+            let close = UI.button(glyph, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in
+                guard let self else { return }
+                if kind.action == .archive, pinned {
+                    self.store.archiveTab(id, reason: .manual)
+                } else {
+                    self.actions?.closeTab(id)
+                }
+            }
+            close.width = Self.closeSize
+            close.height = Self.closeSize
+            close.horizontalAlignment = .right
+            close.verticalAlignment = .center
+            close.margin = Thickness(left: 0, top: 0, right: Double(TabRowTrailing.endInset), bottom: 0)
+            close.visibility = .collapsed
+            let help = kind.help.replacingOccurrences(of: "⌘W", with: "Ctrl+W")
+            try? AutomationProperties.setName(close, help)
+            try? ToolTipService.setToolTip(close, help)
             row.children.append(close)
-            try? Grid.setColumn(close, 1)
+            try? Grid.setColumn(close, 0)
+            var dot: WinUI.Ellipse?
+            if unread, !selected {
+                let d = WinUI.Ellipse()  // not GDI's Ellipse
+                d.width = Self.unreadDotSize
+                d.height = Self.unreadDotSize
+                d.fill = palette.secondaryText
+                d.isHitTestVisible = false
+                d.horizontalAlignment = .right
+                d.verticalAlignment = .center
+                d.margin = Thickness(left: 0, top: 0, right: Double(TabRowTrailing.endInset) + (Self.closeSize - Self.unreadDotSize) / 2, bottom: 0)
+                row.children.append(d)
+                try? Grid.setColumn(d, 0)
+                kept.append(d)
+                dot = d
+            }
+            // Weak in the row's own handlers (a strong capture would keep the row alive through
+            // its children); `kept` holds them until the next build.
+            kept += [close, glyph, pick]
+            row.pointerEntered.addHandler { [weak close, weak pick, weak dot] _, _ in
+                close?.visibility = .visible
+                dot?.visibility = .collapsed
+                pad(pick, hover)
+            }
+            row.pointerExited.addHandler { [weak close, weak pick, weak dot] _, _ in
+                close?.visibility = .collapsed
+                dot?.visibility = .visible
+                pad(pick, rest)
+            }
         }
         if ring { addDeveloperRing(to: row) }
         list.children.append(row)
