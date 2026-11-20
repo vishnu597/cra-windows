@@ -1,7 +1,4 @@
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 /// One page of a mixed site that moved to WebKit for the video it plays (`MixedMediaSite`). The
 /// choice is the page's, not the site's: the tab's next video, or anything that isn't a video,
@@ -337,6 +334,7 @@ public enum ProtectedVideoHandoff {
         return ([site.host] + site.cookieHosts).filter { seen.insert($0).inserted }
     }
 
+    #if canImport(Darwin)  // HTTPCookieStringPolicy is Apple-only; the handoff is the Mac's
     /// The cookies to copy from Chromium's answer to Network.getAllCookies (`json`): those of
     /// `cookieDomains`, subdomains included, that are still good at `now`. A
     /// partitioned cookie belongs to an embed on another site and stays. Nothing else in the
@@ -369,4 +367,5 @@ public enum ProtectedVideoHandoff {
             return HTTPCookie(properties: p)
         }
     }
+    #endif
 }

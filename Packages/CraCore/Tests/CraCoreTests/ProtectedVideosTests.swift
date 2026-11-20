@@ -1,8 +1,5 @@
 import CraCore
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 import Testing
 #if canImport(JavaScriptCore)
 import JavaScriptCore
@@ -192,6 +189,7 @@ struct ProtectedVideosTests {
         }
     }
 
+    #if canImport(Darwin)  // HTTPCookieStringPolicy is Apple-only; the handoff is the Mac's
     /// Its session is in cookies on ".fandango.com" (names are base64 of "myvudu.sessionKey" and
     /// the like): they go along, or the page arrives signed out.
     @Test(.bug("https://github.com/VictorKildahl/cra/issues/588")) func fandangoSessionCookiesAreCopied() throws {
@@ -215,6 +213,7 @@ struct ProtectedVideosTests {
         let youTube = try #require(sites.mixedSite(for: film))
         #expect(youTube.cookieHosts.isEmpty && !youTube.pathNamesVideo)
     }
+    #endif
 
     // MARK: Asking, Once, Always
 
@@ -397,6 +396,7 @@ struct ProtectedVideosTests {
         #expect(r.url == "https://example.com/v" && r.seek == nil)
     }
 
+    #if canImport(Darwin)  // HTTPCookieStringPolicy is Apple-only; the handoff is the Mac's
     /// YouTube's own cookies go along (its sign-in is kept on .youtube.com as well), Google's stay
     /// in Chromium: one film doesn't put a whole Google account's sign-in in WebKit's store
     /// (Victor, 20 Nov 2026). Google's sign-in pages still keep a moved page in WebKit.
@@ -448,6 +448,7 @@ struct ProtectedVideosTests {
         let own = ProtectedVideoHandoff.cookies(fromProtocolAnswer: #"{"cookies":[{"name":"a","value":"1","domain":"127.0.0.1","path":"/","expires":-1,"session":true},{"name":"b","value":"1","domain":"localhost","path":"/","expires":-1,"session":true}]}"#, for: run, now: now)
         #expect(own.map(\.name) == ["a"] && own.first?.domain == "127.0.0.1")
     }
+    #endif
 
     #if canImport(JavaScriptCore)
     // MARK: A request in any frame is the page's
