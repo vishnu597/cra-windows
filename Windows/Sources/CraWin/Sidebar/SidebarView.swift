@@ -72,6 +72,9 @@ final class SidebarView {
     var dockCells: [SidebarDockCell] = []
     var dockHovered: UUID?
     var wheel = WheelSpaceSwitch()
+    /// The space header's name button, where Change Space Icon… points its picker, and the open picker.
+    var headerTitle: FrameworkElement?
+    var iconPicker: SpaceIconPickerView?
     let store: SidebarStore
     /// The window it draws: its space, its selected tab (SidebarStore.WindowSession).
     let windowID: UUID
@@ -294,6 +297,7 @@ final class SidebarView {
 
     private func buildHeader(_ space: Space) {
         header.children.clear()
+        headerTitle = nil
         // Arc's single-space mode (Settings ▸ Tabs ▸ Spaces, or the space's menu).
         header.visibility = store.hidesSpaceHeader(space.id) ? .collapsed : .visible
         if renaming.spaceID == space.id {
@@ -319,6 +323,7 @@ final class SidebarView {
         title.horizontalAlignment = .stretch
         title.horizontalContentAlignment = .left
         title.contextFlyout = spaceMenu(space)
+        headerTitle = title
         header.children.append(title)
     }
 
@@ -812,6 +817,7 @@ final class SidebarView {
         let menu = MenuFlyout()
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Rename Space…") { [weak self] in self?.beginRename(space: space.id) })
+            menu.items.append(UI.menuItem("Change Space Icon…") { [weak self] in self?.showIconPicker(space: space.id) })
         }
         menu.items.append(UI.menuItem("New Folder") { [weak self] in self?.newFolder(in: space, atTop: false) })
         if !store.isIncognito(space: space.id) {
@@ -853,6 +859,21 @@ final class SidebarView {
     }
 
     // MARK: Spaces
+
+    /// Change Space Icon…: Arc's picker at the space's name in the header, or at its dock icon
+    /// when the header is hidden or shows another space.
+    func showIconPicker(space id: UUID) {
+        guard let space = store.space(id) else { return }
+        let anchor = id == store.focusedSpaceID(window: windowID) && header.visibility == .visible ? headerTitle : nil
+        guard let target = anchor ?? spaceCells.first(where: { $0.id == id })?.element ?? headerTitle else { return }
+        let picker = SpaceIconPickerView(current: space.icon, dark: space.theme.isDark) { [weak self] icon in
+            guard let self, var s = self.store.space(id) else { return }
+            s.icon = icon
+            self.store.updateSpace(s)
+        }
+        iconPicker = picker
+        picker.show(at: target)
+    }
 
     /// New Folder in the pinned section of `space` (the one in front by default), named at once
     /// as in Arc: at the top for the command (the Mac's), after the rest from the space's menu.
