@@ -601,6 +601,7 @@ final class BrowserWindow {
     private func makeCommandBar() {
         commandBar.onCommit = { [weak self] row, typed, mode in self?.handleCommit(row, typed: typed, mode: mode) }
         commandBar.onOpenInBackground = { [weak self] row, typed in self?.openInBackground(row, typed: typed) ?? false }
+        commandBar.onOpenInSplit = { [weak self] row, typed in self?.openInSplit(row, typed: typed) ?? false }
         commandBar.onResize = { [weak self] height in
             self?.commandBarHeight = height
             self?.placeCommandBar()
@@ -731,24 +732,27 @@ final class BrowserWindow {
     /// Ctrl+Return in the bar (Arc's ⌘Return): the row's page in a new background tab, the bar
     /// staying open; an open tab's row opens its address again rather than switching.
     private func openInBackground(_ s: Suggestion?, typed: String) -> Bool {
-        let query = commandBar.query
-        let url: String?
-        switch s?.kind {
-        case nil:
-            url = typed.isEmpty ? nil : SuggestionEngine.looksLikeURL(typed) ? SuggestionEngine.urlFromInput(typed) : engine.searchURL(typed)
-        case .navigate?:
-            url = typed == query ? (s?.url ?? SuggestionEngine.urlFromInput(typed)) : SuggestionEngine.urlFromInput(typed)
-        case .search?:
-            url = s?.url ?? engine.searchURL(typed)
-        case .switchToTab?, .archived?, .history?, .topDomain?:
-            url = s?.url
-        default:
-            url = nil
-        }
-        guard let url, !url.isEmpty else { return false }
+        let query = commandBar.query, engine: SuggestionEngine = engine
+        guard let url = CommandBarRowPage.url(row: s, typed: typed, query: query, searchURL: { engine.searchURL($0) })
+        else { return false }
         store.recordQuerySelection(query: query, url: url)
         let tab = store.createTab(url: url, select: false, window: windowID)
         store.markUnread(tab.id, false)  // Arc saves these read, unlike a link opened in the background
+        return true
+    }
+
+    /// Alt+Return in the bar (Arc's ⌥Return): the row opens as a split pane beside the current tab,
+    /// an open tab of this space joining the split (`SidebarStore.openInSplit`, the Mac's too).
+    /// False takes it as Return.
+    private func openInSplit(_ s: Suggestion?, typed: String) -> Bool {
+        let engine: SuggestionEngine = engine
+        switch store.openInSplit(s, typed: typed, query: commandBar.query, current: store.selectedTabID(window: windowID),
+                                 window: windowID, searchURL: { engine.searchURL($0) }) {
+        case .asReturn: return false
+        case .full: showToast("Cannot Add New Pane")
+        case .joined: break
+        case .addedPane: refresh()
+        }
         return true
     }
 

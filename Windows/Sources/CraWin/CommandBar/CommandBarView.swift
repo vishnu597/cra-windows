@@ -22,6 +22,9 @@ final class CommandBarView {
     /// Ctrl+Return: the row's page in a background tab, the bar staying open. False when the row
     /// opens no page; Return happens instead.
     var onOpenInBackground: (Suggestion?, String) -> Bool = { _, _ in false }
+    /// Alt+Return (Arc's ⌥Return): the row in Split View beside the current tab. False when there
+    /// is no split to make; Return happens instead.
+    var onOpenInSplit: (Suggestion?, String) -> Bool = { _, _ in false }
     var onClose: () -> Void = {}
     /// The rows changed: the window takes the new height (`height(forRows:)`).
     var onResize: (Double) -> Void = { _ in }
@@ -89,6 +92,8 @@ final class CommandBarView {
     /// Ctrl+T (`newTab`) or Ctrl+L (`editURL`, `prefill` the page's address).
     func open(mode: CommandBarMode, prefill: String?, theme: SpaceTheme) {
         engine.resetIndex()
+        // Its keys are built off the main thread while the bar comes up (#617), as on the Mac.
+        engine.prepareIndex()
         self.mode = mode
         space = theme
         scope = nil
@@ -233,12 +238,13 @@ final class CommandBarView {
     private func keyDown(_ args: KeyRoutedEventArgs) {
         let vk = Int32(truncatingIfNeeded: args.key.rawValue)
         let control = GetKeyState(0x11) < 0
+        let alt = GetKeyState(0x12) < 0
         switch vk {
         case 0x28: moveSelection(by: 1)  // Down
         case 0x26: moveSelection(by: -1)  // Up
         case 0x0D:  // Return
             acceptSelectedCompletion()
-            if control { commitInBackground() } else { commit() }
+            if control { commitInBackground() } else if alt { commitInSplit() } else { commit() }
         case 0x1B:  // Escape: out of a scope back to how the bar opened, else closed (Arc)
             if scope != nil { open(mode: mode, prefill: openedPrefill, theme: space) } else { close() }
         case 0x09:  // Tab: into the offered scope, else accept the completion; never out of the field
@@ -325,6 +331,14 @@ final class CommandBarView {
         if onOpenInBackground(row, typed) { return }
         close()
         onCommit(row, typed, mode)
+    }
+
+    /// Alt+Return: the row opens in Split View with the current tab; rows that open no page, and
+    /// no tab to split, take it as Return (CommandBarController.commitInSplit).
+    private func commitInSplit() {
+        guard let (row, typed) = result.commit(at: selectedIndex, typed: query, scope: scope) else { return }
+        close()
+        if !onOpenInSplit(row, typed) { onCommit(row, typed, mode) }
     }
 
     private func commit(row index: Int) {
