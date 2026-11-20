@@ -2260,6 +2260,17 @@ extern "C" void cra_browser_execute_javascript(CraBrowser *b, const char *script
     }
 }
 
+extern "C" void cra_browser_execute_javascript_in_subframes(CraBrowser *b, const char *script) {
+    if (!b || !b->browser || !script) return;
+    std::vector<CefString> ids;
+    b->browser->GetFrameIdentifiers(ids);
+    CefString code = Wide(script);
+    for (const CefString &id : ids) {
+        CefRefPtr<CefFrame> frame = b->browser->GetFrameByIdentifier(id);
+        if (frame && frame->IsValid() && !frame->IsMain()) frame->ExecuteJavaScript(code, frame->GetURL(), 0);
+    }
+}
+
 extern "C" void cra_browser_show_dev_tools(CraBrowser *b) {
     if (!b || !b->browser || b->close_requested) return;
     bool open = b->devtools_browser != nullptr;
