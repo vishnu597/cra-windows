@@ -10,12 +10,11 @@ import WinUI
 /// Mac's CommandBarController and CommandTextField for a XAML TextBox.
 @MainActor
 final class CommandBarView {
-    static let width = 766.0
-    static let fieldHeight = 60.0
-    static let rowHeight = 50.0
-    static func height(forRows n: Int) -> Double {
-        fieldHeight + (n == 0 ? 0 : Double(n) * rowHeight + Double(n - 1) * 2 + 20)
-    }
+    // Arc's sizes (CraCore CommandBarLayout, the Mac's too), in DIPs.
+    static let width = CommandBarLayout.width
+    static let fieldHeight = CommandBarLayout.fieldHeight
+    static let rowHeight = CommandBarLayout.rowHeight
+    static func height(forRows n: Int) -> Double { CommandBarLayout.height(forRows: n) }
 
     /// Return on a row (or on nothing, with text typed): the row, the text it goes to, the mode.
     var onCommit: (Suggestion?, String, CommandBarMode) -> Void = { _, _, _ in }
@@ -408,11 +407,21 @@ final class CommandBarView {
     private var ink: Brush { dark ? UI.brush(255, 255, 255) : UI.brush(20, 20, 24) }
     private var secondaryInk: Brush { dark ? UI.brush(255, 255, 255, alpha: 140) : UI.brush(20, 20, 24, alpha: 140) }
 
-    /// The selected row's tint: a site's brand colour in its scope, else the space's colour.
+    /// The space's palette in the bar's own appearance (CraCore CommandBarTones, Arc 1.172.1 live).
+    private var tones: CommandBarTones { CommandBarTones(theme: space, dark: dark) }
+
+    private static func brush(_ c: RGB, alpha: Double = 1) -> Brush {
+        UI.brush(UInt8((c.r * 255).rounded()), UInt8((c.g * 255).rounded()), UInt8((c.b * 255).rounded()),
+                 alpha: UInt8((alpha * 255).rounded()))
+    }
+
+    /// The selected row's tint: a site's brand colour in its scope, else the palette's `focus` colour
+    /// at Arc's 0.86 (CommandBarTones.selection).
     private var highlight: Brush {
         // Chromium's keyword engines have no brand colour: they take the space's.
         if case .site(let site)? = scope, let color = site.color { return UI.brush(color, alpha: 150) }
-        return UI.brush(space.accent ?? space.colors.first ?? "#5C6BC0", alpha: dark ? 140 : 110)
+        let selection = tones.selection
+        return Self.brush(selection.rgb, alpha: selection.alpha)
     }
 
     private func build() {
@@ -430,9 +439,13 @@ final class CommandBarView {
         leadingFavicon.verticalAlignment = .center
         leadingFavicon.visibility = .collapsed
         top.children.append(leadingFavicon)
-        pill.cornerRadius = CornerRadius(topLeft: 6, topRight: 6, bottomRight: 6, bottomLeft: 6)
-        pill.padding = Thickness(left: 8, top: 3, right: 8, bottom: 3)
-        pill.margin = Thickness(left: 0, top: 0, right: 8, bottom: 0)
+        // Arc's pill: 23 tall, fully round, 10.5 around the name, the field 11 after it.
+        let pillRadius = CommandBarLayout.pillHeight / 2
+        pill.cornerRadius = CornerRadius(topLeft: pillRadius, topRight: pillRadius, bottomRight: pillRadius, bottomLeft: pillRadius)
+        pill.height = CommandBarLayout.pillHeight
+        pill.padding = Thickness(left: CommandBarLayout.pillPadding, top: 0, right: CommandBarLayout.pillPadding, bottom: 0)
+        pill.margin = Thickness(left: 0, top: 0, right: 11, bottom: 0)
+        pillLabel.verticalAlignment = .center
         pill.verticalAlignment = .center
         pillLabel.fontSize = 13
         pillLabel.fontWeight = UWP.FontWeight(weight: 600)
@@ -474,14 +487,17 @@ final class CommandBarView {
 
         // Arc's (i) at the end of the field: 13 pt, grey, it opens the notice.
         infoGlyph.glyph = "\u{E946}"  // Info
-        infoGlyph.fontSize = 14
+        infoGlyph.fontSize = 13
+        // Arc: a 24 circle 21 from the edge, filled with the palette's backgroundExtra (CommandBarTones.badge).
         info.content = infoGlyph
-        info.background = UI.clear
         info.borderThickness = Thickness(left: 0, top: 0, right: 0, bottom: 0)
-        info.padding = Thickness(left: 8, top: 6, right: 8, bottom: 6)
-        info.margin = Thickness(left: 0, top: 0, right: 12, bottom: 0)
+        info.padding = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        info.width = CommandBarLayout.badgeSize
+        info.height = CommandBarLayout.badgeSize
+        info.margin = Thickness(left: 0, top: 0, right: CommandBarLayout.badgeTrailing, bottom: 0)
         info.verticalAlignment = .center
-        info.cornerRadius = CornerRadius(topLeft: 6, topRight: 6, bottomRight: 6, bottomLeft: 6)
+        let badgeRadius = CommandBarLayout.badgeSize / 2
+        info.cornerRadius = CornerRadius(topLeft: badgeRadius, topRight: badgeRadius, bottomRight: badgeRadius, bottomLeft: badgeRadius)
         info.isTabStop = false
         info.click.addHandler { [weak self] _, _ in self?.showNotice() }
 
@@ -493,8 +509,9 @@ final class CommandBarView {
 
         divider.height = 1
         rowsPanel.orientation = .vertical
-        rowsPanel.spacing = 2
-        rowsPanel.padding = Thickness(left: 10, top: 10, right: 10, bottom: 10)
+        rowsPanel.spacing = CommandBarLayout.rowGap
+        rowsPanel.padding = Thickness(left: CommandBarLayout.rowInset, top: CommandBarLayout.rowsTop,
+                                      right: CommandBarLayout.rowInset, bottom: CommandBarLayout.rowsBottom)
         for i in 0..<SuggestionEngine.maxRows {
             let row = Row()
             // On release, once XAML is done with the press: committing on the press left the
@@ -599,13 +616,13 @@ final class CommandBarView {
         hintLabel.foreground = dark ? UI.brush(255, 255, 255, alpha: 85) : UI.brush(0, 0, 0, alpha: 85)
         keycapLabel.foreground = dark ? UI.brush(255, 255, 255, alpha: 170) : UI.brush(0, 0, 0, alpha: 170)
         keycap.background = dark ? UI.brush(255, 255, 255, alpha: 12) : UI.brush(0, 0, 0, alpha: 10)
-        infoGlyph.foreground = dark ? UI.brush(255, 255, 255, alpha: 110) : UI.brush(0, 0, 0, alpha: 110)
+        infoGlyph.foreground = dark ? UI.brush(148, 146, 140) : UI.brush(0, 0, 0, alpha: 140)
+        let tones = self.tones
+        info.background = Self.brush(tones.badge)
         // The banner's buttons in the space's focus colour over black (CommandBarTones).
-        let tones = CommandBarTones(theme: space, dark: dark)
-        func brush(_ c: RGB) -> Brush { UI.brush(UInt8((c.r * 255).rounded()), UInt8((c.g * 255).rounded()), UInt8((c.b * 255).rounded())) }
         for button in [noticeSettings, noticeDismiss] {
-            button.background = brush(tones.noticeButtonFill)
-            button.borderBrush = brush(tones.noticeButtonOutline)
+            button.background = Self.brush(tones.noticeButtonFill)
+            button.borderBrush = Self.brush(tones.noticeButtonOutline)
         }
     }
 
@@ -629,7 +646,7 @@ final class CommandBarView {
         if let scope {
             pillLabel.text = scope.name
             if case .site(let site) = scope, let color = site.color { pill.background = UI.brush(color) } else {
-                pill.background = UI.brush(space.accent ?? space.colors.first ?? "#5C6BC0")
+                pill.background = Self.brush(tones.selection.rgb)
             }
         }
         // Arc shows no hint for the actions Tab offers on the empty field.
