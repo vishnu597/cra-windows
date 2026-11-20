@@ -64,3 +64,16 @@ extension SidebarStore {
         return .addedPane
     }
 }
+
+extension SidebarStore {
+    /// Arc's Switch to Split View 1–4 (`splitPaneN`): the `n`th pane of the split the window's tab
+    /// is in. False, and nothing changes, outside a split or past its last pane.
+    @discardableResult
+    public func selectSplitPane(_ n: Int, window: UUID? = nil) -> Bool {
+        guard let current = selectedTabID(window: window) else { return false }
+        let panes = paneTabIDs(for: current)
+        guard panes.count > 1, panes.indices.contains(n - 1) else { return false }
+        selectTab(panes[n - 1], window: window)
+        return true
+    }
+}

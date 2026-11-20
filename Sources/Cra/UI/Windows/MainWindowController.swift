@@ -4828,10 +4828,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     /// Arc's Switch to Split View 1–4 (⌃⇧1…4): the n-th pane of the open split.
     func selectSplitPane(_ n: Int) {
-        guard let current = selectedTabID else { return }
-        let panes = store.paneTabIDs(for: current)
-        guard panes.count > 1, n >= 1, n <= panes.count else { return }
-        store.selectTab(panes[n - 1], window: windowID)
+        store.selectSplitPane(n, window: windowID)
     }
 
     /// Chrome's extensions page, as the Site Control Center's Manage Extensions… opens it.

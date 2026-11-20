@@ -893,6 +893,10 @@ final class BrowserWindow {
                 }
                 return true
             }
+            if id.hasPrefix("splitPane"), let n = Int(id.dropFirst(9)), (1...4).contains(n) {
+                store.selectSplitPane(n, window: windowID)
+                return true
+            }
             guard id.hasPrefix("item"), let n = Int(id.dropFirst(4)), (1...9).contains(n) else { return false }
             selectTab(number: n)
         }

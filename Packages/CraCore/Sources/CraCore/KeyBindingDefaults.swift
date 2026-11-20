@@ -367,6 +367,9 @@ public enum KeyBindingDefaults {
             // would be AltGr, which types on many layouts' digits.
             table["moveTabToSpace\(n)"] = [KeyChord("\(n)", [.option, .shift] as KeyChord.Modifiers)]
         }
+        // Arc's Switch to Split View 1–4 (⌃⇧1…4) take no keys on Windows: Ctrl+Shift+2 is Capture
+        // and Ctrl+Alt is AltGr. Settings ▸ Shortcuts can give them some.
+        for n in 1...4 { table["splitPane\(n)"] = [] }
         return table
     }()
 }

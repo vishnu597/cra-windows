@@ -25,7 +25,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Window, pages and toolbar | 9 | 7 | 0 | 11 | 1 |
 | Sidebar | 6 | 11 | 0 | 12 | 0 |
 | Command bar and shortcuts | 4 | 5 | 0 | 1 | 0 |
-| Split view | 2 | 3 | 0 | 0 | 0 |
+| Split view | 3 | 2 | 0 | 0 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 2 | 2 | 0 | 4 | 0 |
 | Media and capture | 0 | 2 | 0 | 3 | 1 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 4 | 3 | 0 | 10 | 9 |
-| **All** | 39 | 52 | 1 | 57 | 18 |
+| **All** | 40 | 51 | 1 | 57 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -127,7 +127,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Up to four panes, dragger, add, close, separate, flip, cycle, split menu | ✅ [#11] | `PaneCardView.swift`, `SplitDraggerHandleView.swift`, `SplitPaneLayout.swift` | `SplitPaneLayout`, `SplitPaneLimit` | Sync #23: four stays the default; Links settings can allow eight and middle-click can add a pane (#498). The shared store enforces the limit; Windows has no Links switch/middle-click path, and imported eight-pane settings need layout testing. |
 | Pane controls on focus and hover, focus ring, rename a split, pinned and favorite splits | 🟡 | `PaneCardView.swift`, `SidebarRowViews.swift` | `SidebarStore` | Windows has the layout and the menu; the per-pane bar, ring and rename are missing. |
-| Switch to Split View 1–4 (`splitPaneN`), Open in Split View and Add Split View on the tab menu, a tab dropped on a pinned tab makes a pinned split (#180) | 🟡 [#49] | `MainWindowController.swift`, `SidebarMenus.swift` | `SidebarStore` (`createSplit(inPlace:)`, `combineIntoSplit`, `canAddPane`, `joinSplit`) | Upstream 56a5232, b2955ba. Windows: the tab menu's Add Split View and Open in Split View [#49]. Left: Switch to Split View 1–4, which need Windows keys (the Mac's ⌃⇧2 would be Ctrl+Shift+2, Capture, on Windows) and aren't in the command bar; a tab dropped on a tab's middle in the sidebar makes a split there, a pinned one on a pinned tab [#71](https://github.com/vishnu597/cra-windows/pull/71). |
+| Switch to Split View 1–4 (`splitPaneN`), Open in Split View and Add Split View on the tab menu, a tab dropped on a pinned tab makes a pinned split (#180) | ✅ [#49] [#NOTICE] | `MainWindowController.swift`, `SidebarMenus.swift` | `SidebarStore` (`createSplit(inPlace:)`, `combineIntoSplit`, `canAddPane`, `joinSplit`) | Upstream 56a5232, b2955ba. Windows: the tab menu's Add Split View and Open in Split View [#49]. Switch to Split View 1–4 [#NOTICE] (`SidebarStore.selectSplitPane`, shared with the Mac) work with no default keys, since the Mac's ⌃⇧2 would be Ctrl+Shift+2, Capture, and Ctrl+Alt is AltGr; Settings ▸ Shortcuts can bind them. Since #71, a tab dropped on a tab's middle in the sidebar makes a split there, a pinned one on a pinned tab [#71](https://github.com/vishnu597/cra-windows/pull/71). |
 | Expand Current Split (`expandSplitPane`): the focused pane takes the window, the others keep Arc's 220 pt minimum | ✅ [#49] | `MainWindowController.swift`, `SplitPaneTransition.swift` | `SplitPaneLayout` | Upstream 9629fd1. `SplitPaneLayout.expanding` and the 220 pt minimum are shared and lay Windows' panes out; Windows runs it from the command bar, with no key, as on the Mac. |
 | Drag a sidebar tab or a page's link onto the page to split it, on the side it's let go (#419) | 🟡 [#73](https://github.com/vishnu597/cra-windows/pull/73) | `PageDropRouter.swift`, `PageSplitDrop.swift`, `SplitDropRegionView.swift` | `SplitDropProposal`, `SplitDrop` | Upstream 60cf686, 2908a25. Windows: a sidebar tab dragged off the sidebar over the panes asks `SplitDropProposal` (in DIPs, y up) and tints the region a new pane would take, or the pane a drop would replace, with an owned see-through window (`CraOverlay`); letting go makes the split (`SplitDrop.drop`, the Mac's `PageSplitDrop.drop`). The press opens the dragged tab, so over a lone page Arc's swap shows the tab from before the press again (`SplitDrop.showing`). Left: a page's link dropped on a pane's edge (Chromium's own drop target takes drags over the page), the panes making room for the region as it opens, Arc's dark card as the drag image. |
 

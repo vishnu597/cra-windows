@@ -78,4 +78,22 @@ struct CommandBarSplitTests {
         #expect(f.store.openInSplit(nil, typed: "more", query: "more", current: current.id, window: nil, searchURL: search) == .full)
         #expect(try #require(f.store.splitContaining(current.id)).children.count == f.store.splitPaneLimit)
     }
+
+    @Test func switchToSplitViewNPicksThatPane() throws {
+        let f = StoreFixture()
+        let a = f.store.createTab(url: "https://a.example", select: true)
+        #expect(!f.store.selectSplitPane(1), "no split")
+        let b = f.store.createTab(url: "https://b.example", select: false)
+        let c = f.store.createTab(url: "https://c.example", select: false)
+        _ = try #require(f.store.createSplit(with: [a.id, b.id, c.id], at: a.id))
+        f.store.selectTab(a.id)
+        #expect(f.store.selectSplitPane(3))
+        let panes = f.store.paneTabIDs(for: a.id)
+        #expect(f.store.selectedTabID == panes[2])
+        #expect(!f.store.selectSplitPane(4), "past the last pane")
+        #expect(f.store.selectedTabID == panes[2])
+        #expect(f.store.selectSplitPane(1))
+        #expect(f.store.selectedTabID == panes[0])
+        #expect(KeyBindingDefaults.windowsShortcuts["splitPane2"] == [], "Windows performs it, with no default keys")
+    }
 }
