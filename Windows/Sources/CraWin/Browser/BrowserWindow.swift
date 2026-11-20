@@ -113,6 +113,8 @@ final class BrowserWindow {
     private var permissionWindow: FloatingWindow?
     private var permissionHeight = 120.0
     private let profileDialog = ProfileDialogView()
+    /// Edit Pinned Page ▸ Edit… on a pinned tab or favorite.
+    private lazy var editPinnedDialog = EditPinnedURLDialog()
     private var profileWindow: FloatingWindow?
     private var profileDialogHeight = 400.0
     private let importDialog = ImportDialogView()
@@ -2143,6 +2145,24 @@ extension BrowserWindow: SidebarActions {
     func resetPinnedTab(_ id: UUID) {
         guard let home = store.resetPinnedTab(id) else { return }
         pages[id]?.loadURL(home)
+    }
+
+    /// Edit Pinned Page ▸ Edit… (the Mac's MainWindowController.editPinnedURL, #54): a tab on its
+    /// pinned page goes to the new one; one away from it keeps its page.
+    func editPinnedURL(_ id: UUID) {
+        guard !closing, let window, let tab = store.item(id)?.tab, store.isPinned(id), tab.liveItemURL == nil else { return }
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { return }
+            self.editPinnedDialog.present(over: window, url: tab.savedURL, onSave: { [weak self] url in
+                guard let self, let before = self.store.item(id)?.tab, self.store.setPinnedURL(id, to: url),
+                      before.url == before.savedURL, before.url != url else { return }
+                self.pages[id]?.loadURL(url)
+            }, onDone: { [weak self] in
+                guard let self else { return }
+                if let host = HWND(bitPattern: self.hwnd) { _ = SetForegroundWindow(host) }
+                self.focusContent()
+            })
+        }
     }
 
     /// Arc's Ctrl-click (the Mac's ⌘-click) on the favicon of a pinned tab away from its page,

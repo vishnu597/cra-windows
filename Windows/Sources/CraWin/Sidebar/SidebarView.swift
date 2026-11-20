@@ -31,6 +31,8 @@ protocol SidebarActions: AnyObject {
     func toggleMute(_ id: UUID)
     /// Back to Pinned Page: the pinned tab returns to its pinned page.
     func resetPinnedTab(_ id: UUID)
+    /// Edit Pinned Page ▸ Edit…: the Edit Pinned URL card for a pinned tab or favorite.
+    func editPinnedURL(_ id: UUID)
     /// Ctrl-click on a pinned tab's favicon away from its page: the page moves to a new Today
     /// tab and the pinned tab goes home (Separate From Pinned Tab).
     func separatePinnedTab(_ id: UUID)
@@ -467,6 +469,23 @@ final class SidebarView {
         // The press starts on the icon (it reaches the icon before the row's button takes it).
         if let id = homeIcon {
             lead.pointerPressed.addHandler { [weak self] _, _ in self?.iconPress = (id, GetTickCount64()) }
+            // Arc's slash after the icon of a pinned tab away from its page (SidebarSlashView):
+            // 4 DIPs after the icon, a 2 DIP stroke in a 4 × 15 box, the name 5 DIPs on.
+            let slash = WinUI.Line()
+            slash.x1 = 1
+            slash.y1 = 14
+            slash.x2 = 3
+            slash.y2 = 1
+            slash.width = 4
+            slash.height = 15
+            slash.stroke = palette.secondaryText
+            slash.strokeThickness = 2
+            slash.strokeStartLineCap = .round
+            slash.strokeEndLineCap = .round
+            slash.isHitTestVisible = false
+            slash.verticalAlignment = .center
+            slash.margin = Thickness(left: -4, top: 0, right: -3, bottom: 0)
+            label.children.append(slash)
         }
         if let id = renames, renaming.itemID == id {
             // Rename…: the row's name is a field until Return, Escape or a click elsewhere.
@@ -771,6 +790,16 @@ final class SidebarView {
             if pinned, let tab = item.tab, tab.url != tab.savedURL {
                 menu.items.append(MenuFlyoutSeparator())
                 menu.items.append(UI.menuItem("Back to Pinned Page") { [weak self] in self?.actions?.resetPinnedTab(id) })
+            }
+            // Arc's Edit Pinned Page ▸ (SidebarMenus.pinnedURLItems): not on a live folder's rows.
+            if pinned, let tab = item.tab, tab.liveItemURL == nil {
+                let edit = MenuFlyoutSubItem()
+                edit.text = "Edit Pinned Page"
+                let replace = UI.menuItem("Replace Pinned URL with Current") { [weak self] in self?.store.setPinnedHomeToCurrent(id) }
+                replace.isEnabled = tab.url != tab.savedURL
+                edit.items.append(replace)
+                edit.items.append(UI.menuItem("Edit…") { [weak self] in self?.actions?.editPinnedURL(id) })
+                menu.items.append(edit)
             }
         }
         // An incognito window's tabs stay in it.
