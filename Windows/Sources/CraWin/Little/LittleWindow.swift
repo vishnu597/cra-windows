@@ -80,6 +80,9 @@ final class LittleWindow {
     private var slowResponseCheck: ScheduledWork?
     /// Use Both's check that the page kept a press (watchUseBoth).
     private var useBothWatch: ScheduledWork?
+    /// A Peek's close waiting for a second one, with Close as the Confirm pill (attemptPeekClose).
+    private var closeHold: PeekCloseHold?
+    private var closeHoldReset: ScheduledWork?
     private lazy var clock = WinScheduler(queue: dispatcher)
     private var permissionQueue: [(page: WeakPage, origin: String, kinds: PermissionKinds, answer: (Bool) -> Void)] = []
     private let permissionPrompt = PermissionPromptView()
@@ -413,7 +416,7 @@ final class LittleWindow {
     @discardableResult
     func handle(action id: String) -> Bool {
         switch id {
-        case "closeTab", "closeWindow": requestClose()
+        case "closeTab", "closeWindow": isPeek ? attemptPeekClose(.closeShortcut) : requestClose()
         case "newTab", "editURL": openCommandBar()
         case "goBack": page?.goBack()
         case "goForward": page?.goForward()
@@ -548,10 +551,10 @@ final class LittleWindow {
         let made = PeekOverlays(owner: parent.window.hwnd, background: parent.window.background,
                                 buttons: ["xmark", "arrow.up.left.and.arrow.down.right", "square.split.2x1"].map(WinGlyph.code),
                                 tips: ["Close" + keyHint("closeTab"), "Expand" + keyHint("promoteLittleWindow"), "Add To Split"])
-        made.onClickOutside = { [weak self] in self?.requestClose() }
+        made.onClickOutside = { [weak self] in self?.attemptPeekClose(.background) }
         made.onButton = { [weak self] index in
             switch index {
-            case 0: self?.requestClose()
+            case 0: self?.attemptPeekClose(.closeButton)
             case 1: self?.promote(to: nil)
             default: self?.promoteToSplit()
             }
@@ -963,8 +966,27 @@ extension LittleWindow: WebPageDelegate {
     /// Escape closes a Peek, a turn later (not inside the key's own handler).
     private func exitPeek(on key: KeyPress) -> Bool {
         guard isPeek, key.keyCode == 0x1B, !key.control, !key.shift, !key.alt, !key.isRepeat else { return false }
-        _ = try? dispatcher.tryEnqueue { [weak self] in self?.requestClose() }
+        _ = try? dispatcher.tryEnqueue { [weak self] in self?.attemptPeekClose(.escape(prefersConfirmation: false)) }
         return true
+    }
+
+    /// The Peek's user closes (Close, Ctrl+W, Esc, a click outside) go through here. A Peek on a
+    /// call holds the first one: Close becomes Arc's red Confirm pill, and the next close goes
+    /// through (PeekCloseHold, #425; the Mac's attemptPeekClose).
+    func attemptPeekClose(_ attempt: PeekCloseAttempt) {
+        guard isPeek, !closing else { return requestClose() }
+        let next = PeekCloseHold.after(attempt, holding: closeHold, capturingMedia: page?.isCapturingMedia == true)
+        closeHoldReset?.cancel()
+        closeHoldReset = nil
+        closeHold = next
+        overlays?.showHold(next)
+        guard let next else { return requestClose() }
+        // Arc gives up waiting after a while, and Close is round again.
+        closeHoldReset = clock.after(next.timeout) { [weak self] in
+            guard let self, self.closeHold != nil else { return }
+            self.closeHold = nil
+            self.overlays?.showHold(nil)
+        }
     }
 
     func page(_ page: WebPage, handleDevToolsKey key: KeyPress) -> Bool {

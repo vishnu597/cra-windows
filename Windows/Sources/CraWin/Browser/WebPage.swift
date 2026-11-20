@@ -147,6 +147,8 @@ final class WebPage: @unchecked Sendable {
     /// and made again (BrowserManager.pruneMissingTabs on the Mac).
     let profilePath: String?
     let isIncognito: Bool
+    /// The page uses the camera or microphone (a call): a Peek's close asks first (PeekCloseHold).
+    private(set) var isCapturingMedia = false
 
     /// A page loading `url` now; `incognito` in the off-the-record profile private windows share,
     /// else in `profilePath`'s profile.
@@ -439,7 +441,10 @@ final class WebPage: @unchecked Sendable {
             WebPage.with(ctx) { $0.delegate?.page($0, didFindMatches: Int(count), activeMatch: Int(active)) }
         }
         cb.media_capture_changed = { ctx, capturing in
-            WebPage.with(ctx) { $0.delegate?.page($0, didChangeMediaCapture: capturing != 0) }
+            WebPage.with(ctx) { page in
+                page.isCapturingMedia = capturing != 0
+                page.delegate?.page(page, didChangeMediaCapture: capturing != 0)
+            }
         }
         cb.focus_received = { ctx in
             WebPage.with(ctx) { $0.delegate?.pageDidReceiveFocus($0) }

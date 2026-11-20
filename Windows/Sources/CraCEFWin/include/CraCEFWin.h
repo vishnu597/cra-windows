@@ -190,6 +190,11 @@ uintptr_t cra_round_buttons_create(uintptr_t owner, const char *const *glyphs, c
 /// at `scale` pixels a DIP; `insert_after` as for cra_overlay_place.
 void cra_round_buttons_place(uintptr_t window, int x, int y, int width, int height, const int32_t *rects, size_t count, uint32_t fill,
                              uint32_t ink, double scale, uintptr_t insert_after);
+/// Button `index` widens to the right into a pill in `fill` with `text` after its glyph (`glyph`,
+/// or its own when NULL), in `ink` (CraCore PeekCloseHold: the Peek's Close as Arc's red Confirm);
+/// -1 makes every button round again. The window grows by the pill's extra width, its left edge
+/// staying put.
+void cra_round_buttons_set_pill(uintptr_t window, int index, const char *glyph, const char *text, uint32_t fill, uint32_t ink);
 void cra_round_buttons_destroy(uintptr_t window);
 
 // MARK: - Images
