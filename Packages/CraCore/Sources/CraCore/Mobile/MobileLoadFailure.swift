@@ -91,11 +91,28 @@ public enum MobileLoadFailure {
         guard let url = URLComponents(string: address), let scheme = url.scheme?.lowercased(), scheme != "file" else { return false }
         if let port = url.port, restrictedPorts.contains(port), !(scheme == "ftp" && (port == 21 || port == 22)) { return true }
         guard let host = url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) else { return false }
+        #if os(Windows)
+        return allZeroAddress(host)
+        #else
         var v4 = in_addr(), v6 = in6_addr()
         if inet_pton(AF_INET, host, &v4) == 1 { return v4.s_addr == 0 }
         if inet_pton(AF_INET6, host, &v6) == 1 { return withUnsafeBytes(of: &v6) { $0.allSatisfy { $0 == 0 } } }
         return false
+        #endif
     }
+
+    #if os(Windows)
+    /// CraCore builds on Windows (where WinSDK's inet_pton isn't in scope): a dotted IPv4 address
+    /// or a hex IPv6 one, all zeros.
+    static func allZeroAddress(_ host: String) -> Bool {
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        if parts.count == 4, parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) {
+            return parts.allSatisfy { Int($0) == 0 }
+        }
+        guard host.contains(":"), host.allSatisfy({ $0.isHexDigit || $0 == ":" }) else { return false }
+        return host.allSatisfy { $0 == "0" || $0 == ":" }
+    }
+    #endif
 
     /// iOS 26.5's WebKit doesn't fail a load it refuses that way: it commits an empty about:blank,
     /// and the delegate hears of no failure. WebKit fails it with 103 since June 2026 (bug 317357);

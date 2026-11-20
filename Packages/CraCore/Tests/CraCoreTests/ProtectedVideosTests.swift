@@ -1,5 +1,8 @@
 import CraCore
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 #if canImport(JavaScriptCore)
 import JavaScriptCore

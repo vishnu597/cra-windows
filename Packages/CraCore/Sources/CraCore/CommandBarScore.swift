@@ -87,7 +87,18 @@ public enum CommandBarScore {
     static func contains(_ s: [UInt8], _ p: [UInt8]) -> Bool {
         if p.isEmpty { return true }
         guard s.count >= p.count else { return false }
-        return s.withUnsafeBytes { sb in p.withUnsafeBytes { pb in memmem(sb.baseAddress, sb.count, pb.baseAddress, pb.count) != nil } }
+        #if os(Windows)
+        // The Windows C runtime has no memmem.
+        let first = p[0], last = s.count - p.count
+        var i = 0
+        while i <= last {
+            if s[i] == first, hasPrefix(s, p, at: i) { return true }
+            i += 1
+        }
+        return false
+        #else
+        return s.withUnsafeBytes { sb in p.withUnsafeBytes { pb in memmem(sb.baseAddress!, sb.count, pb.baseAddress!, pb.count) != nil } }
+        #endif
     }
 
     static func fuzzy(_ q: [UInt8], in text: [UInt8]) -> Double? {

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// One page of a mixed site that moved to WebKit for the video it plays (`MixedMediaSite`). The
 /// choice is the page's, not the site's: the tab's next video, or anything that isn't a video,
