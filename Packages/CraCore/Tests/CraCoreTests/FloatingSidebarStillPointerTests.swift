@@ -2,6 +2,7 @@
 import CoreGraphics
 #endif
 import CraCore
+import Foundation
 import Testing
 
 /// The edge strip after a hide the pointer didn't make (GitHub #635).
