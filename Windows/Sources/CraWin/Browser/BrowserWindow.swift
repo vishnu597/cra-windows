@@ -805,6 +805,7 @@ final class BrowserWindow {
         case "renameTab": renameSelectedTab()
         case "duplicateTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { _ = store.duplicateTab(t) }
         case "muteTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { toggleMute(t) }
+        case "pauseAllMedia": host?.pauseAllMedia { [weak self] text, action in self?.showToast(text, action: action) }
         case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
         case "newFolder": sidebar.newFolder()
         case "newSpace": if !isIncognito { sidebar.newSpace() }
@@ -2126,6 +2127,22 @@ extension BrowserWindow: SidebarActions {
         guard let tab = store.item(id)?.tab else { return }
         store.setMuted(id, !tab.muted)
         pages[id]?.setAudioMuted(!tab.muted)
+    }
+
+    /// This window's loaded pages for Pause All Media (a sleeping tab has none), each with how
+    /// to bring it on screen.
+    func mediaPauseTargets() -> [PauseAllMedia.Target] {
+        pages.sorted { $0.key.uuidString < $1.key.uuidString }.map { id, page in
+            let space = store.spaceID(ofItem: id, window: windowID)
+            return PauseAllMedia.Target(page: MediaPause.Page(id: id, window: windowID, space: space,
+                                                              profile: space.flatMap { store.space($0)?.profileID }, loaded: true),
+                                        web: page, title: store.item(id)?.displayTitle ?? page.currentTitle,
+                                        show: { [weak self] in
+                                            guard let self, !self.closing else { return }
+                                            self.store.selectTab(id, window: self.windowID)
+                                            self.activate()
+                                        })
+        }
     }
 
     /// Rename…'s field takes the keyboard with its text selected, as the Mac's does.
