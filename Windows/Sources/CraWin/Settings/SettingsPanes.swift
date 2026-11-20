@@ -273,6 +273,10 @@ enum SettingsPanes {
         form.group("General:", [
             checkbox("Add new tabs to the top", \.newTabsAtTop),
             checkbox("Show the New Tab button above tabs", \.newTabButtonAtTop),
+            // GitHub #601, not in Arc: Arc's Restore Last Closed Tab switches to the space of the
+            // tab closed last.
+            checkbox("Reopen tabs from this Space only", \.reopenClosedTabCurrentSpaceOnly),
+            note("Restore Last Closed Tab (Ctrl+Shift+T) brings back the tab you closed last in the Space you’re in, instead of switching to another Space.", palette: palette),
         ])
         // Arc's single-space mode ("Hide Space Header" on the space's menu), for people who
         // don't use spaces.
