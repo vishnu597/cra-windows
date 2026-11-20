@@ -1038,21 +1038,28 @@ final class BrowserWindow {
         if window.sidebarWidth != width { window.sidebarWidth = width }
     }
 
+    /// Arc's Restore Last Closed Tab (Ctrl+Shift+T): the tab closed last, whether a pinned tab
+    /// (back at the page it was on, #566), an archived tab or a closed Peek, and with Settings ▸
+    /// Tabs' "Reopen tabs from this Space only" only one closed in this space (#601). The order is
+    /// CraCore's (`SidebarStore.reopenLastClosed`, ReopenClosedTab), as on the Mac.
     private func reopenClosedTab() {
-        // Arc: a Peek closed after the last archived tab comes back, over the tab it came from.
-        if !isIncognito, let peek = closedPeek,
-           PeekTrigger.reopensClosedPeek(closedAt: peek.at, lastArchivedAt: store.archive.first?.archivedAt) {
-            closedPeek = nil
-            if let id = peek.tabID, store.item(id) != nil { store.selectTab(id, window: windowID) }
-            // Once the key's event is over and the redraw that selection queued has run: either
-            // could hand the keyboard to this window's page after the card took it, and Escape
-            // then never reached the Peek (seen on the PC after a Peek came back).
-            _ = try? dispatcher.tryEnqueue { [weak self] in
-                guard let self, !self.closing else { return }
-                self.host?.openPeek(url: peek.url, over: self, fromTab: peek.tabID)
-            }
-        } else {
-            store.reopenLastArchived()
+        guard !isIncognito else { return }  // private tabs leave nothing to restore
+        let peek = closedPeek.map { ReopenClosedTab.ClosedPeek(url: $0.url, tabID: $0.tabID, closedAt: $0.at) }
+        let outcome = store.reopenLastClosed(in: windowID, peek: peek)
+        if case .pinned(let id, _, _, let panes)? = outcome {
+            // The store put the panes back on the pages they were on; pages already loaded (none,
+            // normally: closing unloaded them) follow it.
+            for p in panes.map(\.id) + [id] { if let url = store.item(p)?.tab?.url { pages[p]?.loadURL(url) } }
+        }
+        guard case .peek(let url, let tabID)? = outcome else { return }
+        closedPeek = nil
+        if let tabID, store.item(tabID) != nil { store.selectTab(tabID, window: windowID) }
+        // Once the key's event is over and the redraw that selection queued has run: either
+        // could hand the keyboard to this window's page after the card took it, and Escape
+        // then never reached the Peek (seen on the PC after a Peek came back).
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { return }
+            self.host?.openPeek(url: url, over: self, fromTab: tabID)
         }
     }
 
@@ -2185,19 +2192,18 @@ extension BrowserWindow: SidebarActions {
     func closeTab(_ id: UUID) {
         guard let item = store.item(id), item.isTab else { return }
         if store.isPinned(id) {
+            // A pinned split closes as one: every pane unloads and goes back to its page. When it
+            // was the open tab, the pages it was on go where Ctrl+Shift+T takes them back from (#566).
             let panes = store.paneTabIDs(for: id)
             let wasSelected = store.selectedTabID(window: windowID).map(panes.contains) ?? false
-            for p in panes {
-                _ = store.resetPinnedTab(p)
+            for p in store.closePinnedTab(id, wasOpen: wasSelected) {
                 pages[p]?.close()
                 pages[p] = nil
             }
-            if wasSelected {
-                // Back to the tab used before, if it is still open; an unloaded pinned tab doesn't count.
-                let back = store.recentTabs(in: store.focusedSpaceID(window: windowID), limit: .max)
-                    .first { !panes.contains($0) && (!store.isPinned($0) || pages[$0] != nil) }
-                store.selectTab(back, window: windowID)
-            }
+            // Arc goes back to the tab shown before this one if its page is still loaded, and
+            // otherwise shows nothing (CloseSuccessor). The panes were just unloaded, so they
+            // don't count.
+            if wasSelected { store.selectTab(store.closeSuccessor(ofPinned: id, window: windowID), window: windowID) }
         } else {
             store.archiveTab(id, reason: .manual)
         }
