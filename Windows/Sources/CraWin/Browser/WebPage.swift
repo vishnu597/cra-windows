@@ -88,6 +88,11 @@ protocol WebPageDelegate: AnyObject {
               answer: @escaping (Bool) -> Void)
     func page(_ page: WebPage, didFindMatches count: Int, activeMatch: Int)
     func page(_ page: WebPage, didChangeMediaCapture capturing: Bool)
+    /// What the page's link menu adds under Open Link in New Window (LinkMenuExtra.offered).
+    func linkMenuExtras(for page: WebPage) -> [LinkMenuExtra]
+    /// One of them, picked for the link at `url`, from inside Chromium's menu callback: a pane or
+    /// a window that makes a page waits a turn.
+    func page(_ page: WebPage, opensLink url: String, in extra: LinkMenuExtra)
     func pageDidReceiveFocus(_ page: WebPage)
     func pageDidClose(_ page: WebPage)
 }
@@ -115,6 +120,8 @@ extension WebPageDelegate {
               answer: @escaping (Bool) -> Void) { answer(false) }
     func page(_ page: WebPage, didFindMatches count: Int, activeMatch: Int) {}
     func page(_ page: WebPage, didChangeMediaCapture capturing: Bool) {}
+    func linkMenuExtras(for page: WebPage) -> [LinkMenuExtra] { [] }
+    func page(_ page: WebPage, opensLink url: String, in extra: LinkMenuExtra) {}
     func pageDidReceiveFocus(_ page: WebPage) {}
     func pageDidClose(_ page: WebPage) {}
 }
@@ -370,6 +377,14 @@ final class WebPage: @unchecked Sendable {
         }
         cb.new_tab_requested = { ctx, url, background in
             WebPage.with(ctx) { $0.delegate?.page($0, requestsNewTabWithURL: string(url), inBackground: background != 0) }
+        }
+        cb.link_menu_items = { ctx in
+            WebPage.with(ctx, Int32(0)) { page in LinkMenuExtra.mask(page.delegate?.linkMenuExtras(for: page) ?? []) }
+        }
+        cb.link_menu_chosen = { ctx, url, item in
+            let url = string(url)
+            guard let extra = LinkMenuExtra(rawValue: Int(item)) else { return }
+            WebPage.with(ctx) { $0.delegate?.page($0, opensLink: url, in: extra) }
         }
         cb.view_source_requested = { ctx, url in
             WebPage.with(ctx) { $0.viewSource(of: string(url)) }

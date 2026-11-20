@@ -946,6 +946,20 @@ extension LittleWindow: WebPageDelegate {
         }
     }
 
+    /// A Little Window's or a Peek's link menu: Open Link in Little Window only, as on the Mac
+    /// (no tab to split).
+    func linkMenuExtras(for page: WebPage) -> [LinkMenuExtra] {
+        page === self.page ? LinkMenuExtra.offered(splits: false, incognito: page.isIncognito) : []
+    }
+
+    func page(_ page: WebPage, opensLink url: String, in extra: LinkMenuExtra) {
+        guard extra == .littleWindow, !url.isEmpty, !url.lowercased().hasPrefix("cra:") else { return }
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { return }
+            self.list?.openLittleWindow(url: url, opener: nil, activate: true, space: self.targetSpaceID)
+        }
+    }
+
     /// Escape closes a Peek, a turn later (not inside the key's own handler).
     private func exitPeek(on key: KeyPress) -> Bool {
         guard isPeek, key.keyCode == 0x1B, !key.control, !key.shift, !key.alt, !key.isRepeat else { return false }

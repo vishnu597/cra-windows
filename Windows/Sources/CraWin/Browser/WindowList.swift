@@ -13,6 +13,8 @@ protocol BrowserWindowHost: AnyObject {
     func newLittleWindow()
     /// Close Little Windows: each archives its page.
     func closeLittleWindows()
+    /// A page's Open Link in Little Window: one for `url`, in front, its links going to `space`.
+    func openLinkInLittleWindow(_ url: String, space: UUID?)
     func windowDidClose(_ window: BrowserWindow)
     /// Arc's Peek over `window`, from its tab `fromTab`: one at a time over a window.
     func openPeek(url: String, over window: BrowserWindow, fromTab: UUID?)
@@ -114,6 +116,10 @@ final class WindowList: BrowserWindowHost {
 
     func newLittleWindow() {
         openLittleWindow(url: "", opener: nil, activate: true)
+    }
+
+    func openLinkInLittleWindow(_ url: String, space: UUID?) {
+        openLittleWindow(url: url, opener: nil, activate: true, space: space)
     }
 
     /// A Little Window on `url` ("" asks for an address; nil hosts `opener`'s window.open),

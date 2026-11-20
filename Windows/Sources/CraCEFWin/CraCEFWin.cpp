@@ -919,6 +919,9 @@ CefRefPtr<CefDictionaryValue> DocumentStartInfo(CefRefPtr<CefDictionaryValue> ex
 std::atomic<bool> g_linkMenuBackground{true};
 /// Cra's own "Open Link in New Tab" in Chrome's page menu, in place of Chrome's.
 constexpr int kMenuOpenLinkNewTab = MENU_ID_USER_FIRST + 1;
+/// Open Link in Split View and Open Link in Little Window (CraCore LinkMenuExtra), under New Window.
+constexpr int kMenuOpenLinkSplitView = MENU_ID_USER_FIRST + 2;
+constexpr int kMenuOpenLinkLittleWindow = MENU_ID_USER_FIRST + 3;
 
 std::string PageStartScript() {
     std::lock_guard<std::mutex> lock(g_pageStartScriptLock);
@@ -957,16 +960,28 @@ public:
     // Page menu -----------------------------------------------------------
 
     /// Chrome's page menu, with its "Open Link in New Tab" swapped for Cra's under the same
-    /// (localized) label, which follows the setting (the Mac's MakeArcMenu, LinkMenu).
+    /// (localized) label, which follows the setting (the Mac's MakeArcMenu, LinkMenu), and Arc's
+    /// Open Link in Split View and in Little Window under New Window (the Mac's BuildArcMenu).
     void OnBeforeContextMenu(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefContextMenuParams> params,
                              CefRefPtr<CefMenuModel> model) override {
+        if (params->GetLinkUrl().empty()) return;
         static const int newTabID = cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_OPENLINKNEWTAB");
-        if (newTabID <= 0 || params->GetLinkUrl().empty()) return;
-        int index = static_cast<int>(model->GetIndexOf(newTabID));
-        if (index < 0) return;
-        CefString label = model->GetLabelAt(static_cast<size_t>(index));
-        model->RemoveAt(static_cast<size_t>(index));
-        model->InsertItemAt(static_cast<size_t>(index), kMenuOpenLinkNewTab, label.empty() ? CefString("Open link in new tab") : label);
+        static const int newWindowID = cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW");
+        static const int chromeSplitID = cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_OPENLINKSPLITVIEW");
+        if (int index = newTabID > 0 ? static_cast<int>(model->GetIndexOf(newTabID)) : -1; index >= 0) {
+            CefString label = model->GetLabelAt(static_cast<size_t>(index));
+            model->RemoveAt(static_cast<size_t>(index));
+            model->InsertItemAt(static_cast<size_t>(index), kMenuOpenLinkNewTab, label.empty() ? CefString("Open link in new tab") : label);
+        }
+        // Chrome's own split view opens in a Chrome window Cra doesn't show.
+        if (chromeSplitID > 0) model->Remove(chromeSplitID);
+        CraBrowser *o = Live();
+        const int extras = o && o->callbacks.link_menu_items ? o->callbacks.link_menu_items(o->callbacks.context) : 0;
+        int at = newWindowID > 0 ? static_cast<int>(model->GetIndexOf(newWindowID)) : -1;
+        if (at < 0) at = static_cast<int>(model->GetIndexOf(kMenuOpenLinkNewTab));
+        if (at < 0) return;
+        if (extras & 1) model->InsertItemAt(static_cast<size_t>(++at), kMenuOpenLinkSplitView, "Open Link in Split View");
+        if (extras & 2) model->InsertItemAt(static_cast<size_t>(++at), kMenuOpenLinkLittleWindow, "Open Link in Little Window");
     }
 
     bool OnContextMenuCommand(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefContextMenuParams> params,
@@ -981,6 +996,12 @@ public:
             if (o && o->callbacks.view_source_requested)
                 o->callbacks.view_source_requested(o->callbacks.context,
                                                    (frameSource ? params->GetFrameUrl() : params->GetPageUrl()).ToString().c_str());
+            return true;
+        }
+        if (command_id == kMenuOpenLinkSplitView || command_id == kMenuOpenLinkLittleWindow) {
+            if (o && o->callbacks.link_menu_chosen)
+                o->callbacks.link_menu_chosen(o->callbacks.context, params->GetLinkUrl().ToString().c_str(),
+                                              command_id == kMenuOpenLinkSplitView ? 1 : 2);
             return true;
         }
         if (command_id != kMenuOpenLinkNewTab) return false;

@@ -373,6 +373,12 @@ typedef struct CraBrowserCallbacks {
     /// cra_browser_has_committed_load changed: the main frame committed (CEF's OnLoadStart), or
     /// a new navigation started and waits for its answer (the Mac's didChangeCommittedLoad).
     void (*committed_load_changed)(void *context, int committed);
+    /// The link menu's extra items for this page, asked as the menu opens: bits of CraCore's
+    /// LinkMenuExtra (1 Open Link in Split View, 2 Open Link in Little Window), under Open Link
+    /// in New Window.
+    int (*link_menu_items)(void *context);
+    /// One of them was picked (`item`: its bit) for the link at `url`.
+    void (*link_menu_chosen)(void *context, const char *url, int item);
 } CraBrowserCallbacks;
 
 // MARK: - Browser

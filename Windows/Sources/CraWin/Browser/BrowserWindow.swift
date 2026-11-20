@@ -2420,6 +2420,33 @@ extension BrowserWindow: WebPageDelegate {
         store.openLinkTab(url, from: tabID(of: page), inBackground: background, window: windowID)
     }
 
+    /// The link menu's Open Link in Split View and, outside a private window, in Little Window.
+    func linkMenuExtras(for page: WebPage) -> [LinkMenuExtra] {
+        guard let id = tabID(of: page), pages[id] === page else { return [] }
+        return LinkMenuExtra.offered(splits: true, incognito: isIncognito)
+    }
+
+    /// Open Link in Split View (#257): a pane beside the page's tab, as Alt+Return does from the
+    /// command bar (MainWindowController.browserManagerOpenLinkInSplit); Little Window: one for the
+    /// link, in the tab's space.
+    func page(_ page: WebPage, opensLink url: String, in extra: LinkMenuExtra) {
+        // cra:// is Cra's scripting scheme; a page must not drive it.
+        guard !url.isEmpty, !url.lowercased().hasPrefix("cra:"), let id = tabID(of: page), store.item(id) != nil else { return }
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { return }
+            switch extra {
+            case .splitView:
+                guard self.store.openLinkInSplit(url, from: id, window: self.windowID) != nil else {
+                    self.showToast("Cannot Add New Pane")
+                    return
+                }
+                self.refresh()
+            case .littleWindow:
+                self.host?.openLinkInLittleWindow(url, space: self.store.spaceID(ofItem: id))
+            }
+        }
+    }
+
     /// Arc's Peek (PeekTrigger, Settings ▸ Tabs ▸ Links): the link opens over the window and the
     /// tab stays put. Never in a private window.
     func page(_ page: WebPage, opensPeekForURL url: String, shiftClick: Bool, newTab: Bool) -> Bool {
