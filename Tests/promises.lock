@@ -876,6 +876,9 @@
 #435   Packages/CraCore/Tests/CraCoreTests/ToolbarAutoHideTests.swift::offByDefaultAndKeptInSettingsJSON  e887bbd620e2
 #435   Packages/CraCore/Tests/CraCoreTests/ToolbarAutoHideTests.swift::theStripIsTheWindowsTopEdge  ae2f0c45ef73
 #435   Tests/Scenarios/little-window-toolbar-auto-hide.scenario  b685a0d571c8
+#438   Packages/CraCore/Tests/CraCoreTests/MediaPauseProbeTests.swift::aQuietPageSaysNothingPlayed  014387499b77
+#438   Packages/CraCore/Tests/CraCoreTests/MediaPauseProbeTests.swift::noCleanAnswerIsNoAnswer  2ef7567465ef
+#438   Packages/CraCore/Tests/CraCoreTests/MediaPauseProbeTests.swift::pausedAndResistedElementsCount  e7c8a1c973dd
 #438   Packages/CraCore/Tests/CraCoreTests/MediaPauseTests.swift::aProfileScope  022551a95704
 #438   Packages/CraCore/Tests/CraCoreTests/MediaPauseTests.swift::aWindowSpaceOrTabScopeAndExclusions  ec1a2e1b87d2
 #438   Packages/CraCore/Tests/CraCoreTests/MediaPauseTests.swift::everyLoadedPageEverywhereButNoSleepingTab  8b8e34ae4507

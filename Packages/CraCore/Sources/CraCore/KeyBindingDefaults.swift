@@ -291,6 +291,7 @@ public enum KeyBindingDefaults {
             "renameTab": [],
             "duplicateTab": [],
             "muteTab": [],
+            "pauseAllMedia": [],
             // Back to Pinned Page and Reset all tabs in this Space, from the command bar (no keys
             // on the Mac either).
             "resetTab": [],
@@ -335,6 +336,9 @@ public enum KeyBindingDefaults {
             "closeLittleWindows": [],
             // The Library: Ctrl+Shift+L as on the Mac; history and downloads take Chrome's keys.
             "openLibrary": [KeyChord("l", ctrlShift)],
+            // Arc for Windows' Hide Sidebar key (Chrome's Save Page, which Cra's Windows app
+            // doesn't have).
+            "toggleSidebar": [KeyChord("s", ctrl)],
             "viewArchive": [KeyChord("h", ctrl)],
             "viewDownloads": [KeyChord("j", ctrl)],
             // Registers Cra and opens Windows' Default apps page for it (PR 9).
