@@ -291,6 +291,7 @@ public enum KeyBindingDefaults {
             "renameTab": [],
             "duplicateTab": [],
             "muteTab": [],
+            "pauseAllMedia": [],
             // Back to Pinned Page and Reset all tabs in this Space, from the command bar (no keys
             // on the Mac either).
             "resetTab": [],
