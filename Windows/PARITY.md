@@ -35,8 +35,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Settings | 2 | 7 | 0 | 2 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
-| System integration and release | 4 | 3 | 0 | 10 | 9 |
-| **All** | 37 | 53 | 1 | 58 | 18 |
+| System integration and release | 4 | 4 | 0 | 9 | 9 |
+| **All** | 37 | 54 | 1 | 57 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -264,7 +264,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Window switchers and window managers see one window per Cra window (#391, #401) | ➖ | `DockedWindowAccessibility.swift`, `SwitcherWindows+AppKit.swift`, `WindowManagers+AppKit.swift` | `SwitcherWindows`, `WindowManagers` | Upstream ac12d60, 192b41e: macOS lists docked Chromium windows through accessibility. On Windows CEF's pages are child windows of Cra's top-level window, so Alt+Tab and snapping already see one window. Check on the PC that a Little Window's or Peek's page doesn't show as a window of its own. Sync #23: the Mac Little Window exposes standard movable/resizable accessibility attributes; Windows uses top-level windows and needs no macOS AX adapter. |
 | Shortcuts set in the system's keyboard settings work in pages | ➖ | `AppDelegate.swift` | | macOS only. |
 | AppleScript with Arc's dictionary, JavaScript from Apple Events off by default (`allowAppleEventsJavaScript`) | ➖ | `AppleScripting.swift` | | macOS only (upstream de695e2). Windows' scripting goes through `cra://` (its own row). |, `AppleScriptTabOrder`
-| "Quit Cra?" asked once, also while downloads run; windows quit in full screen reopen in full screen (#272, #426) | ❌ | `ChromiumQuitCancel.swift`, `AppDelegate.swift` | `QuitRequests` | Upstream 067918e, b87ce5f. Windows closes without asking. |
+| "Quit Cra?" asked once, also while downloads run; windows quit in full screen reopen in full screen (#272, #426) | 🟡 [#QUIT] | `ChromiumQuitCancel.swift`, `AppDelegate.swift` | `QuitRequests`, `QuitDialog` | Upstream 067918e, b87ce5f. Windows [#QUIT]: closing the last browser window (no Little Window open) is the quit, and asks "Downloads in progress" while one runs, else "Quit Cra?" when Settings ▸ General ▸ Warn before quitting is on (Quit, Cancel, Quit and don’t ask again), once: another Alt+F4 while it's open asks nothing. Left: full-screen windows reopening full screen. |
 | Keep Cra in the menu bar after quitting (#231) | ❌ | `MenuBarItem.swift` | `MenuBarMode` | Upstream 96c0255. Windows' counterpart is a notification-area icon that keeps Cra running. |
 | Open a Safari page handed off from an iPhone | ➖ | `AppDelegate+Handoff.swift` | | Upstream 4fd9b3e uses macOS Handoff/NSUserActivity. There is no direct Windows Handoff counterpart in this port. |
 | Chromium engine: Cra's own build of Chrome's framework in place of CEF, its version in Settings and About | ➖ | `EngineFramework.swift`, `EmbeddedDevTools.swift`, `PageDialogs.swift` | `EngineVersion`, `PageDialogPlacement` | Upstream 5bb7467 onward (Chrome 158.0.8127.37, `fetch-engine.sh`). The Mac leaves CEF; Windows stays on stock CEF (`fetch-deps.ps1` still reads `fetch-cef.sh`). A Windows engine build would be its own project. `EngineVersion.label` is portable for a Windows About line. Sync #23: engine -15 through -27 correct page creation, dialog/print placement (#574), bars, DevTools and extension hosts; Windows retains stock CEF and its existing window ownership. |

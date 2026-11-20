@@ -20,7 +20,7 @@ enum SettingsPanes {
     /// Dia's card idiom (GeneralPane on the Mac): a "System" card with Cra's place in Windows.
     /// `importData` opens Import from Another Browser in the browser window in use (the Mac's
     /// Advanced ▸ Your data row; Windows' Advanced pane has only how Cra opens).
-    static func general(palette: SettingsPalette, importData: @escaping @MainActor () -> Void,
+    static func general(store: SidebarStore, palette: SettingsPalette, importData: @escaping @MainActor () -> Void,
                         exportSpaces: @escaping @MainActor () -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
@@ -101,8 +101,12 @@ enum SettingsPanes {
         setDefaultButton = setDefault
         _ = syncBrowser()
 
+        // The Mac's General ▸ Warn before quitting: on Windows, closing the last window quits.
+        var syncs: [() -> Void] = []
+        let warn = settingSwitch("Warn before quitting", detail: "Closing the last window asks “Quit Cra?” first.",
+                                 \.warnBeforeQuitting, store: store, palette: palette, syncs: &syncs)
         stack.children.append(card([cardRow("Default browser", trailing: browser, palette: palette),
-                                    cardRow("Open Cra at login", trailing: toggle, palette: palette)], palette: palette))
+                                    cardRow("Open Cra at login", trailing: toggle, palette: palette), warn], palette: palette))
         stack.children.append(hint)
         stack.children.append(footnote)
 
@@ -122,6 +126,7 @@ enum SettingsPanes {
             let on = LaunchAtLogin.isEnabled
             if toggle.isOn != on { toggle.isOn = on }
             _ = syncBrowser()
+            syncs.forEach { $0() }
         }
     }
 
