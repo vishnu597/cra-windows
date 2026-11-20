@@ -122,6 +122,12 @@ public enum WindowCoverage {
         }
     }
 
+    /// CGRect.intersects, written out: swift-corelibs-foundation's counts frames that only touch
+    /// at an edge, Apple's doesn't.
+    static func overlaps(_ a: CGRect, _ b: CGRect) -> Bool {
+        a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY
+    }
+
     /// The Dock's process, as `kCGWindowOwnerName` names it (not localized).
     static let dockOwner = "Dock"
 
@@ -139,7 +145,7 @@ public enum WindowCoverage {
             // it was over Cra's window, which then counted as covered and sent its video away (#533). It covers nothing.
             Above(frame: w.frame, alpha: w.owner == dockOwner ? 0 : w.alpha, isOwnPart: w.ownerPID == pid && isOwnPart(w.number))
         }
-        let overlapping = listed.filter { $0.ownerPID != pid && $0.alpha > 0 && $0.owner != dockOwner && $0.frame.intersects(own.frame) }
+        let overlapping = listed.filter { $0.ownerPID != pid && $0.alpha > 0 && $0.owner != dockOwner && overlaps($0.frame, own.frame) }
             .map { "\($0.owner.isEmpty ? "pid \($0.ownerPID)" : $0.owner)@\($0.layer)" }
         return Reading(covered: isCovered(frame: own.frame, onScreen: own.onScreen, above: above), onScreen: own.onScreen,
                        inFront: above.count, ownParts: above.filter(\.isOwnPart).count,

@@ -335,9 +335,12 @@ struct SidebarStoreTests {
         let f = StoreFixture()
         let a = f.store.createTab(url: "https://a.test/", title: "A")
         let b = f.store.createTab(url: "https://b.test/")
+        f.store.selectTab(a.id)
         let copy = f.store.duplicateTab(a.id)
         #expect(f.today() == [b.id, a.id, copy!.id])
-        #expect(copy?.tab?.url == "https://a.test/" && f.store.selectedTabID == copy?.id)
+        // Arc's Duplicate (upstream #600): the copy stays in the background, saved read.
+        #expect(copy?.tab?.url == "https://a.test/" && f.store.selectedTabID == a.id && copy?.isUnread == false)
+        #expect(f.store.duplicateTab(a.id, select: true).map { f.store.selectedTabID == $0.id } == true)
         #expect(f.store.duplicateTab(f.space.todayContainerID) == nil)
     }
 
@@ -374,10 +377,11 @@ struct SidebarStoreTests {
         #expect(f.store.archive.first?.fromLittleWindow == true && f.store.archive.first?.item.tab?.url == "https://little.test/")
     }
 
-    @Test func theLibraryKeepsTwoThousandPages() {
+    @Test func theLibraryKeepsTenThousandPages() {
+        // Upstream #614: the archive keeps 10,000 closed tabs, not 2,000.
         let f = StoreFixture()
-        for i in 0..<2001 { f.store.archiveLittleWindowPage(url: "https://p\(i).test/", title: "") }
-        #expect(f.store.archive.count == 2000 && f.store.archive.first?.item.tab?.url == "https://p2000.test/")
+        for i in 0...ArchiveLimit.kept { f.store.archiveLittleWindowPage(url: "https://p\(i).test/", title: "") }
+        #expect(f.store.archive.count == ArchiveLimit.kept && f.store.archive.first?.item.tab?.url == "https://p\(ArchiveLimit.kept).test/")
     }
 
     @Test func aBrokenTreeIsReported() {
