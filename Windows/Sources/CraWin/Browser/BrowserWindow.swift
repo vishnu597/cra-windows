@@ -991,9 +991,8 @@ final class BrowserWindow {
         let selected = store.selectedTabID(window: windowID)
         tabSwitcher.cycle(delta, theme: space.theme, dark: WinAppearance.isDark) {
             // A split is one card (#554): open when any pane is (MainWindowController.openRecentCards).
-            let recent = store.recentCards(in: space.id, limit: .max, window: windowID).filter { card in
-                card.panes.contains { $0 == selected || !self.store.isPinned($0) || self.pages[$0] != nil }
-            }.prefix(TabSwitcherLayout.maxItems)
+            let recent = TabSwitcherCycle.cards(store.recentCards(in: space.id, limit: .max, window: windowID), selected: selected,
+                                                isPinned: { self.store.isPinned($0) }, isLoaded: { self.pages[$0] != nil })
             return recent.compactMap { card in
                 guard let item = store.item(card.opens), let tab = item.tab else { return nil }
                 var c = TabSwitcherWindow.Card(id: card.opens, title: item.displayTitle, iconKey: tab.iconKey)

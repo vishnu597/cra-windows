@@ -2999,9 +2999,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private func openRecentCards(limit: Int, allSpaces: Bool = false) -> [RecentTabOrder.Card] {
         let recent = allSpaces ? store.recentCardsInAllSpaces(limit: .max, window: windowID)
             : store.recentCards(in: focusedSpaceID, limit: .max, window: windowID)
-        return Array(recent.filter { card in
-            card.panes.contains { $0 == selectedTabID || !store.isPinned($0) || app.runtime(for: $0) != nil }
-        }.prefix(limit))
+        return TabSwitcherCycle.cards(recent, selected: selectedTabID, isPinned: { store.isPinned($0) },
+                                      isLoaded: { app.runtime(for: $0) != nil }, limit: limit)
     }
 
     func resetPinnedTab(_ id: UUID) {

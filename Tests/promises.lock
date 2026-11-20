@@ -1167,6 +1167,7 @@
 #554   Packages/CraCore/Tests/CraCoreTests/RecentTabOrderTests.swift::unshownPanesFollowTheirSplit  6d787990b8f6
 #554   Packages/CraCore/Tests/CraCoreTests/SwitcherSplitLayoutTests.swift::anEvenSplitMatchesArc  3e1ceda7fbaf
 #554   Packages/CraCore/Tests/CraCoreTests/SwitcherSplitLayoutTests.swift::widthsFollowThePanesShares  5910512f0e2f
+#554   Packages/CraCore/Tests/CraCoreTests/TabSwitcherCycleTests.swift::aSplitsCardStaysWhileAnyPaneIsOpen  089ac21a8ff1
 #554   Tests/Scenarios/tab-switcher-split.scenario  5682663e4a74
 #554   Tests/StoreTests.swift::recentCardsKeepSplitsWhole  25829ca1142c
 #556   Packages/CraCore/Tests/CraCoreTests/MobileTests.swift::aQuickLookOnlyAddsSpaces  f7cc377147bf
