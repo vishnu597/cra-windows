@@ -70,6 +70,8 @@ final class LittleWindow {
     private var slowResponse = SlowResponseNotice()
     private var slowResponseShown = false
     private var slowResponseCheck: ScheduledWork?
+    /// Use Both's check that the page kept a press (watchUseBoth).
+    private var useBothWatch: ScheduledWork?
     private lazy var clock = WinScheduler(queue: dispatcher)
     private var permissionQueue: [(page: WeakPage, origin: String, kinds: PermissionKinds, answer: (Bool) -> Void)] = []
     private let permissionPrompt = PermissionPromptView()
@@ -903,14 +905,32 @@ extension LittleWindow: WebPageDelegate {
         return host.page
     }
 
+    /// Before the page: the shortcuts that prefer Cra, as in a browser window (WinShortcutRouting, #374).
     func page(_ page: WebPage, handleKey key: KeyPress) -> Bool {
         guard !key.isRepeat || key.keyCode == 0x09 else { return false }
-        return handleShortcut(key)
+        guard let action = WinShortcutRouting.beforePage(key, watch: { [weak self] action, at in self?.watchUseBoth(action, pressedAt: at) })
+        else { return false }
+        return perform(shortcut: action.id)
     }
 
-    /// Arc's "Exit the current context": Escape the page didn't use closes a Peek.
+    /// Arc's "Exit the current context": Escape the page didn't use closes a Peek; a shortcut the page
+    /// left alone runs now.
     func page(_ page: WebPage, handleUnhandledKey key: KeyPress) -> Bool {
-        exitPeek(on: key)
+        if exitPeek(on: key) { return true }
+        guard !key.isRepeat || key.keyCode == 0x09, let action = WinShortcutRouting.pageLeft(key) else { return false }
+        return perform(shortcut: action.id)
+    }
+
+    /// This window's action, else the browser window's.
+    private func perform(shortcut id: String) -> Bool {
+        handle(action: id) || (list?.perform(id) ?? false)
+    }
+
+    private func watchUseBoth(_ action: KeyAction, pressedAt: TimeInterval) {
+        useBothWatch = clock.after(UseBothPresses.answerTime) { [weak self] in
+            guard let self, !self.closing, let text = WinShortcutRouting.keptText(action, pressedAt: pressedAt) else { return }
+            self.showToast(text)
+        }
     }
 
     /// Escape closes a Peek, a turn later (not inside the key's own handler).

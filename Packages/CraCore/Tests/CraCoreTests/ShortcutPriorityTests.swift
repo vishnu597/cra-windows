@@ -164,4 +164,27 @@ struct ShortcutPriorityTests {
         #expect(try JSONDecoder().decode([String: [KeyChord]].self, from: data) == o.shortcuts)
         #expect(try JSONDecoder().decode(KeyBindingOverrides.self, from: data) == o)
     }
+
+    /// The router Windows' windows use (and the Mac's decision): who takes a press before the page.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/374"))
+    func theRouterFollowsEachPriority() {
+        var r = ShortcutRouter()
+        #expect(r.beforePage("closeTab", priority: .preferCra, at: 1, isRepeat: false) == .take)
+        #expect(r.beforePage("find", priority: .preferWebsites, at: 1, isRepeat: false) == .pass)
+        // Use Both: the first press is the page's, watched; kept, the next one is Cra's.
+        #expect(r.beforePage("closeTab", priority: .useBoth, at: 10, isRepeat: false) == .passAndWatch)
+        #expect(r.beforePage("closeTab", priority: .useBoth, at: 10.1, isRepeat: true) == .pass, "a repeat goes where the press went")
+        #expect(r.pageKept("closeTab", pressedAt: 10, now: 10.5, offerTime: 3))
+        #expect(r.beforePage("closeTab", priority: .useBoth, at: 12, isRepeat: false) == .take)
+        // After the offer, a press is the page's again.
+        #expect(r.beforePage("closeTab", priority: .useBoth, at: 20, isRepeat: false) == .passAndWatch)
+        r.pageLeft("closeTab")
+        #expect(!r.pageKept("closeTab", pressedAt: 20, now: 20.5, offerTime: 3), "the page handed it back")
+        #expect(r.beforePage("closeTab", priority: .useBoth, at: 21, isRepeat: false) == .passAndWatch)
+    }
+
+    @Test func theAgainToastNamesTheKeysAndTheCommand() {
+        #expect(ShortcutRouter.againText(keys: "Ctrl+W", actionName: "Close Tab") == "Press Ctrl+W again to Close Tab")
+        #expect(ShortcutRouter.againText(keys: "Ctrl+,", actionName: "Settings…") == "Press Ctrl+, again to Settings")
+    }
 }

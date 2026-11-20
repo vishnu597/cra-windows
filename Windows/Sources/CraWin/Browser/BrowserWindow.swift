@@ -109,6 +109,8 @@ final class BrowserWindow {
     private static var settingsWindow: SettingsWindow?
     /// Help ▸ Essential Keyboard Shortcuts, made the first time it is asked for.
     private var essentialShortcutsCard: EssentialShortcutsCard?
+    /// Use Both's check that the page kept a press (watchUseBoth).
+    private var useBothWatch: ScheduledWork?
     /// Permission requests waiting for the user, oldest first; the first is on screen.
     private var permissionQueue: [(page: WeakPage, origin: String, kinds: PermissionKinds, answer: (Bool) -> Void)] = []
     private let permissionPrompt = PermissionPromptView()
@@ -2125,8 +2127,12 @@ extension BrowserWindow: LibraryActions {
     }
 
     /// Escape a page didn't use leaves the Library, if the page has the keyboard while it is open.
+    /// A shortcut the page left alone runs now (Prefer Websites, Use Both's first press).
     func page(_ page: WebPage, handleUnhandledKey key: KeyPress) -> Bool {
-        guard libraryPage != nil, key.keyCode == 0x1B, !key.control, !key.shift, !key.alt, !key.isRepeat else { return false }
+        guard libraryPage != nil, key.keyCode == 0x1B, !key.control, !key.shift, !key.alt, !key.isRepeat else {
+            guard !key.isRepeat || key.keyCode == 0x09, let action = WinShortcutRouting.pageLeft(key) else { return false }
+            return perform(action.id)
+        }
         _ = try? dispatcher.tryEnqueue { [weak self] in self?.closeLibrary() }
         return true
     }
@@ -2345,10 +2351,26 @@ extension BrowserWindow: WebPageDelegate {
         return host
     }
 
+    /// Before the page sees a key: the shortcuts that prefer Cra, and Use Both's second press of one the
+    /// page kept (Settings ▸ Shortcuts, #374). The rest go to the page and come back through
+    /// handleUnhandledKey if it leaves them alone (the Mac's handleReservedKey).
     func page(_ page: WebPage, handleKey key: KeyPress) -> Bool {
         if tabSwitcher?.isOpen == true { return switcherKey(key) }
         guard !key.isRepeat || key.keyCode == 0x09 else { return false }
-        return handleShortcut(key)
+        let action = WinShortcutRouting.beforePage(key) { [weak self] action, at in self?.watchUseBoth(action, pressedAt: at) }
+        guard let action else { return false }
+        return perform(action.id)
+    }
+
+    /// Use Both: a press the page hasn't handed back by `UseBothPresses.answerTime` was the page's.
+    /// Arc's toast says so ("Press Ctrl+W again to Close Tab", Edit the shortcut) and the next press is Cra's.
+    private func watchUseBoth(_ action: KeyAction, pressedAt: TimeInterval) {
+        useBothWatch = clock.after(UseBothPresses.answerTime) { [weak self] in
+            guard let self, !self.closing, let text = WinShortcutRouting.keptText(action, pressedAt: pressedAt) else { return }
+            self.showToast(text, action: ToastView.Action(title: "Edit the shortcut") { [weak self] in
+                self?.openSettings(pane: .shortcuts)
+            })
+        }
     }
 
     /// In DevTools only their own commands, on the page they inspect: every other key is the
