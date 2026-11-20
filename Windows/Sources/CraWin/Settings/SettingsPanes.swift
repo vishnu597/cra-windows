@@ -250,7 +250,7 @@ enum SettingsPanes {
 
     /// Dia's two-column form (TabsPane on the Mac): a label per group, checkboxes beside it.
     /// `airTrafficControl` opens the routes sheet from its button.
-    static func tabs(store: SidebarStore, palette: SettingsPalette,
+    static func tabs(store: SidebarStore, palette: SettingsPalette, keepActiveSites: @escaping @MainActor (Button) -> Void,
                      airTrafficControl: @escaping @MainActor (Button) -> Void) -> SettingsPaneContent {
         var syncs: [() -> Void] = []
         func checkbox(_ title: String, _ key: WritableKeyPath<AppSettings, Bool>) -> CheckBox {
@@ -340,7 +340,32 @@ enum SettingsPanes {
         syncs.append {
             sleepNote.text = TabSleepPolicy.settingsNote(timerOn: store.settings.tabSleepTimerEnabled, after: store.settings.tabSleepAfter)
         }
-        form.group("Memory:", [memory, sleepNote])
+        // #458: Arc's (and Chrome's) list at arc://settings/performance.
+        let keepRow = StackPanel()
+        keepRow.orientation = .horizontal
+        keepRow.spacing = 8
+        keepRow.margin = Thickness(left: 0, top: 6, right: 0, bottom: 2)
+        let sitesButton = Button()
+        sitesButton.content = UI.text("Always Keep Sites Active…", trimmed: false)
+        sitesButton.click.addHandler { [weak sitesButton] _, _ in
+            if let sitesButton { keepActiveSites(sitesButton) }
+        }
+        keepRow.children.append(sitesButton)
+        func keptSummary() -> String {
+            switch store.settings.keepActiveSites.count {
+            case 0: return "No sites"
+            case 1: return "1 site"
+            case let n: return "\(n) sites"
+            }
+        }
+        let keptCount = UI.text(keptSummary(), size: 11, color: palette.secondaryText)
+        keptCount.verticalAlignment = .center
+        keepRow.children.append(keptCount)
+        syncs.append { [sitesButton] in
+            _ = sitesButton
+            keptCount.text = keptSummary()
+        }
+        form.group("Memory:", [memory, sleepNote, keepRow])
         // Arc's Links pane: where links from other apps open, "Open Little Arc when I press ⌥⌘N"
         // (#195), New Little Window's key from any app, Peek's, and "Air Traffic Control…" with
         // how many routes there are.

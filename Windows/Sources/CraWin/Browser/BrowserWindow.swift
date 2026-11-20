@@ -934,7 +934,10 @@ final class BrowserWindow {
         let now = Date()
         let cutoff = now.addingTimeInterval(-policy.hiddenFor)
         let visible = paneIDs
-        let list = pages.keys.map { TabSleepPolicy.Page(id: $0, hiddenAt: hiddenAt[$0]) }
+        // "Always keep these sites active" (#458): a listed site's page never sleeps on the timer.
+        let list = pages.map { id, page in
+            TabSleepPolicy.Page(id: id, hiddenAt: hiddenAt[id], keptActive: settings.keepsActive(url: page.currentURL))
+        }
         for id in policy.candidates(list, visible: visible, now: now) {
             guard let page = pages[id], sleepAskAfter[id].map({ $0 <= now }) ?? true else { continue }
             let state = TabSleepPolicy.PageState(hiddenAt: hiddenAt[id], visible: visible.contains(id), created: page.isCreated,
