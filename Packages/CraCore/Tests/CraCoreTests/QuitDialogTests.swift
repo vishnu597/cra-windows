@@ -42,11 +42,15 @@ struct QuitDialogTests {
 
     @Test func oneQuestionAtATime() {
         var requests = QuitRequests()
-        #expect(requests.begin() == .new)
-        #expect(requests.begin() == .asking, "a second Alt+F4 while asking doesn't ask again")
+        let first = requests.begin()
+        #expect(first == .new)
+        let second = requests.begin()
+        #expect(second == .asking, "a second Alt+F4 while asking doesn't ask again")
         requests.answered(quit: false)
-        #expect(requests.begin() == .new, "after Cancel the next close asks again")
+        let afterCancel = requests.begin()
+        #expect(afterCancel == .new, "after Cancel the next close asks again")
         requests.answered(quit: true)
-        #expect(requests.begin() == .quitting)
+        let quitting = requests.begin()
+        #expect(quitting == .quitting)
     }
 }

@@ -8,11 +8,14 @@ struct WindowsKeepActiveSitesTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
     @Test(.bug("https://github.com/VictorKildahl/cra/issues/458"))
-    func aTypedSiteKeepsItsPagesAwakeOnTheTimer() throws {
+    func aTypedSiteKeepsItsPagesAwakeOnTheTimer() {
         var settings = AppSettings()
-        _ = try #require(settings.addKeepActiveSite("https://mail.example.com/inbox"))
-        #expect(settings.addKeepActiveSite("mail.example.com") == nil, "the same site isn't listed twice")
-        #expect(settings.addKeepActiveSite("not an address") == nil)
+        let added = settings.addKeepActiveSite("https://mail.example.com/inbox")
+        #expect(added?.host == "mail.example.com")
+        let again = settings.addKeepActiveSite("mail.example.com")
+        #expect(again == nil, "the same site isn't listed twice")
+        let junk = settings.addKeepActiveSite("not an address")
+        #expect(junk == nil)
 
         let urls = ["https://mail.example.com/u/0", "https://news.test/"]
         let pages = urls.map { TabSleepPolicy.Page(id: UUID(), hiddenAt: now.addingTimeInterval(-9 * 3600),
