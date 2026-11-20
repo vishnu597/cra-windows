@@ -592,7 +592,7 @@ final class CommandBarView {
 
     private func applyTheme() {
         root.requestedTheme = dark ? .dark : .light
-        root.background = dark ? UI.brush(32, 32, 36) : UI.brush(249, 249, 251)
+        root.background = barFill
         field.foreground = ink
         glyph.foreground = secondaryInk
         divider.background = dark ? UI.brush(255, 255, 255, alpha: 20) : UI.brush(0, 0, 0, alpha: 20)
@@ -609,7 +609,20 @@ final class CommandBarView {
         }
     }
 
+    /// The bar's own fill, or (#457, Settings ▸ Advanced, off by default) the site's colour while its
+    /// Tab search is on (CraCore ScopedSearchFill, as the Mac's bar).
+    private var barFill: Brush {
+        if case .site(let site)? = scope {
+            let spaceRGB = HexColor.components(space.accent ?? space.colors.first ?? "#5C6BC0").map { RGB($0.r, $0.g, $0.b) } ?? RGB(0.36, 0.42, 0.75)
+            if let fill = ScopedSearchFill.fill(enabled: store.settings.commandBarSiteColor, siteColor: site.color, space: spaceRGB, dark: dark) {
+                return UI.brush(UInt8((fill.r * 255).rounded()), UInt8((fill.g * 255).rounded()), UInt8((fill.b * 255).rounded()))
+            }
+        }
+        return dark ? UI.brush(32, 32, 36) : UI.brush(249, 249, 251)
+    }
+
     private func render() {
+        root.background = barFill
         let items = result.items
         field.placeholderText = scope != nil ? "Search…" : mode == .newTab ? "Search or enter URL…" : "Edit URL or search…"
         pill.visibility = scope == nil ? .collapsed : .visible
