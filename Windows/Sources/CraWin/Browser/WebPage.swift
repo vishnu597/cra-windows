@@ -247,6 +247,14 @@ final class WebPage: @unchecked Sendable {
     func printPage() { if let handle { cra_browser_print(handle) } }
     func viewSource() { if let handle { cra_browser_view_source(handle) } }
 
+    /// CEF's ViewSource opens a temporary text file through Windows. The app command and the
+    /// page/frame menu instead use the same shared address policy as the Mac, in a Cra tab.
+    @MainActor
+    private func viewSource(of address: String) {
+        guard !isClosed, let source = ViewSource.address(for: address) else { return }
+        delegate?.page(self, requestsNewTabWithURL: source, inBackground: false)
+    }
+
     /// A DevTools protocol method (CraBrowser.sendDevToolsMethod on the Mac): `completion` gets
     /// the answer's JSON, or nil and the error. Always called, on the main thread.
     func sendDevToolsMethod(_ method: String, params: String = "{}", completion: @escaping @MainActor (String?, String?) -> Void) {
@@ -352,6 +360,9 @@ final class WebPage: @unchecked Sendable {
         }
         cb.new_tab_requested = { ctx, url, background in
             WebPage.with(ctx) { $0.delegate?.page($0, requestsNewTabWithURL: string(url), inBackground: background != 0) }
+        }
+        cb.view_source_requested = { ctx, url in
+            WebPage.with(ctx) { $0.viewSource(of: string(url)) }
         }
         cb.popup_host_requested = { ctx, url, background in
             let url = string(url)

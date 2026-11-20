@@ -131,11 +131,13 @@ extension SidebarView {
         }
         favoritesCard.visibility = .collapsed
         favoritesCard.height = 36
-        favoritesCard.margin = Thickness(left: 0, top: 0, right: 0, bottom: 8)
+        favoritesCard.margin = Thickness(left: 0, top: 0, right: 0, bottom: 0)
         favoritesCard.cornerRadius = CornerRadius(topLeft: 8, topRight: 8, bottomRight: 8, bottomLeft: 8)
         favoritesCard.borderThickness = Thickness(left: 1, top: 1, right: 1, bottom: 1)
-        root.children.append(favoritesCard)
-        try? Grid.setRow(favoritesCard, 0)
+        // A drag affordance must not take a new auto-sized row: 36 + 8 DIPs here used
+        // to push every list row down as the drag began, moving the intended drop target.
+        overlay.children.append(favoritesCard)
+        try? Canvas.setZIndex(favoritesCard, -1)
     }
 
     /// Arc's "Drag to add Favorites" card stands in for an empty grid while a tab or split is
@@ -148,6 +150,7 @@ extension SidebarView {
         } ?? false
         favoritesCard.visibility = shows ? .visible : .collapsed
         guard shows else { return }
+        place(favoritesCard, x: 0, y: 0, width: root.actualWidth, height: 36)
         favoritesCard.borderBrush = palette.secondaryText
         favoritesCard.background = drag.target == .favorites(slot: 0) ? palette.selected : palette.tile
         let label = UI.text("Add to Favorites", size: 12, color: palette.secondaryText)
@@ -212,6 +215,8 @@ extension SidebarView {
         }
         if GetAsyncKeyState(Self.escapeKey) < 0 { return endDrag() }
         guard Self.buttonDown() else {
+            // The release can be past the last timer sample; resolve the actual final point.
+            updateTarget(dt: 0)
             let target = drag.target
             let source = drag.source
             endDrag(landing: true)
@@ -222,6 +227,7 @@ extension SidebarView {
     }
 
     private func beginDrag() {
+        clickTracker.cancel()
         drag.dragging = true
         drag.undoPress?()
         drag.undoPress = nil

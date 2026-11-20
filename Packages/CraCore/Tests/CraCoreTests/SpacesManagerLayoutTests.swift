@@ -43,6 +43,24 @@ struct SpacesManagerLayoutTests {
         #expect(SpacesManagerLayout.move(c, by: 1, shown: order, spaceOrder: order) == nil)
     }
 
+    @Test func aDragUsesTheFixedViewportAndItsScrollOffset() {
+        let drag = SpacesManagerLayout.Drag(pointerX: 500, scrollOffset: 100, index: 1, count: 4)
+        #expect(drag.offset(pointerX: 600, scrollOffset: 100) == 100)
+        // Moving the card itself changes neither the captured origin nor another sample.
+        #expect(drag.offset(pointerX: 600, scrollOffset: 100) == 100)
+        #expect(drag.offset(pointerX: 600, scrollOffset: 140) == 140)
+        #expect(drag.offset(pointerX: 480, scrollOffset: 80) == -40)
+    }
+
+    @Test func aDragStopsAtTheActualFirstAndLastCard() {
+        let pitch = SpacesManagerLayout.card + SpacesManagerLayout.gap
+        let drag = SpacesManagerLayout.Drag(pointerX: 500, scrollOffset: 0, index: 1, count: 3)
+        #expect(drag.offset(pointerX: -1000, scrollOffset: 0) == -pitch)
+        #expect(drag.offset(pointerX: 2000, scrollOffset: 0) == pitch)
+        let only = SpacesManagerLayout.Drag(pointerX: 100, scrollOffset: 0, index: 0, count: 1)
+        #expect(only.offset(pointerX: 300, scrollOffset: 0) == 0)
+    }
+
     /// The index goes to SidebarStore.moveSpace, which puts the space in the shown card's place.
     @Test func storeFollowsTheDrop() throws {
         let f = StoreFixture()

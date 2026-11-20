@@ -146,6 +146,12 @@ to Markdown or `docs/` alone runs nothing.
   would pick.
 - `scripts/test-policies.sh`: the decisions pulled out of the window controllers
   (`ExtensionLaunch`, `FeatureFlags`).
+- `scripts/test-tab-sleep-probe.sh`: the production document-start recorder and sleep probe
+  on a scripted DOM in Node: framework-controlled edits, same-document routes, Web Audio
+  contexts and conservative refusal when recording fails. Renderer timing and real mouse/audio
+  checks remain in [release-checklist.md](release-checklist.md).
+- `Windows/scripts/test-cef-cache-version.ps1`: filesystem regressions for the Windows build's
+  dependency cache, including stale CEF commit/Chromium versions and explicit version overrides.
 - `scripts/test-webkit-stores.sh`: `WebKitStores` in a process where nothing has started WebKit
   yet, as at launch: a deleted profile's WebKit data goes without crashing.
 - `scripts/test-folder-glyph.sh`: the standalone folder component's real AppKit layers and image

@@ -112,6 +112,10 @@ int cra_cef_set_secure_dns(const char *mode, const char *templates);
 /// at their next load, as on the Mac.
 void cra_cef_set_page_start_script(const char *script);
 
+/// A script in each new main-frame JavaScript context, before the page's own scripts. Set once
+/// on the UI thread before creating pages; the renderer gets a snapshot with each browser.
+void cra_cef_set_document_start_script(const char *script);
+
 /// The page menu's "Open Link in New Tab": nonzero opens the tab behind the page (Arc, the
 /// default), 0 switches to it (Settings ▸ Tabs, LinkMenu). Ctrl-clicks are unaffected.
 void cra_cef_set_link_menu_background(int background);
@@ -329,6 +333,9 @@ typedef struct CraBrowserCallbacks {
     void (*fullscreen_changed)(void *context, int fullscreen);
     /// Ctrl-click, middle-click and similar: open a plain new tab.
     void (*new_tab_requested)(void *context, const char *url, int background);
+    /// View Page/Frame Source: the raw page address. Swift's shared ViewSource policy opens
+    /// its view-source: address in a Cra tab instead of handing a temporary file to Windows.
+    void (*view_source_requested)(void *context, const char *url);
     /// A link the user clicked that may open in a Peek instead (Arc): one the page navigates to
     /// (`new_tab` and `shift_click` 0), a target=_blank one (`new_tab` 1), a Shift-click
     /// (`shift_click` 1). Return nonzero when Cra opened it; the page then doesn't.
@@ -435,6 +442,7 @@ void cra_browser_set_dev_tools_action(CraBrowser *browser, const char *action);
 /// Runs the pending action in DevTools already open, without bringing them forward.
 void cra_browser_apply_dev_tools_action(CraBrowser *browser);
 void cra_browser_print(CraBrowser *browser);
+/// Asks view_source_requested for this page's URL; it never opens a temporary file in Windows.
 void cra_browser_view_source(CraBrowser *browser);
 /// Runs a DevTools protocol method ("Page.captureScreenshot") with `params` (a JSON object, NULL
 /// for none). `done` is called exactly once, on the main thread: with the answer, or with

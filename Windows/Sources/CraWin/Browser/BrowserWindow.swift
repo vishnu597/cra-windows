@@ -1320,6 +1320,7 @@ final class BrowserWindow {
         for (id, frame) in paneFrames { pages[id]?.frame = frame }
         window.pill = paneDrag.flatMap { paneGaps.indices.contains($0.divider) ? pill(in: paneGaps[$0.divider]) : nil }
         placeFindBar()
+        if slowResponseToastTab != nil { toast?.ownerMoved() }
     }
 
     private func paneLayout(factors: [UUID: CGFloat]) -> SplitPaneLayout {
@@ -1991,9 +1992,9 @@ final class BrowserWindow {
         toast.show(text, action: action, theme: store.focusedSpace(window: windowID).theme)
     }
 
-    /// The tab on screen still waiting for its first response after ten seconds says so in the
+    /// A visible pane still waiting for its first response after ten seconds says so in the
     /// toast, with Stop Loading (SlowResponseNotice, GitHub #256). Runs on every page and store
-    /// change and when the front tab's notice falls due.
+    /// change and when any visible pane's notice falls due.
     private func syncSlowResponse() {
         guard !closing else { return }
         let now = clock.now
@@ -2001,7 +2002,7 @@ final class BrowserWindow {
             SlowResponseNotices.Page(phase: LoadingIndicator.Phase(isLoading: page.isLoading, committed: page.hasCommittedLoad),
                                      navigation: page.navigationStarts)
         }
-        let state = slowResponses.update(live, front: shownTabID, now: now)
+        let state = slowResponses.update(live, visible: paneIDs, focused: shownTabID, now: now)
         slowResponseCheck?.cancel()
         slowResponseCheck = nil
         if let due = state.checkAt {
@@ -2018,22 +2019,29 @@ final class BrowserWindow {
     private func showSlowResponse(_ id: UUID) {
         guard let page = pages[id] else { return }
         let url = page.navigatingURL.isEmpty ? store.item(id)?.tab?.url ?? "" : page.navigatingURL
+        // The notice belongs to this pane, even while another pane has the keyboard. Set the
+        // anchor before ToastView asks pageOnScreen for its position.
+        slowResponseToastTab = id
         toast.show(SlowResponseNotice.message(for: url),
                    action: ToastView.Action(title: "Stop Loading") { [weak self] in self?.pages[id]?.stopLoading() },
                    theme: store.focusedSpace(window: windowID).theme,
                    onClose: { [weak self] in
                        // ✕: the page goes on waiting, without the notice.
-                       self?.slowResponses.close(id)
-                       if self?.slowResponseToastTab == id { self?.slowResponseToastTab = nil }
+                       guard let self else { return }
+                       self.slowResponses.close(id)
+                       if self.slowResponseToastTab == id { self.slowResponseToastTab = nil }
+                       // Another pane may already be due, with no further loading event to
+                       // wake it. Leave this Close button's input callback before showing it.
+                       _ = try? self.dispatcher.tryEnqueue { [weak self] in self?.syncSlowResponse() }
                    })
         // Shown only when the page area is on screen.
         slowResponseToastTab = toast.isShown ? id : nil
     }
 
-    /// The focused pane's frame on screen (the whole page area without a split), for the toast.
+    /// The notice's pane, else the focused pane, on screen (the whole page area without a split).
     private func pageOnScreen() -> (left: Int32, top: Int32, right: Int32, scale: Double)? {
         guard let window, let host = HWND(bitPattern: hwnd) else { return nil }
-        let frame = shownTabID.flatMap { paneFrames[$0] } ?? window.contentFrame
+        let frame = (slowResponseToastTab ?? shownTabID).flatMap { paneFrames[$0] } ?? window.contentFrame
         var topLeft = POINT(x: frame.x, y: frame.y)
         _ = ClientToScreen(host, &topLeft)
         return (topLeft.x, topLeft.y, topLeft.x + frame.width, window.scale)

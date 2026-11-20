@@ -20,6 +20,7 @@ suite "Shipped-issue lock" python3 Tests/test_promises.py
 if [ "${1:-}" != core ]; then
   suite "Browser manager" Tests/test-browser-manager.sh
   suite "Ask on Page DOM" scripts/test-ask-on-page-content.sh
+  suite "Tab sleep page probe" scripts/test-tab-sleep-probe.sh
   suite "Ask on Page quote scripts" scripts/test-ask-on-page-quotes.sh
   suite "Ask on Page service" scripts/test-ask-on-page-service.sh
   suite "Ask on Page lifecycle" scripts/test-ask-on-page-lifecycle.sh

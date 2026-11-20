@@ -900,6 +900,18 @@ private:
 /// stylesheet, while that setting is on. Set on the UI thread, read on it as pages commit.
 std::mutex g_pageStartScriptLock;
 std::string g_pageStartScript;
+// A recorder that must run before the page's scripts (tab sleeping's trusted input and Web Audio).
+// CreateBrowser/OnBeforePopup carry a snapshot to the renderer, including new renderer processes
+// on cross-origin navigation. Unlike the commit script, this one is set once before pages open.
+std::string g_documentStartScript;
+constexpr char kDocumentStartScriptKey[] = "cra.documentStartScript";
+
+CefRefPtr<CefDictionaryValue> DocumentStartInfo(CefRefPtr<CefDictionaryValue> existing = nullptr) {
+    std::lock_guard<std::mutex> lock(g_pageStartScriptLock);
+    auto extra = existing ? existing->Copy(false) : CefDictionaryValue::Create();
+    extra->SetString(kDocumentStartScriptKey, g_documentStartScript);
+    return extra;
+}
 
 /// The page menu's "Open Link in New Tab" leaves the page in front (Arc, #276) unless Settings ▸
 /// Tabs says to switch (cra_cef_set_link_menu_background). Ctrl-click and Ctrl+Shift-click say
@@ -959,8 +971,19 @@ public:
 
     bool OnContextMenuCommand(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefContextMenuParams> params,
                               int command_id, EventFlags event_flags) override {
-        if (command_id != kMenuOpenLinkNewTab) return false;
         CraBrowser *o = Live();
+        // Chrome-style commands use mapped IDC ids; MENU_ID_VIEW_SOURCE is the CEF menu's
+        // equivalent. Pass the raw page or frame URL to Swift's shared ViewSource policy.
+        static const int pageSourceID = cef_id_for_command_id_name("IDC_VIEW_SOURCE");
+        static const int frameSourceID = cef_id_for_command_id_name("IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE");
+        const bool frameSource = frameSourceID > 0 && command_id == frameSourceID;
+        if (command_id == MENU_ID_VIEW_SOURCE || (pageSourceID > 0 && command_id == pageSourceID) || frameSource) {
+            if (o && o->callbacks.view_source_requested)
+                o->callbacks.view_source_requested(o->callbacks.context,
+                                                   (frameSource ? params->GetFrameUrl() : params->GetPageUrl()).ToString().c_str());
+            return true;
+        }
+        if (command_id != kMenuOpenLinkNewTab) return false;
         if (o && o->callbacks.new_tab_requested)
             o->callbacks.new_tab_requested(o->callbacks.context, params->GetLinkUrl().ToString().c_str(),
                                            g_linkMenuBackground.load() ? 1 : 0);
@@ -1023,6 +1046,7 @@ public:
         client = host->client;
         CraPageSettings(settings);
         windowInfo.SetAsChild(host->parent, host->frame);
+        extra_info = DocumentStartInfo(extra_info);
         return false;  // CEF creates it in the host's place, with the opener kept
     }
 
@@ -1277,6 +1301,11 @@ public:
     /// Chrome's own tab and window commands stop here (IsBlockedChromeCommand). Find, print, zoom,
     /// DevTools and the edit commands keep Chrome's behaviour.
     bool OnChromeCommand(CefRefPtr<CefBrowser> browser, int command_id, cef_window_open_disposition_t disposition) override {
+        static const int sourceID = cef_id_for_command_id_name("IDC_VIEW_SOURCE");
+        if (sourceID > 0 && command_id == sourceID) {
+            cra_browser_view_source(Live());
+            return true;
+        }
         return IsBlockedChromeCommand(command_id);
     }
 
@@ -1623,6 +1652,18 @@ class CraRendererApp : public CefApp, public CefRenderProcessHandler {
 public:
     CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override { return this; }
 
+    void OnBrowserCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDictionaryValue> extra_info) override {
+        auto &entry = document_scripts_[browser->GetIdentifier()];
+        ++entry.first;
+        if (extra_info && extra_info->HasKey(kDocumentStartScriptKey))
+            entry.second = extra_info->GetString(kDocumentStartScriptKey).ToString();
+    }
+
+    void OnBrowserDestroyed(CefRefPtr<CefBrowser> browser) override {
+        auto it = document_scripts_.find(browser->GetIdentifier());
+        if (it != document_scripts_.end() && --it->second.first == 0) document_scripts_.erase(it);
+    }
+
     void OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
                           CefRefPtr<CefV8Context> context) override {
         if (!frame->IsMain()) return;
@@ -1631,9 +1672,19 @@ public:
                                        static_cast<cef_v8_propertyattribute_t>(V8_PROPERTY_ATTRIBUTE_READONLY |
                                                                                V8_PROPERTY_ATTRIBUTE_DONTENUM |
                                                                                V8_PROPERTY_ATTRIBUTE_DONTDELETE));
+        auto script = document_scripts_.find(browser->GetIdentifier());
+        if (script != document_scripts_.end() && !script->second.second.empty()) {
+            CefRefPtr<CefV8Value> result;
+            CefRefPtr<CefV8Exception> exception;
+            if (!context->Eval(script->second.second, "", 0, result, exception))
+                LOG(WARNING) << "Cra: document-start page recorder could not initialize";
+        }
     }
 
 private:
+    // Cross-origin replacement can create the new browser before destroying the old one with
+    // the same id. The count keeps that destruction from deleting the new context's recorder.
+    std::map<int, std::pair<size_t, std::string>> document_scripts_;
     IMPLEMENT_REFCOUNTING(CraRendererApp);
 };
 
@@ -1647,7 +1698,7 @@ void CraBrowser::Create() {
     if (!visible) info.style &= ~static_cast<DWORD>(WS_VISIBLE);
     CefBrowserSettings settings;
     CraPageSettings(settings);
-    CefBrowserHost::CreateBrowser(info, client, pending_url.empty() ? "about:blank" : pending_url, settings, nullptr,
+    CefBrowserHost::CreateBrowser(info, client, pending_url.empty() ? "about:blank" : pending_url, settings, DocumentStartInfo(),
                                   incognito ? IncognitoContext() : ProfileContext(profile_path));
 }
 
@@ -1950,6 +2001,11 @@ extern "C" void cra_cef_set_page_start_script(const char *script) {
     g_pageStartScript = script ? script : "";
 }
 
+extern "C" void cra_cef_set_document_start_script(const char *script) {
+    std::lock_guard<std::mutex> lock(g_pageStartScriptLock);
+    g_documentStartScript = script ? script : "";
+}
+
 extern "C" void cra_cef_set_stray_page_handler(void *context, CraStrayPageHandler handler) {
     g_strayPageContext = context;
     g_strayPageHandler = handler;
@@ -2179,7 +2235,9 @@ extern "C" void cra_browser_print(CraBrowser *b) {
     if (b && b->browser) b->browser->GetHost()->Print();
 }
 extern "C" void cra_browser_view_source(CraBrowser *b) {
-    if (b && b->browser) b->browser->GetMainFrame()->ViewSource();
+    if (!b || !b->browser || b->close_requested || !b->callbacks.view_source_requested) return;
+    if (CefRefPtr<CefFrame> frame = b->browser->GetMainFrame())
+        b->callbacks.view_source_requested(b->callbacks.context, frame->GetURL().ToString().c_str());
 }
 
 extern "C" void cra_browser_send_dev_tools_method(CraBrowser *b, const char *method, const char *params, void *context,

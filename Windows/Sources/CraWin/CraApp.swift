@@ -183,6 +183,9 @@ public final class CraApp: SwiftApplication {
     /// UI thread, the switch following the setting.
     @MainActor
     private func startContentBlocking(store: SidebarStore, clock: WinScheduler) {
+        // Before windows.restore creates any pages: user edits and Web Audio need recording at
+        // document start, rather than being discovered after the page has already run its scripts.
+        cra_cef_set_document_start_script(TabSleepProbe.documentStartScript)
         cra_cef_load_blocked_domains(WinPaths.native(Self.exeFolder.appendingPathComponent("blocklist").appendingPathComponent("domains.txt")))
         // For the log a PC test reads: 0 means the list is missing from the build.
         _ = clock.after(5) { print("Cra: ad and tracker list: \(cra_cef_blocked_domain_count()) domains") }

@@ -83,6 +83,9 @@ final class SidebarView {
     /// The last click on a tab row and whether it went back home (PinnedIconClick: a double-click
     /// on the icon goes back once, then neither clicks again nor renames, #345).
     private var lastTabClick: (id: UUID, at: UInt64, wentBack: Bool)?
+    /// The model identity survives a redraw that replaces a row between mouse presses.
+    var clickTracker = SidebarClick()
+    private var rowClickCount = 1
     /// What is being renamed (Rename…, Rename Space…, a new folder, a double-click).
     let renaming = SidebarRenaming()
 
@@ -200,6 +203,7 @@ final class SidebarView {
             let label = tileIcon(item)
             label.horizontalAlignment = .center
             let tile = UI.button(label, fill: item.id == open ? palette.selected : palette.tile) { [weak self] in
+                self?.clickTracker.cancel()
                 self?.dragPressed(.item(item.id))
                 self?.select(item.id)
             }
@@ -247,16 +251,18 @@ final class SidebarView {
         }
         let name = UI.text("\(space.emoji) \(space.title)".trimmingCharacters(in: .whitespaces), size: 14, color: palette.text)
         // Arc: clicking the space's name folds its pinned tabs away.
+        let spaceID = space.id
         let title = UI.button(name, padding: Thickness(left: 6, top: 4, right: 6, bottom: 4)) { [weak self] in
             guard let self else { return }
+            if self.mouseClickCount(.space(spaceID)) == 2, Self.clickModifiers == 0 {
+                self.beginRename(space: spaceID)
+                return
+            }
             self.store.togglePinnedCollapsed(self.store.focusedSpaceID(window: self.windowID))
         }
         title.horizontalAlignment = .stretch
         title.horizontalContentAlignment = .left
         title.contextFlyout = spaceMenu(space)
-        // Arc: a double-click on the space's name renames it.
-        let spaceID = space.id
-        title.doubleTapped.addHandler { [weak self] _, _ in self?.beginRename(space: spaceID) }
         header.children.append(title)
     }
 
@@ -493,18 +499,26 @@ final class SidebarView {
             try? Grid.setColumn(badge, 1)
             content = inside
         }
-        let pick = UI.button(content, fill: selected ? palette.selected : nil, action)
+        let pick = UI.button(content, fill: selected ? palette.selected : nil) { [weak self] in
+            guard let self else { return }
+            let clicks: Int
+            if let id = renames {
+                clicks = self.mouseClickCount(.item(id))
+                if clicks == 2, Self.clickModifiers == 0, !self.wentHomeJustNow(id) {
+                    self.beginRename(item: id)
+                    return
+                }
+            } else {
+                self.clickTracker.cancel()
+                clicks = 1
+            }
+            self.rowClickCount = clicks
+            action()
+            self.rowClickCount = 1
+        }
         pick.horizontalAlignment = .stretch
         pick.horizontalContentAlignment = peek == nil ? .left : .stretch
         if let menu { pick.contextFlyout = menu }
-        // Arc: a double-click on a tab's or folder's name renames it.
-        if let id = renames {
-            pick.doubleTapped.addHandler { [weak self] _, _ in
-                // Not when the double-click's first click went back home from the icon (#345).
-                guard let self, !self.wentHomeJustNow(id) else { return }
-                self.beginRename(item: id)
-            }
-        }
         row.children.append(pick)
         try? Grid.setColumn(pick, 0)
 
@@ -580,6 +594,24 @@ final class SidebarView {
         store.selectTab(id, window: windowID)
     }
 
+    private static var clickModifiers: Int {
+        (GetKeyState(0x11) < 0 ? 1 : 0) | (GetKeyState(0x10) < 0 ? 2 : 0) | (GetKeyState(0x12) < 0 ? 4 : 0)
+    }
+
+    /// WinUI's double-tap recognizer belongs to the old Button, which the first click may
+    /// replace. Count physical presses against the item instead; keyboard/Invoke has no pair.
+    private func mouseClickCount(_ target: SidebarClick.Target) -> Int {
+        let primary: Int32 = GetSystemMetrics(23) != 0 ? 0x02 : 0x01  // SM_SWAPBUTTON
+        var point = POINT()
+        guard GetAsyncKeyState(primary) < 0, GetCursorPos(&point) else {
+            clickTracker.cancel()
+            return 1
+        }
+        return clickTracker.press(target, at: Double(GetTickCount64()) / 1000, x: Double(point.x), y: Double(point.y),
+                                  modifiers: Self.clickModifiers, interval: Double(GetDoubleClickTime()) / 1000,
+                                  distanceX: Double(GetSystemMetrics(36)) / 2, distanceY: Double(GetSystemMetrics(37)) / 2)
+    }
+
     /// A click on a tab row (on its release): on the favicon of a pinned tab away from its page
     /// it goes back there, with Ctrl the page moves out to a new Today tab first (the Mac's ⌘);
     /// anywhere else it selects the tab (PinnedIconClick, SidebarRowViews' click).
@@ -588,7 +620,7 @@ final class SidebarView {
         let onIcon = iconPress.map { $0.id == id && now &- $0.at < 2000 } ?? false
         iconPress = nil
         let last = lastTabClick.flatMap { $0.id == id && now &- $0.at <= UInt64(GetDoubleClickTime()) ? $0 : nil }
-        let action = PinnedIconClick.action(clickCount: last == nil ? 1 : 2, onIcon: onIcon, navigatedAway: awayFromHome,
+        let action = PinnedIconClick.action(clickCount: rowClickCount, onIcon: onIcon, navigatedAway: awayFromHome,
                                             command: GetKeyState(0x11) < 0, previousWentBack: last?.wentBack ?? false)
         lastTabClick = (id, now, action.wentBack || (action == .nothing))
         switch action {

@@ -8,16 +8,19 @@ $root = Split-Path -Parent $PSScriptRoot
 $vendor = Join-Path $root 'vendor'
 New-Item -ItemType Directory -Force $vendor | Out-Null
 
-# Same Chromium as the macOS app, when Spotify publishes it. Spotify has stock CEF builds only:
-# a version upstream builds itself (156.0.27 pairs CEF's 8078 head with Chromium 156.0.8078.96,
-# upstream f7b1ba4) has no Windows download, so Windows stays on $stockPin, the newest stock
-# build, until it does. Clear $stockPin once Spotify has the Mac's version.
-$stockPin = '156.0.26+g8ea0c73+chromium-156.0.8078.88'
+# Spotify's stock .27 has the Mac's CEF revision but Chromium .88 rather than the Mac's
+# custom .96 build. The single .26 -> .27 change, a10dae3 (CEF #4353), keeps the browser
+# process alive while our external message loop still has pages after a Chrome window closes.
+# Clear $stockPin once Spotify publishes the exact version read from fetch-cef.sh.
+$stockPin = '156.0.27+ga10dae3+chromium-156.0.8078.88'
+$stockSHA1 = 'f3bac43e0e5a8ead78532bbc8f1de5c19f97d569' # Spotify's official build manifest.
 $pin = Select-String -Path (Join-Path $root '..\scripts\fetch-cef.sh') -Pattern 'CEF_VERSION="\$\{CEF_VERSION:-(.+)\}"'
 $cefVersion = if ($env:CEF_VERSION) { $env:CEF_VERSION } elseif ($stockPin) { $stockPin } else { $pin.Matches[0].Groups[1].Value }
 $name = "cef_binary_${cefVersion}_windows64_minimal"
 $cef = Join-Path $vendor 'cef'
-if (-not (Test-Path (Join-Path $cef 'Release\libcef.dll'))) {
+. (Join-Path $PSScriptRoot 'cef-cache-version.ps1')
+Assert-CefCacheVersion -CefDirectory $cef -ExpectedVersion $cefVersion
+if (-not (Test-Path -LiteralPath (Join-Path $cef 'Release\libcef.dll') -PathType Leaf)) {
     $url = "https://cef-builds.spotifycdn.com/$([uri]::EscapeDataString($name)).tar.bz2"
     Write-Host "Downloading $name"
     $download = Join-Path $vendor 'cef-download'
@@ -25,6 +28,10 @@ if (-not (Test-Path (Join-Path $cef 'Release\libcef.dll'))) {
     New-Item -ItemType Directory -Force $download | Out-Null
     curl.exe -fL --retry 3 --no-progress-meter -o (Join-Path $download 'cef.tar.bz2') $url
     if ($LASTEXITCODE) { throw "CEF download failed: $url" }
+    if ($cefVersion -eq $stockPin -and
+        (Get-FileHash -LiteralPath (Join-Path $download 'cef.tar.bz2') -Algorithm SHA1).Hash -ne $stockSHA1) {
+        throw 'CEF archive does not match the official stock-build checksum'
+    }
     Write-Host "$(Get-Date -Format T) Downloaded, extracting"
     # 7-Zip when it is there (CI runners have it): tar.exe stalled on this archive in CI.
     Push-Location $download
