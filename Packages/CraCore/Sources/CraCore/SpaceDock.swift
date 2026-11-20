@@ -83,4 +83,30 @@ public enum SpaceDock {
         case .none: return .dot(diameter: dotDiameter)
         }
     }
+
+    /// The room between the dock's Library and + buttons in a dock `width` points wide (the
+    /// sidebar less its 10 pt margins): 217 pt in a 300 pt sidebar.
+    public static func room(dockWidth width: CGFloat) -> CGFloat {
+        max(0, width - 63)
+    }
+
+    /// Arc's tip over a space's icon: its name, its profile in a pill ("Default" without one),
+    /// then Go to Space N's keys for its place in the space order (none past the ninth).
+    public struct Tip: Equatable, Sendable {
+        public var title: String
+        public var profile: String
+        /// The N of Go to Space N (`space1`…`space9`), nil past the ninth space.
+        public var number: Int?
+
+        public init(title: String, profile: String, number: Int?) {
+            self.title = title
+            self.profile = profile
+            self.number = number
+        }
+    }
+
+    /// The tip for the space at `index` in the space order.
+    public static func tip(title: String, profileName: String?, index: Int?) -> Tip {
+        Tip(title: title, profile: profileName ?? "Default", number: index.flatMap { $0 < 9 ? $0 + 1 : nil })
+    }
 }

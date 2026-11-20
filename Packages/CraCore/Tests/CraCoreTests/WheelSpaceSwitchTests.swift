@@ -97,4 +97,21 @@ struct WheelSpaceSwitchTests {
     func pagesLikeASwipeWithoutWrapping(step: Int, index: Int, count: Int, inLibrary: Bool, libraryAllowed: Bool, target: WheelSpaceSwitch.Target?) {
         #expect(WheelSpaceSwitch.target(step: step, index: index, count: count, inLibrary: inLibrary, libraryAllowed: libraryAllowed) == target)
     }
+
+    /// Windows: one notch (120) is one line, so a slow notch does nothing and two quick ones
+    /// switch; Shift + wheel down and a sideways wheel tilted right both go to the next space.
+    @Test
+    func windowsWheelDeltasPageLikeTheMac() {
+        #expect(WheelSpaceSwitch.lines(windowsDelta: -120, horizontal: false) == -1)
+        #expect(WheelSpaceSwitch.lines(windowsDelta: 120, horizontal: true) == -1)
+        #expect(WheelSpaceSwitch.lines(windowsDelta: -240, horizontal: true) == 2)
+        var wheel = WheelSpaceSwitch()
+        let notch = WheelSpaceSwitch.lines(windowsDelta: -120, horizontal: false)
+        #expect(wheel.step(dx: notch, inverted: false, at: 10) == 0)
+        #expect(wheel.step(dx: notch, inverted: false, at: 10.02) == 1)
+        var tilt = WheelSpaceSwitch()
+        let left = WheelSpaceSwitch.lines(windowsDelta: -120, horizontal: true)
+        #expect(tilt.step(dx: left, inverted: false, at: 10) == 0)
+        #expect(tilt.step(dx: left, inverted: false, at: 10.02) == -1)
+    }
 }
