@@ -332,6 +332,7 @@
 #205   Packages/CraCore/Tests/CraCoreTests/SpaceIconTests.swift::iconsNeverStack  7ffc5abe0004
 #205   Packages/CraCore/Tests/CraCoreTests/SpaceIconTests.swift::readingTheStoredPair  517e549811b6
 #205   Packages/CraCore/Tests/CraCoreTests/SpaceIconTests.swift::savingTheIconItReadsChangesNothing  d7e745d4f478
+#207   Packages/CraCore/Tests/CraCoreTests/WindowsAppLinksTests.swift::appLinksThatAskForATabOpenNone  28700f5055ba
 #208   Tests/Scenarios/middle-click-page.scenario  745469858ccb
 #209   Packages/CraCore/Tests/CraCoreTests/BrowserLanguagesTests.swift::dropsWhatIsNotALanguageList  92f271a1ba67
 #209   Packages/CraCore/Tests/CraCoreTests/BrowserLanguagesTests.swift::namesLanguagesInEnglish  11c15535bb75
