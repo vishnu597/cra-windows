@@ -854,7 +854,7 @@ extension LittleWindow: WebPageDelegate {
 
     func page(_ page: WebPage, didFinishLoadingURL url: String, statusCode: Int) {
         guard page === self.page, !url.isEmpty, url != "about:blank" else { return }
-        store.recordVisit(url: url, title: page.currentTitle)
+        store.recordVisit(url: url, title: page.currentTitle, profile: profileID)
     }
 
     /// Kept under the page's host, so its Today tab or archived row has it later.
