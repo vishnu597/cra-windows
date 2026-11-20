@@ -735,6 +735,7 @@ final class SidebarView {
         }
         menu.items.append(UI.menuItem("Clear Today", action: "clearToday") { [weak self] in self?.store.clearToday(space.id, playing: []) })
         if !store.isIncognito(space: space.id) { menu.items.append(profileMenu(space)) }
+        menu.items.append(searchEngineMenu(space))
         if !store.isIncognito(space: space.id) {
             // Arc's group of Manage Spaces… and, with one space, Hide Space Header (SpaceMenuLayout).
             menu.items.append(MenuFlyoutSeparator())
@@ -748,6 +749,27 @@ final class SidebarView {
             menu.items.append(UI.menuItem("Delete Space", action: "deleteSpace") { [weak self] in self?.store.deleteSpace(space.id) })
         }
         return menu
+    }
+
+    /// GitHub #306, not in Arc: the engine the command bar searches in this space (SpaceSearchEngineMenu,
+    /// the Mac's SpaceMenu.addSearchEngines). Windows reads no Chromium engine list, so Cra's own stands in.
+    private func searchEngineMenu(_ space: Space) -> MenuFlyoutSubItem {
+        let sub = MenuFlyoutSubItem()
+        sub.text = "Search Engine"
+        let rows = SpaceSearchEngineMenu(defaultEngine: ChromiumSearchEngine(store.settings.searchEngine), engines: [],
+                                         spaceKeyword: space.searchEngine)
+        func choice(_ row: SpaceSearchEngineMenu.Row) -> ToggleMenuFlyoutItem {
+            let item = ToggleMenuFlyoutItem()
+            item.text = row.title
+            item.isChecked = row.isOn
+            let id = space.id
+            item.click.addHandler { [weak self] _, _ in self?.store.setSearchEngine(row.keyword, forSpace: id) }
+            return item
+        }
+        sub.items.append(choice(rows.defaultRow))
+        sub.items.append(MenuFlyoutSeparator())
+        for row in rows.choices { sub.items.append(choice(row)) }
+        return sub
     }
 
     /// Arc's Set Profile: Default, the profiles (the space's ticked), New Profile….
