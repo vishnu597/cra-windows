@@ -49,6 +49,9 @@ void cra_cef_set_relaunch_handler(void *context, CraRelaunchHandler handler);
 /// Closes every browser, pumps until Chromium has let go of them (at most a few seconds) and
 /// shuts Chromium down. Call once, when the app quits.
 void cra_cef_shutdown(void);
+/// Opens `<folder>\\lockfile` (UTF-8 path) for writing and closes it: 0 no such file, 1 it opened,
+/// 2 another process holds it (a running Chromium's process singleton), 3 another error.
+int cra_cef_data_folder_lock_state(const char *folder);
 int cra_cef_live_browser_count(void);
 /// The last private window closed: the next private page starts a fresh off-the-record profile.
 void cra_cef_end_incognito_session(void);
