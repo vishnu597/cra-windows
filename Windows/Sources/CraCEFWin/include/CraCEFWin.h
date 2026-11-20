@@ -429,6 +429,8 @@ void cra_browser_stop_finding(CraBrowser *browser, int clear_selection);
 void cra_browser_set_audio_muted(CraBrowser *browser, int muted);
 void cra_browser_answer_permission(CraBrowser *browser, uint64_t request_id, int allowed);
 void cra_browser_execute_javascript(CraBrowser *browser, const char *script);
+/// Runs `script` in every frame of the page but its main one (frames from other sites included).
+void cra_browser_execute_javascript_in_subframes(CraBrowser *browser, const char *script);
 /// Opens the page's DevTools, or brings them forward when open (then the pending action runs).
 void cra_browser_show_dev_tools(CraBrowser *browser);
 void cra_browser_close_dev_tools(CraBrowser *browser);

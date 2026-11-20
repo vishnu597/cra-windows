@@ -219,6 +219,10 @@ final class WebPage: @unchecked Sendable {
     func stopFinding(clearSelection: Bool) { if let handle { cra_browser_stop_finding(handle, clearSelection ? 1 : 0) } }
     func setAudioMuted(_ muted: Bool) { if let handle { cra_browser_set_audio_muted(handle, muted ? 1 : 0) } }
     func executeJavaScript(_ script: String) { if let handle { script.withCString { cra_browser_execute_javascript(handle, $0) } } }
+    /// Every frame but the main one, other sites' included (Pause All Media).
+    func executeJavaScriptInSubframes(_ script: String) {
+        if let handle, !isClosed { script.withCString { cra_browser_execute_javascript_in_subframes(handle, $0) } }
+    }
     /// Whether the page's DevTools are open, closing or asked for (the Mac's TabRuntime.devTools).
     private(set) var devTools = DevToolsToggle()
     var hasDevTools: Bool { handle.map { cra_browser_has_dev_tools($0) != 0 } ?? false }
