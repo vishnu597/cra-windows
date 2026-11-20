@@ -53,9 +53,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private var swipeKnobReveal: DispatchWorkItem?
     /// Whether a touch over the sidebar hides the lists' knob (#77), or leaves it showing (#544).
     private var listKnob = ListKnobGate()
-    private var enteredFullscreenForContent = false
+    /// Whether the window is full screen for a page's own (a video's), and leaves it with the page (#636).
+    private var pageFullscreenWindow = PageFullscreenWindow()
     /// The tab whose page (a video) is in element fullscreen.
     private var contentFullscreenTab: UUID?
+    /// Esc in a page's full screen while the page holds the keyboard (Arc: "[⎋] again to exit fullscreen").
+    private var keyboardLockEscape = KeyboardLockEscape()
+    /// A page's notice that came while the window was still going full screen: shown once it is there.
+    private var pendingNoticeToast: ExclusiveAccessNotice.Toast?
     private var lastSidebarVisible = true
     /// The theme the window's root views were made with.
     private var shownTheme: SpaceTheme?
@@ -69,6 +74,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// shows (nil once another toast took its place), and the check when the next one is due.
     private var slowResponses = SlowResponseNotices()
     private var slowResponseToastTab: UUID?
+    /// The page whose protected-video prompt this window last showed (its tab and page key), and
+    /// whether the toast still shows it (false once another toast took its place or it was answered).
+    private var protectedVideoPrompt: (tab: UUID, key: String)?
+    private var protectedVideoPromptUp = false
     private var slowResponseCheck: ScheduledWork?
     /// releaseHiddenFrames, HiddenFrameRelease.afterPageChange after the last page change.
     private var frameReleaseAfterChange: ScheduledWork?
@@ -269,7 +278,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                 // a 200 pt sidebar dragged shut from 200).
                 shell.sidebarWidth = CGFloat(resize.startWidth)
                 if sidebarVisible {
-                    sidebarVisible = false
+                    store.chooseSidebar(visible: false, window: windowID)
                     hiddenByResize = true
                 }
             case .hidden:
@@ -278,7 +287,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                 shell.sidebarWidth = CGFloat(w)
                 if hiddenByResize {
                     hiddenByResize = false
-                    sidebarVisible = true
+                    store.chooseSidebar(visible: true, window: windowID)
                 }
             }
             shell.layoutSubtreeIfNeeded()
@@ -399,9 +408,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             guard let b = self?.currentBrowser else { return }
             b.isLoading ? b.stopLoading() : b.reload()
         }
-        sidebarActions.editSpace = { [weak self] s in self?.showSpaceEditor(space: s) }
+        // A new space is made in the sidebar (Arc's Create a Space page); an existing one keeps the sheet.
+        sidebarActions.editSpace = { [weak self] s in
+            if let s { self?.showSpaceEditor(space: s) } else { self?.beginSpaceCreation() }
+        }
+        sidebarActions.cancelSpaceCreation = { [weak self] in self?.cancelSpaceCreation() }
+        sidebarActions.commitSpaceCreation = { [weak self] in self?.commitSpaceCreation() }
+        sidebarActions.chooseCreationTheme = { [weak self] row in self?.showCreationThemeEditor(beside: row) }
+        sidebarActions.newProfileForCreation = { [weak self] in
+            guard let self, let window = self.window else { return }
+            self.showNewProfileDialog(over: window)
+        }
+        sidebarActions.closeCreationPanels = { [weak self] in self?.closeCreationPanels() }
         sidebarActions.newSpaceWith = { [weak self] ids in
-            self?.showSpaceEditor(space: nil) { space in
+            self?.beginSpaceCreation { space in
                 guard let self else { return }
                 for id in ids { self.store.moveTab(id, toSpace: space, window: self.windowID) }
                 self.sidebarUI.clearPicks()
@@ -423,6 +443,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             self.closeLibrary()
         }
         sidebarActions.resetPinnedTab = { [weak self] id in self?.resetPinnedTab(id) }
+        sidebarActions.shareTabInstead = { [weak self] id in self?.shareTabInstead(id) }
         sidebarActions.separatePinnedTab = { [weak self] id in self?.separatePinnedTab(id) }
         sidebarActions.editPinnedURL = { [weak self] id in self?.editPinnedURL(id) }
         sidebarActions.showToast = { [weak self] text in self?.showToast(text) }
@@ -501,7 +522,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // menu bar's do: under the extension's toolbar button, else at the card's right end.
         // Arc puts every popup in one place, whatever opened it.
         ExtensionActions.shared.watchPopups { [weak app] id in
-            guard let main = app?.main, let window = main.window, let key = NSApp.keyWindow, key === window || key.parent === window else { return nil }
+            // The window in use is Cra's main window or one of its children at any depth: a popup Chrome opens
+            // (chrome.action.openPopup()) is key itself, a child of the page's host strip, a child of the window.
+            guard let main = app?.main, let window = main.window, var key = NSApp.keyWindow else { return nil }
+            while key !== window {
+                guard let parent = key.parent else { return nil }
+                key = parent
+            }
             return main.extensionPopupAnchor(id)
         }
         // Chromium's install and removal prompts come without a parent window (#349): they hang
@@ -657,6 +684,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         syncSidebarUI()
         window?.title = selectedTab?.displayTitle ?? space.title
 
+        // Another space came to the front (a shortcut, the menu) while one was being made: the page goes.
+        if let origin = creationOrigin, sidebarUI.spaceCreation != nil, focusedSpaceID != origin { cancelSpaceCreation() }
         if sidebarVisible != lastSidebarVisible {
             lastSidebarVisible = sidebarVisible
             if lastSidebarVisible, !shell.contentFullscreen, let floating = floatingSidebar, floating.beginDock() {
@@ -771,12 +800,52 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     }
 
     /// For test hooks: a menu's rows, "|" between rows, "──" for a separator, "▸" after a submenu,
-    /// " (off)" after a dimmed row.
+    /// " (off)" after a dimmed row, " ⌥" after a row ⌥ shows in place of the one before it.
     static func menuReadout(_ menu: NSMenu) -> String {
         menu.items.map { item -> String in
             if item.isSeparatorItem { return "──" }
-            return item.title + (item.submenu != nil ? " ▸" : "") + (item.isEnabled ? "" : " (off)")
+            return item.title + (item.submenu != nil ? " ▸" : "") + (item.isEnabled ? "" : " (off)") + (item.isAlternate ? " ⌥" : "")
         }.joined(separator: "|")
+    }
+
+    /// `cra://debug?tabMenu=<n>`: logs the menu a right-click on the focused space's n-th listed tab
+    /// opens, nothing picked (rows as menuReadout writes them, then its Edit Pinned Page and Move to
+    /// submenus). `run` picks a row by title, in a submenu too, and logs the space's pinned and Today
+    /// rows (page queries) and the open tab (#600).
+    func testTabMenu(_ n: Int, label: String, run: String?, split: Bool = false) {
+        let kind = split ? "split menu" : "tab menu"
+        func rows(in v: NSView) -> [SidebarRowView] {
+            if let r = v as? TabRowView, !split { return [r] }
+            if let r = v as? SplitRowView, split, !r.isHiddenOrHasHiddenAncestor { return [r] }
+            return v.subviews.flatMap { rows(in: $0) }
+        }
+        let found = window?.contentView.flatMap(rows(in:)) ?? []
+        let row: SidebarRowView?
+        if split {
+            // The n-th split row from the top of the list.
+            let splits = found.compactMap { $0 as? SplitRowView }.sorted { $0.convert($0.bounds, to: nil).maxY > $1.convert($1.bounds, to: nil).maxY }
+            row = splits.indices.contains(n - 1) ? splits[n - 1] : nil
+        } else {
+            let listed = store.listedTabIDs(in: focusedSpaceID)
+            row = listed.indices.contains(n - 1) ? found.first { ($0 as? TabRowView)?.model?.id == listed[n - 1] } : nil
+        }
+        guard let row else { CraLog.note("\(kind) \(label): no row \(n)"); return }
+        sidebarUI.clearPicks()
+        guard let menu = row.contextMenu(at: .zero) else { CraLog.note("\(kind) \(label): no menu"); return }
+        CraLog.note("\(kind) \(label): \(Self.menuReadout(menu))")
+        for item in menu.items where item.submenu != nil && (["Edit Pinned Page", "Move to"].contains(item.title) || split) {
+            CraLog.note("\(kind) \(label) \(item.title): \(Self.menuReadout(item.submenu!))")
+        }
+        let all = menu.items + menu.items.flatMap { $0.submenu?.items ?? [] }
+        guard let run, let item = all.first(where: { $0.title == run }), let owner = item.menu else { return }
+        owner.performActionForItem(at: owner.index(of: item))
+        guard let space = store.space(focusedSpaceID) else { return }
+        let query = { (id: UUID) in self.store.item(id)?.tab.flatMap { URL(string: $0.url)?.query } ?? "-" }
+        let list = { (container: UUID) in
+            self.store.children(of: container).map { $0.isSplit ? $0.children.map(query).joined(separator: "+") : query($0.id) }.joined(separator: " ")
+        }
+        let open = store.selectedTabID(window: windowID).map(query) ?? "-"
+        CraLog.note("\(kind) \(label) ran \(run): pinned: \(list(space.pinnedContainerID)) today: \(list(space.todayContainerID)) open: \(open)")
     }
 
     /// `cra://debug?spaceMenu=<label>`: logs the menu a right-click on the open space's header
@@ -812,6 +881,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         let id = tiles[n - 1].itemID
         let page = app.runtime(for: id).map { $0.browser.isAudioMuted() ? "muted" : "unmuted" } ?? "not loaded"
         CraLog.note("favorite menu \(label) ran \(run): saved=\(store.item(id)?.tab?.muted == true ? "muted" : "unmuted") page=\(page)")
+        // The space's favorites and Today after the row ran, a split as its panes' pages joined by +, and the open tab (#600).
+        guard let space = store.space(focusedSpaceID) else { return }
+        let query = { (id: UUID) in self.store.item(id)?.tab.flatMap { URL(string: $0.url)?.query } ?? "-" }
+        let list = { (container: UUID) in
+            self.store.children(of: container).map { $0.isSplit ? $0.children.map(query).joined(separator: "+") : query($0.id) }.joined(separator: " ")
+        }
+        let open = store.selectedTabID(window: windowID).map(query) ?? "-"
+        CraLog.note("favorite menu \(label) favorites: \(list(space.favoritesContainerID)) today: \(list(space.todayContainerID)) open: \(open)")
     }
 
     /// For test hooks: runs `action` and returns what it put on the clipboard ("-" for nothing, line
@@ -885,6 +962,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         if loaded != sidebarUI.loadedTabIDs { sidebarUI.loadedTabIDs = loaded }
         let capturing = Set(app.mainWindows.flatMap { $0.browsers.runtimes.filter { $0.value.browser.isCapturingMedia }.keys })
         if capturing != sidebarUI.capturingTabIDs { sidebarUI.capturingTabIDs = capturing }
+        syncTabSharing()
         let audible = Set(app.mainWindows.flatMap { $0.browsers.runtimes.filter { $0.value.browser.isAudible }.keys })
         if audible != sidebarUI.audibleTabIDs { sidebarUI.audibleTabIDs = audible }
         let soundPlaying = Set(app.mainWindows.flatMap { $0.browsers.runtimes.filter { $0.value.soundPlaying }.keys })
@@ -931,6 +1009,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         guard let window, let browser = browsers.runtime(for: id)?.browser else { return }
         let url = browser.navigatingURL ?? store.item(id)?.tab?.url ?? ""
         let page = shell.webContainer.convert(shell.webContainer.bounds, to: nil)
+        protectedVideoPromptUp = false
         toast.show(SlowResponseNotice.message(for: url),
                    action: ShinyToast.Action(title: "Stop Loading") { [weak self] in
                        CraLog.note("page \(self?.slowResponseLogHost(id) ?? "") stopped from the notice")
@@ -962,7 +1041,115 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                                   translation: rt.translation, blockedPopups: rt.blockedPopups.waiting.count)
         }
         if nav != sidebarUI.navStates { sidebarUI.navStates = nav }
-        if let id = browsers.visibleTabID, let service = nav[id]?.protectedMedia { tellAboutProtectedMedia(service) }
+        // A page switched for one video was just answered for: no "plays with Safari's engine" toast on top.
+        if let id = browsers.visibleTabID, let service = nav[id]?.protectedMedia, PageEngines.videoPages.switched[id] == nil {
+            tellAboutProtectedMedia(service)
+        }
+        syncProtectedVideoPrompt()
+    }
+
+    // MARK: Protected videos on mixed sites (docs/protected-media.md)
+
+    func browserManagerProtectedVideoPromptChanged(_ tabID: UUID) { syncProtectedVideoPrompt() }
+
+    /// A Chromium page of a mixed site (YouTube) asked for Widevine: while that page is in front
+    /// the toast offers Safari's engine, Once or Always, and its ✕ leaves the page in Chromium.
+    /// It goes with the page (another tab in front, another video) and comes back with it until
+    /// it is answered. Another toast may take its place; the Site Control Center's row still offers it.
+    private func syncProtectedVideoPrompt() {
+        let sites = PageEngines.sites
+        var wanted: (tab: UUID, key: String)?, prompt: ProtectedVideoPrompt?
+        if let id = browsers.visibleTabID, let browser = browsers.runtime(for: id)?.browser, PageEngines.engine(of: browser) == .chromium,
+           let key = sites.pageKey(for: browser.currentURL),
+           let p = PageEngines.videoPages.prompt(tab: id, url: browser.currentURL, incognito: browser.isIncognito, sites: sites) {
+            wanted = (id, key)
+            prompt = p
+        }
+        guard wanted?.tab != protectedVideoPrompt?.tab || wanted?.key != protectedVideoPrompt?.key else { return }
+        if protectedVideoPromptUp {
+            protectedVideoPromptUp = false
+            toast.dismiss()
+        }
+        protectedVideoPrompt = wanted
+        guard let wanted, let prompt, let window, window.isVisible else { return protectedVideoPrompt = nil }
+        let answer = { [weak self] (choice: ProtectedVideoPrompt.Choice?) in
+            ShinyToast.Action(title: choice?.rawValue ?? "", run: { self?.answerProtectedVideo(wanted.tab, choice) }, answers: true)
+        }
+        slowResponseToastTab = nil
+        toast.show(ProtectedVideoPrompt.text, action: prompt.choices.first.map(answer),
+                   second: prompt.choices.count > 1 ? answer(prompt.choices[1]) : nil,
+                   page: shell.webContainer.convert(shell.webContainer.bounds, to: nil), in: window, theme: focusedSpace.theme,
+                   onClose: { [weak self] in self?.answerProtectedVideo(wanted.tab, nil) })
+        protectedVideoPromptUp = true
+        CraLog.note("protected video prompt shown: \(toast.debugButtons)")
+    }
+
+    /// Once: this page moves. Always: the site's protected videos move from now on, this one
+    /// first. nil is the ✕: this page stays in Chromium and isn't asked about again.
+    private func answerProtectedVideo(_ id: UUID, _ choice: ProtectedVideoPrompt.Choice?) {
+        protectedVideoPromptUp = false
+        guard let browser = browsers.runtime(for: id)?.browser else { return }
+        let url = browser.currentURL
+        CraLog.note("protected video prompt answered: \(choice?.rawValue ?? "✕")")
+        switch choice {
+        case nil:
+            PageEngines.videoPages.declining(tab: id, url: url, sites: PageEngines.sites)
+        case .once?:
+            browsers.switchToSafariEngine(id, how: .once)
+        case .always?:
+            if let site = PageEngines.sites.mixedSite(for: url) { PageEngines.switchProtectedVideos(true, on: site) }
+            browsers.switchToSafariEngine(id, how: .always)
+        }
+    }
+
+    /// The Safari's Engine row of the focused page as the Site Control Center would show it,
+    /// `drm` being what a Chromium page off the mixed sites answered about Widevine.
+    private func safariEngineRow(askedForWidevine drm: Bool = false) -> SafariEngineRow? {
+        guard let id = browsers.visibleTabID, let browser = browsers.runtime(for: id)?.browser, !(browser is NativePage) else { return nil }
+        return PageEngines.videoPages.row(tab: id, url: browser.currentURL, engine: PageEngines.engine(of: browser), askedForWidevine: drm,
+                                          sites: PageEngines.sites, choices: PageEngines.choices)
+    }
+
+    /// The row's click. On and Off are the whole site's, as before; the others are a mixed site's.
+    private func pressSafariEngine(_ row: SafariEngineRow, for url: String) {
+        guard let id = browsers.visibleTabID, let browser = browsers.runtime(for: id)?.browser else { return }
+        let sites = PageEngines.sites
+        switch row {
+        case .on: chooseSafariEngine(false, for: url)
+        case .off: chooseSafariEngine(true, for: url)
+        case .protectedVideos:
+            // The switched page's site (the page may be signing in elsewhere), else the address's.
+            let site = PageEngines.videoPages.switched[id].flatMap { page in sites.mixedSites.first { $0.host == page.site } }
+                ?? sites.mixedSite(for: browser.currentURL)
+            if let site { PageEngines.switchProtectedVideos(false, on: site) }
+            browsers.returnToChromium(id)
+        case .thisVideo:
+            browsers.returnToChromium(id)
+        case .videosOff:
+            // An incognito page moves without the site being written down.
+            let how = ProtectedVideoPages.rowSwitch(incognito: browser.isIncognito)
+            if how == .always, let site = sites.mixedSite(for: browser.currentURL) { PageEngines.switchProtectedVideos(true, on: site) }
+            browsers.switchToSafariEngine(id, how: how)
+        }
+    }
+
+    /// Scenario hook: `cra://debug?protectedVideo=state&step=<label>` logs "protected video state
+    /// <label>: prompt Once|Always|✕, engine chromium, row Off, always 127.0.0.1"; `=Once`,
+    /// `=Always` and `=close` press the prompt's buttons as a click would, and `=row` presses the
+    /// row as the Site Control Center does.
+    func debugProtectedVideo(_ step: String, label: String) {
+        if step == "row" {
+            guard let row = safariEngineRow() else { return CraLog.note("protected video row: none") }
+            CraLog.note("protected video row pressed: \(row.state)")
+            return pressSafariEngine(row, for: currentBrowser?.currentURL ?? "")
+        }
+        if step != "state" {
+            let pressed = protectedVideoPromptUp && toast.debugPress(step == "close" ? "✕" : step)
+            return CraLog.note("protected video \(step): pressed \(pressed)")
+        }
+        let engine = currentBrowser.map { PageEngines.engine(of: $0) == .webKit ? "webkit" : "chromium" } ?? "none"
+        CraLog.note("protected video state \(label): prompt \(protectedVideoPromptUp && toast.isShown ? toast.debugButtons : "none"), engine \(engine), "
+            + "row \(safariEngineRow()?.state ?? "none"), always \(PageEngines.choices.protectedVideos.joined(separator: ","))")
     }
 
     // MARK: Split view
@@ -1306,13 +1493,36 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         shell.contentFullscreen = fullscreen
         floatingSidebar?.sidebarVisibilityChanged()
         contentFullscreenTab = fullscreen ? tabID : nil
-        if fullscreen, !window.styleMask.contains(.fullScreen) {
-            enteredFullscreenForContent = true
-            window.toggleFullScreen(nil)
-        } else if !fullscreen, enteredFullscreenForContent, window.styleMask.contains(.fullScreen) {
-            enteredFullscreenForContent = false
-            window.toggleFullScreen(nil)
+        if !fullscreen {
+            keyboardLockEscape.reset()
+            pendingNoticeToast = nil
         }
+        // Arc's "To exit full screen, press ⎋." Cra takes a page full screen itself (cra-fullscreen-status.patch),
+        // so Chrome's own notice for it never comes; it shows once the window is full screen.
+        if fullscreen, let toast = ExclusiveAccessNotice.fullscreen.toast(inLittleWindow: false) {
+            if window.styleMask.contains(.fullScreen) { showNoticeToast(toast) } else { pendingNoticeToast = toast }
+        }
+        switch pageFullscreenWindow.page(fullscreen: fullscreen, windowFullscreen: window.styleMask.contains(.fullScreen),
+                                         closing: isTornDown || isPutAway) {
+        case .enter, .leave: window.toggleFullScreen(nil)
+        case .stay: break
+        }
+    }
+
+    /// Arc's toast for what the page took: "To exit full screen, press ⎋." or "Your cursor is hidden…", over
+    /// the page it is about (docs/web-features.md). In the middle of going full screen it waits for the window.
+    func browserManager(exclusiveAccessToast toast: ExclusiveAccessNotice.Toast, tabID: UUID) {
+        guard let window, browsers.visibleTabIDs.contains(tabID) || contentFullscreenTab == tabID else { return }
+        if contentFullscreenTab == tabID, !window.styleMask.contains(.fullScreen) {
+            pendingNoticeToast = toast
+            return
+        }
+        showNoticeToast(toast)
+    }
+
+    private func showNoticeToast(_ toast: ExclusiveAccessNotice.Toast) {
+        CraLog.note("page notice: \(toast.text)")
+        showToast(toast.text)
     }
 
     /// CEF owns the DevTools window (embedding in our NSView trips a Chromium CHECK on macOS).
@@ -1998,6 +2208,79 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// DevToolsClient): its window spans the pane's body under the page, which is laid
     /// over the placeholder it reports. Alloy pages keep the shell's own split with CEF's
     /// window on the right, for the focused tab only.
+    /// Arc's "Share this tab instead": the call shares the tab and the tab shows, as when Arc's button is clicked.
+    /// The page may live in another window (it was last shown there).
+    func shareTabInstead(_ id: UUID) {
+        let page = app.mainWindows.lazy.compactMap { $0.browsers.runtime(for: id)?.browser }.first
+        guard page?.shareInstead() == true else { return }
+        store.selectTab(id, window: windowID)
+    }
+
+    /// `cra://debug?tabSharing=<label>`: the tabs shared and switchable, the rows ringed in yellow, the rows showing
+    /// "Share this tab instead", the cards ringed in yellow and the selected tab, each by URL. `hover` first hovers the
+    /// row of the tab whose URL contains it, as the pointer would; `press` then clicks that row's button, and the
+    /// readout waits for Chrome to switch.
+    func tabSharingReadout(_ label: String, hover: String?, press: Bool, done: @escaping (String) -> Void) {
+        func url(_ id: UUID) -> String {
+            app.mainWindows.lazy.compactMap { $0.browsers.runtime(for: id)?.browser.currentURL }.first ?? id.uuidString
+        }
+        func list(_ ids: some Sequence<UUID>) -> String { ids.map(url).sorted().joined(separator: ",") }
+        func rows() -> [TabRowView] {
+            (window?.contentView.map { Self.views(TabRowView.self, in: $0) } ?? []).filter { !$0.isHiddenOrHasHiddenAncestor }
+        }
+        var pressed = false
+        if let part = hover {
+            guard let row = rows().first(where: { $0.model.map { url($0.id).contains(part) } ?? false }) else {
+                done("tab sharing \(label): no row at \(part)"); return
+            }
+            row.list?.debugHover(row)
+            if press { pressed = row.pressShareInsteadButton() }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (pressed ? 1 : 0.2)) { [weak self] in
+            guard let self else { return }
+            self.syncTabSharing()
+            self.window?.contentView?.layoutSubtreeIfNeeded()
+            let shown = rows()
+            let ringedRows = shown.filter(\.showsSharedRing).compactMap { $0.model?.id }
+            let buttons = shown.filter(\.showsShareInsteadButton).compactMap { $0.model?.id }
+            let ringedCards = self.shell.paneCards.filter(\.showsSharedRing).map(\.tabID)
+            let selected = self.store.selectedTabID(window: self.windowID).map(url) ?? "-"
+            done("tab sharing \(label): shared=\(list(self.sidebarUI.sharedTabIDs)) instead=\(list(self.sidebarUI.shareInsteadTabIDs))"
+                 + " rows=\(list(ringedRows)) buttons=\(list(buttons)) cards=\(list(ringedCards))"
+                 + (press ? " pressed=\(pressed ? 1 : 0)" : "") + " selected=\(selected)")
+        }
+    }
+
+    private static func views<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
+        (view as? T).map { [$0] } ?? view.subviews.flatMap { views(type, in: $0) }
+    }
+
+    /// `cra://debug?recordingDot`: each shown tab row's recording dot and favicon, by the tab's URL, sorted.
+    func recordingDotReadout() -> String {
+        let rows = (window?.contentView.map { Self.views(TabRowView.self, in: $0) } ?? []).filter { !$0.isHiddenOrHasHiddenAncestor }
+        return rows.compactMap { row -> String? in
+            guard let id = row.model?.id else { return nil }
+            let url = browsers.runtime(for: id)?.browser.currentURL ?? id.uuidString
+            return "\(url) \(row.recordingDotReadout)"
+        }.sorted().joined(separator: " | ")
+    }
+
+    /// Sharing spans windows: a call in one window can switch to a tab another window's sidebar lists.
+    func browserManagerTabSharingChanged() {
+        for w in app.mainWindows { w.syncTabSharing() }
+    }
+
+    /// The tabs calls share and the ones they can switch to, for the sidebar rows and the page cards
+    /// (TabSharing). Each set is assigned only when it changed (syncSidebarUI).
+    func syncTabSharing() {
+        let pages = app.mainWindows.flatMap { $0.browsers.runtimes }
+        let shared = Set(pages.filter { $0.value.browser.isBeingShared }.map { $0.key })
+        let instead = Set(pages.filter { $0.value.browser.canShareInstead }.map { $0.key })
+        if shared != sidebarUI.sharedTabIDs { sidebarUI.sharedTabIDs = shared }
+        if instead != sidebarUI.shareInsteadTabIDs { sidebarUI.shareInsteadTabIDs = instead }
+        if shared != shell.sharedTabIDs { shell.sharedTabIDs = shared }
+    }
+
     func browserManagerDevToolsChanged() {
         BoostEditorController.shared.devToolsChanged()
         guard let window else { return }
@@ -2183,10 +2466,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     func browserManagerHandleKey(_ event: NSEvent) -> Bool {
         // Chrome: Escape leaves a page's element fullscreen, before the page sees the key.
         // Chrome's own handling never got it here: the video stayed fullscreen.
+        // Not under the page's keyboard lock: a press is the page's, and holding Esc leaves (Chrome does that).
         if event.keyCode == 53, event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty,
            let id = contentFullscreenTab, let browser = browsers.runtime(for: id)?.browser {
-            browser.exitFullscreen()
-            return true
+            guard browser.holdsEscapeKey else {
+                browser.exitFullscreen()
+                return true
+            }
+            // Under the page's keyboard lock (Arc): a press is the page's and offers the next; that one leaves.
+            if event.isARepeat { return false }
+            switch keyboardLockEscape.press(at: event.timestamp, offerTime: ShinyToast.visibleFor) {
+            case .exitFullscreen:
+                CraLog.note("page notice: Esc again leaves full screen")
+                browser.exitFullscreen()
+                return true
+            case .offerAgain:
+                CraLog.note("page notice: \(KeyboardLockEscape.againKeys) \(KeyboardLockEscape.againText)")
+                showToast("", keyCap: (KeyboardLockEscape.againKeys, KeyboardLockEscape.againText))
+                return false
+            }
         }
         return app.handleReservedKey(event)
     }
@@ -2684,8 +2982,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             // A pinned split closes as one: every pane unloads and goes back to its page.
             let panes = store.paneTabIDs(for: id)
             let wasSelected = selectedTabID.map(panes.contains) ?? false
-            for p in panes {
-                _ = store.resetPinnedTab(p)
+            for p in store.closePinnedTab(id, wasOpen: wasSelected) {
                 for w in app.mainWindows { w.browsers.unload(p); w.dropPeeks(from: p) }
             }
             // Arc goes back to the tab shown before this one if its page is still loaded, and
@@ -2888,7 +3185,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             closeLibrary()
             if showed { return }
         }
-        sidebarVisible.toggle()
+        // New windows open with it as it is now, as in Arc (#644).
+        store.chooseSidebar(visible: !sidebarVisible, window: windowID)
         if !sidebarVisible { floatingSidebar?.hide(animated: true) }
     }
 
@@ -2904,6 +3202,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// Arc's Library button and ⇧⌘L: open the Library on the page last shown, or leave it. In a
     /// docked sidebar it slides in and out like the swipe into it (LibrarySwipe).
     func toggleLibrary() {
+        // One on its way in from a hidden sidebar lands first.
+        guard hiddenLibrary == nil else { return }
         let opening = librarySettleSpring.map { $0.target < 1 } ?? (sidebarUI.libraryPage == nil)
         if librarySwipeFrom == nil, !shell.floatingSidebar, shell.sidebarVisible, !libraryShowedSidebar {
             slideLibrary(to: opening ? 1 : 0)
@@ -2916,6 +3216,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     /// The Library takes over the sidebar, which widens for its page rail (LibraryView).
     func showLibrary(_ page: LibraryPage) {
+        guard hiddenLibrary == nil else { return }
         sidebarUI.lastLibraryPage = page
         let opening = sidebarUI.libraryPage == nil
         let resize = !opening && sidebarUI.libraryPage.map(libraryWidth) != libraryWidth(page)
@@ -3004,12 +3305,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // from it (or is on its way), which lie beside it, past where the pointer sends it away (#531);
         // and while the window has no tab, which holds a hidden sidebar open (SidebarPresentation, #483).
         f.staysShown = { [weak self, weak f] in
+            // While a space is being made in it (Arc's Create a Space page), it stays.
+            if self?.sidebarUI.spaceCreation != nil { return true }
             let keep = FloatingSidebarKeepOut(folderPreviewOpen: FolderPreviewController.shared.isOpen,
                                               siteControlsOpen: self?.siteControlCenter.isShown == true,
                                               popupAnchor: ExtensionPopupWindow.shownAnchor, panelFrame: f?.panelWindow?.frame,
                                               popupAwaitedUntil: self?.floatingSidebarPopupHold)
             if keep.popupArrived { self?.floatingSidebarPopupHold = nil }
-            return keep.staysOut(now: Date()) || self?.sidebarPresentation.mayRetract == false
+            // And while a swipe is bringing the Library in under it.
+            return keep.staysOut(now: Date()) || self?.sidebarPresentation.mayRetract == false || self?.hiddenLibrary != nil
         }
         f.didAttachPanel = { [weak self] in
             // Keep the find bar above the floating sidebar.
@@ -3080,6 +3384,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                 // A swipe whose end never came (a view took the gesture's last events) is let go
                 // now, so the sidebar isn't left between two pages.
                 if self.swipeTracking { self.endSpaceSwipe() }
+                if self.creationSwiping { self.endCreationSwipe() }
                 self.swipeAxis = .vertical
             }
             // A mouse wheel only ever scrolls.
@@ -3124,14 +3429,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                     self.swipeX += event.scrollingDeltaX
                     self.swipeY += event.scrollingDeltaY
                     guard max(abs(self.swipeX), abs(self.swipeY)) > 6 else { return event }
-                    // One space still swipes into the Library.
+                    // One space still swipes, in a floating sidebar too.
                     guard abs(self.swipeX) > abs(self.swipeY) * 1.2, !self.isStandalone,
-                          self.store.spaceOrder.count > 1 || !self.shell.floatingSidebar,
                           // At the Spaces page's end a swipe back along the cards scrolls them.
                           !(self.sidebarUI.libraryPage == .spaces && self.swipeX > 0) else {
                         self.swipeAxis = .vertical
                         self.listScrolled(event)
                         return event
+                    }
+                    // On Arc's Create a Space page a swipe back takes the page out under the fingers,
+                    // and no swipe pages the spaces under it.
+                    if self.sidebarUI.spaceCreation != nil {
+                        self.swipeAxis = .horizontal
+                        self.beginCreationSwipe()
+                        self.trackCreationSwipe(by: self.swipeX, at: event.timestamp)
+                        return nil
                     }
                     self.swipeAxis = .horizontal
                     HitchMonitor.mark("swipe-begin")
@@ -3139,13 +3451,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                     self.trackSpaceSwipe(by: self.swipeX, at: event.timestamp)
                     return nil
                 case .horizontal:
-                    self.trackSpaceSwipe(by: event.scrollingDeltaX, at: event.timestamp)
+                    if self.creationSwiping {
+                        self.trackCreationSwipe(by: event.scrollingDeltaX, at: event.timestamp)
+                    } else {
+                        self.trackSpaceSwipe(by: event.scrollingDeltaX, at: event.timestamp)
+                    }
                     return nil
                 }
             case .ended, .cancelled:
                 if self.swipeAxis != .vertical { self.showListKnobs(after: ListKnobGate.shownAfterScroll) }
                 guard self.swipeAxis == .horizontal else { return event }
-                self.endSpaceSwipe()
+                if self.creationSwiping { self.endCreationSwipe() } else { self.endSpaceSwipe() }
                 return nil
             default:
                 return event
@@ -3190,9 +3506,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // A swipe during a Library settle picks it up where it shows.
         librarySwipeToward = librarySettleSpring?.target
         stopLibrarySettle()
-        let shown = sidebarUI.libraryReveal
+        let shown = liveLibraryReveal
         librarySwipeFrom = nil
-        guard !shell.floatingSidebar, shell.sidebarVisible || sidebarUI.libraryPage != nil else { return }
+        swipeSpent = false
+        if shell.floatingSidebar || hiddenLibrary != nil {
+            // Hidden and out over the page: from the first space the Library comes in docked (Arc).
+            if hiddenLibrary != nil || LibrarySwipe.startsFromHiddenSidebar(floatingShown: floatingSidebar?.isShown == true,
+                                                                            onFirstSpace: store.spaceOrder.first == focusedSpaceID) {
+                // Its view is made once the fingers head that way (trackLibrarySwipe), not for every swipe.
+                if hiddenLibrary == nil {
+                    sidebarUI.libraryRevealPage = sidebarUI.lastLibraryPage
+                    sidebarUI.libraryRevealWidth = libraryWidth(sidebarUI.lastLibraryPage)
+                    sidebarUI.libraryRevealBase = 0
+                }
+                librarySwipeFrom = shown ?? 0
+            }
+            swipeHaptics = PageDetentHaptics(page: -Int((librarySwipeFrom ?? 0).rounded()))
+            return
+        }
+        guard shell.sidebarVisible || sidebarUI.libraryPage != nil else { return }
         if let page = sidebarUI.libraryPage {
             prepareLibraryReveal(page)
             librarySwipeFrom = shown ?? 1
@@ -3215,12 +3547,107 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private func prepareLibraryReveal(_ page: LibraryPage) {
         sidebarUI.libraryRevealPage = page
         sidebarUI.libraryRevealWidth = libraryWidth(page)
-        sidebarUI.libraryRevealBase = CGFloat(store.prefs.sidebarWidth)
+        // A Library that brought out a hidden sidebar has no tab list beside it to slide back to.
+        sidebarUI.libraryRevealBase = libraryShowedSidebar ? 0 : CGFloat(store.prefs.sidebarWidth)
+    }
+
+    // MARK: Into the Library from a hidden sidebar (LibrarySwipe, "From a hidden sidebar")
+
+    /// The Library on its way in under a floating sidebar: a view of its own in the window until it
+    /// lands, when the sidebar takes it over, docked.
+    private var hiddenLibrary: (view: LibraryView, page: LibraryPage, width: CGFloat, reveal: CGFloat)?
+    /// The reveal a swipe or a settle shows, whichever sidebar it started from.
+    private var liveLibraryReveal: CGFloat? { hiddenLibrary?.reveal ?? sidebarUI.libraryReveal }
+    /// A swipe out of the Library that ended on a hidden sidebar: the rest of it pages nothing.
+    private var swipeSpent = false
+
+    private func prepareHiddenLibraryReveal(_ page: LibraryPage) {
+        guard hiddenLibrary == nil, let sidebar = shell.sidebarHost as? SidebarView else { return }
+        let width = libraryWidth(page)
+        let view = sidebar.makeDetachedLibrary(page)
+        shell.addSubview(view, positioned: .below, relativeTo: shell.resizeHandle)
+        hiddenLibrary = (view, page, width, 0)
+        sidebarUI.libraryRevealPage = page
+        sidebarUI.libraryRevealWidth = width
+        sidebarUI.libraryRevealBase = 0
+        if EmbeddedPages.isEnabled { shell.freezePages() }
+        setLibraryReveal(0)
+    }
+
+    /// Landed from a hidden sidebar: the floating sidebar is out of sight by now, so the sidebar goes
+    /// home and docks with the Library in it, where the swipe left it. Leaving it hides the sidebar again.
+    private func landLibraryFromHidden(_ view: LibraryView, page: LibraryPage, width: CGFloat) {
+        var instant = Transaction()
+        instant.disablesAnimations = true
+        floatingSidebar?.hide(animated: false)
+        libraryShowedSidebar = true
+        sidebarUI.lastLibraryPage = page
+        sidebarUI.downloadsListOpen = false
+        commandBar.close()
+        shell.sidebarResizable = false
+        (shell.sidebarHost as? SidebarView)?.adoptLibrary(view, page: page)
+        withTransaction(instant) { sidebarUI.libraryPage = page }
+        shell.sidebarWidth = width
+        setSidebarVisibleInPlace(true)
+        window?.makeKey()
+        CraLog.note("library swipe from the hidden sidebar: lands docked \(Int(width)) pt wide")
+    }
+
+    /// The sidebar docked or hidden with no slide of its own: a Library swipe has already moved the
+    /// Library and the page to where that leaves them.
+    private func setSidebarVisibleInPlace(_ visible: Bool) {
+        lastSidebarVisible = visible
+        sidebarVisible = visible
+        shell.sidebarVisible = visible
+        shell.floatingSidebar = false
+        (window as? CraWindow)?.trafficLightsHidden = !visible
+        floatingSidebar?.sidebarVisibilityChanged()
+        shell.needsLayout = true
+        shell.layoutSubtreeIfNeeded()
+    }
+
+    /// A mouse's back button over the floating sidebar: the same way in, from rest.
+    private func slideLibraryFromHidden() {
+        guard hiddenLibrary == nil else { return }
+        prepareHiddenLibraryReveal(sidebarUI.lastLibraryPage)
+        guard hiddenLibrary != nil else { return showLibrary(sidebarUI.lastLibraryPage) }
+        settleLibrary(from: 0, velocity: 0, to: 1)
+    }
+
+    /// Scenario hook: the Library held at reveal `r` on its way in from a hidden sidebar, and where
+    /// that puts it, the page and the floating sidebar; `lift` lets go.
+    func debugHiddenLibraryReveal(_ r: CGFloat, lift: Bool) {
+        if lift {
+            guard hiddenLibrary != nil else { return CraLog.note("hidden library reveal: none to let go") }
+            swipeSamples = []
+            endSpaceSwipe()
+            return
+        }
+        if hiddenLibrary == nil {
+            beginSpaceSwipe()
+            if librarySwipeFrom != nil, shell.floatingSidebar { prepareHiddenLibraryReveal(sidebarUI.lastLibraryPage) }
+        }
+        guard let h = hiddenLibrary else { swipeTracking = false; return CraLog.note("hidden library reveal: not offered") }
+        setLibraryReveal(r)
+        shell.layoutSubtreeIfNeeded()
+        let page = shell.frames(sidebarVisible: shell.sidebarVisible, floating: shell.floatingSidebar, fullscreen: shell.contentFullscreen,
+                                width: shell.sidebarWidth).content.minX
+        CraLog.note("hidden library reveal \(String(format: "%.2f", Double(r))): library x=\(Int(h.view.frame.minX.rounded())) w=\(Int(h.width))"
+            + " page x=\(Int(page.rounded())) floating back=\(floatingSidebar?.retreatReadout ?? 0)")
     }
 
     /// Shows reveal `r`, and like Arc the sidebar widens with it, from its own width to the
     /// Library's, so the Library lands at its width with nothing left to resize.
     private func setLibraryReveal(_ r: CGFloat) {
+        if var h = hiddenLibrary {
+            h.reveal = r
+            hiddenLibrary = h
+            let x = LibrarySwipe.libraryX(reveal: r, base: 0, library: h.width)
+            h.view.frame = shell.sidebarSide.place(NSRect(x: x, y: 0, width: h.width, height: shell.bounds.height), in: shell.bounds)
+            shell.libraryRevealFromHidden = (r, h.width)
+            floatingSidebar?.retreat(LibrarySwipe.floatingRetreat(reveal: r, library: h.width))
+            return
+        }
         // Embedded pages keep their size under their cards until the swipe lands.
         if sidebarUI.libraryReveal == nil, EmbeddedPages.isEnabled { shell.freezePages() }
         sidebarUI.libraryReveal = r
@@ -3239,6 +3666,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                 swipeTravel = LibrarySwipe.travelPastSpace(from: from, travel: swipeTravel, width: width)
                 librarySwipeFrom = 0
                 librarySwipeToward = nil
+                // Out to a hidden sidebar there is no next space on show to go on to.
+                let toHidden = libraryShowedSidebar
+                finishLibrarySwipe(at: 0)
+                if toHidden {
+                    librarySwipeFrom = nil
+                    swipeSpent = true
+                    return true
+                }
+            } else if hiddenLibrary != nil {
                 finishLibrarySwipe(at: 0)
             } else if sidebarUI.libraryReveal != nil {
                 setLibraryReveal(0)
@@ -3248,6 +3684,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             return false
         }
         if sidebarUI.spaceSwipe != 0 { sidebarUI.spaceSwipe = 0 }
+        // Back toward the Library after heading for the next space, in a floating sidebar.
+        if shell.floatingSidebar, hiddenLibrary == nil {
+            prepareHiddenLibraryReveal(sidebarUI.lastLibraryPage)
+            guard hiddenLibrary != nil else { return false }
+        }
         setLibraryReveal(r)
         if swipeHaptics.track(position: -r, pages: -1...0) { performSwipeHaptic() }
         return true
@@ -3306,6 +3747,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     /// Landed: the window is in the Library or on the space, at the width the swipe ends on.
     private func finishLibrarySwipe(at target: CGFloat) {
+        if let h = hiddenLibrary {
+            hiddenLibrary = nil
+            shell.libraryRevealFromHidden = nil
+            if target >= 1 {
+                landLibraryFromHidden(h.view, page: h.page, width: h.width)
+            } else {
+                h.view.removeFromSuperview()
+                floatingSidebar?.retreat(0)
+                CraLog.note("library swipe from the hidden sidebar: back to the space")
+            }
+            shell.thawPages()
+            return
+        }
         var instant = Transaction()
         instant.disablesAnimations = true
         let width: CGFloat
@@ -3330,6 +3784,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         }
         sidebarUI.libraryReveal = nil
         shell.sidebarWidth = width
+        if target < 1, libraryShowedSidebar {
+            // It came out of a hidden sidebar, and that is where leaving it goes back to (Arc).
+            libraryShowedSidebar = false
+            setSidebarVisibleInPlace(false)
+            CraLog.note("library left by a swipe: the sidebar hides again")
+        }
         shell.thawPages()
     }
 
@@ -3371,8 +3831,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // Where the Library is headed, if it is sliding.
         let inLibrary = librarySettleSpring.map { $0.target >= 1 } ?? (sidebarUI.libraryPage != nil)
         switch WheelSpaceSwitch.target(step: step, index: order.firstIndex(of: focusedSpaceID) ?? 0, count: order.count,
-                                       inLibrary: inLibrary, libraryAllowed: !shell.floatingSidebar && shell.sidebarVisible) {
+                                       inLibrary: inLibrary,
+                                       libraryAllowed: shell.floatingSidebar ? floatingSidebar?.isShown == true : shell.sidebarVisible) {
         case .space(let i): store.focusSpace(order[i], window: windowID)
+        case .openLibrary where shell.floatingSidebar: slideLibraryFromHidden()
         case .openLibrary, .closeLibrary: toggleLibrary()
         case nil: break
         }
@@ -3429,7 +3891,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         swipeTravel += dx
         swipeSamples.append((time, dx))
         swipeSamples.removeAll { time - $0.time > 0.08 }
-        if trackLibrarySwipe() { return }
+        if swipeSpent || trackLibrarySwipe() { return }
         let index = CGFloat(store.spaceOrder.firstIndex(of: focusedSpaceID) ?? 0)
         let first = -index, last = CGFloat(store.spaceOrder.count - 1) - index
         // Content follows the fingers (natural scrolling: fingers left = next space).
@@ -3438,15 +3900,262 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         func band(_ x: CGFloat) -> CGFloat { 1 - 1 / (x * 0.55 + 1) }
         if pages < first { pages = first - band(first - pages) * 0.5 }
         if pages > last { pages = last + band(pages - last) * 0.5 }
+        // Past the last space the list gives as Arc's does, and that overscroll brings Arc's "+" out
+        // (NewSpaceSwipe). Only for a swipe that began there: one that came from the space before
+        // stops on the last space, as any swipe goes one page. The fingers' travel isn't held to a page.
+        var overscroll: CGFloat = 0
+        if last == 0, swipeTravel < 0, NewSpaceSwipe.isOffered(standalone: isStandalone) {
+            overscroll = NewSpaceSwipe.overscroll(travel: -swipeTravel, page: width)
+            pages = overscroll / width
+        }
+        setNewSpacePull(overscroll)
         sidebarUI.spaceSwipe = pages
         // Arc's performsPageDetentHaptics: a tick each time the nearest page changes.
         if swipeHaptics.track(position: pages, pages: Int(first)...Int(last)) { performSwipeHaptic() }
     }
 
+    /// When the "+"'s ring became full, while it is.
+    private var newSpaceFullSince: CFTimeInterval?
+
+    /// The list is `overscroll` points past the last space: Arc's tick as the ring fills, and as it
+    /// empties again.
+    private func setNewSpacePull(_ overscroll: CGFloat) {
+        let was = NewSpaceSwipe.isActivated(overscroll: sidebarUI.newSpacePull)
+        let full = NewSpaceSwipe.isActivated(overscroll: overscroll)
+        sidebarUI.newSpacePull = overscroll
+        if full != was { NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now) }
+        if !full { newSpaceFullSince = nil } else if newSpaceFullSince == nil { newSpaceFullSince = CACurrentMediaTime() }
+    }
+
+    /// The fingers lift: the "+" goes back out, and if its ring had been full long enough Arc's
+    /// Create a Space page comes in.
+    private func liftNewSpacePull() {
+        let overscroll = sidebarUI.newSpacePull
+        guard overscroll > 0 else { return }
+        let fullFor = newSpaceFullSince.map { CACurrentMediaTime() - $0 }
+        newSpaceFullSince = nil
+        sidebarUI.newSpacePull = 0
+        let creates = NewSpaceSwipe.createsOnLift(fullFor: fullFor)
+        let outcome = creates ? "New Space opens" : fullFor != nil ? "the ring was full too briefly" : "nothing"
+        CraLog.note("new space pull: lifted \(String(format: "%.1f", Double(overscroll))) pt out, \(outcome)")
+        // The "+" and the column spring back first: the sheet's own opening work would hold them
+        // where the fingers left them.
+        if creates { beginSpaceCreation() }
+    }
+
+    // MARK: Create a Space, in the sidebar (SpaceCreationDraft)
+
+    /// The space the page was opened on: it wears the draft's theme while the page is up, the way a
+    /// space wears the theme its editor is trying, so the sidebar, the window and the page show it.
+    private var creationOrigin: UUID?
+    private var creationDone: ((UUID) -> Void)?
+
+    /// New Space…: Arc's Create a Space page takes the space's place in the sidebar. A window with
+    /// no spaces of its own keeps the sheet.
+    func beginSpaceCreation(created: ((UUID) -> Void)? = nil) {
+        if sidebarUI.spaceCreation != nil {
+            (shell.sidebarHost as? SidebarView)?.focusSpaceCreationName()
+            return
+        }
+        guard !isStandalone, window != nil else { return showSpaceEditor(space: nil, created: created) }
+        if sidebarUI.libraryPage != nil { closeLibrary() }
+        commandBar.close()
+        let origin = focusedSpaceID
+        // Arc starts the page on the profile of the space it was opened from.
+        let draft = SpaceCreationDraft(theme: SpaceColorPresets.newSpaceTheme(),
+                                       profile: SpaceProfiles.forNewSpace(from: store.focusedSpace, profiles: store.profiles))
+        creationOrigin = origin
+        creationDone = created
+        store.previewTheme(draft.theme, forSpace: origin)
+        // The page area shows the new space's empty page, as Arc's does.
+        store.windowsMakingSpace.insert(windowID)
+        sidebarUI.spaceCreation = draft
+        // With the sidebar hidden it comes out over the page and stays while the page is up.
+        if !sidebarVisible, !shell.contentFullscreen { floatingSidebar?.show() }
+        CraLog.note("space creation opens")
+    }
+
+    // A swipe back on the page (SpaceCreationSwipe).
+    private var creationSwiping = false
+
+    private func beginCreationSwipe() {
+        creationSwiping = true
+        swipeTravel = 0
+        swipeSamples = []
+        closeCreationPanels()
+        ArcTooltipController.shared.dismiss()
+    }
+
+    /// The page goes out under the fingers, `dx` points more to the right.
+    private func trackCreationSwipe(by dx: CGFloat, at time: TimeInterval) {
+        guard sidebarUI.spaceCreation != nil else { return }
+        swipeTravel += dx
+        swipeSamples.append((time, dx))
+        swipeSamples.removeAll { time - $0.time > 0.08 }
+        let pull = SpaceCreationSwipe.pull(travel: swipeTravel, width: max(1, shell.sidebarWidth))
+        (shell.sidebarHost as? SidebarView)?.setCreationPull(pull)
+    }
+
+    /// The fingers lift: past half way or flicked out the page leaves, as Cancel; else it goes back in.
+    private func endCreationSwipe() {
+        guard creationSwiping else { return }
+        creationSwiping = false
+        guard sidebarUI.spaceCreation != nil, let sidebar = shell.sidebarHost as? SidebarView else { return }
+        let span = (swipeSamples.last?.time ?? 0) - (swipeSamples.first?.time ?? 0)
+        let moved = swipeSamples.reduce(0) { $0 + $1.dx }
+        let velocity = span > 0.004 ? moved / CGFloat(span) / max(1, shell.sidebarWidth) : 0
+        let pull = sidebar.creationPull
+        let leaves = SpaceCreationSwipe.leaves(pull: pull, velocity: velocity)
+        CraLog.note("space creation swipe: lifted \(String(format: "%.2f", Double(pull))) out, \(leaves ? "leaves" : "goes back")")
+        if leaves { cancelSpaceCreation() } else { sidebar.setCreationPull(0, animated: true) }
+    }
+
+    /// Scenario hook: a swipe back of `travel` points held (`swipe:<pt>`), then let go (`lift`).
+    private func debugCreationSwipe(_ travel: CGFloat?) {
+        if let travel {
+            if !creationSwiping { beginCreationSwipe() }
+            // Slowly: no flick.
+            trackCreationSwipe(by: travel - swipeTravel, at: ProcessInfo.processInfo.systemUptime)
+            swipeSamples = []
+        } else {
+            endCreationSwipe()
+        }
+    }
+
+    /// Choose a Theme: Arc's editor beside the sidebar, level with the row, on the draft. Every
+    /// change shows at once; closing it keeps the theme.
+    func showCreationThemeEditor(beside row: NSRect) {
+        guard let window, let draft = sidebarUI.spaceCreation, let origin = creationOrigin else { return }
+        closeCreationPanels()
+        let store = self.store
+        let editor = SpaceStyleEditor(theme: draft.theme) { [weak self] theme in
+            guard let self, self.sidebarUI.spaceCreation != nil else { return }
+            self.sidebarUI.spaceCreation?.theme = theme
+            self.sidebarUI.spaceCreation?.themeChosen = true
+            store.previewTheme(theme, forSpace: origin)
+        }
+        let size = NSSize(width: 382, height: 534)
+        // Arc's panel stands against the sidebar's edge with the row about half way down it.
+        let y = min(max(row.midY - size.height / 2, window.frame.minY), window.frame.maxY - size.height)
+        let panel = StyleEditorPanel(contentRect: NSRect(x: row.maxX.rounded() + 2, y: y.rounded(), width: size.width, height: size.height)) {}
+        let host = NSHostingView(rootView: editor.shadow(color: .black.opacity(0.3), radius: 10, y: 4)
+            .padding(.top, 12).padding(.horizontal, 13.5).padding(.bottom, 19))
+        host.sizingOptions = []
+        panel.contentView = host
+        window.addChildWindow(panel, ordered: .above)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    /// The theme editor and the icon picker the page opened.
+    func closeCreationPanels() {
+        window?.childWindows?.first(where: { $0 is StyleEditorPanel })?.close()
+        (shell.sidebarHost as? SidebarView)?.closeSpaceCreationPopovers()
+    }
+
+    /// Cancel, Escape, or another space picked: the space it was opened on comes back as it was.
+    func cancelSpaceCreation() {
+        guard sidebarUI.spaceCreation != nil else { return }
+        closeCreationPanels()
+        if let origin = creationOrigin { store.endThemePreview(forSpace: origin, keep: false) }
+        creationOrigin = nil
+        creationDone = nil
+        store.windowsMakingSpace.remove(windowID)
+        sidebarUI.spaceCreation = nil
+        currentBrowser?.setFocused(true)
+        CraLog.note("space creation cancelled")
+    }
+
+    /// Create Space: Arc's animation plays, then the space is made in this window, on the draft's
+    /// theme and profile, and shown.
+    func commitSpaceCreation() {
+        guard let draft = sidebarUI.spaceCreation, draft.canCreate, creationOrigin != nil else { return }
+        closeCreationPanels()
+        guard let sidebar = shell.sidebarHost as? SidebarView else { return finishSpaceCreation() }
+        sidebar.playSpaceCreation(icon: draft.icon) { [weak self] in self?.finishSpaceCreation() }
+    }
+
+    private func finishSpaceCreation() {
+        guard let draft = sidebarUI.spaceCreation, let origin = creationOrigin else { return }
+        let done = creationDone
+        store.endThemePreview(forSpace: origin, keep: false)
+        creationOrigin = nil
+        creationDone = nil
+        let id = store.createSpace(title: draft.createdTitle, emoji: draft.icon.emoji, symbol: draft.icon.symbol,
+                                   iconImage: draft.icon.image, theme: draft.theme, focus: false).id
+        if let profile = draft.profile { store.setProfile(profile, forSpace: id) }
+        store.setSearchEngine(draft.searchEngine, forSpace: id)
+        // In this window, whichever one is active.
+        store.focusSpace(id, window: windowID)
+        store.windowsMakingSpace.remove(windowID)
+        sidebarUI.spaceCreation = nil
+        CraLog.note("space creation made \"\(draft.createdTitle)\" on \(draft.profile == nil ? "Default" : "a profile"), theme \(draft.themeChosen ? "chosen" : "as opened"), search \(store.space(id)?.searchEngine ?? "default")")
+        done?(id)
+    }
+
+    /// Scenario hook: the page's state, or one step on it (`type:<name>`, `icon:<emoji>`, `symbol:<name>`, `theme:<n>`,
+    /// `profile:<n>`, `engine:<keyword>`, `create`, `cancel`, `tip:<profile|search>`, `swipe:<points>`, `lift`).
+    func debugSpaceCreation(_ step: String) {
+        let sidebar = shell.sidebarHost as? SidebarView
+        let parts = step.split(separator: ":", maxSplits: 1).map(String.init)
+        switch parts.first {
+        case "type": sidebar?.debugTypeSpaceName(parts.count > 1 ? parts[1] : "")
+        case "icon": sidebarUI.spaceCreation?.icon = parts.count > 1 ? .emoji(parts[1]) : .none
+        case "symbol": sidebarUI.spaceCreation?.icon = parts.count > 1 ? .symbol(parts[1]) : .none
+        case "theme":
+            if let origin = creationOrigin, sidebarUI.spaceCreation != nil {
+                let theme = SpaceColorPresets.newSpaceTheme(index: Int(parts.count > 1 ? parts[1] : "") ?? 0)
+                sidebarUI.spaceCreation?.theme = theme
+                sidebarUI.spaceCreation?.themeChosen = true
+                store.previewTheme(theme, forSpace: origin)
+            }
+        case "profile":
+            let n = Int(parts.count > 1 ? parts[1] : "") ?? -1
+            sidebarUI.spaceCreation?.profile = store.profiles.indices.contains(n) ? store.profiles[n].id : nil
+        case "engine": sidebarUI.spaceCreation?.searchEngine = parts.count > 1 && !parts[1].isEmpty ? parts[1] : nil
+        case "create": commitSpaceCreation()
+        case "cancel": cancelSpaceCreation()
+        case "tip": CraLog.note("space creation tip \(parts.count > 1 ? parts[1] : "profile"): \(sidebar?.debugSpaceCreationTip(parts.count > 1 ? parts[1] : "profile") ?? "none")")
+        case "swipe": debugCreationSwipe(CGFloat(Double(parts.count > 1 ? parts[1] : "") ?? 0))
+        case "lift": debugCreationSwipe(nil)
+        default: break
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            let dock = (self.shell.sidebarHost as? SidebarView)?.debugDockLine ?? "?"
+            let page = self.sidebarUI.spaceCreation == nil ? "none" : (sidebar?.debugSpaceCreation ?? "none")
+            let pages = self.store.visiblePaneTabIDs(in: self.focusedSpaceID, window: self.windowID).count
+            CraLog.note("space creation \(step): \(page) dock=\(dock) space=\(self.focusedSpace.title) spaces=\(self.store.spaceOrder.count) pages=\(pages) pull=\(String(format: "%.2f", Double(sidebar?.creationPull ?? 0)))")
+        }
+    }
+
+    /// Scenario hook: the "+" as the list `overscroll` points past the last space leaves it, and
+    /// what it shows; `lift` lets go, at once when `overscroll` came with it.
+    func debugNewSpacePull(_ overscroll: CGFloat?, lift: Bool) {
+        if let overscroll {
+            let onLast = store.spaceOrder.last == focusedSpaceID
+            setNewSpacePull(onLast && NewSpaceSwipe.isOffered(standalone: isStandalone) ? overscroll : 0)
+            // The space's column is that far out with it, as under the fingers.
+            sidebarUI.spaceSwipe = sidebarUI.newSpacePull / max(1, shell.sidebarWidth)
+            let line = (shell.sidebarHost as? SidebarView)?.debugNewSpacePlus ?? "none"
+            let column = (shell.sidebarHost as? SidebarView)?.debugSpaceColumnShift ?? 0
+            CraLog.note("new space plus: \(String(format: "%.1f", Double(sidebarUI.newSpacePull))) pt out, column=\(String(format: "%.1f", abs(Double(column)))) \(line)")
+        }
+        if lift {
+            liftNewSpacePull()
+            sidebarUI.spaceSwipe = 0
+        }
+    }
+
     private func endSpaceSwipe() {
+        liftNewSpacePull()
         HitchMonitor.mark("swipe-lift")
         swipeTracking = false
-        if let r = sidebarUI.libraryReveal, librarySwipeFrom != nil { return endLibrarySwipe(r) }
+        if let r = liveLibraryReveal, librarySwipeFrom != nil { return endLibrarySwipe(r) }
+        if swipeSpent {
+            swipeSpent = false
+            librarySwipeFrom = nil
+            return
+        }
         librarySwipeFrom = nil
         let width = max(1, shell.sidebarWidth)
         let pages = sidebarUI.spaceSwipe
@@ -3706,7 +4415,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         guard let window, let content = window.contentView,
               let y = pressed != nil && shell.panesShowBars ? toolbarBottomOnScreen()?.y : urlBarBottomOnScreen() else { return }
         ExtensionStore.shared.reload()
-        let midX = (anchor ?? pressed ?? Self.buttonFrameUnderPointer { $0 is SidebarGlyphButton })?.midX ?? NSEvent.mouseLocation.x
+        let midX = SiteControlsPopupAnchor.buttonMidX(given: anchor ?? pressed, underPointer: Self.buttonFrameUnderPointer { $0 is SidebarGlyphButton },
+                                                      sliders: (shell.sidebarHost as? SidebarView)?.siteControlsButtonFrameOnScreen,
+                                                      pointerX: NSEvent.mouseLocation.x)
         // Arc's popover overlaps the bar by 4 pt (popover top 71 under a bar ending at 75).
         let onScreen = NSRect(x: midX - 16, y: y + 4, width: 32, height: 28)
         let rect = content.convert(window.convertFromScreen(onScreen), from: nil)
@@ -3741,7 +4452,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             if let settings = SiteControlCenter.siteSettingsURL(for: url) { self?.openTab(settings) }
         }
         actions.learnAboutProtectedMedia = { [weak self] in self?.openTab(Self.protectedMediaHelp) }
-        actions.chooseSafariEngine = { [weak self] on in self?.chooseSafariEngine(on, for: url) }
+        actions.pressSafariEngine = { [weak self] row in self?.pressSafariEngine(row, for: url) }
         // Arc's New Boost and the site's boosts (#478), where the page is a website and Boosts are on.
         if store.settings.boostsEnabled, BoostStore.canBoost(url) {
             actions.newBoost = { [weak self] in self?.openBoostEditor() }
@@ -3754,26 +4465,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             actions.manageBoosts = { [weak self] in self?.showLibrary(.boosts) }
         }
         siteControlCenterSpaceID = focusedSpaceID
-        let show = { [weak self] (safariEngine: Bool?) in
+        let show = { [weak self] (safariEngine: SafariEngineRow?) in
             guard let self, let window = self.window, window.isVisible else { return }
             self.siteControlCenter.show(relativeTo: rect, of: content, url: url, secure: secure, dark: SystemAppearance.shared.isDark,
                                         profile: self.profileDirectoryName, tab: self.selectedTabID,
                                         protectedMedia: self.browsers.visibleTabID.flatMap { self.sidebarUI.navState(for: $0).protectedMedia },
                                         safariEngine: safariEngine, toggleChecked: true, store: self.store, actions: actions)
         }
-        // The Safari's Engine switch: on for a WebKit page; for a Chromium page only once it asked
-        // for Widevine (PageScript's `drm`), else no switch. Asked in Cra's world; a page that
-        // doesn't answer within 0.3 s opens without it.
+        // The Safari's Engine row (ProtectedVideoPages.row): on for a WebKit page, or what moved it
+        // there for one video; for a mixed site's Chromium page what Cra saw it ask and what was
+        // chosen for the site; for any other Chromium page only once it asked for Widevine
+        // (PageScript's `drm`), else no row. That one is asked in Cra's world; a page that doesn't
+        // answer within 0.3 s opens without it.
         guard let b = currentBrowser, url.hasPrefix("http") else { return show(nil) }
-        if b is WebKitBrowser { return show(true) }
+        if b is WebKitBrowser || PageEngines.sites.mixedSite(for: b.currentURL) != nil { return show(safariEngineRow()) }
         var shown = false
-        let once = { (value: Bool?) in if !shown { shown = true; show(value) } }
+        let once = { [weak self] (drm: Bool) in if !shown { shown = true; show(self?.safariEngineRow(askedForWidevine: drm)) } }
         b.evaluate(inIsolatedWorld: PageScript.world, params: #"{"expression":"window.__cra?.drm === true","returnByValue":true}"#) { result, _ in
             let drm = result.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
                 .flatMap { $0["result"] as? [String: Any] }?["value"] as? Bool == true
-            DispatchQueue.main.async { once(drm ? false : nil) }
+            DispatchQueue.main.async { once(drm) }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { once(nil) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { once(false) }
     }
 
     func debugChooseSafariEngine(_ on: Bool) {
@@ -3801,7 +4514,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         let host = shell.sidebarHost
         let sidebar = host.window.map { $0.convertToScreen(host.convert(host.bounds, to: nil)) }
         let inSidebar = sidebar.map { anchor.x >= $0.minX && anchor.x <= $0.maxX + 1 } ?? false
+        // Where the frame went (#634): its right edge from the anchor, its top from under the URL field.
+        let frame = ExtensionPopupWindow.shownFrame ?? .zero
         CraLog.note("extension popup \(step): shown, hangs from \(inSidebar ? "sidebar" : "page")")
+        CraLog.note("extension popup \(step) frame: dx=\(Int((frame.maxX - anchor.x).rounded())) dy=\(Int((frame.maxY - anchor.y).rounded())) "
+                    + "minX=\(Int(frame.minX - (window?.screen?.frame.minX ?? 0))) fullscreen=\(window?.styleMask.contains(.fullScreen) == true ? 1 : 0) "
+                    + "titleBar=\(Int(frame.midX)),\(Int((NSScreen.screens.first?.frame.maxY ?? 0) - frame.maxY + 10))")
     }
 
     /// Scenario hook (#531): "floating sidebar <step>: out" or "in".
@@ -4126,10 +4844,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// Arc's Tabs ▸ Reset all tabs in this Space: every pinned tab away from its page goes back.
     func resetAllPinnedTabs() {
         guard !isStandalone else { return }
-        let space = store.focusedSpace(window: windowID)
-        for t in store.tabs(under: space.pinnedContainerID) where t.tab.map({ $0.url != $0.savedURL }) == true {
-            resetPinnedTab(t.id)
+        for t in pinnedTabsAway { resetPinnedTab(t.id) }
+    }
+
+    /// The focused space's pinned tabs away from their saved page, folders included, Favorites not:
+    /// what Reset all tabs in this Space takes back.
+    private var pinnedTabsAway: [SidebarItem] {
+        store.tabs(under: store.focusedSpace(window: windowID).pinnedContainerID).filter { t in
+            t.tab.map { $0.url != $0.savedURL } == true
         }
+    }
+
+    /// What the Tabs menu's rows can act on in this window's focused space (CraCore TabsMenu, #622).
+    func tabsMenuFacts(littleWindowInFront: Bool) -> TabsMenu.Facts {
+        let selection: TabsMenu.Facts.Selection = switch selectedTabID.flatMap({ store.rootContainer(of: $0) }) {
+        case .favorites: .favorite
+        case .pinned: .pinned
+        case .today: .today
+        case nil: .none
+        }
+        // Counted only as far as the rules look (one tab, another tab) and stopped at the first
+        // clearable Today row: AppKit checks every row on each menu check, at any sidebar size.
+        return TabsMenu.Facts(selection: selection, tabs: store.visibleTabCount(in: focusedSpaceID, upTo: 2),
+                              clearableToday: store.todayHasClearable(playing: sidebarUI.audibleTabIDs),
+                              resettablePinned: !pinnedTabsAway.isEmpty,
+                              window: isBlank ? .blank : isIncognito ? .incognito : .normal,
+                              littleWindowInFront: littleWindowInFront, makingSpace: sidebarUI.spaceCreation != nil)
     }
 
     /// Arc's Edit ▸ Copy URL as Quote, Save Page As and the page captures, on the open tab (PageCommands).
@@ -4340,6 +5080,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private func handleCommit(_ s: Suggestion?, typed: String, mode: CommandBarMode) {
         let query = commandBar.query
         func open(_ url: String) {
+            var url = url
+            // Another app's address opens that app, with no tab (#604).
+            switch AppLinkPrompt.openTyped(url) {
+            case .load: break
+            case .openApp, .refuse: return
+            case .search: url = commandBar.engine.searchURL(typed)
+            }
             store.recordQuerySelection(query: query, url: url)
             let fillsEmptyPane = selectedTab?.isEmptyTab == true
             // A pinned tab keeps to its host: another host's address opens a Today tab (Arc).
@@ -4415,11 +5162,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                                                  tabSpaceTitle: space.flatMap { store.space($0)?.title }) else { return }
         backgroundTabToasts += 1
         CraLog.note("background tab toast \(backgroundTabToasts): \(text)")
-        showToast(text)
+        // Still up from the last one: it bumps and now holds this tab too; up with something else, or gone, it starts over.
+        announcedBackgroundTabs = toast.isTappable ? announcedBackgroundTabs + [id] : [id]
+        showToast(text) { [weak self] in
+            // Arc's toast is a button (#543): it opens the tab it announced, in its space.
+            guard let self, let tab = BackgroundTabToast.clickOpens(announced: self.announcedBackgroundTabs,
+                                                                   isOpen: { self.store.item($0)?.isTab == true }) else {
+                CraLog.note("background tab toast clicked: nothing to open")
+                return
+            }
+            CraLog.note("background tab toast clicked: \(self.store.item(tab)?.tab?.url ?? "")")
+            self.store.selectTab(tab, window: self.windowID)
+        }
     }
 
     /// The background-tab toasts this window showed, for cra.log (scenario background-tab-toast).
     private var backgroundTabToasts = 0
+    /// The tabs the toast up now announced, oldest first: a click opens the newest (BackgroundTabToast.clickOpens).
+    private var announcedBackgroundTabs: [UUID] = []
+
+    /// cra://debug?clickToast=1: a click on the toast up now, as the pointer's.
+    func clickToastForTest() {
+        if !toast.testClick() { CraLog.note("toast click: no toast to click") }
+    }
+
+    /// cra://debug?toastShown=<label>: whether a toast is up in this window.
+    var toastIsShown: Bool { toast.isShown }
 
     /// ⌥Return in the bar: the row opens as a split pane beside the current tab instead of in its
     /// place, an open tab of this space joining the split as it is. False takes it as Return: no
@@ -4486,6 +5254,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             }
             let page = self.shell.webContainer.convert(self.shell.webContainer.bounds, to: nil)
             self.slowResponseToastTab = nil
+            self.protectedVideoPromptUp = false
             self.toast.show("\(service) plays with Safari's engine",
                             action: ShinyToast.Action(title: "Why?") { [weak self] in self?.showSiteControlsFromTheirButton() },
                             page: page, in: window, theme: self.focusedSpace.theme, onClose: told)
@@ -4496,11 +5265,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private var offeredProtectedMedia: Set<String> = []
 
     /// Arc's toast at the top right of the page (ShinyToast): Cra's confirmations.
-    func showToast(_ text: String, keyCap: (keys: String, after: String)? = nil, action: ShinyToast.Action? = nil) {
+    func showToast(_ text: String, keyCap: (keys: String, after: String)? = nil, action: ShinyToast.Action? = nil,
+                   onTap: (() -> Void)? = nil) {
         guard let window else { return }
         let page = shell.webContainer.convert(shell.webContainer.bounds, to: nil)
         slowResponseToastTab = nil
-        toast.show(text, keyCap: keyCap, action: action, page: page, in: window, theme: focusedSpace.theme)
+        protectedVideoPromptUp = false
+        toast.show(text, keyCap: keyCap, action: action, page: page, in: window, theme: focusedSpace.theme, onTap: onTap)
     }
 
     /// An MCP agent's pill at the bottom of the page (AgentPill): its face, what it does, Take Over (⌘.).
@@ -4549,6 +5320,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     func showUpdateToast(_ notice: UpdateNotice) {
         guard let window else { return }
         let page = shell.webContainer.convert(shell.webContainer.bounds, to: nil)
+        protectedVideoPromptUp = false
         toast.show(notice.title, action: ShinyToast.Action(title: notice.button) { SoftwareUpdater.shared.act(on: notice) },
                    page: page, in: window, theme: focusedSpace.theme, onClose: {})
     }
@@ -4773,6 +5545,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         })
         panel.contentView = NSHostingView(rootView: view)
         spaceEditor = panel
+        CraLog.note("space editor opens: \(space == nil ? "a new space" : "an existing space")")
         window.beginSheet(panel) { [weak self] _ in
             // Closed without Save (Cancel, Escape, cra://dismiss): the stored theme comes back.
             // Save already wrote it, so this does nothing then.
@@ -4804,6 +5577,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// Close whatever transient UI is up (used by cra://dismiss for scripting).
     func dismissTransientUI() {
         LinkSummaryPreviewController.shared.stop(windowID: windowID)
+        cancelSpaceCreation()
         if let sheet = window?.attachedSheet { window?.endSheet(sheet) }
         importWindow?.close()
         commandBar.close()
@@ -4905,7 +5679,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         (window as? CraWindow)?.fullScreenChanged()
         shell.needsLayout = true
         // Remembered for the next launch (#426), unless a page's video took the window there.
-        if !enteredFullscreenForContent { store.updateWindow(windowID) { $0.fullScreen = true } }
+        if !pageFullscreenWindow.enteredForPage { store.updateWindow(windowID) { $0.fullScreen = true } }
+        if let toast = pendingNoticeToast {
+            pendingNoticeToast = nil
+            showNoticeToast(toast)
+        }
         runAfterFullScreen()
     }
     func windowDidFailToEnterFullScreen(_ window: NSWindow) { runAfterFullScreen() }
@@ -4918,7 +5696,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         contentFullscreenTab = nil
         if shell.contentFullscreen { shell.contentFullscreen = false }
         floatingSidebar?.sidebarVisibilityChanged()
-        enteredFullscreenForContent = false
+        pageFullscreenWindow.windowLeftFullScreen()
         shell.needsLayout = true
     }
 
@@ -4943,6 +5721,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             CraLog.note("window not visible to macOS, nothing in front covers it: \(coverage.summary)")
             return
         }
+        // What covered it, so a Picture in Picture nobody expected can be told apart (a test runner's window over Cra).
+        CraLog.note("window out of sight: \(coverage.summary)")
         browsers.windowVisibilityChanged(covered: true)
     }
 
@@ -5053,6 +5833,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     func windowWillClose(_ notification: Notification) {
         guard (notification.object as? NSWindow) === window else { return }
+        // A page being made goes with its window: the space it was opened on gets its theme back.
+        cancelSpaceCreation()
         askOnPage.reset()
         LinkSummaryPreviewController.shared.stop(windowID: windowID)
         tabSwitcher.cancel()

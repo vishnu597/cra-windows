@@ -74,9 +74,58 @@ enum BrowserManagerLifecycleTests {
         store.settings.littleWindowOnOptionCommandClick = false
     }
 
+    /// A page's full screen ends with its tab (#636): ⌘W on a video in full screen, or the tab moved to another
+    /// window, tells the window the page left full screen, so a window the video took full screen comes back.
+    /// Chromium's own "left" for a closed page comes too late, once the tab is no longer the window's.
+    // promise: #636
+    @MainActor
+    private static func fullscreenTabClosedCase() {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let observer = Observer()
+        manager.delegate = observer
+        let video = store.createTab(url: "https://example.test/video").id
+        manager.show(video, focus: false)
+        let page = manager.runtime(for: video)!.browser
+        manager.browser(page, didChangeFullscreen: true)
+        expect(observer.fullscreenChanges.map(\.fullscreen) == [true] && observer.fullscreenChanges.last?.tab == video,
+               "a page going full screen reaches the window")
+        manager.unload(video)
+        expect(observer.fullscreenChanges.map(\.fullscreen) == [true, false] && observer.fullscreenChanges.last?.tab == video,
+               "closing the tab whose page is in full screen tells the window it left full screen")
+        manager.browser(page, didChangeFullscreen: false)
+        page.finishClose()
+        expect(observer.fullscreenChanges.count == 2, "the closed page's own late answer changes nothing more")
+
+        let plain = store.createTab(url: "https://example.test/plain").id
+        manager.show(plain, focus: false)
+        manager.unload(plain)
+        expect(observer.fullscreenChanges.count == 2, "closing a tab that was never in full screen says nothing about full screen")
+
+        let left = store.createTab(url: "https://example.test/left").id
+        manager.show(left, focus: false)
+        let leftPage = manager.runtime(for: left)!.browser
+        manager.browser(leftPage, didChangeFullscreen: true)
+        manager.browser(leftPage, didChangeFullscreen: false)
+        manager.unload(left)
+        expect(observer.fullscreenChanges.map(\.fullscreen) == [true, false, true, false],
+               "a page that already left full screen says nothing more when its tab closes")
+
+        let moved = store.createTab(url: "https://example.test/moved").id
+        manager.show(moved, focus: false)
+        let movedPage = manager.runtime(for: moved)!.browser
+        manager.browser(movedPage, didChangeFullscreen: true)
+        let handedOff = manager.release(moved)
+        expect(handedOff?.browser === movedPage && observer.fullscreenChanges.last.map { !$0.fullscreen && $0.tab == moved } == true,
+               "a tab moved to another window takes its page out of this window's full screen")
+        expect(movedPage.exitFullscreenRequests == 1, "and its page leaves full screen, as Chrome's does when a tab is dragged out")
+        handedOff?.browser.close()
+    }
+
     @MainActor
     static func main() async {
         downloadSourceAdoptionCase()
+        fullscreenTabClosedCase()
         await sparePagesCase()
         await tabFaviconsCase()
         let store = SidebarStore()
@@ -176,6 +225,8 @@ enum BrowserManagerLifecycleTests {
         await sleepCase("a page holding typed text stays awake", reply: #"{"result":{"type":"string","value":"typed"}}"#) { _, _ in }
         await refusalBackoffCase()
         recentTabsCase()
+        sleptPagesBudgetCase()
+        timerAsksSixteenCase()
         freezingVoteCase()
         await keepActiveSitesCase()
         await sleepClockCase()
@@ -202,6 +253,8 @@ enum BrowserManagerLifecycleTests {
         nowPlayingSkipsUncontrollableSoundCase()
         nowPlayingFollowsMediaSessionCase()
         await leaveVideoTabPictureInPictureCase()
+        await webKitPictureInPictureCase()
+        webKitPictureInPictureBackToTabCase()
         await pictureInPicturePerSiteCase()
         await splitCopySleepsPinnedTabCase()
         await coveredWindowPictureInPictureCase()
@@ -210,12 +263,15 @@ enum BrowserManagerLifecycleTests {
         await callPictureInPictureCase()
         await playerMediaSessionCase()
         pageColoursCase()
+        await toolbarSampleCase()
         syncedDocumentKeepsLivePagesCase()
         extensionPageRetryCase()
         await sleepCase("malformed or missing replies cannot authorize sleeping", reply: nil) { _, _ in }
         await pageProbeCase()
         await pageEngineCase()
+        await protectedVideoCase()
         await backgroundTabToastCase()
+        backgroundPageStartsHiddenCase()
         pageHistoryCase()
         await permissionWaitsForItsTabCase()
         permissionPopoverStepsAsideCase()
@@ -634,6 +690,59 @@ enum BrowserManagerLifecycleTests {
         manager.closeAll()
     }
 
+    // promise: #552
+    /// A link opened behind the page (Open Link in New Tab with links opening in the background) gets a page
+    /// that starts hidden, so its video waits until its tab is shown, as in Arc 1.173.1 (Chromium's ⌘-click
+    /// already makes such a page hidden). Every other page starts shown, as Chromium makes it: a tab shown
+    /// in front, a link opened in front, a tab an agent opens without showing it, and a spare made ahead.
+    /// A background tab that takes a spare has it hidden before it loads.
+    @MainActor
+    private static func backgroundPageStartsHiddenCase() {
+        SparePages.shared.dropAll()
+        let clock = ManualScheduler()
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView(), clock: clock)
+        let source = store.createTab(url: "https://example.test/source").id
+        manager.show(source, focus: false)
+        let page = manager.runtime(for: source)!.browser
+        expect(!page.startedHidden, "a tab shown in front starts shown")
+        func tab(_ url: String) -> UUID? { store.items.values.first { $0.tab?.url == url }?.id }
+        func opened(_ url: String) -> CraBrowser? { tab(url).flatMap { manager.runtime(for: $0)?.browser } }
+
+        manager.browser(page, requestsNewTabWithURL: "https://example.test/behind", inBackground: true)
+        let behind = opened("https://example.test/behind")
+        expect(behind?.startedHidden == true && behind?.takenURL == nil, "Open Link in New Tab behind the page makes its page hidden")
+
+        clock.advance(by: SparePage.refillDelay)
+        manager.browser(page, requestsNewTabWithURL: "https://example.test/behind-spare", inBackground: true)
+        let spared = opened("https://example.test/behind-spare")
+        expect(spared?.takenURL == "https://example.test/behind-spare" && spared?.startedHidden == true,
+               "a background link that takes a spare hides it before it loads")
+
+        clock.advance(by: SparePage.refillDelay)
+        manager.browser(page, requestsNewTabWithURL: "https://example.test/front", inBackground: false)
+        let front = tab("https://example.test/front")
+        expect(front != nil, "a link opened in front makes a tab")
+        if let front { manager.show(front, focus: true) }
+        let frontPage = front.flatMap { manager.runtime(for: $0)?.browser }
+        expect(frontPage?.takenURL == "https://example.test/front" && frontPage?.startedHidden == false,
+               "a link opened in front takes the spare shown")
+
+        clock.advance(by: SparePage.refillDelay)
+        let spare = SparePages.shared.take(profilePath: nil)
+        expect(spare != nil && spare?.startedHidden == false, "a spare is made shown: the tab that takes it decides")
+        spare?.close()
+
+        let agent = store.createTab(url: "https://example.test/agent", select: false).id
+        expect(manager.ensureRuntime(for: agent)?.browser.startedHidden == false,
+               "a tab whose page is made without being shown (an agent's tab_open) starts shown")
+        let restored = store.createTab(url: "https://example.test/restored").id
+        manager.show(restored, focus: true)
+        expect(manager.runtime(for: restored)?.browser.startedHidden == false, "a restored tab selected later starts shown")
+        manager.closeAll()
+        SparePages.shared.dropAll()
+    }
+
     /// DRM services open in WebKit (ProtectedMediaSites); a popup keeps its opener's engine; a
     /// navigation the other engine has to show reopens the tab's page there, in its place on screen.
     @MainActor
@@ -726,6 +835,106 @@ enum BrowserManagerLifecycleTests {
 
         // A late request from a page that already moved changes nothing.
         expect(!manager.browser(chromium, handsOffNavigationToURL: "https://www.netflix.com/", method: "GET"), "a retired page can't move its tab again")
+        manager.closeAll()
+    }
+
+    /// A mixed site's page (YouTube) that asks for Widevine (ProtectedVideoPages): the window is told to
+    /// ask; Once moves that page to WebKit with its place in the video and the site's cookies, in its
+    /// pane; the tab's next video goes back to Chromium; with Always the page moves unasked; the Site
+    /// Control Center's row takes it back.
+    @MainActor
+    private static func protectedVideoCase() async {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let observer = Observer()
+        manager.delegate = observer
+        let film = "https://www.youtube.com/watch?v=film1"
+        let tab = store.createTab(url: film).id
+        let other = store.createTab(url: "https://example.test/b").id
+        manager.show([tab, other], focused: other, focus: false)
+        func answer(_ value: String) -> String { #"{"result":{"type":"string","value":"\#(value)"}}"# }
+        func pending(_ browser: CraBrowser, _ method: String) -> Int { browser.replies.filter { $0.method == method }.count }
+        let sites = PageEngines.sites
+
+        // Only a mixed site's Chromium page is asked to tell when it wants Widevine.
+        let plain = manager.runtime(for: other)!.browser
+        plain.navigate(to: "https://example.test/c")
+        expect(pending(plain, "cra:Runtime.evaluate") == 0, "an ordinary site's page isn't asked about Widevine")
+        let chromium = manager.runtime(for: tab)!.browser
+        expect(!(chromium is WebKitBrowser), "a mixed site's page opens in Chromium")
+        chromium.navigate(to: film)
+        expect(pending(chromium, "cra:Runtime.evaluate") == 1 && chromium.lastIsolatedParams.contains("drmNext"),
+               "a mixed site's page is asked to tell when it wants Widevine, and left waiting")
+
+        // It asks: the window is told, and the page is asked for its next request.
+        observer.protectedVideoPrompts = []
+        chromium.reply(to: "cra:Runtime.evaluate", with: answer(film))
+        await drainMainQueue()
+        expect(observer.protectedVideoPrompts == [tab], "the window is told a prompt is due")
+        expect(PageEngines.videoPages.prompt(tab: tab, url: film, incognito: false, sites: sites)?.choices == [.once, .always], "Once and Always")
+        expect(pending(chromium, "cra:Runtime.evaluate") == 1, "the page is asked for the request after this one")
+        expect(manager.runtime(for: tab)?.browser === chromium, "nothing moves before the answer")
+
+        // Once: its place in the video and the site's cookies go along, and the pane keeps its place.
+        chromium.reply(to: "cra:Runtime.evaluate", with: answer(""))  // the waiting ask, taken over
+        manager.switchToSafariEngine(tab, how: .once)
+        manager.switchToSafariEngine(tab, how: .once)
+        expect(pending(chromium, "cra:Runtime.evaluate") == 1 && pending(chromium, "Network.getAllCookies") == 1, "asked once for its time and its cookies")
+        chromium.reply(to: "cra:Runtime.evaluate", with: #"{"result":{"type":"number","value":754.6}}"#)
+        chromium.reply(to: "Network.getAllCookies", with: #"{"cookies":[{"name":"SID","value":"s","domain":".youtube.com","path":"/","expires":-1,"session":true},{"name":"SID","value":"g","domain":".google.com","path":"/","expires":-1,"session":true},{"name":"bank","value":"b","domain":".bank.example","path":"/","expires":-1,"session":true}]}"#)
+        await drainMainQueue()
+        let moved = manager.runtime(for: tab)?.browser
+        expect(moved is WebKitBrowser && moved?.currentURL == film + "&t=754s", "Once opens the page in WebKit at its address and time")
+        expect(WebKitStores.added.last?.cookies.map(\.domain) == [".youtube.com"] && WebKitStores.added.last?.incognito == false,
+               "the site's own cookies are copied to the profile's WebKit store, not Google's or any other site's")
+        expect(chromium.closeRequested && manager.visibleTabIDs == [tab, other] && manager.visibleTabID == other, "the split keeps its panes, order and focus")
+        expect(PageEngines.choices.protectedVideos.isEmpty, "Once keeps nothing for the site")
+        chromium.finishClose()
+
+        // The same video and the sign-in stay; an address typed for the same video stays too.
+        moved!.navigate(to: film + "&t=800s")
+        moved!.navigate(to: "https://accounts.google.com/ServiceLogin?service=youtube")
+        await drainMainQueue()
+        expect(manager.runtime(for: tab)?.browser === moved, "the switched page stays in WebKit for its video and the sign-in")
+        expect(!manager.browser(moved!, handsOffNavigationToURL: film, method: "GET"), "its own address typed again stays in WebKit")
+
+        // The next video (YouTube changes the address without a navigation): back to Chromium, in its pane.
+        moved!.navigate(to: "https://www.youtube.com/watch?v=cat")
+        expect(manager.runtime(for: tab)?.browser === moved, "the page moves a turn later, not inside WebKit's callback")
+        await drainMainQueue()
+        let back = manager.runtime(for: tab)!.browser
+        expect(!(back is WebKitBrowser) && back.currentURL == "https://www.youtube.com/watch?v=cat", "another video is Chromium's again")
+        expect(PageEngines.videoPages.switched[tab] == nil && manager.visibleTabIDs == [tab, other], "the switch was that page's only")
+
+        // Always, kept for the site: the next page that asks moves without a prompt.
+        let youTube = sites.mixedSite(for: film)!
+        PageEngines.switchProtectedVideos(true, on: youTube)
+        back.navigate(to: film)
+        observer.protectedVideoPrompts = []
+        back.reply(to: "cra:Runtime.evaluate", with: answer(film))
+        await drainMainQueue()
+        expect(PageEngines.videoPages.prompt(tab: tab, url: film, incognito: false, sites: sites) == nil, "with Always there is no prompt")
+        back.reply(to: "cra:Runtime.evaluate", with: answer(""))
+        back.reply(to: "cra:Runtime.evaluate", with: #"{"result":{"type":"number","value":-1}}"#)
+        back.fail("Network.getAllCookies", with: "no cookies today")
+        await drainMainQueue()
+        let always = manager.runtime(for: tab)?.browser
+        expect(always is WebKitBrowser && always?.currentURL == film, "with Always the page moves by itself, even when its cookies can't be copied")
+        expect(PageEngines.videoPages.switched[tab]?.how == .always, "it is a page switched for the site's Always")
+
+        // The row turned off on the switched page: back to Chromium, and that page isn't asked about again.
+        PageEngines.switchProtectedVideos(false, on: youTube)
+        manager.returnToChromium(tab)
+        always!.reply(to: "cra:Runtime.evaluate", with: #"{"result":{"type":"number","value":90}}"#)
+        await drainMainQueue()
+        let returned = manager.runtime(for: tab)!.browser
+        expect(!(returned is WebKitBrowser) && returned.currentURL == film + "&t=90s", "turned off, the page is Chromium's again, at its time")
+        returned.navigate(to: film + "&t=90s")
+        returned.reply(to: "cra:Runtime.evaluate", with: answer(film))
+        await drainMainQueue()
+        expect(PageEngines.videoPages.prompt(tab: tab, url: film, incognito: false, sites: sites) == nil && manager.runtime(for: tab)?.browser === returned,
+               "a page taken back isn't asked about again")
+        expect(PageEngines.choices.protectedVideos.isEmpty, "nothing is left of the choice")
         manager.closeAll()
     }
 
@@ -897,6 +1106,51 @@ enum BrowserManagerLifecycleTests {
     @MainActor
     private static func asleep(_ manager: BrowserManager, _ id: UUID) -> Bool {
         manager.runtime(for: id).map(\.discarded) ?? true
+    }
+
+    // promise: #616
+    /// Hundreds of pages crossing the four-hour line in one minute were all asked at once, three page
+    /// evaluations each. The clock's pass asks 16; the rest are asked on the next passes.
+    @MainActor
+    private static func timerAsksSixteenCase() {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        manager.protectedRecentTabs = 0
+        let ids = (0..<24).map { store.createTab(url: "https://example.test/timer\($0)").id }
+        let runtimes = ids.map { manager.ensureRuntime(for: $0)! }
+        for rt in runtimes { rt.hiddenAt = Date.distantPast }
+        manager.sleepIdleTabs(.timer(.fifteenMinutes))
+        let asked = runtimes.filter { $0.browser.replies.contains { $0.method == isolatedProbe } }.count
+        expect(asked == 16, "one pass of the clock asks 16 pages, not all 24 (#616), asked \(asked)")
+        manager.closeAll()
+    }
+
+    // promise: #616
+    /// Slept pages kept their browser and window for the whole session. Past the window's budget the ones
+    /// hidden longest close, a few a pass; the page on screen, pages not slept and busy ones stay, and a
+    /// closed one gets a new page when its tab is shown.
+    @MainActor
+    private static func sleptPagesBudgetCase() {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let ids = (0..<8).map { store.createTab(url: "https://example.test/slept\($0)").id }
+        let runtimes = ids.map { manager.ensureRuntime(for: $0)! }
+        manager.show(ids[7], focus: false)
+        for (n, rt) in runtimes.dropLast().enumerated() {
+            rt.hiddenAt = Date(timeIntervalSince1970: Double(n))
+            rt.discarded = n != 6  // the one hidden last is still awake
+        }
+        let closed = manager.closeSleptPages(budget: 3, limit: 2)
+        expect(closed == 2 && manager.runtime(for: ids[0]) == nil && manager.runtime(for: ids[1]) == nil,
+               "the two slept pages hidden longest close first (#616)")
+        expect(manager.closeSleptPages(budget: 3, limit: 2) == 1 && manager.runtime(for: ids[2]) == nil,
+               "the next pass closes the rest past the budget")
+        expect(manager.closeSleptPages(budget: 3, limit: 2) == 0, "three slept pages are kept")
+        expect([3, 4, 5, 6, 7].allSatisfy { manager.runtime(for: ids[$0]) != nil },
+               "the latest slept pages, the page not slept and the page on screen keep their pages")
+        let again = manager.ensureRuntime(for: ids[0])
+        expect(again != nil && again !== runtimes[0] && again?.discarded == false, "a closed page's tab gets a new page when shown")
+        manager.closeAll()
     }
 
     // promise: #136
@@ -1750,6 +2004,100 @@ enum BrowserManagerLifecycleTests {
         manager.closeAll()
     }
 
+    /// The page's videos (JavaScript object literals) as the look in these Runtime.evaluate params
+    /// finds them: "video" when there is one to ask, "none" otherwise.
+    private static func runLook(_ params: String, videos: String) -> String {
+        let json = try! JSONSerialization.jsonObject(with: Data(params.utf8)) as! [String: Any]
+        let context = JSContext()!
+        context.evaluateScript("var document = {pictureInPictureElement: null, querySelectorAll: () => \(videos)};")
+        return context.evaluateScript(json["expression"] as? String)?.toString() ?? "no reply"
+    }
+
+    /// A service in WebKit whose player made its video with `disablePictureInPicture`, as Netflix's
+    /// does: the sidebar player's Picture in Picture button found no video and did nothing, and a
+    /// WebKit page has no engine request to fall back on (#585). The user's ask takes the video, and
+    /// so does leaving its tab; a Chromium page (where Chromium refuses such a video) leaves it alone.
+    // promise: #585
+    @MainActor
+    private static func webKitPictureInPictureCase() async {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        manager.nowPlaying = NowPlaying()
+        let service = store.createTab(url: "https://www.netflix.com/watch/1").id, plain = store.createTab(url: "https://example.test/video").id
+        let webKit = manager.ensureRuntime(for: service)!.browser, chromium = manager.ensureRuntime(for: plain)!.browser
+        expect(webKit is WebKitBrowser && !(chromium is WebKitBrowser), "the service's page is WebKit's, the other Chromium's")
+        let film = "[{disablePictureInPicture: true, readyState: 4, paused: false, ended: false, muted: false, volume: 1, videoWidth: 1920, "
+            + "getBoundingClientRect: () => ({width: 1280, height: 720})}]"
+
+        manager.performNowPlaying(service, .pictureInPicture)
+        expect(runLook(webKit.lastParams, videos: film) == "video", "the player's button finds a WebKit page's video whose player opted out")
+        webKit.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"video"}}"#)
+        await drainMainQueue()
+        expect(webKit.lastParams.contains(#""userGesture":true"#) && webKit.lastParams.contains("webkitSetPresentationMode"),
+               "and asks it, with WebKit's own presentation mode behind the standard request")
+        webKit.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"ok"}}"#)
+        await drainMainQueue()
+
+        manager.performNowPlaying(service, .pictureInPicture)
+        webKit.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"none"}}"#)
+        await drainMainQueue()
+        expect(webKit.pictureInPictureRequests == 1, "a WebKit page whose look finds no video goes on to the tab's own request (WebKit's toggle)")
+        manager.performNowPlaying(service, .pictureInPicture)
+        webKit.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"video"}}"#)
+        await drainMainQueue()
+        webKit.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"NotAllowedError: no gesture"}}"#)
+        await drainMainQueue()
+        expect(webKit.pictureInPictureRequests == 2, "and so does one that turns the page's request down")
+
+        manager.performNowPlaying(plain, .pictureInPicture)
+        expect(runLook(chromium.lastParams, videos: film) == "none", "a Chromium page's opted-out video isn't asked: Chromium would refuse")
+        chromium.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"none"}}"#)
+        await drainMainQueue()
+        expect(chromium.pictureInPictureRequests == 1, "a Chromium page with no video of its own still gets the request in its frames")
+
+        store.settings.autoPictureInPicture = true
+        manager.show(service, focus: false)
+        manager.show(plain, focus: false)
+        expect(webKit.lastParams.contains("})(true, false)") && runLook(webKit.lastParams, videos: film) == "video",
+               "leaving the tab finds the WebKit page's video whose player opted out")
+        webKit.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"video"}}"#)
+        await drainMainQueue()
+        expect(webKit.lastParams.contains("})(true, true)") && webKit.lastParams.contains(#""userGesture":true"#), "and asks it for Picture in Picture")
+        webKit.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"ok"}}"#)
+        await drainMainQueue()
+        manager.show(plain, focus: false)
+        manager.show(service, focus: false)
+        expect(runLook(chromium.lastParams, videos: film) == "none", "leaving a Chromium tab leaves its opted-out video where it is")
+        chromium.reply(to: "Runtime.evaluate", with: #"{"result":{"type":"string","value":"none"}}"#)
+        await drainMainQueue()
+        store.settings.autoPictureInPicture = false
+        manager.closeAll()
+    }
+
+    /// A WebKit page's video is in the system's Picture in Picture window. Its back-to-tab button
+    /// did nothing, because WebKit asks for the page to be shown first and its tab stayed hidden.
+    /// WebKit says when the button is pressed, and the tab is selected as Back to Tab on Cra's own
+    /// window selects a Chromium page's (#585). WebKit moves the video itself.
+    // promise: #585
+    @MainActor
+    private static func webKitPictureInPictureBackToTabCase() {
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.prohibited)
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let service = store.createTab(url: "https://www.netflix.com/watch/1").id, other = store.createTab(url: "https://example.test/other").id
+        let webKit = manager.ensureRuntime(for: service)!.browser
+        manager.show(service, focus: false)
+        manager.show(other, focus: false)
+        webKit.isInPictureInPicture = true
+        manager.browser(webKit, didChangePictureInPicture: true)
+        let before = store.selections
+        (manager as WebKitPageDelegate).webKitPageReturnsFromPictureInPicture(webKit)
+        expect(store.selections == before + [service], "the system window's back to tab selects the WebKit page's tab")
+        expect(webKit.isInPictureInPicture, "and leaves moving the video to WebKit, which is doing it")
+        manager.closeAll()
+    }
+
     /// Leaving a video tab (Arc's automatic Picture in Picture) asks the page through the protocol as
     /// a user gesture, for an audible playing video only. The key press the page path lends the page
     /// raced the tab going hidden, so PiP sometimes never opened (X report, 2 Nov 2026). Only a page
@@ -2105,6 +2453,73 @@ enum BrowserManagerLifecycleTests {
         manager.closeAll()
     }
 
+    // promise: #629
+    /// The toolbar takes its colour from the page's pixels when the load ends, as Arc does
+    /// (GitHub's light header under its dark theme-color gave Cra a dark bar, #629). A page that
+    /// loads behind is read when it comes on screen (a hidden page paints nothing to read), and
+    /// a reading that lands after the page moved on is dropped.
+    @MainActor
+    private static func toolbarSampleCase() async {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let a = store.createTab(url: "https://example.test/issues").id, b = store.createTab(url: "https://example.test/dark").id
+        let ra = manager.ensureRuntime(for: a)!, rb = manager.ensureRuntime(for: b)!
+        func captures(_ rt: TabRuntime) -> Int { rt.browser.replies.filter { $0.method == "Page.captureScreenshot" }.count }
+        func settle(_ rt: TabRuntime, to hex: String) async {
+            for _ in 0..<200 where rt.themeColor != hex {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+
+        manager.show(a, focus: false)
+        ra.browser.setLoading(true)
+        ra.browser.setLoading(false)
+        expect(captures(ra) == 1, "a page on screen is read when its load ends")
+        ra.browser.reply(to: "Page.captureScreenshot", with: screenshot(header: (0xF6, 0xF8, 0xFA), below: (0xFF, 0xFF, 0xFF)))
+        await settle(ra, to: "#F6F8FA")
+        expect(ra.themeColor == "#F6F8FA" && store.item(a)?.tab?.themeColor == "#F6F8FA",
+               "the bar is the page's top-right corner (got \(ra.themeColor))")
+
+        rb.browser.setLoading(true)
+        rb.browser.setLoading(false)
+        expect(captures(rb) == 0, "a page loading behind isn't read: it paints nothing")
+        manager.show(b, focus: false)
+        expect(captures(rb) == 1, "it is read when it comes on screen")
+        rb.browser.reply(to: "Page.captureScreenshot", with: screenshot(header: (0x20, 0x30, 0x40), below: (0x20, 0x30, 0x40)))
+        await settle(rb, to: "#203040")
+        expect(rb.themeColor == "#203040", "the page read on screen gives its bar (got \(rb.themeColor))")
+        manager.show(a, focus: false)
+        manager.show(b, focus: false)
+        expect(captures(rb) == 0, "a page already read isn't read again when it comes back")
+
+        rb.browser.setLoading(true)
+        rb.browser.setLoading(false)
+        rb.browser.setLoading(true)
+        rb.browser.reply(to: "Page.captureScreenshot", with: screenshot(header: (0xFF, 0x00, 0x00), below: (0xFF, 0x00, 0x00)))
+        await settle(rb, to: "#FF0000")
+        expect(rb.themeColor == "#203040", "a reading of the page before a new load doesn't colour the new one")
+        manager.closeAll()
+    }
+
+    /// Page.captureScreenshot's answer: a 2x viewport 400×200 points, a 64-point header over the page.
+    private static func screenshot(header: (Int, Int, Int), below: (Int, Int, Int)) -> String {
+        let w = 800, h = 400
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        func fill(_ c: (Int, Int, Int), _ rect: CGRect) {
+            ctx.setFillColor(red: CGFloat(c.0) / 255, green: CGFloat(c.1) / 255, blue: CGFloat(c.2) / 255, alpha: 1)
+            ctx.fill(rect)
+        }
+        fill(below, CGRect(x: 0, y: 0, width: w, height: h))
+        fill(header, CGRect(x: 0, y: h - 128, width: w, height: 128))
+        let data = NSMutableData()
+        let dest = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
+        CGImageDestinationFinalize(dest)
+        let json = try! JSONSerialization.data(withJSONObject: ["data": (data as Data).base64EncodedString()])
+        return String(decoding: json, as: UTF8.self)
+    }
+
     /// A synced sidebar from the other Mac replaced the document while this Mac's page stayed
     /// where it was: the bar showed the other Mac's address over this page (seen once, 13 Nov
     /// 2026). The page's own address and title go back into its tab. A tab asleep has no page:
@@ -2374,9 +2789,12 @@ private final class Observer: BrowserManagerDelegate {
     func browserManager(findState state: AskOnPage.FindState) { findStates.append(state) }
     func browserManager(findAction action: CraFindAction) { findActions.append(action) }
     func browserManager(download: CraDownloadInfo) { onDownload?(download) }
-    func browserManager(fullscreen: Bool, tabID: UUID) {}
+    var fullscreenChanges: [(fullscreen: Bool, tab: UUID)] = []
+    func browserManager(fullscreen: Bool, tabID: UUID) { fullscreenChanges.append((fullscreen, tabID)) }
+    func browserManager(exclusiveAccessToast toast: ExclusiveAccessNotice.Toast, tabID: UUID) {}
     func browserManagerDevToolsHost(for tabID: UUID) -> NSView? { nil }
     func browserManagerDevToolsChanged() {}
+    func browserManagerTabSharingChanged() {}
     func browserManagerDevToolsPageBoundsChanged() {}
     func browserManagerPageWindowsChanged(focus: Bool) { onPageWindowsChanged?() }
     func browserManagerHandleKey(_ event: NSEvent) -> Bool { false }
@@ -2385,6 +2803,8 @@ private final class Observer: BrowserManagerDelegate {
     func browserManagerPageClosedTab(_ tabID: UUID) { closedTabs.append(tabID) }
     var translationToasts: [String] = []
     func browserManagerTranslationToast(_ tabID: UUID, text: String) { translationToasts.append(text) }
+    var protectedVideoPrompts: [UUID] = []
+    func browserManagerProtectedVideoPromptChanged(_ tabID: UUID) { protectedVideoPrompts.append(tabID) }
     func browserManagerActivationRequested(_ tabID: UUID, byPage: Bool) {
         activatedTabs.append(tabID)
         activatedByPage.append(byPage)

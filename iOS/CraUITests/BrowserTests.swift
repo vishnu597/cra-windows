@@ -295,6 +295,75 @@ final class BlockingTests: BrowserTestCase {
         XCTAssertNotEqual(card.label, "script-stopped")
     }
 
+    // promise: #570
+    /// Manga sites' pop-up ads (#570) load from Monetag's loader and zone scripts, on domains that
+    /// change every few days. This page asks for both from domains no list has; Cra's filters stop
+    /// them by their path, before any network, and the menu counts both. Without the filters the
+    /// two requests go out, fail on hosts that don't exist, and nothing is counted.
+    func testAnAdLoaderFromAnUnlistedDomainIsStoppedByItsPath() {
+        let page = "data:text/html,<meta name=viewport content='width=device-width'><title>Manga</title><h1>Manga</h1>"
+            + "<script src='https://cra-test-570-loader.com/btag.min.js'></script>"
+            + "<script src='https://qwertyuiopcra.net/5/9357427/'></script>"
+        launch(["-CraOpenURL", page, "-CraSearch", "NO"])
+        waitForPage("Manga")
+        app.buttons["bar-menu"].tap()
+        let footer = app.buttons["menu-reload-without-blockers"]
+        XCTAssertTrue(footer.waitForExistence(timeout: 10))
+        XCTAssertEqual(footer.value as? String, "Cra scrubbed 2 trackers")
+        keep("ad-loader-blocked")
+    }
+
+    // promise: #570
+    /// A list added under Block Lists applies its path rules, not only its domains (#570). The list,
+    /// served by the local fixture server, has a path rule for a script on `cra.localhost`, which no
+    /// list has, a hiding rule and a scriptlet Cra can't run. Its row says so; then a reload of the
+    /// page stops the script (the tab's title says which of onload/onerror ran) and the menu counts it.
+    /// Before #570 the list had no domains, so its fetch failed and the script loaded.
+    func testAnAddedListsPathRuleStopsAScriptFromAnUnlistedDomain() throws {
+        let base = ProcessInfo.processInfo.environment["CRA_POPUP_TEST_BASE_URL"] ?? "http://127.0.0.1:18765"
+        let data = FileManager.default.temporaryDirectory.appendingPathComponent("Cra-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        // Added as Add List would, but over http: the fixture server is plain http on the loopback,
+        // which the app's fetch may reach and Add List refuses to type in.
+        try #"{"hasSeenOnboarding": true, "hasSeenBlockTip": true, "customBlocklists": ["\#(base)/cra-570/list.txt"]}"#
+            .write(to: data.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
+        // The page comes from the fixture server too: XCUITest drops the quotes its onerror needs.
+        app.launchArguments = ["-CraDataDir", data.path, "-CraOpenURL", base + "/cra-570/page", "-CraSearch", "NO"]
+        app.launch()
+        waitForPage("Path rule")
+
+        app.buttons["bar-tabs"].tap()
+        app.buttons["bar-settings"].tap()
+        XCTAssertTrue(app.buttons["setting-global-site-settings"].waitForExistence(timeout: 5))
+        app.buttons["setting-global-site-settings"].tap()
+        XCTAssertTrue(app.buttons["setting-block-lists"].waitForExistence(timeout: 5))
+        app.buttons["setting-block-lists"].tap()
+        XCTAssertTrue(app.staticTexts["Cra test list 570"].waitForExistence(timeout: 30), "the list was fetched")
+        let summary = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "2 rules · 1 rule Cra can’t use · ")).firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 10), "the row says what the list applies")
+        keep("added-list-full-rules")
+        app.buttons["Done"].tap()
+
+        XCTAssertTrue(app.buttons["tab-card-0"].waitForExistence(timeout: 5))
+        app.buttons["tab-card-0"].tap()
+        waitForPage("Path rule")
+        app.buttons["bar-menu"].tap()
+        XCTAssertTrue(app.buttons["menu-reload"].waitForExistence(timeout: 5))
+        app.buttons["menu-reload"].tap()
+        XCTAssertTrue(app.buttons["bar-tabs"].waitForExistence(timeout: 5))
+        sleep(3)
+        app.buttons["bar-menu"].tap()
+        let footer = app.buttons["menu-reload-without-blockers"]
+        XCTAssertTrue(footer.waitForExistence(timeout: 10))
+        XCTAssertEqual(footer.value as? String, "Cra scrubbed 1 tracker", "the added list's path rule is counted")
+        keep("added-list-path-blocked")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
+        app.buttons["bar-tabs"].tap()
+        let card = app.buttons["tab-card-0"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertEqual(card.label, "loader-stopped", "WebKit stopped the script")
+    }
+
     // promise: #507
     /// An added list blocks from the first page after launch (#507): its kept copy in the data
     /// folder is compiled before that page loads, even when the list can't be fetched again
@@ -471,12 +540,13 @@ final class GestureTests: BrowserTestCase {
         launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO"])
         waitForPage("First")
         openSecondTab()
+        // Read from the page on screen: picking a card in the row would move it to the row's end (#647).
         drag(fromX: 0.3, toX: 0.9, y: 0.95)
-        sleep(1)
-        XCTAssertEqual(shownTabTitle(), "First")
+        waitForPage("First")
+        XCTAssertFalse(app.webViews.staticTexts["Second"].exists)
         drag(fromX: 0.8, toX: 0.2, y: 0.95)
-        sleep(1)
-        XCTAssertEqual(shownTabTitle(), "Second")
+        waitForPage("Second")
+        XCTAssertFalse(app.webViews.staticTexts["First"].exists)
     }
 
     /// A swipe right across a tab's first page archives the tab and shows the one before it; the
@@ -1203,6 +1273,55 @@ final class EmptyHomeTests: BrowserTestCase {
 }
 
 final class SiteMatchTests: BrowserTestCase {
+    // promise: #650
+    func testSyncedSpaceSitesShowTheirPlaceAndOpen() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-search-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data(SpacesTests.macSidebar.utf8).write(to: folder.appendingPathComponent("sidebar.json"))
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO", "-CraSyncDir", folder.path])
+        waitForPage("First")
+        app.buttons["bar-search"].tap()
+        let field = app.textFields["search-field"]
+        field.typeText("docs")
+        let docs = app.descendants(matching: .any).matching(NSPredicate(format: "identifier MATCHES 'suggestion-[0-9]+'"))
+            .containing(.staticText, identifier: "Docs").firstMatch
+        XCTAssertTrue(docs.waitForExistence(timeout: 10))
+        XCTAssertTrue(docs.staticTexts["Pinned in Work"].exists)
+        app.buttons["search-clear"].tap()
+        field.typeText("story")
+        let story = app.descendants(matching: .any).matching(NSPredicate(format: "identifier MATCHES 'suggestion-[0-9]+'"))
+            .containing(.staticText, identifier: "Story").firstMatch
+        XCTAssertFalse(story.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["In Work"].exists)
+        app.buttons["search-clear"].tap()
+        field.typeText("docs")
+        XCTAssertTrue(docs.waitForExistence(timeout: 5))
+        keep("space-site-match")
+        docs.tap()
+        app.buttons["bar-tabs"].tap()
+        XCTAssertTrue(app.buttons["tab-card-1"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["tab-card-2"].exists)
+        XCTAssertEqual(app.buttons["tab-card-1"].label, "docs.example")
+    }
+
+    // promise: #650
+    func testPhoneSiteWinsOverSyncedSpace() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-search-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data(SpacesTests.macSidebar.utf8).write(to: folder.appendingPathComponent("sidebar.json"))
+        launch(["-CraOpenURL", "http://docs.example/", "-CraSearch", "NO", "-CraSyncDir", folder.path])
+        XCTAssertTrue(app.buttons["bar-search"].waitForExistence(timeout: 10))
+        app.buttons["bar-search"].tap()
+        app.textFields["search-field"].typeText("docs")
+        let list = app.scrollViews["suggestion-list"]
+        XCTAssertTrue(list.staticTexts["docs.example"].waitForExistence(timeout: 10))
+        XCTAssertEqual(list.staticTexts.matching(identifier: "docs.example").count, 1)
+        XCTAssertFalse(list.staticTexts["Docs"].exists)
+        XCTAssertFalse(list.staticTexts["Pinned in Work"].exists)
+    }
+
     /// A page the phone has open comes up as a row when its address is typed, above the typed
     /// text, and a tap on it opens it. The address never loads (`.invalid`), so no network.
     func testAnOpenPageIsOfferedWhenItsAddressIsTyped() {
@@ -1615,5 +1734,37 @@ final class AppleIntelligenceTests: BrowserTestCase {
         field.typeText("pizza ovens")
         XCTAssertTrue(app.staticTexts["pizza ovens"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["browse-for-me"].exists)
+    }
+}
+
+final class RecentTabsTests: BrowserTestCase {
+    // promise: #591
+    func testRecentTabsShowUnderTheEmptyField() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-recent-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let sidebar = SpacesTests.macSidebar.replacingOccurrences(of: "2026-11-17T10:00:00Z", with: "2099-11-17T10:00:00Z")
+        try Data(sidebar.utf8).write(to: folder.appendingPathComponent("sidebar.json"))
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO", "-CraSyncDir", folder.path])
+        waitForPage("First")
+        app.buttons["bar-search"].tap()
+        app.textFields["search-field"].typeText(Self.page("Second") + "\n")
+        waitForPage("Second")
+        app.buttons["bar-search"].tap()
+        let firstRow = app.descendants(matching: .any)["suggestion-0"]
+        let secondRow = app.descendants(matching: .any)["suggestion-1"]
+        XCTAssertTrue(firstRow.staticTexts["Inbox"].waitForExistence(timeout: 10))
+        XCTAssertTrue(secondRow.staticTexts["First"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.scrollViews["suggestion-list"].staticTexts["Second"].exists)
+        keep("recent-tabs")
+        secondRow.tap()
+        waitForPage("First")
+        app.buttons["bar-search"].tap()
+        XCTAssertTrue(firstRow.staticTexts["Inbox"].waitForExistence(timeout: 10))
+        firstRow.tap()
+        waitForPage("Inbox")
+        app.buttons["bar-tabs"].tap()
+        XCTAssertTrue(app.buttons["tab-card-2"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["tab-card-3"].exists)
     }
 }

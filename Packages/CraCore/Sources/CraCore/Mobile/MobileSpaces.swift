@@ -31,6 +31,33 @@ public enum MobileSpaces {
         public var rows: [Row]
     }
 
+    static func tabTitle(item: SidebarItem, tab: TabData) -> String {
+        item.title ?? (tab.savedTitle.isEmpty ? (URL(string: tab.url)?.host ?? tab.url) : tab.savedTitle)
+    }
+
+    /// Every tab the Spaces view can show, inside folders and splits too: each Space's pinned
+    /// tabs, then its Today tabs. Favorites and blank-window spaces are left out, as in `spaces`.
+    static func tabs(in document: SidebarDocument) -> [(SidebarItem, TabData)] {
+        tabsWithPlace(in: document).map { ($0.item, $0.tab) }
+    }
+
+    static func tabsWithPlace(in document: SidebarDocument) -> [(item: SidebarItem, tab: TabData, space: String, pinned: Bool)] {
+        let items = Dictionary(document.items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // The file comes from another device: a folder inside itself must not loop.
+        func tabs(under parent: UUID, depth: Int) -> [(SidebarItem, TabData)] {
+            guard depth < 32, let container = items[parent] else { return [] }
+            return container.children.flatMap { id -> [(SidebarItem, TabData)] in
+                guard let item = items[id] else { return [] }
+                if case .tab(let tab) = item.data { return [(item, tab)] }
+                return tabs(under: id, depth: depth + 1)
+            }
+        }
+        return document.spaces.filter { $0.standaloneWindowID == nil }.flatMap { space in
+            tabs(under: space.pinnedContainerID, depth: 0).map { ($0.0, $0.1, space.title, true) }
+                + tabs(under: space.todayContainerID, depth: 0).map { ($0.0, $0.1, space.title, false) }
+        }
+    }
+
     /// Every Space in the Mac's order, with its pinned tabs and folders, then its Today tabs, as
     /// Arc Search lists them: favorites left out, folders shut unless listed in `openFolders`
     /// (the sidebar keeps no open state; Arc Search opens one on a tap). Blank-window spaces are
@@ -46,7 +73,7 @@ public enum MobileSpaces {
                 guard let item = items[id] else { return [] }
                 switch item.data {
                 case .tab(let tab):
-                    let title = item.title ?? (tab.savedTitle.isEmpty ? (URL(string: tab.url)?.host ?? tab.url) : tab.savedTitle)
+                    let title = tabTitle(item: item, tab: tab)
                     return [Row(id: id, kind: .tab(url: tab.url), title: title, depth: depth)]
                 case .folder:
                     let open = openFolders.contains(id)

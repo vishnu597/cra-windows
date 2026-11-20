@@ -144,6 +144,8 @@ enum BrowsingDataClear {
 }
 enum TabSwitcherMetrics { static let thumbnail = NSSize(width: 320, height: 200) }
 enum HitchMonitor { static func mark(_ event: String) {} }
+/// A committed page lets its own redirect to another app ask once again (#560); no sheets here.
+@MainActor enum AppLinkPrompt { static func pageLoaded(_ browser: CraBrowser) {} }
 enum EmbeddedPages {
     static var viewsByHost: [ObjectIdentifier: [NSView]] = [:]
     static func isHost(_ window: NSWindow) -> Bool { viewsByHost[ObjectIdentifier(window)] != nil }
@@ -186,9 +188,21 @@ final class WebKitBrowser: CraBrowser {
     var isContentFullscreen = false
     var serviceName = ""
     var savedInteractionState: Data?
+    /// Where a page that moved here for a protected video seeks to (the real page's user script).
+    var resume: (url: String, seconds: Double)?
     convenience init(frame: NSRect, url: String?, delegate: CraBrowserDelegate?, incognito: Bool, profilePath: String?,
-                     interactionState: Data?) {
+                     interactionState: Data?, resume: (url: String, seconds: Double)? = nil) {
         self.init(frame: frame, url: url, delegate: delegate, incognito: incognito, profilePath: profilePath)
         savedInteractionState = interactionState
+        self.resume = resume
+    }
+}
+/// WebKit's stores (Sources/Cra/Services/WebKit/WebKitStores.swift): here only what was copied in.
+@MainActor
+enum WebKitStores {
+    static var added: [(cookies: [HTTPCookie], profilePath: String?, incognito: Bool)] = []
+    static func add(_ cookies: [HTTPCookie], profilePath: String?, incognito isIncognito: Bool, done: @escaping @MainActor () -> Void) {
+        added.append((cookies, profilePath, isIncognito))
+        done()
     }
 }

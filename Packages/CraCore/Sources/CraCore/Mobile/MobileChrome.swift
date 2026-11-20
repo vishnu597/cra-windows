@@ -51,6 +51,22 @@ public enum MobileSearchSheet {
     public static func top(screenHeight: CGFloat, keyboardHeight: CGFloat, safeTop: CGFloat) -> CGFloat {
         screenHeight - keyboardHeight - height(rows: rowsInView(screenHeight: screenHeight, keyboardHeight: keyboardHeight, safeTop: safeTop))
     }
+
+    /// The field's button at its right end (clear, incognito): 44 pt square, its centre 29.5 pt
+    /// from the field's right end.
+    public static func accessoryFrame(field: CGRect) -> CGRect {
+        CGRect(x: field.maxX - 29.5 - 22, y: field.midY - 22, width: 44, height: 44)
+    }
+
+    /// The incognito toggle, whose glyph sits at its right edge: 18.5 pt from the field's right
+    /// end whether it is off (the glyph alone) or on (the glyph with "Incognito" to its left,
+    /// `labelledWidth` wide). Off, it used to end at the accessory's edge, 7.5 pt from the end,
+    /// so the glyph sat hard against the field's rim (#654).
+    public static func incognitoToggleFrame(field: CGRect, labelledWidth: CGFloat? = nil) -> CGRect {
+        let accessory = accessoryFrame(field: field)
+        let width = labelledWidth ?? accessory.width
+        return CGRect(x: field.maxX - 18.5 - width, y: accessory.minY, width: width, height: accessory.height)
+    }
 }
 
 /// The bar at the bottom of a page: tabs, the pill that opens search, and the menu.
@@ -95,6 +111,15 @@ public enum MobileBottomBar {
     public static func previousTabZone(in size: CGSize, safeBottom: CGFloat) -> CGRect {
         let frames = frames(in: size, safeBottom: safeBottom)
         return CGRect(x: 0, y: frames.bar.minY, width: (frames.tabs.maxX + frames.pill.minX) / 2, height: frames.bar.height)
+    }
+
+    /// Where a drag up pulls the search sheet out of the pill (#623), as in Arc Search: the pill
+    /// with a thumb's slop either side, the bar's whole height. The rest of the bar's right half
+    /// still drags the tab row up.
+    public static func searchPullZone(in size: CGSize, safeBottom: CGFloat) -> CGRect {
+        let frames = frames(in: size, safeBottom: safeBottom)
+        let slop: CGFloat = 14
+        return CGRect(x: frames.pill.minX - slop, y: frames.bar.minY, width: frames.pill.width + 2 * slop, height: frames.bar.height)
     }
 
     /// Where a tap brings the bar back after scrolling put it away: the home indicator's strip

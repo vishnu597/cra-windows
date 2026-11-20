@@ -136,6 +136,19 @@ public struct SplitData: Codable, Equatable {
     /// The pane that has keyboard focus (Arc: focusItemID).
     public var focusTabID: UUID?
     public var timeLastActiveAt: Date?
+    /// Arc's Change Icon… on a split (customInfo.iconType, #600): an emoji, or an SF Symbol from the
+    /// picker's Icon tab. With one, the row shows it and the name (or "N Tabs") instead of the panes.
+    public var emoji: String?
+    public var symbol: String?
+
+    /// The icon as the picker gives it; `.none` clears it. A picture isn't offered for a split.
+    public var icon: SpaceIcon {
+        get { SpaceIcon(emoji: emoji ?? "", symbol: symbol) }
+        set {
+            emoji = newValue.emoji.isEmpty ? nil : newValue.emoji
+            symbol = newValue.symbol
+        }
+    }
 
     public init() {}
     public init(from decoder: Decoder) throws {
@@ -144,6 +157,8 @@ public struct SplitData: Codable, Equatable {
         orientation = try c.decodeIfPresent(SplitOrientation.self, forKey: .orientation) ?? .horizontal
         focusTabID = try c.decodeIfPresent(UUID.self, forKey: .focusTabID)
         timeLastActiveAt = try c.decodeIfPresent(Date.self, forKey: .timeLastActiveAt)
+        emoji = try c.decodeIfPresent(String.self, forKey: .emoji)
+        symbol = try c.decodeIfPresent(String.self, forKey: .symbol)
     }
 }
 
@@ -715,6 +730,10 @@ public struct AppSettings: Codable, Equatable {
     /// GitHub #307, not in Arc: ⌘T searches and lists only the open tabs of the window's space
     /// (`TabSearchScope.commandBarTabs`). Off is Arc's bar, which finds a tab in any space.
     public var commandBarCurrentSpaceOnly: Bool = false
+    /// GitHub #601, not in Arc: ⇧⌘T reopens the tab closed last in the window's space and stays
+    /// there (`ReopenClosedTab.next(isInCurrentSpace:)`). Off is Arc's, which switches to the space
+    /// the tab closed last was in.
+    public var reopenClosedTabCurrentSpaceOnly: Bool = false
     /// Settings ▸ Advanced ▸ Command bar ▸ "Fill the command bar with the site’s color" (not in Arc,
     /// GitHub #457): while Tab's site search is on, the bar takes the site's colour
     /// (`ScopedSearchFill`). Off, the bar stays Arc's: the site only in the pill and a one-second wash.
@@ -890,10 +909,13 @@ public struct WindowPrefs: Codable, Equatable {
     }
     /// Last Little Window size (Arc: LittleBrowserWindow_size).
     public var littleWindowSize: String?
+    /// The sidebar as it was last hidden or shown (⌘S, a drag of its edge), in any window: what a new
+    /// window opens with, incognito and Blank Windows too. Arc's sidebarViewPreferences.sidebarMode (#644).
+    public var sidebarVisibleInNewWindows = true
 
     public init(sidebarWidth: Double = 328, expandedFolders: Set<UUID> = [], collapsedPinnedSpaces: Set<UUID> = [],
                 favoritesEmptyStateDismissed: Set<UUID> = [], peekedFolders: [UUID: [UUID]] = [:],
-                windows: [WindowSession] = [WindowSession()], littleWindowSize: String? = nil) {
+                windows: [WindowSession] = [WindowSession()], littleWindowSize: String? = nil, sidebarVisibleInNewWindows: Bool = true) {
         self.sidebarWidth = sidebarWidth
         self.expandedFolders = expandedFolders
         self.collapsedPinnedSpaces = collapsedPinnedSpaces
@@ -901,6 +923,7 @@ public struct WindowPrefs: Codable, Equatable {
         self.peekedFolders = peekedFolders
         self.windows = windows
         self.littleWindowSize = littleWindowSize
+        self.sidebarVisibleInNewWindows = sidebarVisibleInNewWindows
     }
 }
 
@@ -1025,6 +1048,7 @@ extension AppSettings {
         calendarMeetingLink = (try? c.decodeIfPresent(CalendarPreview.LinkTiming.self, forKey: .calendarMeetingLink)) ?? .twoMinutes
         searchSuggestions = try c.decodeIfPresent(Bool.self, forKey: .searchSuggestions) ?? true
         commandBarCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .commandBarCurrentSpaceOnly) ?? false
+        reopenClosedTabCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .reopenClosedTabCurrentSpaceOnly) ?? false
         commandBarSiteColor = try c.decodeIfPresent(Bool.self, forKey: .commandBarSiteColor) ?? false
         editAddressInPlace = try c.decodeIfPresent(Bool.self, forKey: .editAddressInPlace) ?? false
         showSpaceHeaderOnSingleSpace = try c.decodeIfPresent(Bool.self, forKey: .showSpaceHeaderOnSingleSpace) ?? true
@@ -1069,6 +1093,9 @@ extension WindowPrefs {
                                      sidebarVisible: try legacy.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true)]
         }
         littleWindowSize = try c.decodeIfPresent(String.self, forKey: .littleWindowSize)
+        // Files from before #644 carry no choice: the first saved window's sidebar stands in for it.
+        sidebarVisibleInNewWindows = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisibleInNewWindows)
+            ?? windows.first?.sidebarVisible ?? true
     }
 }
 
@@ -1172,5 +1199,12 @@ public enum WebsiteAppearance: String, Codable, CaseIterable, Sendable {
         case .light: 1
         case .dark: 2
         }
+    }
+
+    /// The choice made in Chromium's own Mode (chrome://settings/appearance), which is this same
+    /// setting (#630); nil for a value Cra doesn't know.
+    public init?(chromiumMode: Int) {
+        guard let appearance = Self.allCases.first(where: { $0.chromiumMode == chromiumMode }) else { return nil }
+        self = appearance
     }
 }

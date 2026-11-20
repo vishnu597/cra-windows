@@ -58,6 +58,10 @@ Legend: [O] observed in shipped artifact or data file, [I] inference, [U] unknow
 - [O] { archivedAt, reason: manual|auto, source: space{id}|littleArc|standaloneSidebar|unknown, sidebarItem: <copy> }.
 - [O] Auto-archive thresholds enum: twelveHours, twentyFourHours, sevenDays, thirtyDays (this Mac: sevenDays, per profile).
 - [O] Actions: viewArchive, clearArchive, reopenClosedTab, resetSpace, archiveTab.
+- [O] Archive menu, Arc 1.172 MainMenu.nib (19 Nov 2026, #590): View History ⌘Y is action `viewHistory`
+  (command bar "Show History; History"), selector `showAllHistory:`, Chromium's history page; View Archive is
+  `viewArchive` ("Archive"), with no key. Cra keeps the id `viewArchive` for its ⌘Y row (keybindings.json) and
+  calls Arc's View Archive `showArchive` (CraCore `HistoryPage`).
 
 ## Command bar (ARC_CommandBar.bundle + strings + StorableCommandBarAdditionalRanking.json)
 - [O live] ⌘T (9 Nov 2026, Arc 1.172.1 offline copy, 1x sRGB captures + AX, PR #268): panel 766 wide, radius
@@ -109,6 +113,13 @@ Legend: [O] observed in shipped artifact or data file, [I] inference, [U] unknow
   in the site's colour (hard-coded, e.g. YouTube #FF0000, GitHub #743FC7; glow in the same colour) before the
   field, placeholder "Search…", rows reduced to the typed search tinted with that colour. Backspace on the empty
   field drops the pill and puts back what was typed; Escape returns to how the bar opened. Cra: SiteSearch.all.
+- [O] Site Search colour key (19 Nov, Arc 1.173.1, `strings` on the binary; PR #562): the command bar's state keeps
+  `autoActivatedEngineURLToPrimaryColor` and `_siteSearchDominantColor`, an `(NSColor?, isFromAutoActivatedList: Bool)`
+  filled by a `loadedSiteSearchDominantColor` action from `FaviconDominantColorFetcher.fetchColor`. So the hard-coded
+  colour follows the engine's URL, not its keyword: YouTube with its keyword edited to `yt` keeps its red. Any other
+  engine takes its favicon's dominant colour. Cra keys its palette on the search URL's host (`SiteSearch.init(_:)`,
+  subdomains included) and gives engines outside it the space's colour.
+  [U] Arc's favicon colour algorithm, and whether its URL match is exact or by host.
 - [O] Scopes (1 Nov, Arc 1.171 Swift field names): `ScopedSearchType` has two cases, `siteSearch` and `typeTravel`;
   there is no tab scope. The bar's state keeps `scopedSearchType`, `scopedSearchColor`,
   `queryBeforeEnteringScopedSearch` (what Backspace puts back) and `postScopedSearchRestoration` (Escape); the
@@ -217,6 +228,11 @@ Legend: [O] observed in shipped artifact or data file, [I] inference, [U] unknow
   List, AirDrop, Mail, Notes | Copy, Edit Extensions…) hanging from the top centre of the page under the toolbar; with
   no tab selected it stays enabled and does nothing. Spaces starts with New Space…; Tabs has New Folder… after
   Open Little Arc or Peek in… ⌘O.
+- [O] Tabs menu, Arc 1.173.1 (AX dump plus menu captures, 19 Nov 2026, #622): New Tab… ⌘T, Pin Tab ⌘D,
+  Open in <space> ⌘O (only with a Little Arc or Peek in front), New Folder… | Next Tab ⌥⌘↓, Previous Tab ⌥⌘↑,
+  Reveal Tab in Sidebar (no key) | Clear Today ⇧⌘K, Reset all tabs in this Space (no key). Arc has no Go to Tab
+  rows, shown or hidden; ⌘1–⌘9 work without them. In a fully empty space, Pin Tab, Reveal Tab in Sidebar, Clear
+  Today and Reset all tabs in this Space are dimmed. Next Tab and Previous Tab stay enabled and do nothing.
 
 ## Visual reference (Arc 1.168, measured at 2x from window captures)
 - [O] Sidebar 328pt wide. Row 1: traffic lights, sidebar toggle right after them (~93pt), nav ← → ↻ right-aligned when a
@@ -304,8 +320,8 @@ earlier `.underWindowBackground` + 15 % lift calibration.
 
 Toolbar band is opaque and theme-derived (same colour over any backdrop):
 light = HSB(h, s + 0.10, v · 0.46) of the raw base colour (#F8D558 → #725F1D; Arc #72601D),
-dark = HSB(h, s · 0.6, v · 0.8) (#010220 → #0A0B19; Arc #0E0B16). Pages with a
-`theme-color` meta use that colour instead (Kildash #1A1917, Messenger white).
+dark = HSB(h, s · 0.6, v · 0.8) (#010220 → #0A0B19; Arc #0E0B16). A page gives the bar its own
+colour instead: its top-right corner, not its theme-color (see "Toolbar colour from the page", #629).
 
 Other measured details: window buttons are muted grey discs (bg −10 %) until the pointer
 reaches the sidebar's title row; favicons 16 pt centred 25.75 pt from the window edge; space
@@ -382,7 +398,8 @@ each pane has one and the keys act on the focused pane.
 
 Cra's own, not in Arc (PR #517, a deviation Victor agreed to on 17 Nov 2026): a right-click or ⌃-click on the
 toolbar's ↻ opens the same menu (`ReloadMenu`), in every mode, not only Developer Mode. Arc shows it only from the ⌄.
-A split pane's bar keeps a plain ↻, since the menu's rows act on the focused page.
+A split pane's ↻ has it too: the right-click focuses that pane first, since the menu's rows act on the
+focused page (`ToolbarComposition.reloadMenu`).
 
 Extensions: CEF 154 has no extension API for Alloy-style browsers. A spike
 (`cra://debug?chromeSpike=<url>`) proved the alternative: a Chrome-style Views window
@@ -652,7 +669,7 @@ same 1728×1084 frame, probing pixel runs at 2x:
   No dashed ring on a clicked tab (the yellow/black ring stays keyboard-only).
 - Sidebar glyphs (sidebar toggle, library, +) render at ≈ 26 % black over the sidebar
   (toggle 179/173/144 over 229/221/184); Cra had them at 58 %. Arc's library icon is a
-  filled box with a confetti puff above it; Cra uses `archivebox.fill` (no puff).
+  filled box with a confetti puff above it; Cra uses `archivebox.fill` (no puff). (Superseded: see "Library button glyph on hover".)
 - Not verified here: hover fills and animation timings. Window-id captures cannot show
   hover states, and the Mac was in use (Dia full screen in front), so no pointer was moved.
 
@@ -931,7 +948,7 @@ has no H.264/AAC. Cra now ships its own CEF build with them; see docs/release.md
   was white 38 % (lightening); now black 4.5 % on light themes. The active favourite keeps
   its white 38 % fill explicitly.
 - Toolbar colour: Arc tints the bar from the page (theme-color meta, else the page
-  background). Cra's probe had an unreachable body/html fallback (a `__none__` sentinel was
+  background). Corrected 20 Nov (#629): it reads the page's top-right corner and ignores theme-color. Cra's probe had an unreachable body/html fallback (a `__none__` sentinel was
   set first), so pages without a meta tag got the space tint. Fixed: meta → body
   background → html background → white. Cra's New Tab page now gives a 34/34/34 bar.
 - Library glyph: `LibraryButton` composes `archivebox.fill` with a cloud, dot and triangle
@@ -1054,8 +1071,48 @@ Observed live on a throwaway Today split (example.com | example.org), archived a
   Markdown | Archive Item) | Change Icon…, Rename… | Duplicate, Move to ▸ (spaces with a check on the current
   one, New Space…) | Archive Item, Archive Tabs Below (Today only). No Pin item.
 - Cra (30 Oct): split rows drag as one item, ⌘D pins/unpins the split, ⌘W closes a pinned split as a whole,
-  the menu follows Arc's minus Share/Change Icon/Duplicate, pinning makes each pane's page its home, and a new
+  the menu follows Arc's minus Share/Change Icon (Duplicate added 19 Nov, #600), pinning makes each pane's page its home, and a new
   pane in a pinned split takes its first page as home.
+
+### Duplicate (Arc 1.173.1, live, 19 Nov 2026, issue #600)
+Offline Arc (fake home, see "One space") with a copy of a real sidebar; menus opened with a HID right-click,
+Duplicate pressed over AX, StorableSidebar.json read after each.
+- [O live] A Today tab: the copy goes right after it in Today. A pinned tab: the copy is pinned, right after it.
+- [O live] A favorite: the copy is a Today tab at the top of Today (where new tabs go), not a favorite.
+- [O live] A split: a new split right after it, new tabs for the panes in order, same `layoutOrientation` and
+  `itemWidthFactors`, `focusItemID` nil. A favorite split was not tried; Cra sends its copy to Today too.
+- [O live] The copy never opens: duplicating the open tab or the open split leaves the original open, the copy in
+  the background. (Tabs ▸ Duplicate Tab from the menu bar was not tried; Cra's opens its copy.)
+- Cra (#600): SidebarStore.duplicateTab/duplicateSplit do the same, from the tab, favorite and split menus.
+- [O live] Tab menus (AX rows, ⌥ alternates found by two rows sharing one frame):
+  - Today tab: Copy Link, Share ▸ (AirDrop, Mail, Notes) | Change Icon…, Rename…, Mute (dimmed unless the page
+    plays), Customize Page… (open tab only) | Open in Split View (Add Split View on the open tab), Duplicate,
+    Move to ▸ (spaces, ──, New Space…) | Archive Tab (⌥ Archive Other Tabs), Archive Tabs Below (⌥ Archive Tabs
+    Above), each dimmed with nothing to archive.
+  - Pinned tab: the same to Mute, then Customize Page… (open), Edit Pinned Page ▸ (Replace Pinned URL with Current,
+    dimmed on the pinned page; Edit…) | split row, Duplicate, Move to ▸ | Remove Pin. Remove Pin archives the tab
+    (StorableArchiveItems, reason manual). No Close row on an open pinned tab.
+  - Favorite: as a pinned tab, Move to ▸ is Profile ▸, and the last section is Close Tab (open only), Remove Favorite.
+  - The menu bar has no Duplicate: Tabs is New Tab…, Pin/Unpin Tab, Open Little Arc or Peek in…, New Folder… |
+    Next Tab, Previous Tab, Reveal Tab in Sidebar | Clear Today, Reset all tabs in this Space. The command bar's
+    Duplicate Current Tab leaves the copy in the background, right after the original.
+- Cra (#600, Victor: menus 1:1 with Arc): SidebarMenus.tab and the favorite tile's menu follow these rows. Cra keeps
+  Use Site Icon, Use Page Title and Tile Color ▸, which have no other way in; Pin/Unpin Tab, Add to Favorites, Move
+  to Folder ▸, New Folder with Tab, Back to Pinned Page and Close and Keep Pinned are gone (⌘D, drag, the menu bar,
+  ⌘W). Tabs ▸ Duplicate Tab and its command-bar row leave the copy in the background.
+- [O live] A tab in a pinned folder has the pinned tab's menu, row for row.
+- [O live] Split menu (Today, open): Share Split View… | Separate All Tabs, Add Tab…, Convert to Vertical Split View |
+  Tab Options (dimmed header), a submenu per pane (Separate from Split View | Share ▸, Mute, Copy Link, Copy link as
+  Markdown | Archive Item) | Change Icon…, Rename… | Duplicate, Move to ▸ (spaces, ──, New Space…) | Archive Item
+  (⌥ Archive Other Tabs), Archive Tabs Below (⌥ Archive Tabs Above). Pinned and open: the last section is Archive
+  Item, Close. With a name or an icon, Reset Name and Icon comes before Change Icon….
+- [O live] Change Icon… on a split opens the Emoji / Icon picker under the row; picking 😀 turned the row into one
+  row "😀 2 Tabs" and saved `splitView.customInfo.iconType = {emoji: 128512, emoji_v2: "😀"}`; the picker then
+  shows a trash button.
+- [O live] Share Split View… shows the share warning sheet: "Send this Split View to anyone, on any browser.",
+  "Anyone with this link can view your Split View. …", Cancel / Copy Link to Split View (offline, no link made).
+- Cra (#600): SidebarMenus.split follows these rows; SplitData.emoji/symbol hold the icon (SpaceIconPicker without
+  its Image tab); the share link is FolderShareLink's, toast "Copied Folder URL".
 
 ### Clear cookies / cache (Arc 1.171, 30 Oct)
 - [O] Command bar: "clear" lists Clear Cache and Refresh (selected, above the typed row), then "clear", then
@@ -1121,6 +1178,23 @@ Observed live on a throwaway Today split (example.com | example.org), archived a
   engine, Search Settings…, Include search engine suggestions, Archive tabs after (asks "all of your
   Profiles, or only your X Profile?"), New documents, Download location, and Privacy and Security,
   Passwords, Credit Cards, Notifications, Clear Browsing Data.
+
+### Toolbar colour from the page (Arc 1.173.1, live, 20 Nov 2026, #629)
+Victor's Arc in a File ▸ Blank Window, local test pages loaded over AppleScript (`make new tab`, `execute
+javascript` to scroll), window captures by id (Display P3, 2x), the bar read at x 3400 px.
+- [O] Theme-color is ignored: a `#602040` theme-color over a 64 pt `#F6F8FA` header gave a `#F6F8FA` bar.
+  The reporter's captures agree: GitHub's light header under its dark `#1e2327` theme-color, and a site with
+  no theme-color and a beige body whose dark hero photo under a see-through nav gave a dark bar.
+- [O] It is the top-right corner, not the majority or the mean: 70/30, 50/50 and 90/10 red | blue tops gave
+  blue; eight stripes gave the last; a black-to-white gradient gave pure white.
+- [O] A few points tall: a 24 pt red band over green gave red, a 10 pt one mostly red, a 2 pt line a
+  green-yellow mix (not a clean blend; Arc's downscale filter overshoots one channel).
+- [O] Once, when the load ends (#84: white while a load is held open): scrolling the header away
+  (300 pt) and a header recoloured by script 3 s after load both left the bar as it was. A plain page had
+  its colour within ~0.1 s of the AppleScript returning.
+- Cra: ToolbarSample (2 × 12 pt at the corner, left of a classic scroll bar) on an unclipped
+  Page.captureScreenshot at load end (ToolbarSampler); a page that loaded behind is read when shown. The
+  engines no longer report theme-color. Peek's bar is read the same way (Arc's Peek not measured).
 
 ### One space (Arc 1.171, static)
 - [O strings] Defaults key `showSpaceHeaderOnSingleUnnamedSpaces` (+ `…DidChange` action); the space context
@@ -1325,8 +1399,8 @@ of the sidebar strip, pixel runs at x=500 px (2x), y = 160/700/1200/1700/2100.
 - Hover (pointer moved, same backdrop): Arc row 220/210/171 → 210/200/163, favourite tile
   207/194/166 → 197/184/158; Cra row 207/198/160 → 198/189/154 (same Δ), tile hover now
   black 9 % (was equal to the resting tile).
-- Toolbar: white until the page reports a colour (meta theme-color, else body/html
-  background, else white), as Arc.
+- Toolbar: white until the page gives a colour, as Arc (since #629 the page's top-right corner
+  once its load ends, not theme-color or body/html background).
 - Sidebar toggle (⌘S) recorded at 60 fps with `screencapture -V`, per-frame mean |Δ| on the
   sidebar strip: Arc moves for 5 frames (108, 34, 15, 6, 1 → 66 % of the travel in the first
   frame, then a soft landing); Cra 5 frames (59, 160, 35, 13, 10; the first value is a
@@ -1512,6 +1586,25 @@ so test pages must not use it). Live HID clicks and hovers at 1x, plus a static 
   on the open one. Nested rows indent 16 pt (favicon 26 → 42, text 45 → 61) and their fill starts after it.
 - [O live, 100 fps] The minus makes the row jump to scale 0.9 at once and spring back to 1 in ~0.24 s without
   overshoot (left edge 10 px in at 1x, back by 1.11 s): a critically damped spring, ω ≈ 14 (stiffness 196, damping 28).
+
+### Restore Last Closed Tab after Close and Keep Pinned (Arc 1.173.1, 19 Nov 2026, GitHub #566)
+Offline Arc on a fake home (one space, nothing pinned, network denied but loopback), driven over AX menus and
+posted keys only, pages on `pin.lvh.me:47139` from a local server that logs every request; each page's title
+carries `history.length`.
+- [O live] A Today tab T opened, then page A opened and pinned (Tabs ▸ Pin Tab); A walked on to B by itself
+  (title "B h=2"). T archived (File ▸ Archive Tab), then ⌘W on the open pinned tab: the window showed nothing,
+  the row stayed, back on its pinned page ("A h=1"). The File menu says "Close Tab" for a pinned tab and
+  "Archive Tab" for a Today tab.
+- [O live] File ▸ Restore Last Closed Tab (⇧⌘T) then selected the pinned tab and loaded B (a new GET /b), title
+  "B h=2": the page it was on, with its back list, not its pinned page. Restore again brought back T ("T h=1"),
+  archived before it. So a pinned tab closed while open goes on the same stack as archived tabs and Peeks, newest
+  first.
+- [U] Not measured: a pinned tab closed from the background (the minus on a row that isn't open), a pinned split,
+  and whether the stack survives a relaunch.
+- Cra (#566): SidebarStore.closePinnedTab records the panes' pages when the closed tab was the open one;
+  reopenLastClosed picks among closed pinned tabs, the archive and a closed Peek (ReopenClosedTab, CraCore) and
+  puts the pages back; the tab's saved back list (PageHistory, #273) opens with it because it ends on that page.
+  In memory only: a relaunch forgets closed pinned tabs.
 
 ### Pressing a sidebar row (Arc 1.172.1, 11 Nov 2026, static: method lists and disassembly)
 
@@ -3270,6 +3363,13 @@ was frontmost, 1x region captures and 100 fps recordings; test tabs archived aft
   setting turns it on with the sidebar out or off. [U] Open Link in New Tab from the page menu (not driven; same
   notification) and the "in %@" variant (not reached). Cra: BackgroundTabToast (CraCore),
   BrowserManagerDelegate.browserManagerOpenedInBackground, MainWindowController.toastBackgroundTab.
+- [O static + live] Arc 1.173.1 (20 Nov 2026, gxcodes on #543): the toast is a button. `BackgroundTabNotificationContent`
+  carries `windowID` and `itemID`, and `BackgroundTabAffordanceControllerDelegate` takes the click. Live, in a Blank
+  Window with the sidebar hidden, on a local page: a ⌘-click showed "New Tab Created"; the pointer on it turned into
+  the pointing hand and the fill stayed the same (50/31/78 at rest and under the pointer); a click brought the new tab
+  to the front (the window's title became its page) and the toast stayed up. [U] Which tab a click opens after two
+  background tabs in a row (Cra: the newest, as the notification's content is replaced) and what Arc does when the tab
+  was closed first (Cra: nothing). Cra: BackgroundTabToast.clickOpens, ShinyToast `onTap`.
 - [O static] It is Arc's one toast (Toasts.ShinyToastView, `ToastContent`): the same component carries
   "Copied Current URL" (`copyTabURL`), "Cannot Add New Pane" (`maxNumberPanes`), "Screenshot Copied to Clipboard",
   "Pinned Tab to …", zoom changes, undo and more; some kinds add an SF Symbol (`quote.bubble.fill`,
@@ -5020,3 +5120,23 @@ Observed live in Arc 1.173.1 (90936), Chromium 157.0.8103.79, with window record
   over 4 pt at the top, and about 35–42 over 6–8 pt below. The stronger lower edge matches the page card.
 - Cra (#483): `SidebarPresentation` derives the held-open state without storing another flag; `CardVeil` uses 0.65
   light and 0.10 dark, and the empty card reuses the page card's shadow.
+
+### Library button glyph on hover (Arc 1.173.1, 20 Nov 2026, 120 fps app captures at 2x, GitHub #608)
+- Arc's glyph is drawn in code (`HomeBadging.HomeButton`), not an asset: `LibraryIcon` in
+  ARCClients_BaseAssets is an unrelated four-dot icon, and the Lotties in ARC_HomeButton.bundle
+  (archive, boosts, downloads, easels, screenshots, spaces; markers hover-start 1, hover-end 11,
+  selection-end 35) are the Library page's own section icons.
+- The "cloud" above the box is a five-point star (R 4.75 pt, r 2.7 pt, corners rounded) sunk into the
+  box: everything above the box is cut off 1.5 pt over it. Box 12×9 pt, top corners ≈ 0.5 pt, bottom
+  2.5 pt, a 3.5×2 pt slot 1 pt under its top that shows the background. Dot radius 0.95 pt, triangle
+  side 3.9 pt. Points from the 32 pt button's centre, y down: rest star (-2.5, -2.78) at -8°, dot
+  (2, -7.5), triangle (4.7, -3.75) at 12°; hovered star (-2.9, -4.65) at 104°, dot (3, -10), triangle
+  (6.17, -5.03) at -121°.
+- Entering and leaving run the same way, back and forth: one critically damped spring, ω 14.5/s (20 %
+  at 50 ms, 42 % at 0.1 s, 77 % at 0.2 s, 92.5 % at 0.3 s, 99 % at 0.4 s, no overshoot). At ≈ 0.14 s the
+  dot and triangle are swapped: the old triangle has shrunk to about half and faded, the new one comes
+  in at 1.4x and settles; the dot is gone until ≈ 0.30 s, then shows where it is headed. No loop while
+  the pointer stays. Tooltip windows appearing mid-hover made Arc's glyph flicker (dot and triangle gone
+  for 2–3 frames); Cra doesn't copy that.
+- Cra: `LibraryGlyph` (CraCore) and `LibraryGlyphView`; `cra://debug?libraryHover=1|0`, scenario
+  library-glyph-hover.

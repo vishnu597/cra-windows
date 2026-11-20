@@ -50,21 +50,45 @@ final class TabStore {
         changed()
     }
 
+    /// "Open in Background Tab": a tab at the end of the row, not shown. An incognito one waits
+    /// unseen while the private session goes on (`MobileTabsDocument.addInBackground`).
+    func addInBackground(url: String, incognito: Bool) -> MobileTab {
+        let tab = MobileTab(url: url, lastActive: now(), isIncognito: incognito)
+        document.addInBackground(tab)
+        changed()
+        return tab
+    }
+
     func select(_ id: UUID) {
         document.select(id, now: now())
+        changed()
+    }
+
+    /// A tab picked from the row: shown, and moved to the row's newest end (#647).
+    func bringToFront(_ id: UUID) {
+        document.bringToFront(id, now: now())
         changed()
     }
 
     /// The tab row's tabs: incognito tabs are never in it.
     var rowTabs: [MobileTab] { document.rowTabs }
 
+    /// The tab switcher's cards: the row, and on a private page the private tabs waiting unseen.
+    var switcherTabs: [MobileTab] { document.switcherTabs }
+
     /// Where a flick up on the tab button goes: the tab looked at before this one.
     var previousTab: MobileTab? { document.previousTab }
 
-    func close(_ id: UUID) {
-        let wasSelected = document.selected == id
+    /// The open tab that opened `id`, through openers that have closed since.
+    private func liveOpener(of id: UUID) -> WebPage? {
         var opener = pages[id]?.opener
         while let page = opener, !document.tabs.contains(where: { $0.id == page.tabID }) { opener = page.opener }
+        return opener
+    }
+
+    func close(_ id: UUID) {
+        let wasSelected = document.selected == id
+        let opener = liveOpener(of: id)
         document.close(id)
         if wasSelected, let opener { document.select(opener.tabID, now: now()) }
         pages[id] = nil
@@ -77,7 +101,11 @@ final class TabStore {
 
     /// Closes a tab into the archive, as throwing its card away does.
     func archive(_ id: UUID) {
-        document.archive(id)
+        let wasSelected = document.selected == id
+        let opener = liveOpener(of: id)
+        document.archive(id, returningTo: opener?.tabID)
+        // Back on its opener, whose archive clock restarts as when it is picked.
+        if wasSelected, let opener, document.selected == opener.tabID { document.select(opener.tabID, now: now()) }
         pages[id] = nil
         snapshots[id] = nil
         changed()

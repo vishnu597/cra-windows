@@ -74,6 +74,21 @@ public enum TidyTabs {
         return looseTabs.contains { !tidied.contains($0) }
     }
 
+    /// `offers` without reading more than it needs: Today's tabs counted only up to `minimumTabs`, and the
+    /// loose tabs only until one hasn't been tidied. The sidebar asks this on every rebuild for its divider's
+    /// Tidy button; at 5,000 tabs reading all of them was half of each rebuild (#618). Same answer.
+    public static func offers<T: Sequence, L: Sequence>(todayTabs: T, looseTabs: L, tidied: Set<L.Element>?) -> Bool
+        where L.Element: Hashable {
+        var count = 0
+        for _ in todayTabs {
+            count += 1
+            if count >= minimumTabs { break }
+        }
+        guard count >= minimumTabs else { return false }
+        for id in looseTabs where tidied?.contains(id) != true { return true }
+        return false
+    }
+
     /// Put unseen tabs first so a capped request eventually reaches the whole sidebar. Previously
     /// considered tabs remain optional context, with each part retaining its current Today order.
     public static func requestOrder<ID: Hashable>(looseTabs: [ID], tidied: Set<ID>?) -> [ID] {
@@ -203,7 +218,22 @@ public enum TidyTabs {
         }
         newGroups = newGroups.map { Proposal(name: $0.name, tabs: $0.tabs.sorted()) }
         newGroups.sort { ($0.tabs.first ?? 0) < ($1.tabs.first ?? 0) }
+        if namesEachTab(newGroups) { newGroups.removeAll { $0.tabs.count < 2 } }
         return Plan(newGroups: newGroups, joins: joins.mapValues { $0.sorted() })
+    }
+
+    /// Whether the model named the tabs rather than grouping them: three or more one-tab groups, and
+    /// more of them than real ones. Arc's example keeps its one Calendar tab beside two real groups,
+    /// and so does Cra. But on mixed reading-list tabs the on-device model gives nearly every tab a
+    /// name of its own: 22 groups for 24 tabs, 21 of them one tab ("Coding", "Course", "Telepathy"),
+    /// and 40 for 41 (GitHub #594). Then the one-tab groups are left out and their tabs stay loose; a
+    /// name a group Today already has still takes its tab (`joins`).
+    /// How many group names an answer used (any case): what cra.log reports as proposed groups (#594).
+    public static func distinctNames(_ proposals: [Proposal]) -> Int { Set(proposals.map { key($0.name) }).count }
+
+    public static func namesEachTab(_ groups: [Proposal]) -> Bool {
+        let singles = groups.filter { $0.tabs.count < 2 }.count
+        return singles >= 3 && singles * 2 > groups.count
     }
 
     /// Today's top level after a tidy: loose tabs left over first, in their order (Arc keeps new

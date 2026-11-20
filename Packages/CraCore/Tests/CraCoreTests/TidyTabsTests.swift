@@ -151,6 +151,36 @@ struct TidyTabsTests {
         #expect(request.fittingEstimatedContext(1) == nil)
     }
 
+    /// GitHub #594: Tidy on 24 mixed reading-list tabs made 22 groups, 21 of them one tab ("Coding",
+    /// "Course", "Model", "Telepathy"…). When the model names the tabs rather than grouping them, the
+    /// one-tab groups are left out and those tabs stay loose; the real group stays, and a name Today
+    /// already has still takes its tab.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/594"))
+    func aModelThatNamesEveryTabLeavesThemLoose() {
+        let ai = TidyTabs.ExistingGroup(id: UUID(), name: "Reading")
+        var assignments: [(tab: Int, group: String)] = [(0, "AI"), (1, "AI"), (2, "AI"), (3, "Coding"), (4, "Course"),
+                                                        (5, "Model"), (6, "Telepathy"), (7, "Music"), (8, "reading")]
+        let plan = TidyTabs.plan(TidyTabs.proposals(assignments), tabCount: 9, existingGroups: [ai])
+        #expect(plan.newGroups == [.init(name: "AI", tabs: [0, 1, 2])])
+        #expect(plan.joins == [ai.id: [8]])
+        // The reporter's numbers: 22 names for 24 tabs, 21 of them alone.
+        assignments = (0..<24).map { ($0, $0 < 3 ? "AI" : "Topic \($0)") }
+        let reported = TidyTabs.plan(TidyTabs.proposals(assignments), tabCount: 24, existingGroups: [])
+        #expect(TidyTabs.distinctNames(TidyTabs.proposals(assignments)) == 22)
+        #expect(reported.newGroups == [.init(name: "AI", tabs: [0, 1, 2])])
+    }
+
+    /// Two one-tab groups beside a real one, or a lone tab Tidy files on its own, are still groups (Arc's
+    /// Calendar): only three or more singles that outnumber the real groups are the model naming tabs.
+    @Test func aFewSinglesStayGroups() {
+        #expect(!TidyTabs.namesEachTab([.init(name: "Calendar", tabs: [4])]))
+        #expect(!TidyTabs.namesEachTab([.init(name: "A", tabs: [0]), .init(name: "B", tabs: [1]), .init(name: "C", tabs: [2, 3])]))
+        #expect(!TidyTabs.namesEachTab([.init(name: "A", tabs: [0]), .init(name: "B", tabs: [1]), .init(name: "C", tabs: [2]),
+                                        .init(name: "D", tabs: [3, 4]), .init(name: "E", tabs: [5, 6]), .init(name: "F", tabs: [7, 8])]))
+        #expect(TidyTabs.namesEachTab([.init(name: "A", tabs: [0]), .init(name: "B", tabs: [1]), .init(name: "C", tabs: [2]),
+                                       .init(name: "D", tabs: [3, 4])]))
+    }
+
     @Test func decodedAssignmentsRetainTheCalendarSingleton() {
         let plan = TidyTabs.plan([.init(name: "Movies", tabs: [0, 5]),
                                   .init(name: "Toaster Shopping", tabs: [1, 2, 3]),
@@ -215,5 +245,25 @@ struct TabGroupItemTests {
         let folder = try JSONEncoder().encode(SidebarItem.folder("F", parent: nil))
         #expect(!String(decoding: folder, as: UTF8.self).contains("tabGroup"))
         #expect(try !JSONDecoder().decode(SidebarItem.self, from: folder).isTabGroup)
+    }
+}
+
+struct TidyOffersLazilyTests {
+    /// GitHub #618: the sidebar asked whether to offer Tidy on every rebuild and read every Today tab to
+    /// answer. The lazy form reads only as far as it needs and gives the old answer, checked on random Todays.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/618"))
+    func theLazyAnswerIsTheOldOne() {
+        var rng = SystemRandomNumberGenerator()
+        for _ in 0..<2_000 {
+            let today = Int.random(in: 0...12, using: &rng)
+            let loose = (0..<Int.random(in: 0...today, using: &rng)).map { $0 }
+            let tidied: Set<Int>? = Bool.random(using: &rng) ? nil : Set(loose.filter { _ in Bool.random(using: &rng) })
+            let old = TidyTabs.offers(todayTabs: today, looseTabs: loose, tidied: tidied)
+            #expect(TidyTabs.offers(todayTabs: 0..<today, looseTabs: loose, tidied: tidied) == old)
+        }
+        // It stops counting at the minimum.
+        var read = 0
+        let counted = (0..<5_000).lazy.map { i -> Int in read += 1; return i }
+        #expect(TidyTabs.offers(todayTabs: counted, looseTabs: [1], tidied: nil) && read == TidyTabs.minimumTabs)
     }
 }

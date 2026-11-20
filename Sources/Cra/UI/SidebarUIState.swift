@@ -28,6 +28,9 @@ final class SidebarUIState {
     var loadedTabIDs: Set<UUID> = []
     /// Tabs using the camera or microphone (Arc's recording indicator).
     var capturingTabIDs: Set<UUID> = []
+    /// The tabs calls share (Arc's yellow ring, TabSharing), and the ones a call can switch to instead.
+    var sharedTabIDs: Set<UUID> = []
+    var shareInsteadTabIDs: Set<UUID> = []
     /// Tabs an MCP agent works in (MCPServer, MCPAgentPresence.lingers after its last call): a face on the row.
     var agentTabIDs: Set<UUID> = []
     /// Recently audible tabs, held for 2 s after sound stops so the speaker stays steady.
@@ -51,6 +54,8 @@ final class SidebarUIState {
     var recentDownload: RecentDownload?
     /// The Library button's view, where download flights land.
     @ObservationIgnored weak var libraryAnchor: NSView?
+    /// The downloads list over the bottom of the tab list, for `cra://debug?downloadsTray` (#575).
+    @ObservationIgnored weak var downloadsTray: NSView?
     /// Arc's downloads list over the bottom of the sidebar, open while the Library
     /// button (or the list) is hovered.
     var downloadsListOpen = false
@@ -101,6 +106,13 @@ final class SidebarUIState {
     /// The space pager and the window tint follow the swipe directly in AppKit, not through SwiftUI.
     @ObservationIgnored private var spaceSwipeObservers: [() -> Void] = []
     func observeSpaceSwipe(_ f: @escaping () -> Void) { spaceSwipeObservers.append(f) }
+    /// The space being made in Arc's Create a Space page, while that page is up (SpaceCreationDraft).
+    var spaceCreation: SpaceCreationDraft?
+    /// How far the tab list is overscrolled past the last space, in points; 0 when it isn't.
+    /// Arc's "+" comes in with it (NewSpaceSwipe).
+    var newSpacePull: CGFloat = 0 { didSet { if newSpacePull != oldValue { for f in newSpacePullObservers { f() } } } }
+    @ObservationIgnored private var newSpacePullObservers: [() -> Void] = []
+    func observeNewSpacePull(_ f: @escaping () -> Void) { newSpacePullObservers.append(f) }
     /// Release velocity for the settle spring, relative to the distance left to travel.
     var spaceSettleVelocity: Double = 0
     /// The strip is springing onto its page (after a swipe or a space change); it takes no
@@ -217,6 +229,13 @@ final class SidebarActions {
     var editSpace: (Space?) -> Void = { _ in }
     /// Move to ▸ New Space… on picked tabs: the new space sheet, and the tabs go to the space it makes.
     var newSpaceWith: ([UUID]) -> Void = { _ in }
+    /// Arc's Create a Space page: leave it, make the space, open the theme editor beside the row
+    /// (its frame on screen), the New Profile dialog, and close what the page has opened.
+    var cancelSpaceCreation: () -> Void = {}
+    var commitSpaceCreation: () -> Void = {}
+    var chooseCreationTheme: (NSRect) -> Void = { _ in }
+    var newProfileForCreation: () -> Void = {}
+    var closeCreationPanels: () -> Void = {}
     /// Arc's space menu: the icon picker under the header, the theme editor, a new profile for
     /// the space, the Library's Spaces page, and deleting this space (not the focused one).
     var changeSpaceIcon: (Space, NSView) -> Void = { _, _ in }
@@ -233,6 +252,8 @@ final class SidebarActions {
     var closeLibrary: () -> Void = {}
     var restoreArchived: (UUID) -> Void = { _ in }
     var resetPinnedTab: (UUID) -> Void = { _ in }
+    /// Arc's "Share this tab instead" on a row (TabSharing): the call shares that tab, which shows.
+    var shareTabInstead: (UUID) -> Void = { _ in }
     var separatePinnedTab: (UUID) -> Void = { _ in }
     var editPinnedURL: (UUID) -> Void = { _ in }
     var openURL: (String) -> Void = { _ in }

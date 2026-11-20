@@ -29,6 +29,11 @@ CEF one does.
   fix CEF become the layer's own code. Google's background services go with ungoogled-chromium's patches (BSD,
   taken one by one); never Helium's (GPL-3.0; Cra is MIT). Chrome's security updaters stay on: CRLSet, PKI
   metadata, Safe Browsing lists.
+- **The hidden Browser's elements**: Chrome's views for a Browser are never seen, so Chrome's element tracker may
+  not find them (its `BrowserView`, its toolbar's buttons). Chrome code that `CHECK`s it found one crashes Cra: Clear
+  browsing data's Cancel did in 0.1.50 (`cra-browser-element-checks.patch`, scenario `clear-browsing-data-cancel`).
+  `apply.sh` runs `engine/chromium/check-element-checks.py` after the patches, so a new Chrome that adds such a
+  `CHECK` in `chrome/browser` stops the engine build until it is patched into a null check the same way.
 - **CPUs**: arm64 and x64, as every release (docs/release.md).
 
 ## Steps
@@ -312,3 +317,43 @@ switch, idle CPU, idle wakeups: "Speed, 14 Nov" below) are fixed ("15 Nov, -7").
     to Cra as on CEF, and its view goes into the card under the page (`cra-devtools.patch`, `EmbeddedDevTools`);
     Chrome's hidden DevTools window never becomes key, which had cost clicks and hover (`devtools-docked`,
     `devtools-docked-clicks`).
+- 19–20 Nov 2026, night: **Chrome 159.0.8154.13** (#606), from engine-158.0.8127.37-33. Eight of the 67 patches
+  moved with 159's code:
+  - same hooks, new context: extension-side-panels (the organizer panel's branches are gone),
+    cra-hidden-pages-tabs-query, cra-devtools (the dock CHECK is a DCHECK now, still after Cra's clamp) and
+    cra-links (`OpenURLFromTab` builds its pop-up delegate in a helper; dispositions are
+    `ui::mojom::WindowOpenDisposition`, with `WindowOpenDisposition` kept as an alias);
+  - Chrome did part of the work: 159 turns text input off in `RenderWidgetHostViewMac::SetActive` for any view that
+    goes inactive (crbug.com/577708579), which was half of secure-input-active-app (#511), and settings_utils
+    goes through `BrowserElements::NotifyEvent`, which returns when the element is missing, which was half of
+    cra-browser-element-checks. The other halves stay;
+  - ungoogled: the DOM distiller viewer is gone (two fonts.googleapis hunks with it) and the Safe Browsing
+    blocking page factory moved to `safe_browsing/interstitials/`.
+
+  Two more things 159 changed that only the build found: the generated `WebSettingsImpl::SetFromStrings` calls a
+  `WebSettingsImpl` setter for every setting in settings.json5, so fingerprinting-protection adds one for
+  `craFingerprintingSeed`; and the bridge lost two of Chrome's names. `IDS_CONTENT_CONTEXT_SEARCHWEBFORIMAGE`
+  ("Search $1 for Image") is gone with its translations, since Chrome labels every image search with the Lens
+  string, so `chromiumString(.searchWebForImage)` is the old English template when Chromium runs in English
+  (Arc's label stays) and nil in another language (Chrome's own label). `RequestType::kTopLevelStorageAccess` is
+  gone; its permission bit goes unused. `check-element-checks.py` and `web-features.py --chromium` found nothing
+  new (163 rows, every `WebContentsDelegate` method mapped).
+
+  On 159 (local builds, arm64 and x64) every scenario passes on arm64, the 29 that take the screen too (run in the
+  morning: with the screen locked overnight, boost-editor and site-controls-no-extensions failed on 158 and 159
+  alike, since no window becomes key). A fingerprinting fixture called the largest audio noise loud on any engine
+  (fixed: one float32 step of slack). The web-features gate passes (53 without the screen, 11 with it), `scripts/test.sh` passes, and `scripts/engine-migration.sh`
+  with a 158 build as the writer passes (a 158 profile's cookie and back/forward list open on 159). The x64 build
+  under Rosetta passes the functional checks of a smoke set (cookies from a CEF profile, downloads, extensions,
+  fifty tabs, fingerprinting, live folders); first launches of a translated build go over their stall budgets, as
+  on 158.
+- 20 Nov 2026: **engine-159.0.8154.13-2**, two crashes from 0.1.50 and 0.1.51's reports. An extension popup's
+  Settings that opens the options page as a tab (#626, #631; 52 reports): Chrome closes the popup while the tab
+  goes into its tab strip, Cra's window becomes key again, and the bridge's `pageFocused` activated the focused
+  page inside that change, which TabStripModel's reentrancy CHECK stops. `pageFocused` now runs once Chrome is
+  done, and only for the page focused last: a stale one took the focus back and two pages traded it hundreds of times
+  a second (the scenario's stall budget caught it). The view's `HasFocus()` is no test for that, since the window's
+  key state reaches it later, and page fullscreen and Little Window fullscreen broke (scenario `extension-popup-opens-options`). A tab closed under its HTTP sign-in prompt (3 reports):
+  `CraPageDialogHost` (cra-page-dialogs.patch) is the page's own data, so it told its dialogs it was going only
+  after the page's parts were gone, and the prompt's `LoginHandler::CancelAuth` used them. It lets them go in
+  `WebContentsDestroyed` now (scenario `page-dialog-sign-in-tab-closed`). Both scenarios crash on -1.
