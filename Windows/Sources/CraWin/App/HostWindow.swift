@@ -26,6 +26,15 @@ final class HostWindow {
 
     /// The XAML column's width, in DIPs.
     var sidebarWidth: Double { didSet { layout() } }
+    /// The XAML column floated over the pages (the hidden sidebar brought out), in physical pixels
+    /// relative to the client area; nil keeps it in its column. Set it with `sidebarWidth` at 0:
+    /// the pages then fill the window and the column sits over their left edge.
+    var floatingSidebar: PixelRect? { didSet { if floatingSidebar != oldValue { layout() } } }
+    /// Where the XAML column's top left is in the client area, in physical pixels: XAML's own
+    /// coordinates start there.
+    var columnOrigin: (x: Int32, y: Int32) { floatingSidebar.map { ($0.x, $0.y) } ?? (0, 0) }
+    /// The floating column's corner radius, in physical pixels.
+    var floatingCornerRadius: Int32 = 16
     /// The strip's height over the page area, in DIPs; 0 hides it and the pages fill the area.
     var topBarHeight: Double = 0 { didSet { if topBarHeight != oldValue { layout() } } }
     /// After every resize, with the page area (`contentFrame`).
@@ -60,6 +69,8 @@ final class HostWindow {
     /// The pointer's shape over that area at a client point; nil leaves the arrow.
     var cursor: ((Int32, Int32) -> HostCursor?)?
     private var closed = false
+    /// The floating column's rounded region is for this size (placeColumn).
+    private var lastRegionSize: [Int32]?
     private var lastPress: (time: Int32, x: Int32, y: Int32)?
     /// The window procedure below is a C function and can't capture its window. Kept after the
     /// window object goes: Windows still sends the window messages while destroying it.
@@ -380,7 +391,7 @@ final class HostWindow {
     private func layout() {
         guard !closed else { return }
         let frame = contentFrame, height = appWindow.clientSize.height
-        try? xaml.siteBridge?.moveAndResize(RectInt32(x: 0, y: 0, width: frame.x, height: height))
+        placeColumn(frame: frame, height: height)
         if let bridge = topXaml.siteBridge, let strip = HWND(bitPattern: UInt(bridge.windowId.value)) {
             if frame.y > 0 {
                 try? bridge.moveAndResize(RectInt32(x: frame.x, y: 0, width: frame.width, height: frame.y))
@@ -390,6 +401,37 @@ final class HostWindow {
             }
         }
         onLayout?(frame)
+    }
+}
+
+extension HostWindow {
+    /// The XAML column beside the pages, floated over them, or out of sight when the sidebar is
+    /// hidden and not out. A child window over a page draws over it and takes the clicks there
+    /// (the pages are its siblings), so the floating column needs no window of its own.
+    private func placeColumn(frame: PixelRect, height: Int32) {
+        guard let bridge = xaml.siteBridge, let column = HWND(bitPattern: UInt(bridge.windowId.value)) else { return }
+        if let float = floatingSidebar, float.width > 0, float.height > 0 {
+            try? bridge.moveAndResize(RectInt32(x: float.x, y: float.y, width: float.width, height: float.height))
+            let r = floatingCornerRadius
+            if lastRegionSize != [float.width, float.height], let region = CreateRoundRectRgn(0, 0, float.width + 1, float.height + 1, r, r) {
+                // The window owns the region from here on.
+                _ = SetWindowRgn(column, region, true)
+                lastRegionSize = [float.width, float.height]
+            }
+            _ = ShowWindow(column, SW_SHOWNA)
+            // Over the pages, which are its siblings.
+            let noSize: UINT = 0x0001, noMove: UINT = 0x0002, noActivate: UINT = 0x0010
+            _ = SetWindowPos(column, HWND(bitPattern: 0), 0, 0, 0, 0, noSize | noMove | noActivate)
+        } else if frame.x > 0 {
+            if lastRegionSize != nil {
+                _ = SetWindowRgn(column, nil, true)
+                lastRegionSize = nil
+            }
+            try? bridge.moveAndResize(RectInt32(x: 0, y: 0, width: frame.x, height: height))
+            _ = ShowWindow(column, SW_SHOWNA)
+        } else {
+            _ = ShowWindow(column, SW_HIDE)
+        }
     }
 }
 
