@@ -222,6 +222,28 @@ final class WebPage: @unchecked Sendable {
     }
     func stopFinding(clearSelection: Bool) { if let handle { cra_browser_stop_finding(handle, clearSelection ? 1 : 0) } }
     func setAudioMuted(_ muted: Bool) { if let handle { cra_browser_set_audio_muted(handle, muted ? 1 : 0) } }
+    /// Picture in Picture for the page's video (BrowserManager.requestPictureInPicture on the Mac):
+    /// a look first, then the request as a user gesture. A player in a frame of another site
+    /// isn't reached (the Mac's engine request has no stock CEF counterpart). `done` gets the answer.
+    func requestPictureInPicture(automatic: Bool, done: @escaping @MainActor (PictureInPictureRequest.Answer) -> Void = { _ in }) {
+        let look = PictureInPictureRequest.script(engine: .chromium, automatic: automatic, request: false)
+        sendDevToolsMethod("Runtime.evaluate", params: PictureInPictureRequest.evaluateParams(look, userGesture: false)) { [weak self] reply, _ in
+            let answer = PictureInPictureRequest.Answer(PictureInPictureRequest.value(fromReply: reply))
+            guard let self, !self.isClosed, PictureInPictureRequest.step(after: answer) == .request else { return done(answer) }
+            let ask = PictureInPictureRequest.script(engine: .chromium, automatic: automatic, request: true)
+            self.sendDevToolsMethod("Runtime.evaluate", params: PictureInPictureRequest.evaluateParams(ask, userGesture: true)) { reply, _ in
+                let answer = PictureInPictureRequest.Answer(PictureInPictureRequest.value(fromReply: reply))
+                if let line = PictureInPictureRequest.logLine(answer, automatic: automatic) { print("Cra: page \(line)") }
+                done(answer)
+            }
+        }
+    }
+
+    /// The video Picture in Picture took goes back into the page.
+    func exitPictureInPicture() {
+        sendDevToolsMethod("Runtime.evaluate", params: PictureInPictureRequest.evaluateParams(PictureInPictureRequest.exitScript, userGesture: false)) { _, _ in }
+    }
+
     /// Another app's link (zoommtg:, slack:) that asked for a new tab or window opens no tab (#207):
     /// this page loads it, and Chrome asks "Open <app>?" over it as for a link followed in place;
     /// a scheme Chrome never hands to Windows (or cra:) does nothing. True when it was one.

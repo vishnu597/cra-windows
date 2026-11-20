@@ -437,6 +437,7 @@ final class LittleWindow {
         case "networkPanel": page?.runDevTools(.network)
         case "promoteLittleWindow": promote(to: nil)
         // Every window's pages; the toast shows here, as the Mac's in the key Little Window.
+        case "pictureInPicture": page?.requestPictureInPicture(automatic: false)
         case "pauseAllMedia": list?.pauseAllMedia { [weak self] text, action in self?.showToast(text, action: action) }
         // Move Tab to Space N sends the page there, as the spaces menu does (#86, #92).
         case let id where id.hasPrefix("moveTabToSpace"):
