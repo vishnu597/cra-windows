@@ -20,6 +20,7 @@ public struct Suggestion: Identifiable, Equatable {
     public var subtitle: String
     public let url: String?
     public var faviconKey: String?
+    /// An SF Symbols name; the Windows app maps it to a glyph of its own.
     public let symbol: String?
     public let trailing: String?
     public var score: Double
@@ -27,6 +28,23 @@ public struct Suggestion: Identifiable, Equatable {
     /// Matched only as scattered letters ("pota" in "grænselandsPOrTAl"): listed after the
     /// search engine's suggestions, which Arc shows instead of such matches.
     public var loose = false
+
+    /// The memberwise initializer, public: the Mac app (another package) makes rows too.
+    public init(id: String, kind: SuggestionKind, title: String, subtitle: String, url: String?, faviconKey: String?,
+                symbol: String?, trailing: String?, score: Double, spaceID: UUID? = nil, loose: Bool = false) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.subtitle = subtitle
+        self.url = url
+        self.faviconKey = faviconKey
+        self.symbol = symbol
+        self.trailing = trailing
+        self.score = score
+        self.spaceID = spaceID
+        self.loose = loose
+    }
+
     public var tabID: UUID? {
         if case .switchToTab(let id) = kind { return id }
         return nil
