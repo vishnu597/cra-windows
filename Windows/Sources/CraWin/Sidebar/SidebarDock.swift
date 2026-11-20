@@ -204,4 +204,29 @@ extension SidebarView {
         store.focusSpace(paged[next].id, window: windowID)
         return true
     }
+
+    /// Arc's + creation menu (SidebarCreationEntries): New Space, New Folder, New Split and New
+    /// Tab with their keys; Easels and Boosts aren't on Windows yet, so their rows are left out.
+    func showCreationMenu() {
+        let selected = store.selectedTabID(window: windowID)
+        let entries = SidebarCreationEntries.entries(selectedURL: selected.flatMap { store.item($0)?.tab?.url },
+                                                     selectedPanes: selected.map { store.paneTabIDs(for: $0).count },
+                                                     paneLimit: store.splitPaneLimit)
+        let menu = MenuFlyout()
+        for entry in entries {
+            guard let binding = WinKeyBindings.shared.action(entry.action) else { continue }
+            let action = entry.action
+            let item = UI.menuItem(entry.title) { [weak self] in self?.actions?.runCommand(action) }
+            if let glyph = WinGlyph.known(entry.symbol) {
+                let icon = FontIcon()
+                icon.glyph = glyph
+                item.icon = icon
+            }
+            if let chord = binding.primary { item.keyboardAcceleratorTextOverride = chord.windowsDisplay }
+            item.isEnabled = entry.enabled
+            menu.items.append(item)
+        }
+        creationMenu = menu
+        try? menu.showAt(plusButton)
+    }
 }

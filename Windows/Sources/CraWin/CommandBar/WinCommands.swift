@@ -111,6 +111,10 @@ enum WinGlyph {
         case "puzzlepiece.fill": return "\u{EA86}"  // Puzzle
         case "clock.fill": return "\u{E823}"  // Recent
         case "magnifyingglass": return "\u{E721}"  // Search
+        // The sidebar's + creation menu.
+        case "plus.rectangle.on.rectangle": return "\u{E8A9}"  // ViewAll, as spaces show elsewhere
+        case "plus.rectangle": return "\u{E7C3}"  // Page
+        case "rectangle.split.2x1": return "\u{E89A}"  // TwoPage
         default: return nil
         }
     }

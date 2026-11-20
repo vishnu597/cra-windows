@@ -2168,6 +2168,8 @@ extension BrowserWindow: SpacesManagerActions {
         sidebar.newSpace()
     }
 
+    func runCommand(_ id: String) { _ = perform(id) }
+
     /// Delete Space…: Arc's question first, since the space's tabs and folders are archived; the
     /// last space only says it has to stay (SpaceDeleteConfirmation).
     func confirmDeleteSpace(_ id: UUID) {

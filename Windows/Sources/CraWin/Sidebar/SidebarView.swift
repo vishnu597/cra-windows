@@ -38,6 +38,8 @@ protocol SidebarActions: AnyObject {
     func showLibrary(_ page: LibraryPage)
     /// Delete Space…: Arc asks first.
     func confirmDeleteSpace(_ id: UUID)
+    /// A command by its id (KeyBindingDefaults), as the command bar runs it.
+    func runCommand(_ id: String)
     /// A sidebar tab dragged off the sidebar, over the page: whether the panes offer a split at
     /// the pointer (the window shows it). `before`: the tab open before the press.
     func splitDragMoved(tab id: UUID, before: UUID?) -> Bool
@@ -78,6 +80,7 @@ final class SidebarView {
     var headerTitle: FrameworkElement?
     var iconPicker: SpaceIconPickerView?
     var styleEditor: SpaceStyleEditorView?
+    var creationMenu: MenuFlyout?
     let store: SidebarStore
     /// The window it draws: its space, its selected tab (SidebarStore.WindowSession).
     let windowID: UUID
@@ -147,8 +150,9 @@ final class SidebarView {
         footer.children.append(spacesBar)
         plusButton.horizontalAlignment = .right
         plusButton.verticalAlignment = .center
-        plusButton.click.addHandler { [weak self] _, _ in self?.newSpace() }
-        try? ToolTipService.setToolTip(plusButton, "New Space")
+        // Arc 1.172.1: + opens the creation menu, with no tooltip.
+        plusButton.click.addHandler { [weak self] _, _ in self?.showCreationMenu() }
+        try? AutomationProperties.setName(plusButton, "New")
         footer.children.append(plusButton)
         // A narrower or wider sidebar can squeeze the dock into dots or give them room again.
         footer.sizeChanged.addHandler { [weak self] _, _ in self?.refreshDock() }
