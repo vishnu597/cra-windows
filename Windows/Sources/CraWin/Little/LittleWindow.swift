@@ -29,6 +29,14 @@ final class LittleWindow {
     private let strip = LittleStripView()
     /// The page on screen; nil once it has moved into a browser window or closed.
     private(set) var page: WebPage?
+    /// Pause All Media's view of the page (the Mac's mediaPauseTargets for a Little Window or Peek).
+    private let mediaPauseID = UUID()
+    var mediaPauseTarget: PauseAllMedia.Target? {
+        guard let page, hasPage, !closing, !promoted else { return nil }
+        return PauseAllMedia.Target(page: MediaPause.Page(id: mediaPauseID, window: peekParent?.windowID, space: targetSpaceID,
+                                                          profile: profileID, loaded: true),
+                                    web: page, title: title, show: { [weak self] in self?.activate() })
+    }
     /// Every page this window made that Chromium hasn't finished closing (a profile change makes
     /// a new one): the window waits for them before it goes (CEF's DoClose order).
     private var livePages: Set<ObjectIdentifier> = []
@@ -426,6 +434,8 @@ final class LittleWindow {
         case "inspectElement": page?.runDevTools(.inspect)
         case "networkPanel": page?.runDevTools(.network)
         case "promoteLittleWindow": promote(to: nil)
+        // Every window's pages; the toast shows here, as the Mac's in the key Little Window.
+        case "pauseAllMedia": list?.pauseAllMedia { [weak self] text, action in self?.showToast(text, action: action) }
         // Move Tab to Space N sends the page there, as the spaces menu does (#86, #92).
         case let id where id.hasPrefix("moveTabToSpace"):
             if let n = Int(id.dropFirst(14)), n >= 1, n <= store.spaceOrder.count { promote(to: store.spaceOrder[n - 1]) }

@@ -34,6 +34,10 @@ final class BrowserWindow {
     /// Arc keeps it per window and opens it again on the page last shown.
     private var library: LibraryView!
     private var libraryPage: LibraryPage?
+    /// The hidden sidebar brought out over the page (Ctrl+S hides it); set up with the window.
+    private var floatingSidebar: FloatingSidebar!
+    /// What the column shows as last laid out: docked beside the pages, or hidden.
+    private var sidebarDocked = true
     private var lastLibraryPage: LibraryPage = .downloads
     /// The open tab's address; a click opens the command bar on it (Arc's URL bar in the sidebar).
     private let address = TextBlock()
@@ -181,8 +185,9 @@ final class BrowserWindow {
             _ = GetCursorPos(&p)
             guard p.x != Int32.min else { return nil }
             _ = ScreenToClient(host, &p)
-            // The XAML island starts at the client area's top left.
-            return (Double(p.x) / window.scale, Double(p.y) / window.scale)
+            // The XAML island starts at the client area's top left, or where it floats.
+            let origin = window.columnOrigin
+            return (Double(p.x - origin.x) / window.scale, Double(p.y - origin.y) / window.scale)
         }
         downloads.pointer = pointer
         sidebar.pointer = pointer
@@ -231,6 +236,7 @@ final class BrowserWindow {
             if self.handKeyboardToPeek() { return }
             self.focusContent()
         }
+        makeFloatingSidebar()
         makeCommandBar()
         makeFindBar()
         makeDeveloperBar()
@@ -341,6 +347,7 @@ final class BrowserWindow {
                 library.build(SidebarPalette(store.focusedSpace(window: windowID).theme), dark: sidebar.isDark)
                 syncLibraryWidth()
             }
+            syncSidebarMode()
             syncPages()
             syncSlowResponse()
             syncDeveloperBar()
@@ -481,6 +488,14 @@ final class BrowserWindow {
         let toolbar = StackPanel()
         toolbar.orientation = .horizontal
         toolbar.spacing = 2
+        // Arc's sidebar button: hides the sidebar, or docks a hidden one that is out (Ctrl+S).
+        let sidebarGlyph = FontIcon()
+        sidebarGlyph.glyph = WinGlyph.code("sidebar.left")
+        sidebarGlyph.fontSize = 13
+        let sidebarButton = UI.button(sidebarGlyph) { [weak self] in self?.toggleSidebar() }
+        try? ToolTipService.setToolTip(sidebarButton, "Toggle Sidebar")
+        try? AutomationProperties.setName(sidebarButton, "Toggle Sidebar")
+        toolbar.children.append(sidebarButton)
         let back = UI.button("\u{2190}") { [weak self] in self?.shownPage?.goBack() }
         let forward = UI.button("\u{2192}") { [weak self] in self?.shownPage?.goForward() }
         back.contextFlyout = backMenu
@@ -799,6 +814,7 @@ final class BrowserWindow {
         case "editURL": openCommandBar(.editURL)
         case "reopenClosedTab": reopenClosedTab()
         case "openLibrary": toggleLibrary()
+        case "toggleSidebar": toggleSidebar()
         case "viewArchive": showLibrary(.archive)
         case "viewDownloads": showLibrary(.downloads)
         case "manageSpaces": if !isIncognito { showLibrary(.spaces) }
@@ -809,6 +825,7 @@ final class BrowserWindow {
         case "renameTab": renameSelectedTab()
         case "duplicateTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { _ = store.duplicateTab(t) }
         case "muteTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { toggleMute(t) }
+        case "pauseAllMedia": host?.pauseAllMedia { [weak self] text, action in self?.showToast(text, action: action) }
         case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
         case "newFolder": sidebar.newFolder()
         case "newSpace": if !isIncognito { sidebar.newSpace() }
@@ -1038,24 +1055,75 @@ final class BrowserWindow {
             let windowWidth = Double(window.appWindow.clientSize.width) / window.scale
             width = max(width, LibraryWidth.sidebar(spacesCards: cards, window: windowWidth))
         }
-        if window.sidebarWidth != width { window.sidebarWidth = width }
+        floatingSidebar?.width = width
+        let column = sidebarDocked ? width : 0
+        if window.sidebarWidth != column { window.sidebarWidth = column }
     }
 
+    // MARK: Hidden sidebar
+
+    private func makeFloatingSidebar() {
+        floatingSidebar = FloatingSidebar(window: window, dispatcher: dispatcher)
+        floatingSidebar.width = window.sidebarWidth
+        floatingSidebar.presentation = { [weak self] in
+            guard let self else { return SidebarPresentation(sidebarVisible: true, hasSelectedTab: true) }
+            return SidebarPresentation(sidebarVisible: self.store.window(self.windowID).sidebarVisible,
+                                       hasSelectedTab: self.store.selectedTab(window: self.windowID) != nil)
+        }
+        // The Library and a name being edited keep it out, as a folder's preview does on the Mac.
+        floatingSidebar.keptOut = { [weak self] in
+            guard let self else { return false }
+            return self.libraryPage != nil || self.sidebar.renaming.itemID != nil || self.sidebar.renaming.spaceID != nil
+        }
+        floatingSidebar.onRetracted = { [weak self] in
+            guard let self, !self.closing, !self.commandBar.isOpen else { return }
+            // The keyboard was in the sidebar going out of sight: back to the page.
+            if self.shownPage != nil, GetForegroundWindow() == HWND(bitPattern: self.hwnd) { self.focusContent() }
+        }
+    }
+
+    /// Lays the column out for the window's choice (`WindowSession.sidebarVisible`): beside the
+    /// pages, or hidden with the pages edge to edge and the floating sidebar watching the edge.
+    private func syncSidebarMode() {
+        let docked = store.window(windowID).sidebarVisible
+        guard docked != sidebarDocked else { return }
+        sidebarDocked = docked
+        if docked { floatingSidebar.stop() }
+        syncLibraryWidth()
+        if !docked { floatingSidebar.start() }
+    }
+
+    /// Arc's Hide Sidebar (Ctrl+S): the window's sidebar hides or docks again, and new windows
+    /// open the way it is now (#644). A sidebar that is out docks where it is.
+    private func toggleSidebar() {
+        let visible = store.window(windowID).sidebarVisible
+        store.chooseSidebar(visible: !visible, window: windowID)
+        refresh()
+        if visible, shownPage != nil { focusContent() }
+    }
+
+    /// Arc's Restore Last Closed Tab (Ctrl+Shift+T): the tab closed last, whether a pinned tab
+    /// (back at the page it was on, #566), an archived tab or a closed Peek, and with Settings ▸
+    /// Tabs' "Reopen tabs from this Space only" only one closed in this space (#601). The order is
+    /// CraCore's (`SidebarStore.reopenLastClosed`, ReopenClosedTab), as on the Mac.
     private func reopenClosedTab() {
-        // Arc: a Peek closed after the last archived tab comes back, over the tab it came from.
-        if !isIncognito, let peek = closedPeek,
-           PeekTrigger.reopensClosedPeek(closedAt: peek.at, lastArchivedAt: store.archive.first?.archivedAt) {
-            closedPeek = nil
-            if let id = peek.tabID, store.item(id) != nil { store.selectTab(id, window: windowID) }
-            // Once the key's event is over and the redraw that selection queued has run: either
-            // could hand the keyboard to this window's page after the card took it, and Escape
-            // then never reached the Peek (seen on the PC after a Peek came back).
-            _ = try? dispatcher.tryEnqueue { [weak self] in
-                guard let self, !self.closing else { return }
-                self.host?.openPeek(url: peek.url, over: self, fromTab: peek.tabID)
-            }
-        } else {
-            store.reopenLastArchived()
+        guard !isIncognito else { return }  // private tabs leave nothing to restore
+        let peek = closedPeek.map { ReopenClosedTab.ClosedPeek(url: $0.url, tabID: $0.tabID, closedAt: $0.at) }
+        let outcome = store.reopenLastClosed(in: windowID, peek: peek)
+        if case .pinned(let id, _, _, let panes)? = outcome {
+            // The store put the panes back on the pages they were on; pages already loaded (none,
+            // normally: closing unloaded them) follow it.
+            for p in panes.map(\.id) + [id] { if let url = store.item(p)?.tab?.url { pages[p]?.loadURL(url) } }
+        }
+        guard case .peek(let url, let tabID)? = outcome else { return }
+        closedPeek = nil
+        if let tabID, store.item(tabID) != nil { store.selectTab(tabID, window: windowID) }
+        // Once the key's event is over and the redraw that selection queued has run: either
+        // could hand the keyboard to this window's page after the card took it, and Escape
+        // then never reached the Peek (seen on the PC after a Peek came back).
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { return }
+            self.host?.openPeek(url: url, over: self, fromTab: tabID)
         }
     }
 
@@ -1814,7 +1882,8 @@ final class BrowserWindow {
            let origin = try? transform.transformPoint(WindowsFoundation.Point(x: 0, y: 0)) {
             let right = (Double(origin.x) + sliders.actualWidth) * scale
             let bottom = (Double(origin.y) + sliders.actualHeight + 4) * scale
-            corner = POINT(x: Int32(right.rounded()), y: Int32(bottom.rounded()))
+            let origin = window.columnOrigin
+            corner = POINT(x: Int32(right.rounded()) + origin.x, y: Int32(bottom.rounded()) + origin.y)
         }
         _ = ClientToScreen(host, &corner)
         return corner
@@ -2089,6 +2158,8 @@ extension BrowserWindow: LibraryActions {
         hideFindBar()
         hideSiteControlCenter()
         setLibraryShown(true)
+        // A hidden sidebar comes out with it, and stays out while it is open (keptOut).
+        if !sidebarDocked { floatingSidebar.show() }
         window.focusXAML()
         library.focusSearch()
     }
@@ -2132,6 +2203,22 @@ extension BrowserWindow: SidebarActions {
         pages[id]?.setAudioMuted(!tab.muted)
     }
 
+    /// This window's loaded pages for Pause All Media (a sleeping tab has none), each with how
+    /// to bring it on screen.
+    func mediaPauseTargets() -> [PauseAllMedia.Target] {
+        pages.sorted { $0.key.uuidString < $1.key.uuidString }.map { id, page in
+            let space = store.spaceID(ofItem: id, window: windowID)
+            return PauseAllMedia.Target(page: MediaPause.Page(id: id, window: windowID, space: space,
+                                                              profile: space.flatMap { store.space($0)?.profileID }, loaded: true),
+                                        web: page, title: store.item(id)?.displayTitle ?? page.currentTitle,
+                                        show: { [weak self] in
+                                            guard let self, !self.closing else { return }
+                                            self.store.selectTab(id, window: self.windowID)
+                                            self.activate()
+                                        })
+        }
+    }
+
     /// Rename…'s field takes the keyboard with its text selected, as the Mac's does.
     func focusRenameField(_ field: TextBox) {
         window.focusXAML()
@@ -2172,19 +2259,18 @@ extension BrowserWindow: SidebarActions {
     func closeTab(_ id: UUID) {
         guard let item = store.item(id), item.isTab else { return }
         if store.isPinned(id) {
+            // A pinned split closes as one: every pane unloads and goes back to its page. When it
+            // was the open tab, the pages it was on go where Ctrl+Shift+T takes them back from (#566).
             let panes = store.paneTabIDs(for: id)
             let wasSelected = store.selectedTabID(window: windowID).map(panes.contains) ?? false
-            for p in panes {
-                _ = store.resetPinnedTab(p)
+            for p in store.closePinnedTab(id, wasOpen: wasSelected) {
                 pages[p]?.close()
                 pages[p] = nil
             }
-            if wasSelected {
-                // Back to the tab used before, if it is still open; an unloaded pinned tab doesn't count.
-                let back = store.recentTabs(in: store.focusedSpaceID(window: windowID), limit: .max)
-                    .first { !panes.contains($0) && (!store.isPinned($0) || pages[$0] != nil) }
-                store.selectTab(back, window: windowID)
-            }
+            // Arc goes back to the tab shown before this one if its page is still loaded, and
+            // otherwise shows nothing (CloseSuccessor). The panes were just unloaded, so they
+            // don't count.
+            if wasSelected { store.selectTab(store.closeSuccessor(ofPinned: id, window: windowID), window: windowID) }
         } else {
             store.archiveTab(id, reason: .manual)
         }
