@@ -2240,6 +2240,14 @@ extern "C" void cra_browser_view_source(CraBrowser *b) {
         b->callbacks.view_source_requested(b->callbacks.context, frame->GetURL().ToString().c_str());
 }
 
+extern "C" int cra_browser_run_chrome_command(CraBrowser *b, const char *name) {
+    if (!b || !b->browser || b->close_requested || !name) return 0;
+    int command = cef_id_for_command_id_name(name);
+    if (command <= 0 || !b->browser->GetHost()->CanExecuteChromeCommand(command)) return 0;
+    b->browser->GetHost()->ExecuteChromeCommand(command, CEF_WOD_CURRENT_TAB);
+    return 1;
+}
+
 extern "C" void cra_browser_send_dev_tools_method(CraBrowser *b, const char *method, const char *params, void *context,
                                                   CraDevToolsResult done) {
     auto fail = [&](const char *why) {

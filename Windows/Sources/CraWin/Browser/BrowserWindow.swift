@@ -788,6 +788,9 @@ final class BrowserWindow {
         case "findPrevious": findNext(forward: false)
         case "settings": openSettings()
         case "essentialShortcuts": showEssentialShortcuts()
+        // Chrome's own Task Manager and Cast dialogs, on the page in front (the Mac's runChromeCommand).
+        case "taskManager": if shownPage?.runChromeCommand("IDC_TASK_MANAGER") != true { showToast("Open a Page First") }
+        case "cast": if shownPage?.runChromeCommand("IDC_ROUTE_MEDIA") != true { showToast("Nothing to Cast") }
         // Arc's Open Extensions (⌘E on the Mac): the Site Control Center, its extension tiles.
         case "openExtensions": toggleSiteControlCenter()
         case "manageExtensions": store.createTab(url: SiteControlCenter.manageExtensionsURL, window: windowID)

@@ -247,6 +247,12 @@ final class WebPage: @unchecked Sendable {
     func printPage() { if let handle { cra_browser_print(handle) } }
     func viewSource() { if let handle { cra_browser_view_source(handle) } }
 
+    /// One of Chrome's own commands by its IDC_ name; false when Chrome can't run it here.
+    func runChromeCommand(_ name: String) -> Bool {
+        guard let handle else { return false }
+        return cra_browser_run_chrome_command(handle, name) != 0
+    }
+
     /// CEF's ViewSource opens a temporary text file through Windows. The app command and the
     /// page/frame menu instead use the same shared address policy as the Mac, in a Cra tab.
     @MainActor

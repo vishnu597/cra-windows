@@ -444,6 +444,9 @@ void cra_browser_apply_dev_tools_action(CraBrowser *browser);
 void cra_browser_print(CraBrowser *browser);
 /// Asks view_source_requested for this page's URL; it never opens a temporary file in Windows.
 void cra_browser_view_source(CraBrowser *browser);
+/// Runs one of Chrome's own commands by its IDC_ name ("IDC_TASK_MANAGER", "IDC_ROUTE_MEDIA") on this
+/// page, as the Mac's runChromeCommand: 1 when Chrome ran it, 0 when this Chromium lacks it or can't now.
+int cra_browser_run_chrome_command(CraBrowser *browser, const char *name);
 /// Runs a DevTools protocol method ("Page.captureScreenshot") with `params` (a JSON object, NULL
 /// for none). `done` is called exactly once, on the main thread: with the answer, or with
 /// success 0 when the page closes first or the message could not be sent.

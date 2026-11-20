@@ -311,6 +311,8 @@ public enum KeyBindingDefaults {
             "revealData": [], "copyAppInfo": [], "languageSettings": [],
             // Help ▸ Essential Keyboard Shortcuts, Arc's card (no keys on the Mac either).
             "essentialShortcuts": [],
+            // Chrome's Task Manager and Cast…, from the command bar (no keys on the Mac either).
+            "taskManager": [], "cast": [],
             // Arc's ⌃Tab: the switcher over the space's recent tabs. Sidebar order moves to
             // Chrome for Windows' other keys for it.
             "recentTab": [KeyChord(KeyChord.tab, ctrl)],
