@@ -26,6 +26,7 @@ enum WinGlyph {
         case "lock.open.fill": return "\u{E785}"
         case "ellipsis": return "\u{E712}"
         case "slider.horizontal.3": return "\u{E9E9}"
+        case "sidebar.left": return "\u{E90C}"  // DockLeft
         case "hammer.fill": return "\u{E90F}"
         case "shield.fill": return "\u{EA18}"
         case "gearshape.fill": return "\u{E713}"
