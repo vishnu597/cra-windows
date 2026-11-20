@@ -16,6 +16,9 @@ protocol BrowserWindowHost: AnyObject {
     func windowDidClose(_ window: BrowserWindow)
     /// Arc's Peek over `window`, from its tab `fromTab`: one at a time over a window.
     func openPeek(url: String, over window: BrowserWindow, fromTab: UUID?)
+    /// Pause All Media in every window, Little Window and Peek; `report` gets the toast's text
+    /// and, when a page kept playing, its Show.
+    func pauseAllMedia(report: @escaping (String, ToastView.Action?) -> Void)
     func closePeeks(over window: BrowserWindow)
     func hasPeek(over window: BrowserWindow) -> Bool
     /// A Peek over `window` is on screen and not on its way out (closing, or its page moved
@@ -37,6 +40,7 @@ final class WindowList: BrowserWindowHost {
     private let dispatcher: WinAppSDK.DispatcherQueue
     private(set) var windows: [BrowserWindow] = []
     private(set) var littleWindows: [LittleWindow] = []
+    private lazy var clock = WinScheduler(queue: dispatcher)
     /// Arc cascades a new window this far right and down from the one in use (22 pt on the
     /// Mac), in DIPs.
     private static let cascadeStep = 22.0
@@ -332,6 +336,16 @@ final class WindowList: BrowserWindowHost {
     }
 
     /// An action a Little Window leaves to the browser window used last (Ctrl+N, Ctrl+, …).
+    func pauseAllMedia(report: @escaping (String, ToastView.Action?) -> Void) {
+        let all = (windows.flatMap { $0.mediaPauseTargets() } + littleWindows.compactMap(\.mediaPauseTarget))
+            .filter { MediaPause.isTarget($0.page, in: .everything) }
+        PauseAllMedia.run(all, clock: clock) { result in
+            print("Cra: pause all media: \(all.count) pages, paused \(result.paused.count), kept playing \(result.keptPlaying.map { all[$0].title })")
+            let show = result.keptPlaying.first.map { i in ToastView.Action(title: "Show") { all[i].show() } }
+            report(result.toast, show)
+        }
+    }
+
     func perform(_ id: String) -> Bool {
         lastNormalWindow()?.perform(id) ?? false
     }
