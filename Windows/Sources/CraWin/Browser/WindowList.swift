@@ -331,6 +331,19 @@ final class WindowList: BrowserWindowHost {
         target.activate()
     }
 
+    /// `url` in a new tab of the browser window used last, in front (a Little Window's notice link).
+    func openInLastWindow(_ url: String) {
+        guard let target = lastNormalWindow() else { return }
+        store.activeWindowID = target.windowID
+        store.createTab(url: url, select: true, window: target.windowID)
+        target.activate()
+    }
+
+    /// Settings on `pane`, over the browser window used last.
+    func openSettings(pane: DiaSettingsPane) {
+        lastNormalWindow()?.openSettings(pane: pane)
+    }
+
     /// An action a Little Window leaves to the browser window used last (Ctrl+N, Ctrl+, …).
     func perform(_ id: String) -> Bool {
         lastNormalWindow()?.perform(id) ?? false

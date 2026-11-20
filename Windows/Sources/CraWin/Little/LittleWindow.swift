@@ -300,6 +300,9 @@ final class LittleWindow {
 
     private func makeCommandBar() {
         commandBar.onCommit = { [weak self] row, typed, mode in self?.handleCommit(row, typed: typed, mode: mode) }
+        // The search-suggestions notice, as the Mac's Little Window has it: both open in the browser window.
+        commandBar.onNoticeSettings = { [weak self] in self?.list?.openSettings(pane: .profiles) }
+        commandBar.onNoticeLearnMore = { [weak self] in self?.list?.openInLastWindow(SearchSuggestionsNotice.privacyPage) }
         commandBar.onResize = { [weak self] height in
             self?.commandBarHeight = height
             self?.placeCommandBar()

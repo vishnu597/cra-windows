@@ -1175,7 +1175,7 @@ final class BrowserWindow {
     // MARK: Settings
 
     /// Ctrl+, (Arc's ⌘,): the Settings window, centred on this one when it opens.
-    private func openSettings(pane: DiaSettingsPane? = nil) {
+    func openSettings(pane: DiaSettingsPane? = nil) {
         if Self.settingsWindow == nil {
             do {
                 Self.settingsWindow = try SettingsWindow(store: store)
