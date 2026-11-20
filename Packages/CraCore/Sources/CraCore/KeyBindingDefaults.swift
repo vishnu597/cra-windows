@@ -309,6 +309,8 @@ public enum KeyBindingDefaults {
             // Help ▸ Troubleshooting's Reveal Cra Data and Copy Cra Info, and Language Settings
             // (Chromium's page), from the command bar.
             "revealData": [], "copyAppInfo": [], "languageSettings": [],
+            // Help ▸ Essential Keyboard Shortcuts, Arc's card (no keys on the Mac either).
+            "essentialShortcuts": [],
             // Arc's ⌃Tab: the switcher over the space's recent tabs. Sidebar order moves to
             // Chrome for Windows' other keys for it.
             "recentTab": [KeyChord(KeyChord.tab, ctrl)],

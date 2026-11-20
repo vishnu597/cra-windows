@@ -107,6 +107,8 @@ final class BrowserWindow {
     /// Ctrl+,: one for the app, made the first time any window opens it, then hidden and shown
     /// again (over the window that asked).
     private static var settingsWindow: SettingsWindow?
+    /// Help ▸ Essential Keyboard Shortcuts, made the first time it is asked for.
+    private var essentialShortcutsCard: EssentialShortcutsCard?
     /// Permission requests waiting for the user, oldest first; the first is on screen.
     private var permissionQueue: [(page: WeakPage, origin: String, kinds: PermissionKinds, answer: (Bool) -> Void)] = []
     private let permissionPrompt = PermissionPromptView()
@@ -783,6 +785,7 @@ final class BrowserWindow {
         case "findNext": findNext(forward: true)
         case "findPrevious": findNext(forward: false)
         case "settings": openSettings()
+        case "essentialShortcuts": showEssentialShortcuts()
         // Arc's Open Extensions (⌘E on the Mac): the Site Control Center, its extension tiles.
         case "openExtensions": toggleSiteControlCenter()
         case "manageExtensions": store.createTab(url: SiteControlCenter.manageExtensionsURL, window: windowID)
@@ -1184,6 +1187,15 @@ final class BrowserWindow {
             self.activate()
         }
         if let pane { Self.settingsWindow?.show(over: window, pane: pane) } else { Self.settingsWindow?.show(over: window) }
+    }
+
+    /// Arc's Help ▸ Essential Keyboard Shortcuts card; its View All is Settings ▸ Shortcuts.
+    private func showEssentialShortcuts() {
+        guard let window else { return }
+        let card = essentialShortcutsCard ?? EssentialShortcutsCard()
+        essentialShortcutsCard = card
+        card.onViewAll = { [weak self] in self?.openSettings(pane: .shortcuts) }
+        card.show(over: window)
     }
 
     // MARK: Developer Mode
