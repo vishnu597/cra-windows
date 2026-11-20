@@ -340,9 +340,16 @@ final class DownloadThumbnails {
 enum Shell {
     static func open(_ path: String) { run("open", path, nil) }
 
-    /// Explorer on the user's Downloads folder, where Cra saves downloads (CraCEFWin's
-    /// DownloadsFolder).
-    static func openDownloadsFolder() { run("open", "explorer.exe", "shell:Downloads") }
+    /// Explorer on the folder a profile saves to: its Download location from Settings ▸ Profiles
+    /// while that folder is there, else the user's Downloads folder (CraCEFWin's DownloadFolderFor).
+    static func openDownloadsFolder(_ location: DownloadLocation = DownloadLocation()) {
+        var isFolder: ObjCBool = false
+        if let folder = location.folder, FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder), isFolder.boolValue {
+            run("open", "explorer.exe", "\"\(folder)\"")
+        } else {
+            run("open", "explorer.exe", "shell:Downloads")
+        }
+    }
 
     /// An Explorer window on the file's folder, the file selected (explorer /select didn't
     /// select it in a window already open on the folder).

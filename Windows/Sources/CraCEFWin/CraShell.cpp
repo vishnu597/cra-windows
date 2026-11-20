@@ -235,6 +235,15 @@ extern "C" int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t
     return chosen;
 }
 
+extern "C" int cra_downloads_folder(char *out, size_t capacity) {
+    if (!out || capacity == 0) return 0;
+    out[0] = '\0';
+    std::wstring path = DownloadsFolder();
+    if (path.empty()) return 0;
+    int n = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, out, static_cast<int>(capacity), nullptr, nullptr);
+    return n > 0 ? 1 : 0;
+}
+
 extern "C" int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *out, size_t capacity) {
     if (!out || capacity == 0) return 0;
     out[0] = '\0';

@@ -92,6 +92,13 @@ void cra_cef_set_https_only(int enabled);
 /// 0 Windows' own app mode, 1 light, 2 dark (`WebsiteAppearance.chromiumMode`).
 void cra_cef_set_website_appearance(int mode);
 
+/// Settings ▸ Profiles ▸ Download location (Arc's, per profile): one line per profile that chose
+/// something, "<Chromium folder>\t<folder>\t<1 to ask where to save>" (`DownloadLocation.bridgeLines`),
+/// the Chromium folder "Default" or "Profile <id>". A profile not listed, or whose folder is
+/// empty or gone, saves to the user's Downloads folder; asking shows Windows' Save dialog there.
+/// Private windows follow Default. Replaces the whole list; safe from the UI thread.
+void cra_cef_set_download_locations(const char *lines);
+
 /// Arc's "Allow window dragging from the top of webpages": a plain left press within `band` DIPs
 /// of a page's top (less `trailing_inset` DIPs at its right edge, for the scrollbar), over the
 /// ordinary arrow, moves the window once the pointer passes Windows' drag distance; the page gets
@@ -155,6 +162,8 @@ int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count);
 /// Windows' folder picker titled `title`, over `owner` (an HWND). The chosen folder's path goes
 /// to `out` (UTF-8, `capacity` bytes). 1 when a folder was chosen. Modal.
 int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *out, size_t capacity);
+/// The user's Downloads folder (wherever they moved it), UTF-8 into `out`. 1 when known.
+int cra_downloads_folder(char *out, size_t capacity);
 /// Windows' Save dialog for a PNG, in Downloads, suggesting `file_name`. The chosen path goes to
 /// `out` (UTF-8, `capacity` bytes). 1 when a path was chosen. Modal.
 int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity);
