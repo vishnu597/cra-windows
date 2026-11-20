@@ -71,6 +71,7 @@ struct LittleWindowRaiseTests {
         #expect(LittleWindowRaise.anchor(for: 99, in: [Self.slackOverBrowser()], pid: Self.cra) == nil)
     }
 
+    #if os(macOS)  // the window server's list (LittleWindowRaise.stack) is Mac-only
     @Test(.bug("https://github.com/VictorKildahl/cra/issues/607"))
     func readsTheWindowServersList() {
         let info: [[String: Any]] = [
@@ -85,4 +86,5 @@ struct LittleWindowRaiseTests {
         #expect(stack.first?.bounds == CGRect(x: 150, y: 150, width: 400, height: 300))
         #expect(LittleWindowRaise.othersOver(10, in: info, pid: Self.cra) == 1)
     }
+    #endif
 }
