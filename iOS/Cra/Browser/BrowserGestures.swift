@@ -16,6 +16,7 @@ extension BrowserViewController: UIGestureRecognizerDelegate {
         let pagePan = UIPanGestureRecognizer(target: self, action: #selector(pageSwiped(_:)))
         pagePan.name = Name.page
         pagePan.delegate = self
+        pagePan.maximumNumberOfTouches = 1
         pageContainer.addGestureRecognizer(pagePan)
 
         let sheetPan = UIPanGestureRecognizer(target: self, action: #selector(sheetDragged(_:)))
@@ -51,11 +52,17 @@ extension BrowserViewController: UIGestureRecognizerDelegate {
             // end, the previous tab: `MobileSwipe.barDrag`).
             return !isSearching && switcher == nil && shownPage != nil && (abs(velocity.x) > abs(velocity.y) || velocity.y < 0)
         case Name.page:
-            guard !isSearching, switcher == nil, menuHost == nil, let page = shownPage, abs(velocity.x) > 1.5 * abs(velocity.y) else { return false }
+            guard !isSearching, switcher == nil, menuHost == nil, let page = shownPage else { return false }
             let mode = settings.value.options(for: page.webView.url?.host).swipeToNavigate
-            return MobileSwipe.mayStart(at: pan.location(in: view).x - pan.translation(in: view).x, width: view.bounds.width, mode: mode)
+            return MobileSwipe.pageSwipeStarts(at: pan.location(in: view).x - pan.translation(in: view).x, width: view.bounds.width,
+                                               mode: mode, touches: pan.numberOfTouches, velocity: velocity,
+                                               scrollers: scrollRooms(under: pageSwipeTouchView, in: page.webView))
         case Name.sheet:
-            return isSearching && velocity.y > abs(velocity.x)
+            // From anywhere on the sheet, its suggestions too while they are at their top (#623).
+            guard isSearching else { return false }
+            let list = sheet.suggestionList, at = pan.location(in: list), moved = pan.translation(in: list)
+            let onList = list.bounds.contains(CGPoint(x: at.x - moved.x, y: at.y - moved.y))
+            return MobileSwipe.sheetDragStarts(velocity: velocity, onList: onList, listOffset: list.contentOffset.y + list.adjustedContentInset.top)
         default:
             return true
         }
@@ -65,9 +72,38 @@ extension BrowserViewController: UIGestureRecognizerDelegate {
         gesture.name == Name.pinch
     }
 
-    /// The page's own scrolling waits until a sideways swipe has been ruled out.
+    /// The page's own scrolling waits until a sideways swipe has been ruled out. Its pinch to zoom
+    /// doesn't wait (#628): two fingers never swipe the page.
     public func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
-        gesture.name == Name.page && other.view is UIScrollView
+        guard other is UIPanGestureRecognizer else { return false }
+        switch gesture.name {
+        case Name.page: return other.view is UIScrollView
+        // The suggestions scroll once a drag down on the sheet has been ruled out (#623).
+        case Name.sheet: return other.view === sheet.suggestionList
+        default: return false
+        }
+    }
+
+    /// Notes what a swipe across the page starts on, to find the scroll views under it.
+    public func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if gesture.name == Name.page, gesture.numberOfTouches == 0 { pageSwipeTouchView = touch.view }
+        return true
+    }
+
+    /// How far each scroll view under the finger, from the innermost (a carousel, a wide table:
+    /// WebKit gives each its own scroll view) out to the page's, can still scroll sideways (#627).
+    private func scrollRooms(under touched: UIView?, in webView: UIView) -> [MobileSwipe.ScrollRoom] {
+        var rooms: [MobileSwipe.ScrollRoom] = []
+        var view = touched
+        while let current = view, current !== webView {
+            if let scroll = current as? UIScrollView, scroll.isScrollEnabled {
+                rooms.append(MobileSwipe.ScrollRoom(offsetX: scroll.contentOffset.x, contentWidth: scroll.contentSize.width,
+                                                    width: scroll.bounds.width, insetLeft: scroll.adjustedContentInset.left,
+                                                    insetRight: scroll.adjustedContentInset.right))
+            }
+            view = current.superview
+        }
+        return rooms
     }
 
     // MARK: Along the bar: the neighbouring tab
@@ -181,12 +217,15 @@ extension BrowserViewController: UIGestureRecognizerDelegate {
             let at = pan.location(in: bar), moved = pan.translation(in: bar)
             let startedAt = CGPoint(x: at.x - moved.x, y: at.y - moved.y)
             let zone = MobileBottomBar.previousTabZone(in: bar.bounds.size, safeBottom: bar.bounds.height - MobileBottomBar.height)
+            let pullZone = MobileBottomBar.searchPullZone(in: bar.bounds.size, safeBottom: bar.bounds.height - MobileBottomBar.height)
             let previous = store.previousTab
             let drag = MobileSwipe.barDrag(velocity: pan.velocity(in: view), startsInPreviousTabZone: zone.contains(startedAt),
-                                           hasPreviousTab: previous != nil)
+                                           hasPreviousTab: previous != nil, startsInSearchPullZone: pullZone.contains(startedAt))
             barSwipeOpensRow = drag == .tabRow
             barSwipeTarget = drag == .previousTab ? previous : nil
+            barSwipePullsSearch = drag == .searchSheet
         }
+        if barSwipePullsSearch { return barPulledUp(pan) }
         if let target = barSwipeTarget { return barFlickedUp(pan, to: target) }
         if barSwipeOpensRow { return barDraggedUp(pan) }
         let width = view.bounds.width, gap: CGFloat = 20
@@ -238,6 +277,37 @@ extension BrowserViewController: UIGestureRecognizerDelegate {
                 self.pageContainer.transform = .identity
                 picture?.removeFromSuperview()
                 if self.swipeNeighbour === picture { self.swipeNeighbour = nil }
+            }
+        default: break
+        }
+    }
+
+    /// A drag up from the pill (#623), Arc Search's way to search: the sheet comes out of the
+    /// pill under the finger, and letting go far enough up opens it with the keyboard; short of
+    /// that it sinks back into the pill.
+    private func barPulledUp(_ pan: UIPanGestureRecognizer) {
+        let up = max(0, -pan.translation(in: view).y)
+        switch pan.state {
+        case .began:
+            prepareSearchSheet(incognito: store.selected?.isIncognito ?? false)
+            searchPull = 0
+            UIView.performWithoutAnimation {
+                self.layoutChrome()
+                self.sheet.layoutIfNeeded()
+            }
+            searchPull = up
+            layoutChrome()
+        case .changed:
+            searchPull = up
+            layoutChrome()
+            sheet.layoutIfNeeded()
+        case .ended, .cancelled:
+            barSwipePullsSearch = false
+            if pan.state == .ended, MobileSwipe.searchPullOpens(dragUp: up, velocityUp: -pan.velocity(in: view).y) {
+                setSearching(true)
+            } else {
+                searchPull = nil
+                animateChrome(duration: 0.3, options: .curveEaseOut)
             }
         default: break
         }

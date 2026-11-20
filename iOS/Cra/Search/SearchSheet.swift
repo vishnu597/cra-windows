@@ -6,6 +6,7 @@ protocol SearchSheetDelegate: AnyObject {
     /// The keyboard's Go key.
     func searchSheet(_ sheet: SearchSheet, didSubmit text: String)
     func searchSheet(_ sheet: SearchSheet, didPick row: MobileSuggestions.Row)
+    func searchSheet(_ sheet: SearchSheet, didPickRecentTab row: MobileRecentTabs.Row)
     func searchSheet(_ sheet: SearchSheet, didPickFavorite site: MobileFavorites.Site)
     func searchSheet(_ sheet: SearchSheet, didAskToBrowseFor row: MobileSuggestions.Row)
     func searchSheetDidToggleIncognito(_ sheet: SearchSheet)
@@ -35,6 +36,8 @@ final class SearchSheet: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     private var rowViews: [SuggestionRowView] = []
     /// The rows, scrolling up under the field (`MobileSuggestions.Scroll`).
     private let list = SuggestionListView()
+    /// The suggestions' scroll view, which a drag down on the sheet takes over at its top (#623).
+    var suggestionList: UIScrollView { list }
     /// What was typed: the query the rows are for, shown again when the list is back at the top.
     private var typedText = ""
     /// How many rows have gone under the field; the field shows the last of them.
@@ -57,6 +60,7 @@ final class SearchSheet: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     var siteIcon: (String) -> UIImage? = { _ in nil }
     /// The favorites shown under the field while it is empty, with their icons.
     private var favorites: [(MobileFavorites.Site, UIImage?)] = []
+    private var recentTabs: [(MobileRecentTabs.Row, UIImage?)] = []
     /// Sample questions for someone new, in place of favorites while there are none.
     private var starters: [MobileSuggestions.Row] = []
     /// A favorite being dragged to a new place (TapSmart: favorites can be dragged to reorder):
@@ -155,6 +159,8 @@ final class SearchSheet: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         showRows()
     }
 
+    func refreshRows() { showRows() }
+
     /// Back to the top, with what was typed in the field.
     private func resetScroll() {
         list.setContentOffset(.zero, animated: false)
@@ -167,6 +173,11 @@ final class SearchSheet: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     /// The sites kept with "Favorite in App": they fill the rows while nothing is typed.
     func setFavorites(_ favorites: [(MobileFavorites.Site, UIImage?)]) {
         self.favorites = favorites
+        showRows()
+    }
+
+    func setRecentTabs(_ rows: [(MobileRecentTabs.Row, UIImage?)]) {
+        recentTabs = rows
         showRows()
     }
 
@@ -189,8 +200,9 @@ final class SearchSheet: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     }
 
     private func showRows() {
-        let count = showsFavorites ? min(favorites.count, rowsInView) : rows.count
-        list.isScrollEnabled = !showsFavorites && count > 1
+        let favoriteCount = min(favorites.count, rowsInView)
+        let count = showsFavorites ? (showsStarters ? min(starters.count, rowsInView) : favoriteCount + recentTabs.count) : rows.count
+        list.isScrollEnabled = showsFavorites ? !showsStarters && count > rowsInView : count > 1
         list.contentSize = CGSize(width: list.bounds.width, height: showsFavorites ? CGFloat(count) * MobileSearchSheet.rowHeight
             : MobileSuggestions.Scroll.contentHeight(count: count, rowHeight: MobileSearchSheet.rowHeight, visibleHeight: list.bounds.height))
         for (index, view) in rowViews.enumerated() {
@@ -208,9 +220,13 @@ final class SearchSheet: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             if showsFavorites, index < min(favorites.count, rowsInView) {
                 view.configure(favorite: favorites[index].0, icon: favorites[index].1)
                 view.isHidden = false
+            } else if showsFavorites, index - favoriteCount < recentTabs.count {
+                let recent = recentTabs[index - favoriteCount]
+                view.configure(site: recent.0.title, icon: recent.1)
+                view.isHidden = false
             } else if !showsFavorites, index < rows.count {
                 if case .site(let url) = rows[index].kind {
-                    view.configure(site: rows[index].text, icon: siteIcon(url))
+                    view.configure(site: rows[index].text, icon: siteIcon(url), place: rows[index].place)
                 } else {
                     view.configure(rows[index])
                 }
@@ -227,8 +243,11 @@ final class SearchSheet: UIView, UITextFieldDelegate, UIScrollViewDelegate {
             return delegate?.searchSheet(self, didPick: starters[index]) ?? ()
         }
         if showsFavorites {
-            guard index < favorites.count else { return }
-            return delegate?.searchSheet(self, didPickFavorite: favorites[index].0) ?? ()
+            let favoriteCount = min(favorites.count, rowsInView)
+            if index < favoriteCount { return delegate?.searchSheet(self, didPickFavorite: favorites[index].0) ?? () }
+            let recentIndex = index - favoriteCount
+            guard recentIndex < recentTabs.count else { return }
+            return delegate?.searchSheet(self, didPickRecentTab: recentTabs[recentIndex].0) ?? ()
         }
         guard index < rows.count else { return }
         delegate?.searchSheet(self, didPick: rows[index])
@@ -314,7 +333,7 @@ final class SearchSheet: UIView, UITextFieldDelegate, UIScrollViewDelegate {
     }
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-        guard scrollView === list else { return }
+        guard scrollView === list, !showsFavorites else { return }
         targetContentOffset.pointee.y = MobileSuggestions.Scroll.restingOffset(targetContentOffset.pointee.y, rowHeight: MobileSearchSheet.rowHeight, count: rows.count)
     }
 
@@ -393,10 +412,10 @@ final class SearchSheet: UIView, UITextFieldDelegate, UIScrollViewDelegate {
         // Text starts 24.5 pt inside the field; the accessory's centre is 29.5 pt from its right end.
         field.frame = CGRect(x: frame.minX + 24.5, y: frame.minY, width: max(0, frame.width - 24.5 - 52), height: frame.height)
         field.alpha = t
-        let accessory = CGRect(x: frame.maxX - 29.5 - 22, y: frame.midY - 22, width: 44, height: 44)
+        let accessory = MobileSearchSheet.accessoryFrame(field: frame)
         clearButton.frame = accessory
-        // With its "Incognito" label the toggle reaches left from the same right edge.
-        incognitoButton.frame = isIncognito ? CGRect(x: accessory.maxX - 11 - 130, y: accessory.minY, width: 130, height: 44) : accessory
+        // Off or with its "Incognito" label, the toggle's glyph keeps one place (#654).
+        incognitoButton.frame = MobileSearchSheet.incognitoToggleFrame(field: frame, labelledWidth: isIncognito ? 130 : nil)
         clearButton.alpha = t
         incognitoButton.alpha = t
         micButton.frame = accessory.offsetBy(dx: -38, dy: 0)
@@ -572,6 +591,7 @@ final class SuggestionRowView: UIControl {
 
     private let icon = UIImageView()
     private let label = UILabel()
+    private let placeLabel = UILabel()
     private let chip = UIButton(type: .custom)
     var chipFrame: CGRect { chip.frame }
     private let pin = UIImageView(image: UIImage(systemName: "pin.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)))
@@ -590,6 +610,9 @@ final class SuggestionRowView: UIControl {
         label.lineBreakMode = .byTruncatingTail
         label.isUserInteractionEnabled = false
         addSubview(label)
+        addSubview(placeLabel)
+        placeLabel.isHidden = true
+        placeLabel.lineBreakMode = .byTruncatingTail
 
         chip.setAttributedTitle(NSAttributedString(string: "Browse for Me", attributes: [
             .font: UIFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: Palette.primaryText,
@@ -621,7 +644,7 @@ final class SuggestionRowView: UIControl {
     }
 
     /// A page the phone knows: its site icon and title, one line, no "Browse for Me".
-    func configure(site title: String, icon image: UIImage?) {
+    func configure(site title: String, icon image: UIImage?, place: MobileSuggestions.Place? = nil) {
         icon.image = image ?? UIImage(systemName: "globe", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular))
         icon.contentMode = image == nil ? .center : .scaleAspectFit
         icon.layer.cornerRadius = 4
@@ -632,6 +655,14 @@ final class SuggestionRowView: UIControl {
             .font: SuggestionRowView.textFont, .foregroundColor: Palette.primaryText,
         ])
         label.accessibilityLabel = title
+        placeLabel.isHidden = place == nil
+        if let place {
+            let font = UIFontMetrics(forTextStyle: .caption1).scaledFont(for: .systemFont(ofSize: 13), maximumPointSize: 16)
+            let line = NSMutableAttributedString(string: place.prefix, attributes: [.font: font, .foregroundColor: Palette.secondaryText])
+            line.append(NSAttributedString(string: place.space, attributes: [.font: font, .foregroundColor: Palette.primaryText]))
+            placeLabel.attributedText = line
+            placeLabel.accessibilityLabel = place.prefix + place.space
+        }
         chip.isHidden = true
         pin.isHidden = true
         setNeedsLayout()
@@ -645,6 +676,7 @@ final class SuggestionRowView: UIControl {
         icon.contentMode = .center
         icon.layer.cornerRadius = 0
         isSite = false
+        placeLabel.isHidden = true
         pin.isHidden = true
         // A long suggestion wraps to a second line, as in Arc Search, and is cut after that.
         label.numberOfLines = 2
@@ -670,7 +702,16 @@ final class SuggestionRowView: UIControl {
         chip.frame = CGRect(x: bounds.width - 17.7 - chipSize.width, y: bounds.midY - chipSize.height / 2,
                             width: chipSize.width, height: chipSize.height)
         let right = !pin.isHidden ? pin.frame.minX - 8 : chip.isHidden ? bounds.width - 18 : chip.frame.minX - 10
-        label.frame = CGRect(x: 48.2, y: 0, width: max(0, right - 48.2), height: bounds.height)
+        let width = max(0, right - 48.2)
+        if placeLabel.isHidden {
+            label.frame = CGRect(x: 48.2, y: 0, width: width, height: bounds.height)
+        } else {
+            let titleHeight = SuggestionRowView.textFont.lineHeight
+            let placeHeight = placeLabel.attributedText?.attribute(.font, at: 0, effectiveRange: nil).flatMap { ($0 as? UIFont)?.lineHeight } ?? 16
+            let top = (bounds.height - titleHeight - placeHeight) / 2
+            label.frame = CGRect(x: 48.2, y: top, width: width, height: titleHeight)
+            placeLabel.frame = CGRect(x: 48.2, y: top + titleHeight, width: width, height: placeHeight)
+        }
     }
 
     override var isHighlighted: Bool {

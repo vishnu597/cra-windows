@@ -282,6 +282,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             CraCEFRuntime.setWebsiteAppearance(appearance.chromiumMode)
             NSApp.appearance = appearance.forcesDark.flatMap { NSAppearance(named: $0 ? .darkAqua : .aqua) }
         }
+        // Chromium's Mode in chrome://settings/appearance is the same setting, saved as Cra's so the
+        // next launch keeps it (#630).
+        CraCEFRuntime.setWebsiteAppearanceChangeHandler { [store] mode in
+            guard let appearance = WebsiteAppearance(chromiumMode: mode),
+                  store.settings.websiteAppearance != appearance else { return }
+            CraLog.note("website appearance from Chromium settings: \(appearance.rawValue)")
+            store.settings.websiteAppearance = appearance
+        }
         observeChanges(of: { [store] in store.settings.soundEffects }) { CaptureSound.enabled = $0 }
         observeLinkMenu()
         logSecureDNS()
@@ -346,6 +354,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             w.browsers.freezeIdleTabs(hiddenLongerThan: freezeAfter)
             w.releaseHiddenFrames(now: composition.clock.now)
             if settings.tabSleepTimerEnabled { w.browsers.sleepIdleTabs(.timer(settings.tabSleepAfter)) }
+            // Pages already slept hold a browser and a window each for the session: past the budget they close (#616).
+            w.browsers.closeSleptPages()
         }
         let pressure = PerfSystemSample.pressure(level: PerfSystemSampler.pressureLevel())
         if let lastPressure, lastPressure != pressure { CraLog.note("memory pressure \(lastPressure.rawValue) → \(pressure.rawValue)") }
@@ -456,6 +466,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidBecomeActive(_ notification: Notification) { installURLEventHandler() }
 
+    /// The window order as Cra comes forward, before AppKit raises its key and main window: a link clicked in
+    /// another app brings Cra forward (LaunchServices) before it arrives, so the browser window had already risen
+    /// over that app when the Little Window opened (#607).
+    private var stackBeforeActivation: (at: Date, stack: [StackedWindow])?
+    func applicationWillBecomeActive(_ notification: Notification) {
+        stackBeforeActivation = (store.clock.now, StackedWindow.onScreen())
+    }
+
     /// Arc's frontmostApplicationHistory: which app was in front before Cra (#430).
     private func observeFrontmostApp() {
         let me = NSRunningApplication.current.processIdentifier
@@ -527,6 +545,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         quitRequests.answered(quit: quits)
         guard quits else { return .terminateCancel }
+        // A Web Store install the quit cuts short isn't the store's answer (#491).
+        ExtensionStore.shared.isQuitting = true
         // Little Windows are not in the sidebar; keep their pages in the Library.
         for w in littleWindows { w.archivePage() }
         for w in mainWindows { w.saveFrameNow() }
@@ -632,7 +652,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         switch target {
         case .littleWindow(let space):
             // The shared route names the profile and where the Little Window is promoted.
-            openLittleWindow(url: url, space: space)
+            openLittleWindow(url: url, space: space, fromOtherApp: true)
             return
         case .space(let id):
             store.createTab(url: url, in: id, select: true)
@@ -999,11 +1019,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @discardableResult
-    func openLittleWindow(url: String, activate: Bool = true, opener: CraBrowser? = nil, space: UUID? = nil) -> LittleWindowController {
+    func openLittleWindow(url: String, activate: Bool = true, opener: CraBrowser? = nil, space: UUID? = nil,
+                          fromOtherApp: Bool = false) -> LittleWindowController {
+        // The browser windows stay where they were (#607): for a link, where they were before Cra came forward for it.
+        // They go back at once, before the Little Window is made, and again as it comes up.
+        var behind = BrowserWindowsBehind.none
+        if activate {
+            let before = stackBeforeActivation.flatMap { fromOtherApp && NSApp.isActive
+                && store.clock.now.timeIntervalSince($0.at) <= FrontmostAppHistory.linkGrace ? $0.stack : nil }
+            behind = BrowserWindowsBehind(mainWindows.compactMap(\.window), stack: before ?? StackedWindow.onScreen())
+            behind.putBack(clickedIfKey: false)
+        }
         let w = makeLittleWindow(url: url, opener: opener, space: space)
         // Opened over another app (a link from it, the shortcut pressed in it): it goes back there (#430).
         if activate {
             w.focusReturn = LittleWindowReturn(app: frontmostApps.returnApp(at: store.clock.now))
+            w.browsersBehind = behind
             w.show()
         } else {
             w.orderFrontInBackground()
@@ -1169,9 +1200,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             // toolbar=out|in|sample|state: the floating toolbar (Settings ▸ Tabs), and where it is.
             if let command = dict["toolbar"] { CraLog.note(main.shell.debugToolbar(command)); return }
+            // toolbarColor=<label>: the colour the first pane's bar is painted in (#629).
+            if let label = dict["toolbarColor"] { CraLog.note(main.shell.toolbarColorReadout(label)); return }
             if let label = dict["findBar"] { CraLog.note(main.debugFindBar(label)); return }
             // chromiumDialogs=1: the Chromium dialogs showing and where (#349); chromiumDialogs=<button>: that
             // read, then the button with that title pressed (#484).
+            // chromiumDialogMove=x,y: the dialog showing moved there, as Chromium moved one off every screen on
+            // Nightly's runner (its main display at the top left, Cra's window on the display below).
+            if let p = dict["chromiumDialogMove"]?.split(separator: ",").compactMap({ Double($0) }), p.count == 2 {
+                CraLog.note(ChromiumDialogs.move(to: NSPoint(x: p[0], y: p[1])))
+                return
+            }
             if let button = dict["chromiumDialogs"] {
                 CraLog.note(ChromiumDialogs.readout())
                 if button != "1" { CraLog.note(ChromiumDialogs.press(button)) }
@@ -1186,8 +1225,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                                                 press: dict["press"], fill: dict["fill"].map { $0.components(separatedBy: ",") }))
                 return
             }
+            // tabSharing=<label>[&hover=<part of a tab's URL>[&press=1]]: what calls share and Arc's marks for it
+            // (TabSharing). hover hovers that tab's row as the pointer would; press clicks the "Share this tab instead"
+            // it shows.
+            // recordingDot=<label>: each shown tab row's recording dot (RecordingDot), by the tab's URL.
+            if let label = dict["recordingDot"] {
+                CraLog.note("recording dot \(label): " + main.recordingDotReadout()); return
+            }
+            if let label = dict["tabSharing"] {
+                main.tabSharingReadout(label, hover: dict["hover"], press: dict["press"] == "1") { CraLog.note($0) }
+                return
+            }
             if let label = dict["switcherWindows"] {
                 CraLog.note(SwitcherWindows.readout(label, main: main.window, little: littleWindows.compactMap(\.window))); return
+            }
+            // windowsMenu=<label>: the Window menu's window rows, which the Dock icon's menu lists too.
+            if let label = dict["windowsMenu"] {
+                CraLog.note(WindowsMenuRows.readout(label, main: main.window, little: littleWindows.compactMap(\.window))); return
             }
             if let label = dict["windowManagers"] {
                 CraLog.note(WindowManagers.readout(label, main: main.window, little: littleWindows.compactMap(\.window))); return
@@ -1225,6 +1279,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 CraLog.note("hit at \(Int(g[0])),\(Int(g[1])): \(chain.isEmpty ? "nothing" : chain.joined(separator: " < "))")
                 return
             }
+            // clickToast=1: a click on the toast up now, through the event queue as the pointer's (#543).
+            if dict["clickToast"] == "1" { main.clickToastForTest(); return }
+            // toastShown=<label>: whether a toast is up in the front window (#543: a click leaves it up).
+            if let label = dict["toastShown"] { CraLog.note("toast shown \(label): \(main.toastIsShown ? "yes" : "no")"); return }
             // dragAt=x,y&by=dx,dy: a press there moved by dx,dy (down is +) and released, through the event
             // queue as clickAt's click (#547); target=floating as for clickAt.
             if let g = dict["dragAt"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 2,
@@ -1287,7 +1345,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     TestGesture.pageKey(String(k[0]), keyCode: code, modifiers: flags, in: roots, window: w)
                 } else {
                     // The ⌘T bar, while it is open, has the keyboard; target=find sends it to the find bar's panel.
-                    let target = dict["target"] == "find" ? main.debugFindPanel : main.openCommandPanel
+                    let target = dict["target"] == "find" ? main.debugFindPanel
+                        : dict["target"] == "littleFind" ? littleWindows.last?.finder.debugPanel : main.openCommandPanel
                     TestGesture.key(String(k[0]), keyCode: code, modifiers: flags, in: target ?? w)
                 }
                 return
@@ -1303,6 +1362,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 } else {
                     NSApp.deactivate()
                 }
+                return
+            }
+            // yieldTo=<pid>: Cra hands the front to that app, as when the user picks it: a scenario's `cover`, which
+            // then brings Cra forward as for a link clicked in it (#607). macOS lets only the app in front do either.
+            if let pid = dict["yieldTo"].flatMap({ Int32($0) }), let other = NSRunningApplication(processIdentifier: pid) {
+                NSApp.yieldActivation(to: other)
+                other.activate(from: .current, options: [])
                 return
             }
             // secureInput=<label>: whether macOS Secure Input is on (it is for one app at a time, and it stops
@@ -1461,6 +1527,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // toolbar button; cra.log says which tool is picked and which letters show.
             if let key = dict["easelTool"], let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
                 canvas.debugTool(key: key, hover: dict["hover"]); return
+            }
+            // libraryHover=1|0: the pointer on the sidebar's Library button, or gone; cra.log says where its
+            // glyph was drawn once at rest and in how many frames it got there (#608).
+            if let on = dict["libraryHover"] {
+                guard let library = main.sidebarUI.libraryAnchor as? LibraryButtonView else { CraLog.note("library glyph: none"); return }
+                library.debugHover(on == "1") { CraLog.note("library glyph: \($0)") }
+                return
             }
             // easelTileHover=1|0: the pointer over Library ▸ Easels' first tile, or gone; cra.log says
             // how large it is drawn and how bright its backing is.
@@ -1670,8 +1743,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // littleCommit=<typed>: the newest Little Window's command bar commits its "Switch to"
             // row for what was typed, as ↩ on it does (#316).
             if let typed = dict["littleCommit"] { littleWindows.last?.debugCommit(typed); return }
+            // littleKey=<n>: the nth Little Window (oldest first) picked as Mission Control picks one (#581);
+            // littleOrder=<label>: Cra's browser and Little Windows, front to back, as the window server has them.
+            if let n = dict["littleKey"].flatMap(Int.init), littleWindows.indices.contains(n) { littleWindows[n].debugPick(); return }
+            if let label = dict["littleOrder"] {
+                var names: [Int: String] = [:]
+                for (i, m) in mainWindows.enumerated() { if let w = m.window { names[w.windowNumber] = "main\(i)" } }
+                for (i, l) in littleWindows.enumerated() where !l.isPeek { if let w = l.window { names[w.windowNumber] = "little\(i)" } }
+                let order = (NSWindow.windowNumbers(options: []) ?? []).compactMap { names[$0.intValue] }
+                CraLog.note("little order \(label): \(order.joined(separator: " "))")
+                return
+            }
+            // littleRow=<text>&typed=<text>: the newest Little Window's ⌘L bar picks the row for that page (#599).
+            if let address = dict["littleRow"] { littleWindows.last?.debugPickRow(containing: address, typed: dict["typed"] ?? ""); return }
             // littleMenu=<step>: the newest Little Window's "Open in" menu, see debugMenu (#331).
             if let step = dict["littleMenu"] { littleWindows.last?.debugMenu(step); return }
+            // littleFind=<label>: the newest Little Window's (or Peek's) find bar: shown, where on its page,
+            // the keys, the search and the page's count (#577). key=…&target=littleFind types into it.
+            // littleFindQuery=<text>: that text in its field, as typed (each change searches).
+            if let q = dict["littleFindQuery"] { littleWindows.last?.finder.overlay.findQuery = q; return }
+            if let label = dict["littleFind"] { CraLog.note(littleWindows.last?.finder.readout(label) ?? "little find \(label): no window"); return }
             // littleCard=<step>: the newest Little Window's card, see debugCardStep (#337).
             if let step = dict["littleCard"] { littleWindows.last?.debugCardStep(step); return }
             // littleToolbar=<command>: the newest Little Window's floating toolbar, see debugToolbar (#435).
@@ -1785,14 +1876,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     profile = named?.name ?? "Default"
                     shown = " \(w.debugCard) \(w.debugReadout)"
                     // The window server's order, front to back.
-                    let order = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
-                        .compactMap { $0[kCGWindowNumber as String] as? Int }
+                    let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+                    let order = info.compactMap { $0[kCGWindowNumber as String] as? Int }
                     if let mine = w.window.flatMap({ order.firstIndex(of: $0.windowNumber) }) {
                         let browsers = Set(mainWindows.compactMap { $0.window?.windowNumber })
                         shown += " behind=\(order[..<mine].filter { browsers.contains($0) }.count)"
                     } else {
                         shown += " behind=-"
                     }
+                    // over=<n>: other apps' windows still in front of the browser window and over it. A Little
+                    // Window opened from another app left the browser window where it was; it rose over them (#607).
+                    shown += " over=" + (main.window.map { String(LittleWindowRaise.othersOver($0.windowNumber, in: info)) } ?? "-")
                 }
                 CraLog.note("little shown \(label): windows=\(littleWindows.count) space=\(space) profile=\(profile)\(shown)")
                 return
@@ -1890,6 +1984,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 for l in littleWindows where l.commandBar.isOpen { line("\(label) \(l.isPeek ? "peek" : "little")", l.commandBar) }
                 return
             }
+            // commandBarTime=<query>: how long ⌘T's engine takes for each prefix of <query>, as typing it does,
+            // the index built fresh first (#617): the per-keystroke cost at scale, in cra.log.
+            if let typed = dict["commandBarTime"] {
+                let engine = main.commandBar.engine
+                engine.resetIndex()
+                // prepared=1: the index built as the bar's opening builds it (off the main thread), a second before typing.
+                let prepared = dict["prepared"] == "1"
+                if prepared { engine.prepareIndex() }
+                let run = { [weak self] in
+                    guard let self else { return }
+                    var lines: [String] = []
+                    for end in 1...max(1, typed.count) {
+                        let q = String(typed.prefix(end))
+                        let start = DispatchTime.now().uptimeNanoseconds
+                        let r = engine.suggestions(for: q, mode: .newTab, currentTabID: nil)
+                        let ms = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6
+                        lines.append("\(q)=\(String(format: "%.1f", ms))ms(\(r.items.count))")
+                    }
+                    CraLog.note("command bar time\(prepared ? " prepared" : ""): tabs=\(self.store.allTabs().count) history=\(self.store.history.count) archive=\(self.store.archive.count) " + lines.joined(separator: " "))
+                }
+                if prepared { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { run() } } } else { run() }
+                return
+            }
+            // sidebarBuild=<label>: the sidebar lists' rebuilds since the last readout, then reset (#618).
+            if let label = dict["sidebarBuild"] {
+                CraLog.note("sidebar build \(label): \(SpaceListView.stats.line)")
+                SpaceListView.stats = .init()
+                return
+            }
+            // commandBarDetail=<label>: the main window's bar rows as kind:subtitle, which only the rows shown
+            // get (#617).
+            if let label = dict["commandBarDetail"] {
+                let rows = main.commandBar.result.items.map { row -> String in
+                    switch row.kind {
+                    case .switchToTab: return "tab:\(row.subtitle)"
+                    case .archived: return "archived:\(row.subtitle)"
+                    case .history: return "history:\(row.subtitle)"
+                    default: return "other:\(row.subtitle)"
+                    }
+                }
+                CraLog.note("command bar detail \(label): \(rows.joined(separator: " | "))")
+                return
+            }
             // sidebarShown=<label>: whether the main window shows its sidebar, and the View menu's
             // Hide/Show Sidebar row as the menu bar has it: title and the key it answers to, which
             // is the user's own when System Settings ▸ Keyboard ▸ App Shortcuts names the row (#253).
@@ -1914,7 +2051,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // (hidden rows left out), "|" between rows and "──" for a separator: Arc's File menu (#279).
             // marks=1 also puts ✓ before a checked row and " (off)" after a dimmed one (#333);
             // icons=1 puts [icon] before a row with an image; tips=1 puts [tip] before one whose
-            // full title is available as a tooltip (#471).
+            // full title is available as a tooltip (#471). hidden=1 lists the hidden rows too, with
+            // " (hidden)" after each, or " (hidden, keys)" when it still takes its shortcut (#622).
             // spacesMenuChange=add|moveLastFirst|renameFirst|deleteFirst mutates the temporary scenario
             // store, so reopening this lazy menu proves it follows live Space changes (#471).
             if let change = dict["spacesMenuChange"] {
@@ -1954,13 +2092,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 let marks = dict["marks"] == "1"
                 let icons = dict["icons"] == "1"
                 let tips = dict["tips"] == "1"
-                let rows: [String] = menu?.items.filter { !$0.isHidden }.map { item -> String in
+                let withHidden = dict["hidden"] == "1"
+                let rows: [String] = menu?.items.filter { withHidden || !$0.isHidden }.map { item -> String in
                     if item.isSeparatorItem { return "──" }
                     let mark = marks && item.state == .on ? "✓" : ""
                     let icon = icons && item.image != nil ? "[icon]" : ""
                     let tip = tips && item.toolTip != nil ? "[tip]" : ""
                     let disabled = marks && !item.isEnabled ? " (off)" : ""
-                    return mark + icon + tip + item.title + disabled
+                    let hidden = item.isHidden ? (item.allowsKeyEquivalentWhenHidden ? " (hidden, keys)" : " (hidden)") : ""
+                    return mark + icon + tip + item.title + disabled + hidden
                 } ?? []
                 CraLog.note("menu rows \(dict["label"] ?? title): \(rows.joined(separator: "|"))")
                 return
@@ -1979,6 +2119,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // pageWindows=<label>: the page windows Chromium has shown, how many it showed away from every
             // Cra window on screen, and how many macOS animates in and out (#354).
             if let label = dict["pageWindows"] { CraLog.note("page windows \(label): \(CraCEFRuntime.pageWindowsReadout)"); return }
+            // hostBrowserView=<label>: whether Chrome finds the browser element of each profile's hidden Browser, which
+            // its Settings looked for; hostBrowserViewHidden=1|0 takes it away (and back), as on the Mac where Clear
+            // browsing data's Cancel crashed Cra 0.1.50 (crash-clear-browsing-data-cancel).
+            if let label = dict["hostBrowserView"] { CraLog.note("host browser view \(label): \(CraCEFRuntime.pageHostBrowserViewReadout)"); return }
+            if let hidden = dict["hostBrowserViewHidden"] { CraCEFRuntime.setPageHostBrowserViewsHidden(hidden == "1"); return }
+            // appWindows=<label>: every window of Cra's on screen, front to back, by class, size and parent: what
+            // a page's feature put up when no other readout knows its window (the share picker, web features).
+            if let label = dict["appWindows"] {
+                for w in (NSWindow.windowNumbers(options: []) ?? []).compactMap({ NSApp.window(withWindowNumber: $0.intValue) })
+                where w.isVisible && w.alphaValue > 0 {
+                    CraLog.note("app window \(label): \(NSStringFromClass(type(of: w))) \(Int(w.frame.width))x\(Int(w.frame.height)) at \(Int(w.frame.minX)),\(Int(w.frame.minY)) level=\(w.level.rawValue) parent=\(w.parent.map { NSStringFromClass(type(of: $0)) } ?? "-")")
+                }
+                CraLog.note("app windows \(label): done")
+                return
+            }
             // chromeWindows=<label>: Chromium's own windows (its tab strip and toolbar) a user could see,
             // on screen and not see-through, each named (#472).
             if let label = dict["chromeWindows"] {
@@ -2060,6 +2215,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 let panes = selected.map { store.paneTabIDs(for: $0.id) } ?? []
                 let urls = panes.count > 1 ? panes.compactMap { store.item($0)?.tab?.url }.joined(separator: " | ") : "none"
                 CraLog.note("split \(label): panes=\(urls) selected=\(selected?.tab?.url ?? "-") downloads=\(DownloadHistory.shared.live.count + DownloadHistory.shared.entries.count)")
+                return
+            }
+            // paneReloadMenu=<label>&pane=<n>: a right-click on pane n's ↻ (pointer over its bar). Logs the
+            // menu's rows, then, once the window has caught up, the focused pane and the pane whose page the
+            // menu's commands reach (BrowserManager.visibleRuntime).
+            if let label = dict["paneReloadMenu"], let n = dict["pane"].flatMap({ Int($0) }) {
+                let cards = main.shell.paneCards
+                guard cards.indices.contains(n), let bar = cards[n].toolbarHost as? PaneToolbarView else {
+                    CraLog.note("pane reload menu \(label): no pane \(n)"); return
+                }
+                let rows = bar.debugRightClickReload()?.items.map { $0.isSeparatorItem ? "-" : $0.title }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak main] in
+                    guard let main else { return }
+                    let cards = main.shell.paneCards
+                    let focused = cards.firstIndex { $0.tabID == main.selectedTab?.id }.map(String.init) ?? "-"
+                    let page = cards.firstIndex { $0.tabID == main.browsers.visibleTabID }.map(String.init) ?? "-"
+                    CraLog.note("pane reload menu \(label): menu=\(rows?.joined(separator: " | ") ?? "none") focused=\(focused) page=\(page)")
+                }
                 return
             }
             // paneLengths=<label>: each pane card's length along the split's axis in pane order, the
@@ -2180,6 +2353,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 for w in mainWindows { w.browsers.sleepIdleTabs(TabSleepPolicy(hiddenFor: s, keepsRecentTabs: false)) }
                 return
             }
+            // closeSleptPages=1: the slept-page budget's pass now, not at the next minute (#616).
+            if dict["closeSleptPages"] != nil { for w in mainWindows { w.browsers.closeSleptPages() }; return }
             // What waking the Mac does (#275), without sleeping it: the cards re-read, one pass.
             if dict["sleep"] != nil { systemWillSleep(); return }
             if dict["wake"] != nil { systemDidWake(); return }
@@ -2208,6 +2383,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // What the last look at the sync folder found, and whether a mix is being waited out (#378).
             if let label = dict["sync"] { CraLog.note("sync \(label): \(composition.sync.readout())"); return }
             if let label = dict["dockTile"] { CraLog.note("dock tile \(label): \(AppIconManager.shared.dockTileReadout())"); return }
+            // How far the open downloads list's hover reaches below its rows, and what a press there hits (#575).
+            if let label = dict["downloadsTray"] {
+                let tray = (main.sidebarUI.downloadsTray as? DownloadsTrayView)?.hoverReadout ?? "none"
+                CraLog.note("downloads tray \(label): open=\(main.sidebarUI.downloadsListOpen) \(tray)")
+                return
+            }
             if let label = dict["downloadState"] {
                 let rows = DownloadHistory.shared.live.map { DownloadRow.subtitle($0.row, now: Date()) }
                 let progress = DownloadHistory.shared.progress.map { String(format: "%.3f", $0) } ?? "none"
@@ -2267,12 +2448,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let mode = dict["switcher"] { main.debugTabSwitcher(allSpaces: mode == "all"); return }
             // The Site Control Center's Safari's Engine switch for the focused page, without the pointer.
             if let v = dict["safariEngine"] { main.debugChooseSafariEngine(v == "on"); return }
+            // The protected video prompt of a mixed site's page: state, Once, Always, close, row.
+            if let step = dict["protectedVideo"] { main.debugProtectedVideo(step, label: dict["step"] ?? ""); return }
             // Script in Cra's isolated world of the focused page: "Cra isolatedJS → <result>" on stdout.
             if let js = dict["isolatedJS"] {
                 let params = String(decoding: (try? JSONSerialization.data(withJSONObject: ["expression": js, "returnByValue": true])) ?? Data(), as: UTF8.self)
                 main.currentBrowser?.evaluate(inIsolatedWorld: PageScript.world, params: params) { result, error in
                     NSLog("Cra isolatedJS → %@", result ?? "error: \(error ?? "?")")
                 }
+                return
+            }
+            // pipBackToTab=1: the ↖ (back to tab) button of the system's Picture in Picture window, as
+            // WebKit reports it for the WebKit page whose video is out (#585).
+            if dict["pipBackToTab"] != nil {
+                for rt in main.browsers.runtimes.values { (rt.browser as? WebKitBrowser)?.debugPressPictureInPictureBackToTab() }
                 return
             }
             // The sidebar player without the pointer: play/pause/next/previous/pip on the newest
@@ -2295,7 +2484,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 return
             }
-            if dict["themeEditor"] != nil { main.showSpaceStyleEditor(space: store.focusedSpace); return }
+            // themeEditor=1 opens it; themeEditor=intensity:<0…1> or noise:<0…1> moves its slider or
+            // dial as a drag would, and logs how many ticks that played.
+            if let step = dict["themeEditor"] {
+                let parts = step.split(separator: ":").map(String.init)
+                guard parts.count == 2, let v = Double(parts[1]) else { main.showSpaceStyleEditor(space: store.focusedSpace); return }
+                let before = SpaceStyleTick.count
+                NotificationCenter.default.post(name: SpaceStyleTick.debugSet, object: nil, userInfo: [parts[0]: v])
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    CraLog.note("theme editor \(parts[0]) \(parts[1]): ticks +\(SpaceStyleTick.count - before)")
+                }
+                return
+            }
             if dict["jumpPill"] != nil { SpaceListView.jumpToSelected(for: main.sidebarUI, space: store.focusedSpaceID); return }
             // The open folder preview: the pointer resting on a row, the list scrolled under it, and
             // "Cra folderPreview <label>: lit=<rows> top=<pt>", the rows with the pointer's highlight and how far
@@ -2358,8 +2558,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 ArcTooltipController.shared.debugShow(t, in: content, at: NSRect(x: 380, y: content.bounds.height - 120, width: 28, height: 28))
                 return
             }
+            // newSpacePull=<pt>: Arc's "+" with the list overscrolled that far past the last space, and
+            // what it shows; newSpacePull=lift lets go, and &lift=1 lets go in the same breath.
+            if let pull = dict["newSpacePull"] {
+                main.debugNewSpacePull(Double(pull).map { CGFloat($0) }, lift: pull == "lift" || dict["lift"] != nil)
+                return
+            }
+            // spaceCreation=state|type:<name>|icon:<emoji>|symbol:<name>|theme:<n>|profile:<n>|engine:<keyword>|create|cancel: Arc's
+            // Create a Space page, one step on it, and what it and the dock then show.
+            if let step = dict["spaceCreation"] { main.debugSpaceCreation(step); return }
             if let g = dict["swipe"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 2 {
                 main.debugSpaceSwipe(dx: g[0], steps: Int(g[1]))
+                return
+            }
+            // hiddenLibraryReveal=<0…1>: the Library held that far in from a hidden sidebar, and where
+            // it, the page and the floating sidebar are; hiddenLibraryReveal=lift lets go.
+            if let r = dict["hiddenLibraryReveal"] {
+                main.debugHiddenLibraryReveal(CGFloat(Double(r) ?? 0), lift: r == "lift")
                 return
             }
             if let id = dict["extensionAction"] { main.runExtensionAction(id); return }
@@ -2488,7 +2703,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 return
             }
-            // browserWindows=<label>: each browser window's kind, space, tabs (URLs), open tab and frame (#219, #220).
+            // browserWindows=<label>: each browser window's kind, space, tabs (URLs), open tab and frame (#219, #220),
+            // and the Library page its sidebar shows (#590).
             if let label = dict["browserWindows"] {
                 CraLog.note("browser windows \(label): count=\(mainWindows.filter { $0.window?.isVisible == true }.count)")
                 for m in mainWindows {
@@ -2496,13 +2712,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     let tabs = (store.tabs(under: space.pinnedContainerID) + store.tabs(under: space.todayContainerID)).compactMap { $0.tab?.url }
                     let open = store.selectedTabID(window: m.windowID).flatMap { store.item($0)?.tab?.url } ?? "-"
                     let folders = (store.children(of: space.pinnedContainerID) + store.children(of: space.todayContainerID)).filter { $0.isFolder && !$0.isTabGroup }
-                    NSLog("Cra browser windows %@: kind=%@ space=%@ listed=%d tabs=[%@] open=%@ page=%d frame=%@ onTop=%d pinnedCollapsed=%d openFolders=%d/%d commandBar=%d pages=%d active=%d", label,
+                    NSLog("Cra browser windows %@: kind=%@ space=%@ listed=%d tabs=[%@] open=%@ page=%d frame=%@ onTop=%d pinnedCollapsed=%d openFolders=%d/%d commandBar=%d pages=%d active=%d library=%@", label,
                           m.isBlank ? "blank" : m.isIncognito ? "incognito" : "normal", space.title,
                           store.orderedSpaces.contains { $0.id == space.id } ? 1 : 0, tabs.joined(separator: " "), open,
                           store.selectedTabID(window: m.windowID).flatMap { m.browsers.runtime(for: $0) } != nil ? 1 : 0,
                           m.window.map { NSStringFromRect($0.frame) } ?? "-", m.staysOnTop ? 1 : 0,
                           store.isPinnedCollapsed(space.id) ? 1 : 0, folders.filter { store.isExpanded($0.id) }.count, folders.count,
-                          m.commandBar.isOpen ? 1 : 0, m.browsers.runtimes.count, store.activeWindowID == m.windowID ? 1 : 0)
+                          m.commandBar.isOpen ? 1 : 0, m.browsers.runtimes.count, store.activeWindowID == m.windowID ? 1 : 0,
+                          m.sidebarUI.libraryPage?.rawValue ?? "-")
                     // cra.log (which a relaunch keeps) gets no addresses or names: kinds and counts.
                     CraLog.note("browser windows \(label): kind=\(m.isBlank ? "blank" : m.isIncognito ? "incognito" : "normal") "
                         + "listed=\(store.orderedSpaces.contains { $0.id == space.id } ? 1 : 0) tabs=\(tabs.count) open=\(open == "-" ? 0 : 1) "
@@ -2549,6 +2766,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 let target = dict["window"] == "incognito" ? mainWindows.last(where: \.isIncognito) : main
                 guard let target else { CraLog.note("space menu \(label): no window"); return }
                 target.testSpaceMenu(label: label)
+                return
+            }
+            // tabMenu=<n>[&label=][&run=<row>]: the n-th listed tab's menu, see testTabMenu (#600).
+            if let n = dict["tabMenu"].flatMap(Int.init) {
+                main.testTabMenu(n, label: dict["label"] ?? "\(n)", run: dict["run"])
+                return
+            }
+            // splitMenu=<n>[&label=][&run=<row>]: the n-th split row's menu, from the top (#600).
+            if let n = dict["splitMenu"].flatMap(Int.init) {
+                main.testTabMenu(n, label: dict["label"] ?? "\(n)", run: dict["run"], split: true)
                 return
             }
             // favoriteMenu=<n>[&label=][&run=<row>]: the n-th favorite tile's menu, see testFavoriteMenu (#387).
@@ -2704,6 +2931,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(pasteAsPlainText(_:)) { return pageTakingPasteAndMatchStyle != nil }
         if let id = item.representedObject as? String, let title = flippingTitle(id), item.title != title { item.title = title }
+        // The menu bar's Tabs rows can act only when there is something to act on (CraCore TabsMenu, #622).
+        if let id = item.representedObject as? String, item.menu === tabsMenu, let state = tabsMenuState(id) {
+            if let title = state.title, item.title != title { item.title = title }
+            return state.enabled
+        }
         switch item.representedObject as? String {
         case "collapsePinned": return !main.isStandalone
         // A Little Window in front answers for itself (#333).
@@ -2808,11 +3040,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return nil
             }
             guard let self, event.modifierFlags.intersection([.command, .control]).isEmpty == false,
-                  let window = event.window, window.windowController is MainWindowController || window === self.main.window else { return event }
-            if self.undoClosedTab(event) { return nil }
-            guard let action = self.bindings.action(for: event) else { return event }
-            // Let the menu bar take it first (normal path); only act when it cannot.
-            if NSApp.mainMenu?.performKeyEquivalent(with: event) == true { return nil }
+                  let window = event.window else { return event }
+            // The command bar's own panel keeps its keys (its field's ⌘A, ⌘Z…) but ⌘W, which goes to the
+            // bar's window: in a window with no tab the File menu hides Close Tab and the panel has no close
+            // button of its own, so ⌘W went nowhere (#644).
+            let fromBar = window === self.main?.openCommandPanel
+            guard window.windowController is MainWindowController || window === self.main.window || fromBar else { return event }
+            if !fromBar, self.undoClosedTab(event) { return nil }
+            guard let action = self.bindings.action(for: event), !fromBar || action.id == "closeTab" else { return event }
+            // Let the menu bar take it first (normal path); only act when it cannot. A row the menu hides
+            // still matches its key and runs nothing: Close Tab with no tab selected, where ⌘W is the
+            // window's (FileMenu.shows, #644).
+            let rowHidden = !FileMenu.shows(action.id, tabSelected: self.store.selectedTabID != nil)
+            if !rowHidden, NSApp.mainMenu?.performKeyEquivalent(with: event) == true { return nil }
             self.perform(action.id)
             return nil
         }
@@ -3039,6 +3279,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // A Use Both press the page left alone comes back by OnKeyEvent or, redispatched by Chromium,
         // through the menu bar: either way it ends here, so the page didn't keep it (#374).
         useBoth.pageLeft(id)
+        // A Tabs row dimmed in the menu does nothing from its shortcut or the command bar either, and
+        // isn't counted as used (#622).
+        if tabsMenuState(id)?.enabled == false { return }
         if let dialog = NSApp.keyWindow as? DialogPanel, ["closeTab", "closeWindow"].contains(id) {
             dialog.close()
             return
@@ -3079,7 +3322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard !main.isBlank else { break }
             let f = store.createFolder(named: "New Folder", in: store.focusedSpace.pinnedContainerID, index: 0)
             main.sidebarUI.renamingID = f.id
-        case "newSpace": main.showSpaceEditor(space: nil)
+        case "newSpace": main.beginSpaceCreation()
         case "newProfile": if !main.isIncognito, let w = main.window { main.showNewProfileDialog(over: w) }
         case "share": main.shareSelectedPage()
         case "newBoost": main.openBoostEditor()
@@ -3097,20 +3340,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "deleteSpace": if !main.isStandalone { confirmDeleteSpace(store.focusedSpace) }
         case "manageSpaces": if !main.isStandalone { main.showManageSpaces() }
         case "closeTab":
-            // Arc: "Close current tab or window". With the command bar open, ⌘W closes the bar, as
-            // Escape does, and the tab behind it stays (#497).
-            if main.commandBar.isOpen { main.commandBar.close() }
-            else if current != nil { main.closeCurrentTab() } else { main.window?.performClose(nil) }
+            // Arc: "Close current tab or window". With the command bar open over a tab, ⌘W closes the bar,
+            // as Escape does, and the tab stays (#497); a window with no tab closes, bar and all (#644).
+            let target = FileMenu.closeTab(commandBarOpen: main.commandBar.isOpen, tabSelected: current != nil)
+            CraLog.note("close tab: \(target.rawValue)")
+            switch target {
+            case .commandBar: main.commandBar.close()
+            case .tab: main.closeCurrentTab()
+            case .window: main.window?.performClose(nil)
+            }
         case "closeWindow": main.window?.performClose(nil)
         case "reopenClosedTab":
             guard !main.isIncognito else { break }  // incognito tabs leave nothing to restore
-            // Arc: a Peek closed after the last archived tab comes back, over the tab it came from.
-            if let peek = main.closedPeek, PeekTrigger.reopensClosedPeek(closedAt: peek.at, lastArchivedAt: store.archive.first?.archivedAt) {
+            // Arc: ⇧⌘T brings back the tab closed last, whether pinned, archived or a closed Peek.
+            let peek = main.closedPeek.map { ReopenClosedTab.ClosedPeek(url: $0.url, tabID: $0.tabID, closedAt: $0.at) }
+            let outcome = store.reopenLastClosed(in: main.windowID, peek: peek)
+            if case .peek(let url, let tabID)? = outcome {
                 main.closedPeek = nil
-                if let id = peek.tabID, store.item(id) != nil { store.selectTab(id, window: main.windowID) }
-                openPeek(url: peek.url, over: main, fromTab: peek.tabID)
-            } else {
-                store.reopenLastArchived()
+                if let tabID, store.item(tabID) != nil { store.selectTab(tabID, window: main.windowID) }
+                openPeek(url: url, over: main, fromTab: tabID)
             }
         case "copyURL":
             // Arc: "Copy the current tab's URL without trackers"; with tabs picked in the sidebar,
@@ -3187,7 +3435,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "inspectElement": main.browsers.runDevTools(.inspect)
         // Arc's Library is a mode of the window's sidebar; ⇧⌘J opens it on Downloads.
         case "openLibrary": main.toggleLibrary()
-        case "viewArchive": main.showLibrary(.archive)
+        // Arc's View History (⌘Y): Chromium's page in the space's profile, not the archive (#590).
+        case HistoryPage.action:
+            let normal = useNormalWindow()
+            _ = store.createTab(url: HistoryPage.url, select: true)
+            normal.showWindow(nil)
         case "viewDownloads": main.showLibrary(.downloads)
         case "viewMedia": main.showLibrary(.media)
         case "viewEasels": main.showLibrary(.easels)
@@ -3201,7 +3453,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let url = LiveCalendarClient.shared.nextCall()?.meetingURL { main.sidebarActions.openURL(url) } else { NSSound.beep() }
         // A pane has no row of its own: its split's name is edited.
         case "renameTab": main.sidebarUI.renamingID = current.map { store.splitContaining($0)?.id ?? $0 }
-        case "duplicateTab": if let c = current { store.duplicateTab(c) }
+        // Arc's Duplicate Current Tab (command bar) leaves the copy in the background too (#600).
+        case "duplicateTab": if let c = current { store.duplicateTab(c, window: main.windowID) }
         case "resetTab": if let c = current { main.resetPinnedTab(c) }
         case "muteTab":
             if let c = current, let t = store.item(c)?.tab {
@@ -3379,6 +3632,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: Menus (Arc's layout)
 
+    /// The menu bar's Tabs menu, as last built: its decided rows follow CraCore TabsMenu (#622).
+    private weak var tabsMenu: NSMenu?
+
+    /// Whether a Tabs row can act now, and its title: the same answer for the menu and the action (#622).
+    private func tabsMenuState(_ id: String) -> TabsMenu.RowState? {
+        guard TabsMenu.decides(id) else { return nil }
+        return TabsMenu.state(of: id, main.tabsMenuFacts(littleWindowInFront: keyLittleWindow != nil))
+    }
+
     private func item(_ id: String) -> NSMenuItem {
         guard let a = bindings.action(id) else { return NSMenuItem() }
         let m = NSMenuItem(title: a.name, action: #selector(menuAction(_:)), keyEquivalent: "")
@@ -3481,17 +3743,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menubar.addItem(submenu: spacesMenu.makeMenu(), title: "Spaces")
 
         let tabs = NSMenu(title: "Tabs")
-        // Arc: New Tab…, Pin Tab, Open in <space> (only while a Little Window or Peek is in front), New Folder… (#279).
-        for id in TabsMenu.head {
+        tabsMenu = tabs
+        // Arc's three groups (#622); Open in <space> shows only while a Little Window or Peek is in front (#279).
+        for (i, section) in TabsMenu.sections.enumerated() {
+            if i > 0 { tabs.addItem(.separator()) }
+            for id in section {
+                let row = item(id)
+                if id == "newFolder" { row.title = "New Folder…" }
+                tabs.addItem(row)
+            }
+        }
+        // The rows Cra had and Arc keeps out of its menu; hidden, they still take their shortcuts (⌃⇥, ⌘1–⌘9,
+        // any set in Settings ▸ Shortcuts) through the menu bar.
+        for id in TabsMenu.hidden {
             let row = item(id)
-            if id == "newFolder" { row.title = "New Folder…" }
+            row.isHidden = true
+            row.allowsKeyEquivalentWhenHidden = true
             tabs.addItem(row)
         }
-        for id in ["nextTab", "previousTab", "revealTab", "recentTab", "clearToday", "resetSpaceTabs"] { tabs.addItem(item(id)) }
-        tabs.addItem(.separator())
-        for id in ["favoriteTab", "renameTab", "duplicateTab", "resetTab", "muteTab"] { tabs.addItem(item(id)) }
-        tabs.addItem(.separator())
-        for n in 1...9 { tabs.addItem(item("item\(n)")) }
         menubar.addItem(submenu: tabs, title: "Tabs")
 
         let archive = NSMenu(title: "Archive")

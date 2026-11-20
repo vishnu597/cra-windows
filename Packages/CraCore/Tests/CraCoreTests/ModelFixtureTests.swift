@@ -163,6 +163,22 @@ struct ModelFixtureTests {
         #expect(legacy.windows.allSatisfy { !$0.fullScreen })
     }
 
+    /// A new window opens with the sidebar choice made last, as Arc's sidebarViewPreferences.sidebarMode
+    /// does (#644). Files from before it carry no choice: the first saved window's sidebar stands in.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/644"))
+    func newWindowsTakeTheLastSidebarChoice() throws {
+        let (loaded, recorded) = try Self.load("windows.json", as: WindowPrefs.self)
+        #expect(loaded.windows.map(\.sidebarVisible) == [false, true])
+        #expect(!loaded.sidebarVisibleInNewWindows && !recorded.sidebarVisibleInNewWindows)
+        let saved = try #require(JSONSerialization.jsonObject(with: Self.data("recorded", "windows.json")) as? [String: Any])
+        #expect(saved["sidebarVisibleInNewWindows"] as? Bool == false)
+        #expect(!(try Self.load("windows-legacy.json", as: WindowPrefs.self).loaded.sidebarVisibleInNewWindows))
+        #expect(WindowPrefs().sidebarVisibleInNewWindows)
+        var shown = loaded
+        shown.sidebarVisibleInNewWindows = true
+        #expect(try Self.roundTrips(shown))
+    }
+
     /// sync-history.json (#474): the last bundles sync wrote or applied, each a whole sidebar, so a
     /// bundle the other Mac wrote from one of them is merged rather than applied whole.
     @Test func syncHistoryLoadsAsRecorded() throws {
@@ -248,6 +264,16 @@ struct ModelFixtureTests {
         #expect(try Self.roundTrips(loaded))
         #expect(!loaded.loads(folder: "aeblfdkhhhdcdjpifhhbdiojplfjncoa", inProfile: "Default"))
         #expect(loaded.loads(folder: "some-folder", inProfile: "Profile 9"))
+    }
+
+    /// web-store-refused.json (#491): the Web Store copies the store refused, by profile.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/491"))
+    func webStoreRefusalsLoadAsRecorded() throws {
+        let (loaded, recorded) = try Self.load("web-store-refused.json", as: WebStoreRefusals.self)
+        #expect(loaded == recorded)
+        #expect(try Self.roundTrips(loaded))
+        #expect(loaded.isRefused(folder: "aeblfdkhhhdcdjpifhhbdiojplfjncoa", inProfile: "Default"))
+        #expect(!loaded.isRefused(folder: "aeblfdkhhhdcdjpifhhbdiojplfjncoa", inProfile: "Profile 9"))
     }
 
     // MARK: What the old shapes turn into

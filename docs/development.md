@@ -145,13 +145,16 @@ to Markdown or `docs/` alone runs nothing.
   Mac's own model (needs Apple Intelligence) for 18 sample titles and prints the names a 230 pt row
   would pick.
 - `scripts/test-policies.sh`: the decisions pulled out of the window controllers
-  (`ExtensionLaunch`, `FeatureFlags`).
+  (`ExtensionLaunch`, `DevToolsToggle`, `FeatureFlags`).
 - `scripts/test-tab-sleep-probe.sh`: the production document-start recorder and sleep probe
   on a scripted DOM in Node: framework-controlled edits, same-document routes, Web Audio
   contexts and conservative refusal when recording fails. Renderer timing and real mouse/audio
   checks remain in [release-checklist.md](release-checklist.md).
 - `Windows/scripts/test-cef-cache-version.ps1`: filesystem regressions for the Windows build's
   dependency cache, including stale CEF commit/Chromium versions and explicit version overrides.
+- `scripts/test-content-blocker.sh`: the engine's ad and tracker matching
+  (`Sources/CraCEF/CraContentBlocker.h`) on Cra's own list, through a C shim: sites' own hosts
+  stay first party, and what a site needs to load isn't on the list (Reddit, #586).
 - `scripts/test-webkit-stores.sh`: `WebKitStores` in a process where nothing has started WebKit
   yet, as at launch: a deleted profile's WebKit data goes without crashing.
 - `scripts/test-folder-glyph.sh`: the standalone folder component's real AppKit layers and image
@@ -190,6 +193,10 @@ to Markdown or `docs/` alone runs nothing.
 - `scripts/test-pip-corners.sh`: the Picture in Picture hover controls in a transparent window like the
   overlay, read back through the window server: shown, the dark layer stays inside the window's 6 pt
   corners at every size class (#463).
+- `scripts/test-pip-overlay.sh`: the Picture in Picture overlay window and view over a stand-in for
+  Chromium's window (transparent and click-through), handed trackpad events made as the window server
+  makes them: a pinch resizes it also after the fingers rest first, and also when its magnify events
+  come through the app's event monitors rather than the view (#573).
 - `scripts/test-theme-noise.sh`: the theme's grain over the main window (`ThemeNoiseView`) is a pattern
   Core Animation tiles, with no window-sized backing store, and shows the grain the drawn view did at 1x and 2x.
 - `scripts/test-music-notes.sh`: the production note sprites over fixed white and black backgrounds
@@ -246,7 +253,7 @@ sleep does: notes Chromium's audio service), `wake=1` (what waking the Mac does:
 re-read their tabs' sound, a tab-sleeping pass runs and cra.log says whether the audio service lived), `stall=<ms>` (blocks the main
 thread), `perfReport=<path>` (the recorder's perf.json now), `systemAppearance=light|dark|system`
 (the appearance Auto space themes follow, without changing the Mac's), `themeEditor=1` (Edit
-Theme Color… for the focused space), `toolbar=out|in|sample|focus|blur|at:<x>,<y>|<label>` (the floating toolbar of Settings ▸ Tabs ▸ "Hide the toolbar until you need it": put it out or in, look at the pointer once, put the keyboard focus on its first button as Tab does with Full Keyboard Access or take it away, or say what a pointer at that point from the window's top left is to it, then log `toolbar <command>: floats=… out=… inset=… page=… hangs=… focus=…`; `littleToolbar=` takes the same for a Little Window's or Peek's bar, and `away` for one pointer sample off its bar), `findBar=<label>` (whether the find bar shows and how far its panel is from the focused page's top and trailing edges: `findBar <label>: visible=… top=… trailing=… size=…`), `sidebarShown=<label>` (whether the window shows its sidebar,
+Theme Color… for the focused space), `toolbar=out|in|sample|focus|blur|at:<x>,<y>|<label>` (the floating toolbar of Settings ▸ Tabs ▸ "Hide the toolbar until you need it": put it out or in, look at the pointer once, put the keyboard focus on its first button as Tab does with Full Keyboard Access or take it away, or say what a pointer at that point from the window's top left is to it, then log `toolbar <command>: floats=… out=… inset=… page=… hangs=… focus=…`; `littleToolbar=` takes the same for a Little Window's or Peek's bar, and `away` for one pointer sample off its bar), `findBar=<label>` (whether the find bar shows and how far its panel is from the focused page's top and trailing edges: `findBar <label>: visible=… top=… trailing=… size=…`), `littleFind=<label>` (the newest Little Window's or Peek's own find bar, #577: `little find <label>: visible=… top=… trailing=… child=… focused=… count=… active=… query=…`; `littleFindQuery=<text>` types into it, `key=…&target=littleFind` sends it a key), `littleRow=<text in an address>&typed=<text>` (the newest Little Window's ⌘L bar types `typed`, logs the row for that page, `little row <text>: kind=history|tab|archived trailing=…`, and picks it, #599), `littleKey=<n>` (the nth Little Window, oldest first, picked as Mission Control or App Exposé picks one: brought forward, made key, its page focused, #581), `littleOrder=<label>` (Cra's browser and Little Windows front to back as the window server has them: `little order <label>: little1 little0 main0`), `sidebarShown=<label>` (whether the window shows its sidebar,
 and the View menu's Hide/Show Sidebar row: its title and the key it answers to, an App Shortcut's
 when one names it), `relaunch=1`, `quit=1`, and `nowPlaying=state|toggle|next|previous|pip|dismiss` (the sidebar player's
 newest card, then a `Cra nowPlaying[<label>] <host> playing=… prev=… next=… video=… pip=…` line per card

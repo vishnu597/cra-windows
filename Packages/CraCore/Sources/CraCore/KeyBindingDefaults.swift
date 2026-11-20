@@ -143,9 +143,10 @@ public enum KeyBindingDefaults {
             // Archive
             KeyAction(id: "goBack", name: "Go Back", section: .archive, shortcuts: [KeyChord("[", cmd), KeyChord(KeyChord.left, cmd)]),
             KeyAction(id: "goForward", name: "Go Forward", section: .archive, shortcuts: [KeyChord("]", cmd), KeyChord(KeyChord.right, cmd)]),
-            KeyAction(id: "viewArchive", name: "View History", section: .archive, shortcuts: [KeyChord("y", cmd)], triggers: ["archive", "history", "closed tabs"]),
+            // Arc: Archive ▸ View History ⌘Y, Chromium's History page for the space's profile (#590, HistoryPage).
+            KeyAction(id: HistoryPage.action, name: "View History", section: .archive, shortcuts: [KeyChord("y", cmd)], triggers: HistoryPage.triggers),
             // Arc: Archive ▸ View Archive…, Clear Archive.
-            KeyAction(id: "showArchive", name: "View Archive…", section: .archive, shortcuts: [], triggers: ["archive", "archived tabs"]),
+            KeyAction(id: "showArchive", name: "View Archive…", section: .archive, shortcuts: [], triggers: ["archive", "archived tabs", "closed tabs"]),
             KeyAction(id: "clearArchive", name: "Clear Archive", section: .archive, shortcuts: [], triggers: ["clear archive"], symbol: "trash"),
             // Window
             KeyAction(id: "openLibrary", name: "Open Library…", section: .window, shortcuts: [KeyChord("l", cmdShift)], triggers: ["library"]),
@@ -232,6 +233,9 @@ public enum KeyBindingDefaults {
         // No Dia on Windows; the Chromium browsers come over too.
         "importData": ("Import from Another Browser…", "Bring spaces, bookmarks, open tabs, passwords and sign-ins over from Arc, Chrome, Edge or another browser.",
                        ["import", "arc", "chrome", "edge"]),
+        // The Mac opens Chromium's History page (#590, HistoryPage); Windows' Ctrl+H still opens
+        // the Library's Archived Tabs.
+        "viewArchive": ("View History", "Open the archive of closed tabs.", ["archive", "history", "closed tabs"]),
     ]
 
     /// Commands a private window's command bar leaves out: an import adds spaces and sign-ins to
@@ -475,7 +479,7 @@ public enum ShortcutDescriptions {
         "muteTab": "Mute or unmute the tab.",
         "goBack": "Go back a page.",
         "goForward": "Go forward a page.",
-        "viewArchive": "Open the archive of closed tabs.",
+        "viewArchive": "Open the browsing history of this space’s profile.",
         "openLibrary": "Open the Library.",
         "viewDownloads": "Show your downloads.",
         "promoteLittleWindow": "Move the Little Window’s or Peek’s page into the space its Open in button names.",

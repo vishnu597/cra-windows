@@ -135,6 +135,9 @@ final class ShellView: NSView {
     /// moves with the Library's edge and past the window's instead of narrowing (LibraryWidth.page, #340).
     var pageBesideLibrary: () -> PageBesideLibrary? = { nil }
     struct PageBesideLibrary { var tabSidebar: CGFloat? }
+    /// The Library on its way in from a hidden sidebar (LibrarySwipe, "From a hidden sidebar"): the
+    /// page card rides the Library's edge from where it rests. nil at rest.
+    var libraryRevealFromHidden: (reveal: CGFloat, library: CGFloat)? { didSet { needsLayout = true } }
     /// Off while the Library has the sidebar: its width is not the user's to drag.
     var sidebarResizable = true { didSet { needsLayout = true } }
     var sidebarVisible = true { didSet { needsLayout = true } }
@@ -582,13 +585,20 @@ final class ShellView: NSView {
         }
     }
 
+    /// The tabs calls share (TabSharing): their cards are ringed in yellow.
+    var sharedTabIDs: Set<UUID> = [] { didSet { if sharedTabIDs != oldValue { updateFocusRings() } } }
+
     /// Arc rings the focused pane while the window shows several; one pane fills the window
-    /// unmarked. A page in full screen has no card around it.
+    /// unmarked, unless a call shares it (TabSharing.paneRing). A page in full screen has no card around it.
     private func updateFocusRings() {
-        let ringed = paneCards.count > 1 && !contentFullscreen
         let ringID = dropReplaceID ?? focusedPaneID
         for c in paneCards {
-            let ring = ringed && c.tabID == ringID ? focusRingColor : nil
+            let ring: NSColor? = switch TabSharing.paneRing(panes: paneCards.count, focused: c.tabID == ringID,
+                                                            shared: sharedTabIDs.contains(c.tabID), fullscreen: contentFullscreen) {
+            case .none: nil
+            case .focus: focusRingColor
+            case .shared: .systemYellow
+            }
             if c.focusRing != ring { c.focusRing = ring }
         }
     }
@@ -958,6 +968,12 @@ final class ShellView: NSView {
     /// For `cra://debug?toolbar=…`: `out` and `in` put the floating bar there, `sample` looks at
     /// the pointer once, `at:x,y` says what a pointer there would be to the bar; anything else is
     /// a label. Every one answers with the command and where the bar is.
+    /// toolbarColor=<label>: the colour behind the first pane's bar as RRGGBB ("#" starts a comment in a
+    /// scenario), "white" when it has none (#629).
+    func toolbarColorReadout(_ label: String) -> String {
+        "toolbar colour \(label): bar=\(paneCards.first?.toolbarColor.map { $0.replacingOccurrences(of: "#", with: "") } ?? "white")"
+    }
+
     func debugToolbar(_ command: String) -> String {
         switch command {
         case "out": bringFloatingToolbarOut()
@@ -988,6 +1004,8 @@ final class ShellView: NSView {
         }
         return "toolbar \(command): floats=\(floatingCard != nil ? 1 : 0) out=\(toolbarTracker.shown ? 1 : 0) "
             + "inset=\(Int(card?.barInset ?? 0)) page=\(Int(card?.webArea.frame.height ?? 0))/\(Int(card?.bounds.height ?? 0)) "
+            // How much of the card the page doesn't fill, whatever the window's size (a runner's screen gave 771, not 780).
+            + "short=\(Int((card?.bounds.height ?? 0) - (card?.webArea.frame.height ?? 0))) "
             + "barHidden=\(card?.toolbarInSight == true ? 0 : 1) polling=\(toolbarPoll != nil ? 1 : 0) "
             + "hangs=\(card.map(somethingHangsFromToolbar) == true ? 1 : 0) focus=\(toolbarHasFocus ? 1 : 0)"
     }
@@ -1029,21 +1047,29 @@ final class ShellView: NSView {
                 pageWidth = CGFloat(LibraryWidth.page(window: Double(b.width), library: Double(width),
                                                       tabSidebar: kept.tabSidebar.map(Double.init), inset: Double(inset)))
             }
-            let content = NSRect(x: width, y: inset, width: max(0, pageWidth), height: max(0, b.height - 2 * inset))
+            // Brought out of a hidden sidebar, the Library's page never comes nearer the window's edge
+            // than where it rests with the sidebar hidden: a swipe out of it ends there.
+            let hiddenRest = pageBesideLibrary().map { $0.tabSidebar == nil } ?? false
+            let content = NSRect(x: hiddenRest ? max(width, inset) : width, y: inset, width: max(0, pageWidth), height: max(0, b.height - 2 * inset))
             return Frames(sidebar: NSRect(x: 0, y: 0, width: width, height: b.height),
                           handle: NSRect(x: width - 4, y: 0, width: 8, height: b.height),
                           content: content, cornerRadius: radius, sidebarCorner: 0)
         }
+        var card = b.insetBy(dx: inset, dy: inset)
+        if let coming = libraryRevealFromHidden {
+            card.origin.x = LibrarySwipe.pageEdgeFromHidden(reveal: coming.reveal, library: coming.library, inset: inset)
+        }
         if floating {
-            // The floating sidebar hovers over the page; the card does not move (Arc).
+            // The floating sidebar hovers over the page; the card does not move (Arc), until a swipe
+            // brings the Library in under it.
             let m = FloatingSidebarGeometry.margin
             return Frames(sidebar: NSRect(x: m, y: m, width: width, height: b.height - 2 * m),
-                          handle: .zero, content: b.insetBy(dx: inset, dy: inset), cornerRadius: radius, sidebarCorner: 12)
+                          handle: .zero, content: card, cornerRadius: radius, sidebarCorner: 12)
         }
         // Sidebar hidden: Arc keeps the rounded card floating in its inset (measured 25 Oct:
         // card edge 10 pt from the window edge after ⌘S), with a sidebar toggle in the bar.
         return Frames(sidebar: NSRect(x: -width - 20, y: 0, width: width, height: b.height),
-                      handle: .zero, content: b.insetBy(dx: inset, dy: inset), cornerRadius: radius, sidebarCorner: 0)
+                      handle: .zero, content: card, cornerRadius: radius, sidebarCorner: 0)
     }
 
     private var cardCornerRadius: CGFloat = CraMetrics.contentCornerRadius
@@ -1262,7 +1288,10 @@ final class ShellView: NSView {
     /// floating sidebar docking in place rides on this slide, so both move on one clock.
     func animateSidebar(visible: Bool, floating: Bool, fullscreen: Bool, width: CGFloat, duration: TimeInterval = SidebarMotion.duration,
                         alongside: ((Double) -> Void)? = nil, completion: (() -> Void)? = nil) {
-        // A slide still running is replaced: what rode along with it finishes now, once.
+        // A slide still running is replaced: what rode along with it finishes now, once, after its readout, so a
+        // dock that ends this way still says how far the page moved (on a slow machine the next slide came first,
+        // and sidebar-dock-floating's "page moved 0 pt" went missing).
+        if sidebarSlide != nil { endSlideReadout() }
         finishSlideCompanions()
         slideAlongside = alongside
         slideCompletion = completion

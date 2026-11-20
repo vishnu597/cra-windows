@@ -17,8 +17,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The test-only CI job has no app build to fetch the pinned framework for it.
-scripts/fetch-sparkle.sh
+# CI checks out no vendor/: the pinned Sparkle comes down here (a few MB, checked against its hash).
+scripts/fetch-sparkle.sh >/dev/null
 xcrun swiftc -swift-version 5 Tests/UpdateFeedCheck.swift -F vendor/sparkle -framework Sparkle \
   -Xlinker -rpath -Xlinker "$ROOT/vendor/sparkle" -o "$DIR/feedcheck"
 mkdir -p "$DIR/feed"
