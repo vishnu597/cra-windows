@@ -602,6 +602,12 @@ final class BrowserWindow {
         commandBar.onCommit = { [weak self] row, typed, mode in self?.handleCommit(row, typed: typed, mode: mode) }
         commandBar.onOpenInBackground = { [weak self] row, typed in self?.openInBackground(row, typed: typed) ?? false }
         commandBar.onOpenInSplit = { [weak self] row, typed in self?.openInSplit(row, typed: typed) ?? false }
+        // The search-suggestions notice: Search Settings… is Settings ▸ Profiles (the engine), "here" Cra's privacy page.
+        commandBar.onNoticeSettings = { [weak self] in self?.openSettings(pane: .profiles) }
+        commandBar.onNoticeLearnMore = { [weak self] in
+            guard let self else { return }
+            self.store.createTab(url: SearchSuggestionsNotice.privacyPage, window: self.windowID)
+        }
         commandBar.onResize = { [weak self] height in
             self?.commandBarHeight = height
             self?.placeCommandBar()
@@ -1161,7 +1167,7 @@ final class BrowserWindow {
     // MARK: Settings
 
     /// Ctrl+, (Arc's ⌘,): the Settings window, centred on this one when it opens.
-    private func openSettings() {
+    private func openSettings(pane: DiaSettingsPane? = nil) {
         if Self.settingsWindow == nil {
             do {
                 Self.settingsWindow = try SettingsWindow(store: store)
@@ -1177,7 +1183,7 @@ final class BrowserWindow {
             self.store.createTab(url: url, window: self.windowID)
             self.activate()
         }
-        Self.settingsWindow?.show(over: window)
+        if let pane { Self.settingsWindow?.show(over: window, pane: pane) } else { Self.settingsWindow?.show(over: window) }
     }
 
     // MARK: Developer Mode

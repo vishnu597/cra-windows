@@ -4531,7 +4531,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     func debugSiteControlsPress(_ label: String, accessory: Bool) { siteControlCenter.debugPress(label, accessory: accessory) }
 
     /// Cra's privacy page, where the command bar's search-suggestions banner says "Learn more".
-    static let privacyPage = SiteLinks.tagged("https://crabrowser.app/privacy", from: .commandBarNotice)
+    static var privacyPage: String { SearchSuggestionsNotice.privacyPage }
 
     /// Scenario hook (#314): the command bar's (i) ("badge") or a banner button ("settings", "dismiss",
     /// "learnMore") pressed as a click would, then the bar as it stands:

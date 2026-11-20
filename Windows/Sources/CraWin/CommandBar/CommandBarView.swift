@@ -26,6 +26,9 @@ final class CommandBarView {
     /// is no split to make; Return happens instead.
     var onOpenInSplit: (Suggestion?, String) -> Bool = { _, _ in false }
     var onClose: () -> Void = {}
+    /// The search-suggestions notice's Search Settings… and its "here" (the bar closes first).
+    var onNoticeSettings: () -> Void = {}
+    var onNoticeLearnMore: () -> Void = {}
     /// The rows changed: the window takes the new height (`height(forRows:)`).
     var onResize: (Double) -> Void = { _ in }
 
@@ -51,6 +54,9 @@ final class CommandBarView {
     /// The URL Ctrl+L opened with (the page's), nil for Ctrl+T.
     private var openedPrefill: String?
     private var space: SpaceTheme = SpaceTheme.presets[0]
+    /// Arc's (i) was pressed in this opening: the search-suggestions banner takes the last row's
+    /// place (CraCore SearchSuggestionsNotice, #314).
+    private var noticePressed = false
 
     // The field, as CommandTextField's coordinator keeps it.
     private var lastTyped = ""
@@ -78,6 +84,12 @@ final class CommandBarView {
     private let divider = Border()
     private let rowsPanel = StackPanel()
     private var rows: [Row] = []
+    /// The (i) at the field's end, and the black banner it opens.
+    private let info = Button()
+    private let infoGlyph = FontIcon()
+    private let banner = Border()
+    private let noticeSettings = Button()
+    private let noticeDismiss = Button()
 
     init(engine: SuggestionEngine, store: SidebarStore, windowID: UUID, favicons: Favicons = .shared) {
         self.windowID = windowID
@@ -94,6 +106,7 @@ final class CommandBarView {
         engine.resetIndex()
         // Its keys are built off the main thread while the bar comes up (#617), as on the Mac.
         engine.prepareIndex()
+        noticePressed = false
         self.mode = mode
         space = theme
         scope = nil
@@ -105,7 +118,7 @@ final class CommandBarView {
         pendingCompletion = nil
         pendingSets = 0
         lastTyped = query
-        result = engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID(window: windowID))
+        result = listed(engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID(window: windowID)))
         isOpen = true
         applyTheme()
         showText(query, selected: true)
@@ -158,9 +171,9 @@ final class CommandBarView {
         previewing = false
         if let scope {
             switch scope {
-            case .site(let site): result = engine.suggestions(for: newQuery, in: site)
-            case .tabs: result = engine.suggestions(for: newQuery, inTabsOf: store.focusedSpaceID(window: windowID), currentTabID: store.selectedTabID(window: windowID))
-            case .actions: result = engine.suggestions(forActionsMatching: newQuery, currentTabID: store.selectedTabID(window: windowID))
+            case .site(let site): result = listed(engine.suggestions(for: newQuery, in: site))
+            case .tabs: result = listed(engine.suggestions(for: newQuery, inTabsOf: store.focusedSpaceID(window: windowID), currentTabID: store.selectedTabID(window: windowID)))
+            case .actions: result = listed(engine.suggestions(forActionsMatching: newQuery, currentTabID: store.selectedTabID(window: windowID)))
             }
             render()
             return
@@ -171,7 +184,7 @@ final class CommandBarView {
             guard let self, self.isOpen, self.query == typed else { return }
             self.relist()
         }
-        result = engine.suggestions(for: newQuery, mode: mode, currentTabID: store.selectedTabID(window: windowID))
+        result = listed(engine.suggestions(for: newQuery, mode: mode, currentTabID: store.selectedTabID(window: windowID)))
         if !allowCompletion { result.inlineCompletion = nil }
         render()
         applyCompletion()
@@ -181,7 +194,7 @@ final class CommandBarView {
     private func relist() {
         guard scope == nil else { return }
         let selectedID = result.items.indices.contains(selectedIndex) ? result.items[selectedIndex].id : nil
-        result = engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID(window: windowID))
+        result = listed(engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID(window: windowID)))
         if !allowCompletion { result.inlineCompletion = nil }
         if let i = result.items.firstIndex(where: { $0.id == selectedID }) {
             selectedIndex = i
@@ -348,6 +361,47 @@ final class CommandBarView {
         onCommit(row, query, mode)
     }
 
+    // MARK: Search-suggestions notice
+
+    private var suggestionsOn: Bool { store.settings.searchSuggestions }
+    private var noticeDismissed: Bool { store.prefs.searchSuggestionsNoticeDismissed }
+
+    private var showsNoticeBadge: Bool {
+        let offersSite = scope == nil && !previewing && result.scope != nil && result.scope != .actions
+        return SearchSuggestionsNotice.showsBadge(suggestionsOn: suggestionsOn, dismissed: noticeDismissed, bannerShown: noticePressed,
+                                                  scoped: scope != nil, offersSite: offersSite)
+    }
+
+    private var showsNoticeBanner: Bool {
+        SearchSuggestionsNotice.showsBanner(suggestionsOn: suggestionsOn, dismissed: noticeDismissed, bannerShown: noticePressed)
+    }
+
+    /// What the engine listed, less the last row while the banner has its place.
+    private func listed(_ r: SuggestionResult) -> SuggestionResult {
+        var r = r
+        let n = SearchSuggestionsNotice.rowsListed(r.items.count, maxRows: SuggestionEngine.maxRows, banner: showsNoticeBanner)
+        if n < r.items.count { r.items.removeLast(r.items.count - n) }
+        return r
+    }
+
+    /// The (i): the banner takes the last row's place.
+    private func showNotice() {
+        guard showsNoticeBadge else { return }
+        noticePressed = true
+        result = listed(result)
+        if selectedIndex >= result.items.count { selectedIndex = max(0, result.items.count - 1) }
+        render()
+        focusField()
+    }
+
+    /// Dismiss: the banner and the badge go for good, and the last row comes back.
+    private func dismissNotice() {
+        store.prefs.searchSuggestionsNoticeDismissed = true
+        noticePressed = false
+        update(query: query, allowCompletion: false)
+        focusField()
+    }
+
     // MARK: Drawing
 
     private var dark: Bool { space.isDark }
@@ -362,10 +416,10 @@ final class CommandBarView {
     }
 
     private func build() {
-        for height in [UI.pixels(Self.fieldHeight), UI.auto, UI.star] { root.rowDefinitions.append(UI.row(height)) }
+        for height in [UI.pixels(Self.fieldHeight), UI.auto, UI.star, UI.auto] { root.rowDefinitions.append(UI.row(height)) }
 
         let top = Grid()
-        for width in [UI.pixels(52), UI.auto, UI.star, UI.auto] { top.columnDefinitions.append(UI.column(width)) }
+        for width in [UI.pixels(52), UI.auto, UI.star, UI.auto, UI.auto] { top.columnDefinitions.append(UI.column(width)) }
         glyph.fontSize = 18
         glyph.horizontalAlignment = .center
         glyph.verticalAlignment = .center
@@ -418,7 +472,20 @@ final class CommandBarView {
         hint.children.append(hintLabel)
         hint.children.append(keycap)
 
-        let parts: [FrameworkElement] = [glyph, pill, field, hint]
+        // Arc's (i) at the end of the field: 13 pt, grey, it opens the notice.
+        infoGlyph.glyph = "\u{E946}"  // Info
+        infoGlyph.fontSize = 14
+        info.content = infoGlyph
+        info.background = UI.clear
+        info.borderThickness = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        info.padding = Thickness(left: 8, top: 6, right: 8, bottom: 6)
+        info.margin = Thickness(left: 0, top: 0, right: 12, bottom: 0)
+        info.verticalAlignment = .center
+        info.cornerRadius = CornerRadius(topLeft: 6, topRight: 6, bottomRight: 6, bottomLeft: 6)
+        info.isTabStop = false
+        info.click.addHandler { [weak self] _, _ in self?.showNotice() }
+
+        let parts: [FrameworkElement] = [glyph, pill, field, hint, info]
         for (i, part) in parts.enumerated() {
             top.children.append(part)
             try? Grid.setColumn(part, Int32(i))
@@ -449,11 +516,78 @@ final class CommandBarView {
             rowsPanel.children.append(row.root)
         }
 
-        let sections: [FrameworkElement] = [top, divider, rowsPanel]
+        buildBanner()
+
+        let sections: [FrameworkElement] = [top, divider, rowsPanel, banner]
         for (i, part) in sections.enumerated() {
             root.children.append(part)
             try? Grid.setRow(part, Int32(i))
         }
+    }
+
+    /// Arc's banner (CommandBar.SearchSuggestionsPrivacyView): black, 60 tall, the (i) 24 in, "We talk to
+    /// your search engine…" in 13 pt bold over "Learn more about your data on Cra here." in 12 pt grey,
+    /// then Search Settings… and Dismiss, 37 tall, 10 apart and 10 from the edge.
+    private func buildBanner() {
+        banner.height = SearchSuggestionsNotice.bannerHeight
+        banner.background = UI.brush(0, 0, 0)
+        banner.visibility = .collapsed
+        let grid = Grid()
+        for width in [UI.pixels(46), UI.star, UI.auto, UI.auto] { grid.columnDefinitions.append(UI.column(width)) }
+        let icon = FontIcon()
+        icon.glyph = "\u{E946}"
+        icon.fontSize = 13
+        icon.foreground = UI.brush(115, 115, 115)
+        icon.horizontalAlignment = .center
+        icon.verticalAlignment = .center
+        let texts = StackPanel()
+        texts.verticalAlignment = .center
+        texts.spacing = 1
+        let title = UI.text("We talk to your search engine to help us suggest results.", size: 13, color: UI.brush(237, 237, 237))
+        title.fontWeight = UWP.FontWeight(weight: 700)
+        let more = StackPanel()
+        more.orientation = .horizontal
+        let grey = UI.brush(126, 126, 126)
+        more.children.append(UI.text("Learn more about your data on Cra ", size: 12, color: grey, trimmed: false))
+        // "here", underlined by a 1 px border under it.
+        let here = Border()
+        here.child = UI.text("here", size: 12, color: grey, trimmed: false)
+        here.borderThickness = Thickness(left: 0, top: 0, right: 0, bottom: 1)
+        here.borderBrush = grey
+        here.background = UI.clear
+        // On release, as the rows: the bar's window goes before the tab opens.
+        here.pointerReleased.addHandler { [weak self] _, args in
+            args?.handled = true
+            self?.close()
+            self?.onNoticeLearnMore()
+        }
+        more.children.append(here)
+        more.children.append(UI.text(".", size: 12, color: grey, trimmed: false))
+        texts.children.append(title)
+        texts.children.append(more)
+        for (button, title, width) in [(noticeSettings, "Search Settings…", 130.5), (noticeDismiss, "Dismiss", 71.0)] {
+            button.content = UI.text(title, size: 13, color: UI.brush(235, 235, 239), trimmed: false)
+            button.width = width
+            button.height = 37
+            button.borderThickness = Thickness(left: 1, top: 1, right: 1, bottom: 1)
+            button.cornerRadius = CornerRadius(topLeft: 5, topRight: 5, bottomRight: 5, bottomLeft: 5)
+            button.verticalAlignment = .center
+            button.horizontalContentAlignment = .center
+            button.isTabStop = false
+        }
+        noticeSettings.margin = Thickness(left: 12, top: 0, right: 10, bottom: 0)
+        noticeDismiss.margin = Thickness(left: 0, top: 0, right: 10, bottom: 0)
+        noticeSettings.click.addHandler { [weak self] _, _ in
+            self?.close()
+            self?.onNoticeSettings()
+        }
+        noticeDismiss.click.addHandler { [weak self] _, _ in self?.dismissNotice() }
+        let parts: [FrameworkElement] = [icon, texts, noticeSettings, noticeDismiss]
+        for (i, part) in parts.enumerated() {
+            grid.children.append(part)
+            try? Grid.setColumn(part, Int32(i))
+        }
+        banner.child = grid
     }
 
     private func applyTheme() {
@@ -465,6 +599,14 @@ final class CommandBarView {
         hintLabel.foreground = dark ? UI.brush(255, 255, 255, alpha: 85) : UI.brush(0, 0, 0, alpha: 85)
         keycapLabel.foreground = dark ? UI.brush(255, 255, 255, alpha: 170) : UI.brush(0, 0, 0, alpha: 170)
         keycap.background = dark ? UI.brush(255, 255, 255, alpha: 12) : UI.brush(0, 0, 0, alpha: 10)
+        infoGlyph.foreground = dark ? UI.brush(255, 255, 255, alpha: 110) : UI.brush(0, 0, 0, alpha: 110)
+        // The banner's buttons in the space's focus colour over black (CommandBarTones).
+        let tones = CommandBarTones(theme: space, dark: dark)
+        func brush(_ c: RGB) -> Brush { UI.brush(UInt8((c.r * 255).rounded()), UInt8((c.g * 255).rounded()), UInt8((c.b * 255).rounded())) }
+        for button in [noticeSettings, noticeDismiss] {
+            button.background = brush(tones.noticeButtonFill)
+            button.borderBrush = brush(tones.noticeButtonOutline)
+        }
     }
 
     private func render() {
@@ -482,7 +624,10 @@ final class CommandBarView {
         hint.visibility = offered == nil ? .collapsed : .visible
         if let offered { hintLabel.text = "Search \(offered.name)" }
         showLeading(leadingGlyph())
-        divider.visibility = items.isEmpty ? .collapsed : .visible
+        let showsBanner = showsNoticeBanner
+        info.visibility = showsNoticeBadge ? .visible : .collapsed
+        banner.visibility = showsBanner ? .visible : .collapsed
+        divider.visibility = items.isEmpty && !showsBanner ? .collapsed : .visible
         rowsPanel.visibility = items.isEmpty ? .collapsed : .visible
         let tint = highlight
         for (i, row) in rows.enumerated() {
@@ -494,7 +639,7 @@ final class CommandBarView {
             let icon = items[i].faviconKey.flatMap { favicons.bitmap(forKey: $0, onDark: dark) }
             row.show(items[i], favicon: icon, selected: i == selectedIndex, tint: tint, ink: ink, secondary: secondaryInk)
         }
-        onResize(Self.height(forRows: items.count))
+        onResize(Self.height(forRows: items.count) + (showsBanner ? SearchSuggestionsNotice.bannerHeight + (items.isEmpty ? 1 : 0) : 0))
     }
 
     /// The glyph before the text (CommandBarGlyph): what Return does, the highlighted row's
