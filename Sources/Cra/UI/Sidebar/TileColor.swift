@@ -1,13 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Tile backgrounds offered in a favorite's "Tile Color" menu.
+/// Tile backgrounds offered in a favorite's "Tile Color" menu (FavoriteTileColors, shared with Windows).
 enum TileColor {
-    static let presets: [(name: String, hex: String)] = [
-        ("White", "#FFFFFF"), ("Light Gray", "#D9D9DE"), ("Graphite", "#48484A"), ("Black", "#000000"),
-        ("Red", "#FF453A"), ("Orange", "#FF9F0A"), ("Yellow", "#FFD60A"), ("Green", "#30D158"),
-        ("Teal", "#40C8E0"), ("Blue", "#0A84FF"), ("Purple", "#BF5AF2"), ("Pink", "#FF375F"),
-    ]
+    static var presets: [FavoriteTileColors.Preset] { FavoriteTileColors.presets }
 
     /// A 12pt dot for the menu; Default is drawn hollow.
     static func swatch(_ hex: String?) -> NSImage {

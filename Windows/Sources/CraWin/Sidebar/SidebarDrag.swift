@@ -93,8 +93,8 @@ extension SidebarView {
     private static let swapButtons: Int32 = 23, dragWidth: Int32 = 68, dragHeight: Int32 = 69  // SM_SWAPBUTTON, SM_CXDRAG, SM_CYDRAG
     /// The list scrolls while a drag is this close to its top or bottom, up to this fast (DIPs/s).
     private static let scrollBand = 48.0, scrollSpeed = 900.0
-    /// A favorite tile's height and the gap between tiles (buildFavorites).
-    private static let tileHeight = 44.0, tileGap = 6.0
+    /// The gap between favorite tiles (buildFavorites).
+    private static let tileGap = Double(FavoritesLayout.gap)
     /// The insertion line's ring and stroke (SidebarListMetrics: 8 and 2, 92 % of the text colour).
     private static let ringSize = 8.0, lineWidth = 2.0
 
@@ -331,12 +331,10 @@ extension SidebarView {
         // The favorites, or the card standing in for them.
         if let card = frame(of: favoritesCard), card.contains(p) { return .favorites(slot: 0) }
         if let grid = frame(of: favorites), grid.contains(p, slop: 4), SidebarDropPlan.favoritesAccept(id, space: space, store: store) {
-            let columns = 4.0
-            let cell = (grid.width - Self.tileGap * (columns - 1)) / columns
-            let column = min(columns - 1, max(0, ((p.x - grid.x) / (cell + Self.tileGap)).rounded(.down)))
-            let row = max(0, ((p.y - grid.y) / (Self.tileHeight + Self.tileGap)).rounded(.down))
+            // The grid with the dragged tile's slot among its tiles (FavoritesLayout.slot, #176).
             let resting = favoriteTiles.filter { $0.id != id }.count
-            return .favorites(slot: min(resting, Int(row * columns + column)))
+            let layout = FavoritesLayout(count: resting + 1, width: CGFloat(grid.width))
+            return .favorites(slot: min(resting, layout.slot(at: CGPoint(x: p.x - grid.x, y: p.y - grid.y))))
         }
         return listDrop(id, at: p).map(SidebarDragTarget.list)
     }

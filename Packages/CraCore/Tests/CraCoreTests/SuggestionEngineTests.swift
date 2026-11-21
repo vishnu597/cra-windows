@@ -80,7 +80,7 @@ struct SuggestionEngineTests {
     @Test func historyAndPopularDomains() {
         let f = StoreFixture()
         let e = engine(f)
-        f.store.recordVisit(url: "https://news.example.com/story", title: "Big Story")
+        f.store.recordVisit(url: "https://news.example.com/story", title: "Big Story", profile: nil)
         let r = e.suggestions(for: "big st", mode: .newTab, currentTabID: nil)
         let row = r.items.first { $0.id == "hist:https://news.example.com/story" }
         #expect(row?.symbol == "clock" && row?.subtitle == "news.example.com/story" && row?.title == "Big Story")
@@ -95,8 +95,8 @@ struct SuggestionEngineTests {
     @Test func aLearnedPickRanksFirst() {
         let f = StoreFixture()
         let e = engine(f)
-        f.store.recordVisit(url: "https://alpha.test/one", title: "Report one")
-        f.store.recordVisit(url: "https://alpha.test/two", title: "Report two")
+        f.store.recordVisit(url: "https://alpha.test/one", title: "Report one", profile: nil)
+        f.store.recordVisit(url: "https://alpha.test/two", title: "Report two", profile: nil)
         f.store.recordQuerySelection(query: "Report", url: "https://alpha.test/two")
         let r = ids(e.suggestions(for: "report", mode: .newTab, currentTabID: nil))
         let one = r.firstIndex(of: "hist:https://alpha.test/one"), two = r.firstIndex(of: "hist:https://alpha.test/two")
@@ -146,7 +146,7 @@ struct SuggestionEngineTests {
     @Test func incognitoListsNothingFromTheProfile() {
         let f = StoreFixture()
         let e = engine(f)
-        f.store.recordVisit(url: "https://secret.test/", title: "Secretive")
+        f.store.recordVisit(url: "https://secret.test/", title: "Secretive", profile: nil)
         _ = f.store.createSpace(title: "Secretive Space", emoji: "🕶", focus: false)
         let window = f.store.addIncognitoWindow(frame: nil)
         f.store.activeWindowID = window.id
@@ -252,7 +252,7 @@ struct SuggestionEngineTests {
     @Test func whatTheFieldShowsAndWhatReturnOpens() throws {
         let f = StoreFixture()
         let e = engine(f, commands: [CommandBarCommand(id: "settings", name: "Settings")])
-        f.store.recordVisit(url: "https://www.example.com/page/", title: "Example page")
+        f.store.recordVisit(url: "https://www.example.com/page/", title: "Example page", profile: nil)
         let r = e.suggestions(for: "exa", mode: .newTab, currentTabID: nil)
         let typed = try #require(r.items.first { $0.id == "typed" })
         #expect(typed.fieldText(typed: "exa") == "exa", "the typed row shows what was typed")
