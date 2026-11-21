@@ -470,18 +470,10 @@ final class SidebarView {
         if let id = homeIcon {
             lead.pointerPressed.addHandler { [weak self] _, _ in self?.iconPress = (id, GetTickCount64()) }
             // Arc's slash after the icon of a pinned tab away from its page (SidebarSlashView):
-            // 4 DIPs after the icon, a 2 DIP stroke in a 4 × 15 box, the name 5 DIPs on.
-            let slash = WinUI.Line()
-            slash.x1 = 1
-            slash.y1 = 14
-            slash.x2 = 3
-            slash.y2 = 1
-            slash.width = 4
-            slash.height = 15
-            slash.stroke = palette.secondaryText
-            slash.strokeThickness = 2
-            slash.strokeStartLineCap = .round
-            slash.strokeEndLineCap = .round
+            // 4 DIPs after the icon, the name 5 DIPs on.
+            // The projection has no Shapes.Line: a slash in the name's font stands in for the stroke.
+            let slash = UI.text("/", size: 14, color: palette.secondaryText, trimmed: false)
+            slash.fontWeight = UWP.FontWeight(weight: 600)
             slash.isHitTestVisible = false
             slash.verticalAlignment = .center
             slash.margin = Thickness(left: -4, top: 0, right: -3, bottom: 0)
