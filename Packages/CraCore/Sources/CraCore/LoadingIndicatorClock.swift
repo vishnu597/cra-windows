@@ -72,7 +72,8 @@ public extension LoadingIndicator {
 
         /// The bar at `now`; nil when there is nothing to draw.
         public func frame(at now: Double) -> Frame? {
-            let elapsed = max(0, now - since)
+            // A nanosecond of slack: `since + duration` read back as a time lands a hair short.
+            let elapsed = max(0, now - since) + 1e-9
             switch step {
             case .idle:
                 return nil
