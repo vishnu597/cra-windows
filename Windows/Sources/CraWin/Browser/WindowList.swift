@@ -98,7 +98,7 @@ final class WindowList: BrowserWindowHost {
             if window.isIncognito { cra_cef_end_incognito_session() }
             // The last window: Cra quits and the session stays for the next launch, once no
             // Little Window is open either (a page moved out of one reopens the window).
-            if littleWindows.isEmpty { PostQuitMessage(0) }
+            if littleWindows.isEmpty { noWindowsLeft() }
             return
         }
         // The last normal window keeps its session while private ones stay open, so the next
@@ -154,7 +154,45 @@ final class WindowList: BrowserWindowHost {
     func littleWindowDidClose(_ window: LittleWindow) {
         littleWindows.removeAll { $0 === window }
         if let parent = window.peekParent { parent.peekDidClose() }
-        if windows.isEmpty, littleWindows.isEmpty { PostQuitMessage(0) }
+        if windows.isEmpty, littleWindows.isEmpty { noWindowsLeft() }
+    }
+
+    /// Nothing of Cra is on screen: it quits, or with Settings ▸ Advanced ▸ "Keep Cra in the
+    /// notification area" (#231) keeps running behind the icon, the last window's session kept
+    /// as a quit keeps it, so a click on the icon or Ctrl+Alt+N opens a window at once.
+    private func noWindowsLeft() {
+        guard MenuBarMode.lastWindowCloses(enabled: store.settings.keepInMenuBar) == .stayInMenuBar else { return PostQuitMessage(0) }
+        store.saveAll()
+        print("Cra: last window closed, Cra stays in the notification area")
+    }
+
+    /// Whether Cra is running with no window, behind its notification-area icon.
+    var isEmpty: Bool { windows.isEmpty && littleWindows.isEmpty }
+
+    /// The notification-area icon's Quit Cra: a real quit, asked as closing the last window asks
+    /// (over the window in use, or the last one opened again to ask). Every window's session
+    /// stays for the next launch.
+    func quitFromNotificationArea() {
+        switch quitRequests.begin() {
+        case .quitting: return PostQuitMessage(0)
+        case .asking: return
+        case .new: break
+        }
+        let prompt = QuitPrompt.on(source: .menuBarItem, downloadsRunning: DownloadHistory.shared.hasRunningDownloads,
+                                   warnBeforeQuitting: store.settings.warnBeforeQuitting)
+        guard let dialog = QuitDialog.asking(prompt), let window = windowInUse ?? lastNormalWindow() else {
+            quitRequests.answered(quit: true)
+            return PostQuitMessage(0)
+        }
+        window.activate()
+        window.askToQuit(dialog) { [weak self] answer in
+            guard let self else { return }
+            var warn = self.store.settings.warnBeforeQuitting
+            let quits = QuitDialog.apply(answer, warnBeforeQuitting: &warn)
+            if warn != self.store.settings.warnBeforeQuitting { self.store.settings.warnBeforeQuitting = warn }
+            self.quitRequests.answered(quit: quits)
+            if quits { PostQuitMessage(0) }
+        }
     }
 
     // MARK: Peek
@@ -365,6 +403,8 @@ final class WindowList: BrowserWindowHost {
     /// An action a Little Window leaves to the browser window used last (Ctrl+N, Ctrl+, …).
     func confirmQuit(closing window: BrowserWindow) -> Bool {
         guard windows.count == 1, windows.first === window, littleWindows.isEmpty else { return true }
+        // Kept in the notification area: the window closes and Cra stays, so nothing to ask.
+        guard MenuBarMode.lastWindowCloses(enabled: store.settings.keepInMenuBar) == .quit else { return true }
         switch quitRequests.begin() {
         case .quitting: return true
         case .asking: return false

@@ -10,6 +10,9 @@ enum WindowIcon {
     /// Loaded once: shared icons stay valid for the life of the process.
     nonisolated(unsafe) private static let icons: (small: HANDLE?, big: HANDLE?) = (load(smallSize), load(bigSize))
 
+    /// The small one, for the notification area.
+    static var small: HANDLE? { icons.small }
+
     static func apply(to hwnd: UInt) {
         guard let window = HWND(bitPattern: hwnd) else { return }
         for (kind, icon) in [(WPARAM(0), icons.small), (WPARAM(1), icons.big)] {

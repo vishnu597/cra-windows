@@ -228,6 +228,10 @@ enum SettingsPanes {
             settingSwitch("Start on a new tab",
                           detail: "When Cra opens, it starts on a new tab instead of the tab you used last.", \.startOnNewTab,
                           store: store, palette: palette, syncs: &syncs),
+            // The Mac's "Keep Cra in the menu bar" (#231, not in Arc): on Windows, closing the last window is the quit.
+            settingSwitch("Keep Cra in the notification area",
+                          detail: "Closing the last window keeps Cra running behind its icon by the clock, so a window or Little Window opens at once. Quit Cra from the icon’s menu.",
+                          \.keepInMenuBar, store: store, palette: palette, syncs: &syncs),
         ], palette: palette))
         // Arc's Advanced tile: the video of a tab left goes on playing in Picture in Picture.
         let media = header("Media", palette: palette)

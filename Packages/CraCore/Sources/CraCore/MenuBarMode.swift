@@ -35,6 +35,16 @@ public enum MenuBarMode {
         !inMenuBar || windowsOpen
     }
 
+    /// The menu bar item's commands in order, a separator between the groups and Quit Cra after
+    /// them (AppDelegate's buildMenuBarItemMenu). Windows' notification-area icon lists the same.
+    public static let menuCommands: [[String]] = [["newWindow", "newIncognitoWindow", "newLittleWindow"], ["settings"]]
+
+    /// Windows has no app menu: closing its last window (Little Windows included) is Cra's own
+    /// Quit there, and with the setting on Cra keeps running behind its notification-area icon.
+    public static func lastWindowCloses(enabled: Bool) -> QuitOutcome {
+        outcome(enabled: enabled, source: .appMenu)
+    }
+
     public enum WindowKind: Equatable, Sendable { case normal, blank, incognito }
 
     public struct Window: Equatable, Sendable {
