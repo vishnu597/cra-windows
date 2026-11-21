@@ -533,12 +533,12 @@ extension SpaceMenu {
     static func addSearchEngines(to menu: NSMenu, space: Space, store: SidebarStore) {
         let profile = store.profilePath(space: space.id)
         let fallback = SearchEngines.shared.defaultEngine(profilePath: profile, legacy: store.settings.searchEngine)
-        let choices = ChromiumSearchEngine.spaceChoices(among: SearchEngines.shared.keywords(profilePath: profile))
-        let current = space.searchEngine?.lowercased()
-        MenuItems.add(menu, "Default (\(fallback.name))", on: current == nil) { store.setSearchEngine(nil, forSpace: space.id) }
+        let rows = SpaceSearchEngineMenu(defaultEngine: fallback, engines: SearchEngines.shared.keywords(profilePath: profile),
+                                         spaceKeyword: space.searchEngine)
+        MenuItems.add(menu, rows.defaultRow.title, on: rows.defaultRow.isOn) { store.setSearchEngine(nil, forSpace: space.id) }
         menu.addItem(.separator())
-        for e in choices {
-            MenuItems.add(menu, e.name, on: current == e.keyword.lowercased()) { store.setSearchEngine(e.keyword, forSpace: space.id) }
+        for row in rows.choices {
+            MenuItems.add(menu, row.title, on: row.isOn) { store.setSearchEngine(row.keyword, forSpace: space.id) }
         }
     }
 }

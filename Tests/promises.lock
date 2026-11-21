@@ -427,6 +427,7 @@
 #256   Packages/CraCore/Tests/CraCoreTests/SlowResponseNoticeTests.swift::namesTheSiteItWaitsFor  77131f187ae0
 #256   Packages/CraCore/Tests/CraCoreTests/SlowResponseNoticeTests.swift::showsAfterTenSecondsWithoutAResponse  652b2e9348ba
 #256   Tests/Scenarios/slow-first-response.scenario  ef5ecd1c5764
+#257   Packages/CraCore/Tests/CraCoreTests/LinkMenuTests.swift::splitViewThenLittleWindowWhereThePageCanHaveThem  7b15ba3bdc0b
 #257   Tests/StoreTests.swift::openLinkInSplit  93b1ecb4d3f2
 #258   Packages/CraCore/Tests/CraCoreTests/LinkRoutingTests.swift::littleWindowRouteNamesItsSpace  ca310c9880ea
 #258   Packages/CraCore/Tests/CraCoreTests/LinkRoutingTests.swift::littleWindowSpaceFormat  a265f8c194b8
@@ -544,6 +545,7 @@
 #305   Packages/CraCore/Tests/CraCoreTests/AddressBarPlacementTests.swift::startsInTheSidebar  fb73715b0ab0
 #306   Packages/CraCore/Tests/CraCoreTests/SpaceSearchEngineTests.swift::aSpaceSearchesItsOwnEngine  2162c1ba580b
 #306   Packages/CraCore/Tests/CraCoreTests/SpaceSearchEngineTests.swift::theEngineIsSavedWithTheSpace  0e82d53e86b9
+#306   Packages/CraCore/Tests/CraCoreTests/SpaceSearchEngineTests.swift::theSubmenuTicksTheSpacesEngine  fd32d0cc77ff
 #306   Packages/CraCore/Tests/CraCoreTests/SpaceSearchEngineTests.swift::withoutOneTheSpaceInheritsTheDefault  862d2c21caef
 #306   Tests/Scenarios/space-search-engine.scenario  305a5e5abcd0
 #307   Packages/CraCore/Tests/CraCoreTests/TabSearchScopeTests.swift::commandBarTabsFollowTheSetting  316e28600e93
@@ -715,6 +717,7 @@
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::defaultsAreTodaysBehaviour  2aa619dc5553
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::pickingAndUnpickingAPriority  deda0ebc668b
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::priorityRidesOnTheChords  b06d1069481d
+#374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::theRouterFollowsEachPriority  7eaf445fe663
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::useBothLateAnswerDropsTheOffer  aac663f3848f
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::useBothOfferIsForThatShortcutWhileItStands  174d275e00ec
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::useBothPressThePageLeftIsNotOffered  04d582b8163a
@@ -1176,6 +1179,7 @@
 #554   Packages/CraCore/Tests/CraCoreTests/RecentTabOrderTests.swift::unshownPanesFollowTheirSplit  6d787990b8f6
 #554   Packages/CraCore/Tests/CraCoreTests/SwitcherSplitLayoutTests.swift::anEvenSplitMatchesArc  3e1ceda7fbaf
 #554   Packages/CraCore/Tests/CraCoreTests/SwitcherSplitLayoutTests.swift::widthsFollowThePanesShares  5910512f0e2f
+#554   Packages/CraCore/Tests/CraCoreTests/TabSwitcherCycleTests.swift::aSplitsCardStaysWhileAnyPaneIsOpen  089ac21a8ff1
 #554   Tests/Scenarios/tab-switcher-split.scenario  5682663e4a74
 #554   Tests/StoreTests.swift::recentCardsKeepSplitsWhole  25829ca1142c
 #556   Packages/CraCore/Tests/CraCoreTests/MobileTests.swift::aQuickLookOnlyAddsSpaces  f7cc377147bf

@@ -211,6 +211,11 @@ uintptr_t cra_round_buttons_create(uintptr_t owner, const char *const *glyphs, c
 /// at `scale` pixels a DIP; `insert_after` as for cra_overlay_place.
 void cra_round_buttons_place(uintptr_t window, int x, int y, int width, int height, const int32_t *rects, size_t count, uint32_t fill,
                              uint32_t ink, double scale, uintptr_t insert_after);
+/// Button `index` widens to the right into a pill in `fill` with `text` after its glyph (`glyph`,
+/// or its own when NULL), in `ink` (CraCore PeekCloseHold: the Peek's Close as Arc's red Confirm);
+/// -1 makes every button round again. The window grows by the pill's extra width, its left edge
+/// staying put.
+void cra_round_buttons_set_pill(uintptr_t window, int index, const char *glyph, const char *text, uint32_t fill, uint32_t ink);
 void cra_round_buttons_destroy(uintptr_t window);
 
 // MARK: - Loading bar
@@ -423,6 +428,12 @@ typedef struct CraBrowserCallbacks {
     /// cra_browser_has_committed_load changed: the main frame committed (CEF's OnLoadStart), or
     /// a new navigation started and waits for its answer (the Mac's didChangeCommittedLoad).
     void (*committed_load_changed)(void *context, int committed);
+    /// The link menu's extra items for this page, asked as the menu opens: bits of CraCore's
+    /// LinkMenuExtra (1 Open Link in Split View, 2 Open Link in Little Window), under Open Link
+    /// in New Window.
+    int (*link_menu_items)(void *context);
+    /// One of them was picked (`item`: its bit) for the link at `url`.
+    void (*link_menu_chosen)(void *context, const char *url, int item);
 } CraBrowserCallbacks;
 
 // MARK: - Browser
@@ -496,6 +507,9 @@ void cra_browser_apply_dev_tools_action(CraBrowser *browser);
 void cra_browser_print(CraBrowser *browser);
 /// Asks view_source_requested for this page's URL; it never opens a temporary file in Windows.
 void cra_browser_view_source(CraBrowser *browser);
+/// Runs one of Chrome's own commands by its IDC_ name ("IDC_TASK_MANAGER", "IDC_ROUTE_MEDIA") on this
+/// page, as the Mac's runChromeCommand: 1 when Chrome ran it, 0 when this Chromium lacks it or can't now.
+int cra_browser_run_chrome_command(CraBrowser *browser, const char *name);
 /// Runs a DevTools protocol method ("Page.captureScreenshot") with `params` (a JSON object, NULL
 /// for none). `done` is called exactly once, on the main thread: with the answer, or with
 /// success 0 when the page closes first or the message could not be sent.

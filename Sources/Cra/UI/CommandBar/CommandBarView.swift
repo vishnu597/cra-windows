@@ -7,9 +7,9 @@ import SwiftUI
 /// so a keystroke costs the search and a few labels, not a SwiftUI pass over the bar.
 @MainActor
 final class CommandBarView: NSView {
-    static let rowHeight: CGFloat = 46
-    static let fieldHeight: CGFloat = 64
-    static func height(forRows n: Int) -> CGFloat { fieldHeight + (n == 0 ? 0 : CGFloat(n) * rowHeight + CGFloat(n - 1) * 4 + 18) }
+    static let rowHeight = CGFloat(CommandBarLayout.rowHeight)
+    static let fieldHeight = CGFloat(CommandBarLayout.fieldHeight)
+    static func height(forRows n: Int) -> CGFloat { CGFloat(CommandBarLayout.height(forRows: n)) }
 
     private let controller: CommandBarController
     private let favicons: FaviconCache

@@ -85,6 +85,12 @@ final class SettingsWindow {
         }
     }
 
+    /// Shows the window on `pane` (the command bar notice's Search Settings… opens Profiles, as on the Mac).
+    func show(over owner: HostWindow, pane: DiaSettingsPane) {
+        show(over: owner)
+        nav.show(pane)
+    }
+
     func hide() {
         airTrafficControl.hide()
         keepActiveSites.hide()

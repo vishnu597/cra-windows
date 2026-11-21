@@ -51,6 +51,13 @@ public struct TabSwitcherCycle: Equatable, Sendable {
                              limit: Int = TabSwitcherLayout.maxItems) -> [UUID] {
         Array(recent.filter { $0 == selected || !isPinned($0) || isLoaded($0) }.prefix(limit))
     }
+
+    /// The same rule for cards that may be splits (#554): a split's card stays while any of its
+    /// panes is open (MainWindowController.openRecentCards, Windows' BrowserWindow).
+    public static func cards(_ recent: [RecentTabOrder.Card], selected: UUID?, isPinned: (UUID) -> Bool,
+                             isLoaded: (UUID) -> Bool, limit: Int = TabSwitcherLayout.maxItems) -> [RecentTabOrder.Card] {
+        Array(recent.filter { card in card.panes.contains { $0 == selected || !isPinned($0) || isLoaded($0) } }.prefix(limit))
+    }
 }
 
 /// Arc 1.170's tab switcher, measured on a 1× display (27 Oct 2026, see
