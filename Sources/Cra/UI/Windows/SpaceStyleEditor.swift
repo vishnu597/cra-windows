@@ -20,7 +20,7 @@ struct SpaceStyleEditor: View {
     init(theme: SpaceTheme, onChange: @escaping (SpaceTheme) -> Void) {
         _theme = State(initialValue: theme)
         // A one-colour theme stores its colour twice (a flat fill): one handle on the pad.
-        let key = theme.key ?? (theme.solid || Set(theme.colors).count == 1 ? Array(theme.colors.prefix(1)) : theme.colors)
+        let key = SpaceThemeVariants.padKey(of: theme)
         _pad = State(initialValue: PadState(key: key, wheel: theme.wheel ?? SpaceColorPresets.wheel(of: key),
                                             intensity: theme.intensity, noise: theme.noise, appearance: theme.appearance))
         // The page with the space's colour, else the one shown last (Arc: currentThemeEditorPresetPage).

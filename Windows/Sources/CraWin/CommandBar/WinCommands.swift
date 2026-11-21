@@ -58,6 +58,65 @@ enum WinGlyph {
         // A tab's speaker (TabSound).
         case "speaker.wave.3": return "\u{E995}"  // Volume3
         case "speaker.slash": return "\u{E74F}"  // Mute
+        // The space icon picker's Icon tab (SpaceIcon.pickerSymbols): the ones Segoe has.
+        case "star.fill": return "\u{E735}"  // FavoriteStarFill
+        case "heart.fill": return "\u{EB52}"  // HeartFill
+        case "flag.fill": return "\u{E7C1}"  // Flag
+        case "bolt.fill": return "\u{E945}"  // LightningBolt
+        case "bell.fill": return "\u{EA8F}"  // Ringer
+        case "lightbulb.fill": return "\u{EA80}"  // Lightbulb
+        case "square.grid.2x2.fill": return "\u{F0E2}"  // GridView
+        case "folder.fill": return "\u{E8B7}"  // Folder
+        case "calendar": return "\u{E787}"  // Calendar
+        case "envelope.fill": return "\u{E715}"  // Mail
+        case "checkmark.square.fill": return "\u{E73A}"  // CheckboxComposite
+        case "doc.fill": return "\u{E8A5}"  // Document
+        case "book.fill": return "\u{E82D}"  // Dictionary
+        case "ellipsis.bubble.fill": return "\u{E8BD}"  // Message
+        case "person.2.fill": return "\u{E716}"  // People
+        case "apple.terminal.fill": return "\u{E756}"  // CommandPrompt
+        case "wrench.and.screwdriver.fill": return "\u{E90F}"  // Repair
+        case "moon.fill": return "\u{E708}"  // QuietHours
+        case "sun.max.fill": return "\u{E706}"  // Brightness
+        case "globe.americas.fill": return "\u{E774}"  // Globe
+        case "cloud.fill", "cloud": return "\u{E753}"  // Cloud
+        case "basket.fill", "cart.fill": return "\u{E7BF}"  // Shop
+        case "airplane": return "\u{E709}"  // Airplane
+        case "music.note": return "\u{E8D6}"  // Audio
+        case "paintpalette.fill": return "\u{E790}"  // Color
+        case "video.fill": return "\u{E714}"  // Video
+        case "chevron.left.forwardslash.chevron.right": return "\u{E943}"  // Code
+        case "hand.thumbsup.fill": return "\u{E8E1}"  // Like
+        case "house.fill": return "\u{E80F}"  // Home
+        case "briefcase.fill": return "\u{E821}"  // Work
+        case "creditcard.fill": return "\u{E8C7}"  // PaymentCard
+        case "key.fill": return "\u{E8D7}"  // Permissions
+        case "wifi": return "\u{E701}"  // Wifi
+        case "desktopcomputer", "tv.fill": return "\u{E7F4}"  // TVMonitor
+        case "laptopcomputer": return "\u{E7F8}"  // DeviceLaptopNoPic
+        case "iphone": return "\u{E8EA}"  // CellPhone
+        case "headphones": return "\u{E7F6}"  // Headphone
+        case "camera.fill": return "\u{E722}"  // Camera
+        case "photo.fill": return "\u{E91B}"  // Photo
+        case "mic.fill": return "\u{E720}"  // Microphone
+        case "speaker.wave.2.fill": return "\u{E767}"  // Volume
+        case "gamecontroller.fill": return "\u{E7FC}"  // Game
+        case "car.fill": return "\u{E804}"  // Car
+        case "bus.fill": return "\u{E806}"  // Bus
+        case "figure.walk": return "\u{E805}"  // Walk
+        case "location.fill": return "\u{E81D}"  // Location
+        case "tag.fill": return "\u{E8EC}"  // Tag
+        case "paperplane.fill": return "\u{E724}"  // Send
+        case "printer.fill": return "\u{E749}"  // Print
+        case "scissors": return "\u{E8C6}"  // Cut
+        case "pencil": return "\u{E70F}"  // Edit
+        case "puzzlepiece.fill": return "\u{EA86}"  // Puzzle
+        case "clock.fill": return "\u{E823}"  // Recent
+        case "magnifyingglass": return "\u{E721}"  // Search
+        // The sidebar's + creation menu.
+        case "plus.rectangle.on.rectangle": return "\u{E8A9}"  // ViewAll, as spaces show elsewhere
+        case "plus.rectangle": return "\u{E7C3}"  // Page
+        case "rectangle.split.2x1": return "\u{E89A}"  // TwoPage
         default: return nil
         }
     }

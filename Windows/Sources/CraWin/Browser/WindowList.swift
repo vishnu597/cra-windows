@@ -58,6 +58,8 @@ final class WindowList: BrowserWindowHost {
         self.dispatcher = dispatcher
         // Whether a tab has a page in any window (the store asks before it unloads or sleeps one).
         store.hasPage = { [weak self] id in self?.windows.contains { $0.hasPage(id) } ?? false }
+        // A tip over a browser window takes its space's tones; Little Windows keep Little Arc's navy.
+        ArcTip.tones = { [weak self] hwnd in self?.windows.first { $0.nativeHandle == hwnd }?.tooltipTones }
     }
 
     /// The saved windows, each where it was if that's still on a monitor. Incognito sessions are
