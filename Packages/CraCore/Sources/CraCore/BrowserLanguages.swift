@@ -51,4 +51,19 @@ public enum BrowserLanguages {
     public static func summary(_ codes: [String]) -> String {
         codes.map(name).joined(separator: ", ")
     }
+
+    /// The space a profile's language page opens in (Settings ▸ Profiles ▸ Website languages):
+    /// the window's focused space when it is on that profile, else the first space on it. Nil when
+    /// no space uses the profile; the row's button is off then, as on the Mac ("Set this Profile
+    /// on a Space first").
+    public static func space(focused: UUID, onProfile spaces: [UUID]) -> UUID? {
+        spaces.contains(focused) ? focused : spaces.first
+    }
+
+    /// The codes for a profile: Chromium's live value (`livePref`, the JSON CEF returns) once the
+    /// profile has loaded, else its saved Preferences file; empty for Chromium's defaults.
+    public static func codes(livePref: String?, preferencesFile: () -> Data?) -> [String] {
+        if let livePref { return codes(livePref) }
+        return preferencesFile().flatMap { codes(preferencesFile: $0) } ?? []
+    }
 }
