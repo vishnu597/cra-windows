@@ -111,4 +111,25 @@ struct DownloadMenuTests {
         requests.append(quit.begin())
         #expect(requests == [.new, .new])
     }
+
+    // Windows names a file's kind by its extension (no UTType there).
+    @Test func windowsKindsFromTheExtension() {
+        #expect(DownloadMenu.Kind.of(fileName: "Photo.JPG") == .image)
+        #expect(DownloadMenu.Kind.of(fileName: "setup.iso") == .diskImage)
+        #expect(DownloadMenu.Kind.of(fileName: "a.pdf") == .pdf)
+        #expect(DownloadMenu.Kind.of(fileName: "clip.mkv") == .movie)
+        #expect(DownloadMenu.Kind.of(fileName: "song.flac") == .audio)
+        #expect(DownloadMenu.Kind.of(fileName: "src.zip") == .zip)
+        #expect(DownloadMenu.Kind.of(fileName: "src.7z") == .archive)
+        #expect(DownloadMenu.Kind.of(fileName: "notes.txt") == nil)
+        #expect(DownloadMenu.Kind.of(fileName: "README") == nil)
+        #expect(DownloadMenu.title(.open, kind: DownloadMenu.Kind.of(fileName: "notes.txt"), fileName: "notes.txt") == "Open txt")
+    }
+
+    @Test func windowsWordsForFinderAndTheTrash() {
+        #expect(DownloadMenu.windowsTitle(.showInFinder, kind: nil, fileName: "a.zip") == "Show in Folder")
+        #expect(DownloadMenu.windowsTitle(.moveToTrash, kind: nil, fileName: "a.zip") == "Move to Recycle Bin")
+        #expect(DownloadMenu.windowsTitle(.open, kind: .zip, fileName: "a.zip") == "Open Zip Archive")
+        #expect(DownloadMenu.windowsTitle(.pause, kind: nil, fileName: "a.zip") == "Pause Download")
+    }
 }

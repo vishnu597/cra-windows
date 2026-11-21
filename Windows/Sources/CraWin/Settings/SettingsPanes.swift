@@ -394,7 +394,8 @@ enum SettingsPanes {
     /// it, Rename… and Delete… on a profile, Create Profile… under the card. Arc only deletes
     /// profiles no space uses, and never Default. `newProfile` opens Create a new Profile in the
     /// browser window in use.
-    static func profiles(store: SidebarStore, palette: SettingsPalette, newProfile: @escaping @MainActor () -> Void) -> SettingsPaneContent {
+    static func profiles(store: SidebarStore, palette: SettingsPalette, owner: @escaping @MainActor () -> UInt,
+                         newProfile: @escaping @MainActor () -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
         stack.margin = Thickness(left: Double(DiaSettingsMetrics.paneInset), top: Double(DiaSettingsMetrics.paneTop),
@@ -425,12 +426,12 @@ enum SettingsPanes {
             let rows: [(String, BrowserProfile?, [Space])] = [("Default", nil, store.spaces(usingProfile: nil))]
                 + store.profiles.map { ($0.name, $0, store.spaces(usingProfile: $0.id)) }
             let signature = rows.map { "\($0.1?.id.uuidString ?? "-")|\($0.0)|" + $0.2.map { "\($0.emoji)\($0.title)" }.joined(separator: ",") }
-                .joined(separator: "\n")
+                .joined(separator: "\n") + "\n" + DownloadLocation.bridgeLines(store.settings.downloadLocations, profiles: store.profiles)
             guard signature != shown else { return }
             shown = signature
             var parts: [AnyObject] = []
             holder.child = card(rows.map { name, profile, spaces in
-                profileRow(name: name, profile: profile, spaces: spaces, store: store, palette: palette) { parts.append($0) }
+                profileRow(name: name, profile: profile, spaces: spaces, store: store, palette: palette, owner: owner) { parts.append($0) }
             }, palette: palette)
             kept = parts
         }
@@ -439,7 +440,7 @@ enum SettingsPanes {
     }
 
     private static func profileRow(name: String, profile: BrowserProfile?, spaces: [Space], store: SidebarStore,
-                                   palette: SettingsPalette, keep: (AnyObject) -> Void) -> Grid {
+                                   palette: SettingsPalette, owner: @escaping @MainActor () -> UInt, keep: (AnyObject) -> Void) -> Grid {
         let row = Grid()
         row.minHeight = Double(DiaSettingsMetrics.cardRowHeight) + 8
         row.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 6, right: Double(DiaSettingsMetrics.cardRowInset), bottom: 6)
@@ -452,12 +453,15 @@ enum SettingsPanes {
         let used = spaces.isEmpty ? "No Spaces" : spaces.map { "\($0.emoji) \($0.title)" }.joined(separator: ", ")
         labels.children.append(UI.text(used, size: 11, color: palette.secondaryText))
         row.children.append(labels)
-        guard let profile else { return row }
 
         let buttons = StackPanel()
         buttons.orientation = .horizontal
         buttons.spacing = 6
         buttons.verticalAlignment = .center
+        row.children.append(buttons)
+        try? Grid.setColumn(buttons, 1)
+        buttons.children.append(downloadLocationButton(name: name, profileID: profile?.id, store: store, owner: owner, keep: keep))
+        guard let profile else { return row }
 
         // Rename…: the name in a field under the button, Return or Rename to keep it.
         let rename = Button()
@@ -522,10 +526,48 @@ enum SettingsPanes {
         delete.flyout = deleteFlyout
         keep(deleteFlyout)
         buttons.children.append(delete)
-
-        row.children.append(buttons)
-        try? Grid.setColumn(buttons, 1)
         return row
+    }
+
+    /// Arc's per-profile "Download location" pop-up (the Mac's ProfilesPane.downloadPicker): the
+    /// folder, Other… for Windows' folder picker, and Ask Where to Save Each File.
+    private static func downloadLocationButton(name: String, profileID: UUID?, store: SidebarStore,
+                                               owner: @escaping @MainActor () -> UInt, keep: (AnyObject) -> Void) -> Button {
+        let location = store.settings.downloadLocation(profileID: profileID)
+        let button = Button()
+        button.content = UI.text((location.askWhereToSave ? "Ask Each Time" : location.folderName) + "  ⌄", trimmed: false)
+        try? AutomationProperties.setName(button, "Download location for \(name)")
+        if let folder = location.folder { try? ToolTipService.setToolTip(button, folder) }
+        let menu = MenuFlyout()
+        func set(_ change: (inout DownloadLocation) -> Void) {
+            var l = store.settings.downloadLocation(profileID: profileID)
+            change(&l)
+            store.settings.setDownloadLocation(l, profileID: profileID)
+        }
+        let folderItem = ToggleMenuFlyoutItem()
+        folderItem.text = location.folderName
+        folderItem.isChecked = !location.askWhereToSave
+        folderItem.click.addHandler { _, _ in set { $0.askWhereToSave = false } }
+        menu.items.append(folderItem)
+        let other = MenuFlyoutItem()
+        other.text = "Other…"
+        other.click.addHandler { _, _ in
+            guard let path = WinShell.pickFolderPath(owner: owner(), title: "Choose where \(name) saves downloaded files"),
+                  DownloadLocation.isAbsolute(path) else { return }
+            // Picking Downloads itself goes back to the default, as on the Mac.
+            set { $0.folder = DownloadLocation.picked(path, downloads: WinShell.downloadsFolder); $0.askWhereToSave = false }
+        }
+        menu.items.append(other)
+        menu.items.append(MenuFlyoutSeparator())
+        let ask = ToggleMenuFlyoutItem()
+        ask.text = "Ask Where to Save Each File"
+        ask.isChecked = location.askWhereToSave
+        ask.click.addHandler { _, _ in set { $0.askWhereToSave = true } }
+        menu.items.append(ask)
+        button.flyout = menu
+        keep(menu)
+        keep(button)
+        return button
     }
 
     // MARK: Pieces

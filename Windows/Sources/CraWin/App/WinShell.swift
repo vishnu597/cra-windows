@@ -217,10 +217,22 @@ enum WinShell {
 
     /// Windows' folder picker; the chosen folder, nil if cancelled.
     static func pickFolder(owner: UInt, title: String) -> URL? {
+        pickFolderPath(owner: owner, title: title).map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    /// The user's Downloads folder as Windows writes it, nil when Windows can't say.
+    static var downloadsFolder: String? {
+        let capacity = 4096
+        var buffer = [CChar](repeating: 0, count: capacity)
+        return cra_downloads_folder(&buffer, capacity) != 0 ? String(cString: buffer) : nil
+    }
+
+    /// The same picker's answer as Windows writes it ("D:\\Work"), for settings that keep a path.
+    static func pickFolderPath(owner: UInt, title: String) -> String? {
         let capacity = 4096
         var buffer = [CChar](repeating: 0, count: capacity)
         let chosen = title.withCString { t in cra_pick_folder_dialog(owner, t, &buffer, capacity) }
         guard chosen != 0 else { return nil }
-        return URL(fileURLWithPath: String(cString: buffer), isDirectory: true)
+        return String(cString: buffer)
     }
 }

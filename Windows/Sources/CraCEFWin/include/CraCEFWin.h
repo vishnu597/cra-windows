@@ -92,6 +92,13 @@ void cra_cef_set_https_only(int enabled);
 /// 0 Windows' own app mode, 1 light, 2 dark (`WebsiteAppearance.chromiumMode`).
 void cra_cef_set_website_appearance(int mode);
 
+/// Settings ▸ Profiles ▸ Download location (Arc's, per profile): one line per profile that chose
+/// something, "<Chromium folder>\t<folder>\t<1 to ask where to save>" (`DownloadLocation.bridgeLines`),
+/// the Chromium folder "Default" or "Profile <id>". A profile not listed, or whose folder is
+/// empty or gone, saves to the user's Downloads folder; asking shows Windows' Save dialog there.
+/// Private windows follow Default. Replaces the whole list; safe from the UI thread.
+void cra_cef_set_download_locations(const char *lines);
+
 /// Arc's "Allow window dragging from the top of webpages": a plain left press within `band` DIPs
 /// of a page's top (less `trailing_inset` DIPs at its right edge, for the scrollbar), over the
 /// ordinary arrow, moves the window once the pointer passes Windows' drag distance; the page gets
@@ -155,6 +162,13 @@ int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count);
 /// Windows' folder picker titled `title`, over `owner` (an HWND). The chosen folder's path goes
 /// to `out` (UTF-8, `capacity` bytes). 1 when a folder was chosen. Modal.
 int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *out, size_t capacity);
+/// The file itself on the clipboard, as Explorer's Copy puts it (CF_HDROP): it pastes into
+/// Explorer, Mail or a chat. 1 when it's there.
+int cra_clipboard_set_file(const char *path);
+/// The file into the Recycle Bin, without asking. 1 when it went.
+int cra_shell_recycle(const char *path);
+/// The user's Downloads folder (wherever they moved it), UTF-8 into `out`. 1 when known.
+int cra_downloads_folder(char *out, size_t capacity);
 /// Windows' Save dialog for a PNG, in Downloads, suggesting `file_name`. The chosen path goes to
 /// `out` (UTF-8, `capacity` bytes). 1 when a path was chosen. Modal.
 int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity);
@@ -310,7 +324,20 @@ typedef struct CraDownloadInfo {
     int64_t total_bytes;
     int percent;
     CraDownloadState state;
+    /// Paused from its row's menu (still in progress for Chromium).
+    int paused;
 } CraDownloadInfo;
+
+/// What a download row's menu asks of one in progress (CraCEF.h's CraDownloadControl).
+typedef enum CraDownloadControl {
+    CraDownloadControlPause = 0,
+    CraDownloadControlResume = 1,
+    CraDownloadControlCancel = 2,
+} CraDownloadControl;
+
+/// Pauses, resumes or cancels download `identifier`; its next report shows the change. 0 when no
+/// download in progress has that id. UI thread.
+int cra_cef_control_download(uint32_t identifier, CraDownloadControl action);
 
 /// Modifier bits of CraKeyEvent, the same values as CEF's cef_event_flags_t.
 enum {

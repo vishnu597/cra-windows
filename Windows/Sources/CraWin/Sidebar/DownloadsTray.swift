@@ -202,6 +202,7 @@ final class DownloadsTray {
         private let name = TextBlock()
         private let subtitle = TextBlock()
         private var path: String?
+        private var item: DownloadHistory.Listed?
         /// Kept here: a WinRT object built from Swift is only a wrapper, so a weak capture of it
         /// is nil once nothing in Swift holds it, however long XAML keeps the control.
         private let menu = MenuFlyout()
@@ -243,12 +244,11 @@ final class DownloadsTray {
                 args?.handled = true
                 Shell.open(path)
             }
-            menu.items.append(UI.menuItem("Open") { [weak self] in self?.path.map(Shell.open) })
-            menu.items.append(UI.menuItem("Show in Folder") { [weak self] in self?.path.map(Shell.showInFolder) })
+            // Arc's download menu, built as it opens (DownloadMenu): Pause, Resume and Cancel
+            // while it runs, Open, Copy, Show in Folder, Hide and Move to Recycle Bin once done.
             menu.opening.addHandler { [weak self] _, _ in
-                // Running, failed and cancelled downloads have no file to open yet.
-                guard let self, self.path == nil else { return }
-                try? self.menu.hide()
+                guard let self, let item = self.item else { return }
+                DownloadRowMenu.fill(self.menu, for: item)
             }
             root.contextFlyout = menu
         }
@@ -277,6 +277,7 @@ final class DownloadsTray {
             let line = item.subtitle(now: now)
             if subtitle.text != line { subtitle.text = line }
             if case .finished(let entry) = item { path = entry.path } else { path = nil }
+            self.item = item
         }
     }
 }
@@ -340,9 +341,16 @@ final class DownloadThumbnails {
 enum Shell {
     static func open(_ path: String) { run("open", path, nil) }
 
-    /// Explorer on the user's Downloads folder, where Cra saves downloads (CraCEFWin's
-    /// DownloadsFolder).
-    static func openDownloadsFolder() { run("open", "explorer.exe", "shell:Downloads") }
+    /// Explorer on the folder a profile saves to: its Download location from Settings ▸ Profiles
+    /// while that folder is there, else the user's Downloads folder (CraCEFWin's DownloadFolderFor).
+    static func openDownloadsFolder(_ location: DownloadLocation = DownloadLocation()) {
+        var isFolder: ObjCBool = false
+        if let folder = location.folder, FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder), isFolder.boolValue {
+            run("open", "explorer.exe", "\"\(folder)\"")
+        } else {
+            run("open", "explorer.exe", "shell:Downloads")
+        }
+    }
 
     /// An Explorer window on the file's folder, the file selected (explorer /select didn't
     /// select it in a window already open on the folder).
