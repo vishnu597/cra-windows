@@ -240,6 +240,8 @@ public enum KeyBindingDefaults {
         // The Mac opens Chromium's History page (#590, HistoryPage); Windows' Ctrl+H still opens
         // the Library's Archived Tabs.
         "viewArchive": ("View History", "Open the archive of closed tabs.", ["archive", "history", "closed tabs"]),
+        // The Mac names it Show or Hide Toolbar as the View menu opens; Windows' command bar has one name.
+        "toggleToolbar": ("Toggle Toolbar", "Show or hide the toolbar above the page.", ["toolbar", "address bar"]),
     ]
 
     /// The Mac's menu-bar-only commands (Edit ▸ Find's) that Windows lists in its command bar:
@@ -297,6 +299,10 @@ public enum KeyBindingDefaults {
             "nextSpace": [KeyChord(KeyChord.right, ctrlAlt)],
             "previousSpace": [KeyChord(KeyChord.left, ctrlAlt)],
             "stayOnTop": [],
+            // View ▸ Show Toolbar from the command bar: the Mac's ⇧⌘D is Ctrl+Shift+D, Developer
+            // Mode, here. Stop is the toolbar's ✕ (Escape stays the page's).
+            "toggleToolbar": [],
+            "stop": [],
             "changeProfile": [],
             "newProfile": [],
             "share": [],
