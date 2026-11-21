@@ -41,6 +41,8 @@ final class SpaceStyleEditorView {
     private let onChange: @MainActor (SpaceTheme) -> Void
     private let onClose: @MainActor () -> Void
     private var key: [String]
+    /// Where + , − and a drag put the second and third colours (Arc's `wheel`, #632).
+    private var wheel: SpaceColorWheel.Wheel
     private var appearance: String
     private var page: Int
     /// The knob a press holds (0 is the main colour).
@@ -61,6 +63,7 @@ final class SpaceStyleEditorView {
         self.onChange = onChange
         self.onClose = onClose
         key = SpaceThemeVariants.padKey(of: theme)
+        wheel = theme.wheel ?? SpaceColorPresets.wheel(of: key)
         appearance = theme.appearance
         page = SpaceColorPresets.page(of: key) ?? (SpaceColorPresets.pages.indices.contains(Self.lastPage) ? Self.lastPage : 0)
 
@@ -141,12 +144,12 @@ final class SpaceStyleEditorView {
         // − takes the last colour too: an empty pad is Arc's colourless theme (#300).
         minus.click.addHandler { [weak self] _, _ in
             guard let self, SpaceColorWheel.canRemove(self.key.count) else { return }
-            self.key.removeLast()
+            self.key = SpaceColorWheel.removing(from: self.key, wheel: self.wheel)
             self.changed()
         }
         plus.click.addHandler { [weak self] _, _ in
             guard let self else { return }
-            self.key = SpaceColorWheel.adding(to: self.key)
+            (self.key, self.wheel) = SpaceColorWheel.adding(to: self.key, wheel: self.wheel)
             self.changed()
         }
         pad.children.append(padButtons)
@@ -208,7 +211,8 @@ final class SpaceStyleEditorView {
 
     /// The pad's state as a theme (SpaceThemeVariants), shown in the space at once.
     private func changed() {
-        let theme = SpaceThemeVariants.theme(key: key, intensity: intensity.value, noise: grain.value, appearance: appearance)
+        let theme = SpaceThemeVariants.theme(key: key, intensity: intensity.value, noise: grain.value, appearance: appearance,
+                                             wheel: wheel)
         onChange(theme)
         refresh(theme)
     }
@@ -218,7 +222,7 @@ final class SpaceStyleEditorView {
     private func place(at p: (x: Double, y: Double)) {
         let c = Self.padSide / 2
         let pick = SpaceColorWheel.padPick(dx: p.x - c, dy: p.y - c)
-        key = SpaceColorWheel.placed(key, handle: held ?? 0, hue: pick.hue, saturation: pick.saturation)
+        key = SpaceColorWheel.placed(key, handle: held ?? 0, hue: pick.hue, saturation: pick.saturation, wheel: wheel)
         changed()
     }
 
@@ -298,7 +302,10 @@ final class SpaceStyleEditorView {
             dot.height = 24
             dot.fill = Self.gradient(colors)
             let b = UI.button(dot, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in
+                // A page-2 swatch is three colours on the analogous wheel, any other one colour
+                // that + takes across the wheel (#632).
                 self?.key = colors
+                self?.wheel = page.wheel
                 self?.changed()
             }
             b.cornerRadius = CornerRadius(topLeft: 12, topRight: 12, bottomRight: 12, bottomLeft: 12)
