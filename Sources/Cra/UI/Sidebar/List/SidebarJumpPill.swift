@@ -13,12 +13,12 @@ import AppKit
 final class SidebarJumpPill: NSView {
     enum Edge { case top, bottom }
 
-    static let inset: CGFloat = 7
-    private static let height: CGFloat = 28
-    private static let padding: CGFloat = 10.5
-    private static let icon: CGFloat = 16
+    static let inset = JumpPillLayout.inset
+    private static let height = JumpPillLayout.height
+    private static let padding = JumpPillLayout.padding
+    private static let icon = JumpPillLayout.icon
     /// Each further favicon of a split overlaps the one before by this much.
-    private static let overlap: CGFloat = 5
+    private static let overlap = JumpPillLayout.overlap
     private static let fill = NSColor(srgbRed: 0x1F / 255, green: 0x1C / 255, blue: 0x1C / 255, alpha: 1)
     private static let fillHover = NSColor(srgbRed: 0x2A / 255, green: 0x27 / 255, blue: 0x27 / 255, alpha: 1)
 
@@ -61,10 +61,9 @@ final class SidebarJumpPill: NSView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
-    /// The pill's size for these many favicons.
+    /// The pill's size for these many favicons (JumpPillLayout, shared with Windows).
     static func size(icons n: Int) -> NSSize {
-        let iconsW = icon + CGFloat(max(0, n - 1)) * (icon - overlap)
-        return NSSize(width: ceil(padding + iconsW + 7 + 7 + padding), height: height)
+        NSSize(width: JumpPillLayout.width(icons: n), height: height)
     }
 
     /// Shows the pill at `edge` with these favicons, or hides it (nil).
