@@ -93,6 +93,9 @@ final class SidebarView {
     private let favicons: Favicons
     weak var actions: SidebarActions?
     private(set) var palette = SidebarPalette(SpaceTheme.presets[0])
+    /// The window's active look (HostWindow.activeLook): a one-colour or editor-made space goes
+    /// to Arc's flat inactive grey under its colour while another app or window is in front.
+    var windowActive = true
     /// Controls a handler reaches weakly: a WinRT control made in Swift is only a wrapper, freed
     /// (and its weak references nil) once Swift lets go of it, however long XAML shows it.
     private var kept: [AnyObject] = []
@@ -203,7 +206,7 @@ final class SidebarView {
     /// Draws the focused space. Everything it reads from the store is what a change redraws.
     func build() {
         let space = store.focusedSpace(window: windowID)
-        palette = SidebarPalette(space.theme)
+        palette = SidebarPalette(space.theme, active: windowActive)
         kept = []
         folderRows = [:]
         rowMeta = []
