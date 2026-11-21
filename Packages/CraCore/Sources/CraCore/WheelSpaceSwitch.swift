@@ -63,4 +63,15 @@ public struct WheelSpaceSwitch: Sendable {
         if next < 0 { return libraryAllowed && step < 0 ? .openLibrary : nil }
         return next < count && step != 0 ? .space(next) : nil
     }
+
+    /// A Windows wheel event (WM_MOUSEWHEEL or WM_MOUSEHWHEEL's delta, 120 a notch) as the lines
+    /// `step` reads, signed like AppKit's `scrollingDeltaX` from a device that isn't inverted
+    /// (Windows has no natural scrolling for a mouse). Shift + wheel down (a negative delta) goes
+    /// to the next space as on the Mac, and so does tilting a sideways wheel right (a positive
+    /// WM_MOUSEHWHEEL delta, a negative `scrollingDeltaX` on the Mac). One notch is one line, so
+    /// a single slow notch does nothing and a flick switches, as in Arc.
+    public static func lines(windowsDelta delta: Int, horizontal: Bool) -> CGFloat {
+        let notches = CGFloat(delta) / 120
+        return horizontal ? -notches : notches
+    }
 }

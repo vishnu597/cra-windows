@@ -30,6 +30,24 @@ public enum DownloadMenu {
 
         /// The first kind the file's type conforms to (the app asks UTType).
         public static func first(where conforms: (Kind) -> Bool) -> Kind? { allCases.first(where: conforms) }
+
+        /// Windows has no UTType: the kind its extension names, in the same order (a .zip is a
+        /// Zip Archive before an Archive). Case doesn't matter.
+        public static func of(fileName: String) -> Kind? {
+            let ext = (fileName as NSString).pathExtension.lowercased()
+            guard !ext.isEmpty else { return nil }
+            return first { extensions[$0]?.contains(ext) ?? false }
+        }
+
+        static let extensions: [Kind: Set<String>] = [
+            .image: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif", "avif", "ico", "svg"],
+            .diskImage: ["dmg", "iso", "img", "vhd", "vhdx"],
+            .pdf: ["pdf"],
+            .movie: ["mp4", "m4v", "mov", "avi", "mkv", "webm", "wmv", "mpg", "mpeg"],
+            .audio: ["mp3", "m4a", "wav", "aac", "flac", "ogg", "opus", "wma", "aiff"],
+            .zip: ["zip"],
+            .archive: ["zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "xz", "cab"],
+        ]
     }
 
     /// The menu's groups, a separator between two. A finished file can be opened, copied, shown,
@@ -58,6 +76,15 @@ public enum DownloadMenu {
         case .cancel: return "Cancel Download"
         case .hide: return "Hide from Cra"
         case .moveToTrash: return "Move to Trash"
+        }
+    }
+
+    /// The same item in Windows' words: Explorer's folder and Recycle Bin for Finder and the Trash.
+    public static func windowsTitle(_ action: Action, kind: Kind?, fileName: String) -> String {
+        switch action {
+        case .showInFinder: return "Show in Folder"
+        case .moveToTrash: return "Move to Recycle Bin"
+        default: return title(action, kind: kind, fileName: fileName)
         }
     }
 }
