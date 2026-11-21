@@ -46,6 +46,8 @@ final class BrowserWindow {
     private var downloads: DownloadsTray!
     /// Downloads this window's pages started (the stall check), and the ones it has recorded.
     private var windowDownloads: Set<UInt32> = []
+    /// Delete Space…'s question while it is up.
+    private var deleteSpaceSheet: AppDialog?
     private var finishedDownloads: Set<UInt32> = []
     private var downloadWatchdog: WinAppSDK.DispatcherQueueTimer?
     private let dispatcher: WinAppSDK.DispatcherQueue
@@ -68,6 +70,8 @@ final class BrowserWindow {
     /// new pane after Add To Split), and that focus mustn't select its tab.
     private var newPages: [ObjectIdentifier: Date] = [:]
     private var shownTabID: UUID?
+    /// Tabs whose video went into Picture in Picture as they were left: it comes back with them.
+    private var autoPictureInPicture: Set<UUID> = []
     /// The panes on screen, in order: the selected tab, or every pane of its split. Their frames
     /// and the gaps between them, in physical pixels relative to the client area.
     private var paneIDs: [UUID] = []
@@ -460,13 +464,30 @@ final class BrowserWindow {
                 focusSidebar()
             }
         }
+        let left = shownTabID
         shownTabID = id
         // Another tab in front: its bar as it is, without the widening or the flash.
         syncLoadingBar(animated: false)
         guard changed else { return }
+        pictureInPictureOnTabChange(from: left, to: id)
         showAddress(page.map { _ in store.item(id ?? UUID())?.tab?.url ?? "" } ?? "")
         // An empty tab (a new pane) waits for an address.
         if id != nil && page == nil { openCommandBar(.editURL) }
+    }
+
+    /// Arc's "Enable Picture in Picture when you leave a video tab" (Settings ▸ Advanced; the Site
+    /// Control Center can turn it off for a site): a video playing aloud in the tab left goes out
+    /// into Picture in Picture, and back into its page when the tab is shown again
+    /// (BrowserManager.leaveTab and returnToTab on the Mac). A tab still in a split pane isn't left.
+    private func pictureInPictureOnTabChange(from left: UUID?, to shown: UUID?) {
+        if let shown, autoPictureInPicture.remove(shown) != nil { pages[shown]?.exitPictureInPicture() }
+        guard let left, left != shown, !paneIDs.contains(left), let page = pages[left],
+              store.settings.allowsAutoPictureInPicture(url: page.currentURL) else { return }
+        page.requestPictureInPicture(automatic: true) { [weak self] answer in
+            guard let self, answer == .entered else { return }
+            // Back on the tab before the page answered: its video comes straight back.
+            if self.shownTabID == left { page.exitPictureInPicture() } else { self.autoPictureInPicture.insert(left) }
+        }
     }
 
     /// Closes every page, then the window once Chromium is done with them (or after 3 s).
@@ -889,6 +910,7 @@ final class BrowserWindow {
         case "renameTab": renameSelectedTab()
         case "duplicateTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { _ = store.duplicateTab(t) }
         case "muteTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { toggleMute(t) }
+        case "pictureInPicture": shownPage?.requestPictureInPicture(automatic: false)
         case "pauseAllMedia": host?.pauseAllMedia { [weak self] text, action in self?.showToast(text, action: action) }
         case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
         case "newFolder": sidebar.newFolder()
@@ -2359,9 +2381,21 @@ extension BrowserWindow: SpacesManagerActions {
     /// last space only says it has to stay (SpaceDeleteConfirmation).
     func confirmDeleteSpace(_ id: UUID) {
         guard let space = store.space(id) else { return }
+        guard !closing, deleteSpaceSheet == nil else { return }
         let prompt = SpaceDeleteConfirmation.prompt(title: space.title, spaceCount: store.spaceOrder.count)
-        guard prompt.canDelete else { return WinDialog.notice(owner: hwnd, title: prompt.title) }
-        if WinDialog.confirm(owner: hwnd, title: prompt.title, message: prompt.message ?? "") { store.deleteSpace(id) }
+        // Arc's dialog sheet, as the Mac asks (AppDialog): Delete in red, Cancel with Escape.
+        let sheet = AppDialog(title: prompt.title, message: prompt.message ?? "", actions: prompt.actions)
+        deleteSpaceSheet = sheet
+        // After the click or key that asked, as the quit question shows.
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { self?.deleteSpaceSheet = nil; return }
+            sheet.present(over: self.window) { [weak self] picked in
+                guard let self else { return }
+                self.deleteSpaceSheet = nil
+                if prompt.deletes(picked: picked) { self.store.deleteSpace(id) }
+                self.focusContent()
+            }
+        }
     }
 }
 

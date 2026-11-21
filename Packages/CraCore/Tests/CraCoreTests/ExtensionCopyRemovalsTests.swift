@@ -62,4 +62,24 @@ struct ExtensionCopyRemovalsTests {
         _ = removed(&removals, profile: "Default", unpacked)
         #expect(!removed(&removals, profile: "Default", [:]))
     }
+
+    /// Windows' Chromium writes `C:\…` paths; a keyless copy is found by its path, whatever the case
+    /// or the slashes.
+    @Test func aWindowsCopyIsFoundByItsPath() {
+        var removals = ExtensionCopyRemovals()
+        let copy = #"C:\Users\Me\AppData\Local\Cra\Extensions\AdBlock"#
+        let loaded: [String: Any] = ["gighmmpiobklfepjocnamgkkbiglidom": ["location": 8, "path": #"c:\users\me\appdata\local\cra\extensions\adblock\"#]]
+        let first = removals.wasRemoved(folder: "AdBlock", copyPath: copy, extensionID: "", profile: "Default", settings: loaded)
+        #expect(!first)
+        let gone = removals.wasRemoved(folder: "AdBlock", copyPath: copy, extensionID: "", profile: "Default", settings: [:])
+        #expect(gone, "removed in chrome://extensions")
+    }
+
+    @Test func aKeyedCopysIDIsChromiums() {
+        #expect(ExtensionCopyRemovals.keyedID(base64Key: nil) == nil)
+        #expect(ExtensionCopyRemovals.keyedID(base64Key: "not base64!") == nil)
+        let id = ExtensionCopyRemovals.keyedID(base64Key: "AAAA")
+        #expect(id?.count == 32)
+        #expect(id?.allSatisfy { ("a"..."p").contains($0) } == true)
+    }
 }
