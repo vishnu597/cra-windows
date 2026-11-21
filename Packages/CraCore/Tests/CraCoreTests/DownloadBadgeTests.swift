@@ -18,7 +18,8 @@ struct DownloadBadgeTests {
     @Test func ringFollowsRunningDownloadsThenChecks() {
         var badge = DownloadBadge()
         #expect(badge.look == .hidden)
-        #expect(badge.update([live(1, received: 25, total: 100)], now: now))
+        let changed = badge.update([live(1, received: 25, total: 100)], now: now)
+        #expect(changed)
         #expect(badge.look == .running(0.25))
         badge.update([live(1, received: 50, total: 100), live(2, received: 0, total: 100)], now: now)
         #expect(badge.look == .running(0.25), "both downloads together")
@@ -60,7 +61,8 @@ struct DownloadBadgeTests {
         #expect(badge.look == .running(0.25))
         badge.doneShown()
         #expect(badge.look == .running(0.25))
-        #expect(badge.update([], now: now), "the ring's download finished")
+        let finished = badge.update([], now: now)
+        #expect(finished, "the ring's download finished")
         #expect(badge.look == .done)
     }
 }
