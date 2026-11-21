@@ -48,7 +48,7 @@ struct SpaceSearchEngineTests {
         #expect(menu.choices.filter(\.isOn).map(\.keyword) == ["duckduckgo.com"])
         let none = SpaceSearchEngineMenu(defaultEngine: E.google, engines: [], spaceKeyword: nil)
         #expect(none.defaultRow.isOn)
-        #expect(none.choices.map(\.title) == ["Google", "DuckDuckGo", "Bing", "Kagi"], "Cra's own list before Web Data loads (Windows)")
+        #expect(none.choices.map(\.title) == ["Google", "DuckDuckGo", "Microsoft Bing", "Kagi"], "Cra's own list before Web Data loads (Windows)")
         let anyOn = none.choices.contains { $0.isOn }
         #expect(!anyOn)
     }
