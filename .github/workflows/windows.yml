@@ -137,6 +137,12 @@ jobs:
         timeout-minutes: 30
         run: Windows/scripts/build.ps1
 
+      # Cra's installer (Windows/installer/Cra.iss): per-user, with the Windows App Runtime.
+      - name: Build the installer
+        shell: pwsh
+        timeout-minutes: 15
+        run: Windows/scripts/installer.ps1 -Version "0.0.${{ github.run_number }}"
+
       - name: Save Swift build
         if: always()
         uses: actions/cache/save@v4
@@ -154,3 +160,10 @@ jobs:
           path: Windows/build/Cra
           retention-days: 7
           if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cra-windows-x64-setup
+          path: Windows/build/installer/*.exe
+          retention-days: 7
+          if-no-files-found: error

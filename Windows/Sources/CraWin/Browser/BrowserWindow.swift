@@ -123,6 +123,12 @@ final class BrowserWindow {
     private var permissionWindow: FloatingWindow?
     private var permissionHeight = 120.0
     private let profileDialog = ProfileDialogView()
+    /// "Quit Cra?" over this window, made the first time it's asked.
+    private var quitDialog: QuitDialogView?
+    private var quitWindow: FloatingWindow?
+    private var quitAnswer: ((QuitDialog.Answer) -> Void)?
+    /// Edit Pinned Page ▸ Edit… on a pinned tab or favorite.
+    private lazy var editPinnedDialog = EditPinnedURLDialog()
     private var profileWindow: FloatingWindow?
     private var profileDialogHeight = 400.0
     private let importDialog = ImportDialogView()
@@ -259,6 +265,8 @@ final class BrowserWindow {
         // Chromium closes its pages before their parent window goes (CEF's DoClose order).
         window.shouldClose = { [weak self] in
             guard let self, !self.readyToClose else { return true }
+            // Closing the last window quits Cra: "Quit Cra?" or "Downloads in progress" first.
+            guard self.closing || self.host?.confirmQuit(closing: self) != false else { return false }
             self.saveFrame()
             guard !self.canFinishClosing else { return true }
             self.beginClosing()
@@ -981,7 +989,10 @@ final class BrowserWindow {
         let now = Date()
         let cutoff = now.addingTimeInterval(-policy.hiddenFor)
         let visible = paneIDs
-        let list = pages.keys.map { TabSleepPolicy.Page(id: $0, hiddenAt: hiddenAt[$0]) }
+        // "Always keep these sites active" (#458): a listed site's page never sleeps on the timer.
+        let list = pages.map { id, page in
+            TabSleepPolicy.Page(id: id, hiddenAt: hiddenAt[id], keptActive: settings.keepsActive(url: page.currentURL))
+        }
         for id in policy.candidates(list, visible: visible, now: now) {
             guard let page = pages[id], sleepAskAfter[id].map({ $0 <= now }) ?? true else { continue }
             let state = TabSleepPolicy.PageState(hiddenAt: hiddenAt[id], visible: visible.contains(id), created: page.isCreated,
@@ -1644,6 +1655,52 @@ final class BrowserWindow {
                             size: SizeInt32(width: Int32(width), height: Int32(height)))
     }
 
+    // MARK: Quit
+
+    /// Shows `dialog` centred on the window; `answer` gets the button pressed, or stay for Escape,
+    /// Alt+F4 on the card and the window going first.
+    func askToQuit(_ dialog: QuitDialog, answer: @escaping (QuitDialog.Answer) -> Void) {
+        guard !closing else { return answer(.stay) }
+        if quitDialog == nil {
+            let view = QuitDialogView()
+            view.onAnswer = { [weak self] in self?.answerQuit($0) }
+            do {
+                quitWindow = try FloatingWindow(owner: window, content: view.root)
+                quitWindow?.onClose = { [weak self] in self?.answerQuit(QuitDialog.dismissed) }
+                quitDialog = view
+            } catch {
+                print("Cra: the quit dialog's window could not be made: \(error)")
+                return answer(.quit)
+            }
+        }
+        guard let quitDialog, let quitWindow else { return answer(.quit) }
+        quitAnswer = answer
+        let height = quitDialog.show(dialog)
+        let scale = window.scale
+        let position = window.appWindow.position, size = window.appWindow.size
+        let width = (QuitDialogView.width * scale).rounded(), h = (height * scale).rounded()
+        let left = Double(position.x) + (Double(size.width) - width) / 2
+        let top = Double(position.y) + max(0, (Double(size.height) - h) / 2)
+        // After the key or click that asked, as the profile dialog shows.
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing, self.quitAnswer != nil else { return }
+            quitWindow.place(origin: PointInt32(x: Int32(left.rounded()), y: Int32(top.rounded())),
+                             size: SizeInt32(width: Int32(width), height: Int32(h)))
+            quitWindow.show { [weak self] in self?.quitDialog?.focus() }
+        }
+    }
+
+    private func answerQuit(_ answer: QuitDialog.Answer) {
+        guard let done = quitAnswer else { return }
+        quitAnswer = nil
+        if quitWindow?.isVisible == true {
+            quitWindow?.hide()
+            if let window = HWND(bitPattern: hwnd) { _ = SetForegroundWindow(window) }
+            if answer == .stay { focusContent() }
+        }
+        done(answer)
+    }
+
     // MARK: Import
 
     private func makeImportDialog() {
@@ -2299,6 +2356,24 @@ extension BrowserWindow: SidebarActions {
     func resetPinnedTab(_ id: UUID) {
         guard let home = store.resetPinnedTab(id) else { return }
         pages[id]?.loadURL(home)
+    }
+
+    /// Edit Pinned Page ▸ Edit… (the Mac's MainWindowController.editPinnedURL, #54): a tab on its
+    /// pinned page goes to the new one; one away from it keeps its page.
+    func editPinnedURL(_ id: UUID) {
+        guard !closing, let window, let tab = store.item(id)?.tab, store.isPinned(id), tab.liveItemURL == nil else { return }
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { return }
+            self.editPinnedDialog.present(over: window, url: tab.savedURL, onSave: { [weak self] url in
+                guard let self, let before = self.store.item(id)?.tab, self.store.setPinnedURL(id, to: url),
+                      before.url == before.savedURL, before.url != url else { return }
+                self.pages[id]?.loadURL(url)
+            }, onDone: { [weak self] in
+                guard let self else { return }
+                if let host = HWND(bitPattern: self.hwnd) { _ = SetForegroundWindow(host) }
+                self.focusContent()
+            })
+        }
     }
 
     /// Arc's Ctrl-click (the Mac's ⌘-click) on the favicon of a pinned tab away from its page,

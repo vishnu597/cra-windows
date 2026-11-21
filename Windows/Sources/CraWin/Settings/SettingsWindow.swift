@@ -33,6 +33,8 @@ final class SettingsWindow {
     private var refreshQueued = false
     /// Settings ▸ Tabs ▸ Air Traffic Control…, over the whole window.
     private var airTrafficControl: AirTrafficControlSheet!
+    /// Settings ▸ Tabs ▸ Memory ▸ Always keep these sites active ▸ Sites…, over the whole window.
+    private var keepActiveSites: KeepActiveSitesSheet!
     /// Settings ▸ Profiles ▸ Create Profile…: Create a new Profile in the browser window that
     /// last opened Settings.
     var onNewProfile: () -> Void = {}
@@ -55,6 +57,7 @@ final class SettingsWindow {
         WindowIcon.apply(to: UInt(appWindow.id.value))
         try xaml.initialize(appWindow.id)
         airTrafficControl = AirTrafficControlSheet(store: store, palette: palette)
+        keepActiveSites = KeepActiveSitesSheet(store: store, palette: palette)
         xaml.content = makeLayout()
         appWindow.closing.addHandler { [weak self] _, args in
             args?.cancel = true
@@ -90,6 +93,7 @@ final class SettingsWindow {
 
     func hide() {
         airTrafficControl.hide()
+        keepActiveSites.hide()
         nav.isOpen = false
         try? appWindow.hide()
     }
@@ -147,13 +151,16 @@ final class SettingsWindow {
 
         root.children.append(airTrafficControl.root)
         try? Grid.setColumnSpan(airTrafficControl.root, 3)
+        root.children.append(keepActiveSites.root)
+        try? Grid.setColumnSpan(keepActiveSites.root, 3)
         // Escape closes the sheet, wherever in it the keyboard is (a menu or a list that is open
         // takes its own Escape first).
         root.keyDown.addHandler { [weak self] _, args in
-            guard let self, let args, !args.handled, self.airTrafficControl.isShown,
+            guard let self, let args, !args.handled, self.airTrafficControl.isShown || self.keepActiveSites.isShown,
                   Int32(truncatingIfNeeded: args.key.rawValue) == 0x1B else { return }
             args.handled = true
             self.airTrafficControl.hide()
+            self.keepActiveSites.hide()
         }
         return root
     }
@@ -266,7 +273,10 @@ final class SettingsWindow {
         let built: SettingsPaneContent
         switch pane {
         case .tabs:
-            built = SettingsPanes.tabs(store: store, palette: palette) { [weak self] button in self?.airTrafficControl.show(from: button) }
+            built = SettingsPanes.tabs(store: store, palette: palette,
+                                       keepActiveSites: { [weak self] button in self?.keepActiveSites.show(from: button) }) { [weak self] button in
+                self?.airTrafficControl.show(from: button)
+            }
         case .privacy: built = SettingsPanes.privacy(store: store, palette: palette) { [weak self] url in self?.onOpenURL(url) }
         case .profiles:
             built = SettingsPanes.profiles(store: store, palette: palette, owner: { [weak self] in
@@ -281,7 +291,7 @@ final class SettingsWindow {
             let view = ShortcutsPaneView(bindings: WinKeyBindings.shared, palette: palette)
             built = SettingsPaneContent(element: view.root) { view.render() }
         default:
-            built = SettingsPanes.general(palette: palette, importData: { [weak self] in self?.onImport() }, exportSpaces: { [weak self] in
+            built = SettingsPanes.general(store: store, palette: palette, importData: { [weak self] in self?.onImport() }, exportSpaces: { [weak self] in
                 guard let self else { return }
                 SettingsPanes.exportSpaces(store: self.store, owner: UInt(self.appWindow.id.value))
             })

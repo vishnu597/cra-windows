@@ -333,6 +333,7 @@
 #205   Packages/CraCore/Tests/CraCoreTests/SpaceIconTests.swift::iconsNeverStack  7ffc5abe0004
 #205   Packages/CraCore/Tests/CraCoreTests/SpaceIconTests.swift::readingTheStoredPair  517e549811b6
 #205   Packages/CraCore/Tests/CraCoreTests/SpaceIconTests.swift::savingTheIconItReadsChangesNothing  d7e745d4f478
+#207   Packages/CraCore/Tests/CraCoreTests/WindowsAppLinksTests.swift::appLinksThatAskForATabOpenNone  28700f5055ba
 #208   Tests/Scenarios/middle-click-page.scenario  745469858ccb
 #209   Packages/CraCore/Tests/CraCoreTests/BrowserLanguagesTests.swift::dropsWhatIsNotALanguageList  92f271a1ba67
 #209   Packages/CraCore/Tests/CraCoreTests/BrowserLanguagesTests.swift::namesLanguagesInEnglish  11c15535bb75
@@ -404,6 +405,7 @@
 #242   Tests/Scenarios/peek-per-tab.scenario  8f4c23cdb33b
 #243   Packages/CraCore/Tests/CraCoreTests/TabRowTrailingTests.swift::hoveredNameRunsToTheCloseButton  0a8658ede567
 #243   Packages/CraCore/Tests/CraCoreTests/TabRowTrailingTests.swift::restingTailIsUnchanged  f479053f4258
+#243   Packages/CraCore/Tests/CraCoreTests/TabRowTrailingTests.swift::tailBeforeTheControls  a155a451fd51
 #245   Packages/CraCore/Tests/CraCoreTests/DownloadListTests.swift::libraryListsRunningDownloads  fec003db07c1
 #246   Packages/CraCore/Tests/CraCoreTests/PictureInPictureLayoutTests.swift::sizeStaysInTheLimits  5f329cd4f0d0
 #246   Packages/CraCore/Tests/CraCoreTests/PictureInPictureLayoutTests.swift::topBarIsArcs  10b6eff069fc
@@ -515,6 +517,7 @@
 #298   Tests/BrowserManagerLifecycleTests.swift::optionClickSplitCase  aa8e58149cbf
 #298   Tests/Scenarios/link-option-click-split.scenario  6d9f4aa10ef3
 #299   Packages/CraCore/Tests/CraCoreTests/DataFolderOwnerTests.swift::aFolderNoOneLocksIsFree  23be5ccbb5d0
+#299   Packages/CraCore/Tests/CraCoreTests/DataFolderOwnerTests.swift::windowsLaunchStepsWaitForTheCraHoldingTheFolder  1d658fe1e0d6
 #299   Packages/CraCore/Tests/CraCoreTests/UnpackedCopiesTests.swift::aManifestKeyGivesBothTheSameID  01c437e8c044
 #299   Packages/CraCore/Tests/CraCoreTests/UnpackedCopiesTests.swift::addUnpackedCopyOfAFolderLoadedInPlace  525ccb2ef3b7
 #299   Packages/CraCore/Tests/CraCoreTests/UnpackedCopiesTests.swift::importedCopyIsNamedAfterTheOriginalsID  4b08e525f482
@@ -920,6 +923,7 @@
 #458   Packages/CraCore/Tests/CraCoreTests/TabSleepPolicyTests.swift::keptActivePagesGoLastUnderPressure  76cc9349516a
 #458   Packages/CraCore/Tests/CraCoreTests/TabSleepPolicyTests.swift::keptActivePagesOutlastTheClock  e70d89d7db36
 #458   Packages/CraCore/Tests/CraCoreTests/TabSleepPolicyTests.swift::keptActivePagesTakeNoRecentPlace  6aa6bcffc0ed
+#458   Packages/CraCore/Tests/CraCoreTests/WindowsKeepActiveSitesTests.swift::aTypedSiteKeepsItsPagesAwakeOnTheTimer  c3cd23a701b6
 #458   Tests/BrowserManagerLifecycleTests.swift::keepActiveSitesCase  b494d97c05dc
 #458   Tests/Scenarios/keep-active-sites.scenario  d1d4f2c01029
 #459   Packages/CraCore/Tests/CraCoreTests/MCPProtocolTests.swift::fullServerReplySaysWhy  c603156a09f1
@@ -1475,10 +1479,13 @@
 #658   Packages/CraCore/Tests/CraCoreTests/EaselObjectsTests.swift::thePickerShowsOverTextOrShapesNotBoth  32e2f573da8c
 #658   Tests/Scenarios/easel-text-colour.scenario  5e2fb83621eb
 #660   Tests/Scenarios/extension-store-copy-install-type.scenario  4b8996fb57e7
+#662   Tests/Scenarios/folder-menu-move-to.scenario  3a945485c54c
+#662   Tests/StoreTests.swift::moveFolderToSpace  9ed4ea1a093d
 #663   Packages/CraCore/Tests/CraCoreTests/SidebarAddressPanelTests.swift::heightHoldsTheRows  a6e40310f510
 #663   Packages/CraCore/Tests/CraCoreTests/SidebarAddressPanelTests.swift::narrowWindowKeepsItInside  e06afe457fa5
 #663   Packages/CraCore/Tests/CraCoreTests/SidebarAddressPanelTests.swift::widthFollowsTheAddress  79805ff882f9
 #663   Tests/Scenarios/sidebar-address-panel.scenario  47c1675a154a
+#664   Tests/ExtensionPopupWindowTests.swift::keepsADragWithARealMouse  6a0e405853da
 crash-1086-external-schemes Packages/CraCore/Tests/CraCoreTests/MobileExternalLinksTests.swift::aFrameWithoutATapDoesNothing  ddb0de68baae
 crash-1086-external-schemes Packages/CraCore/Tests/CraCoreTests/MobileExternalLinksTests.swift::aTappedLinkToAnotherAppsAddressOpensThatApp  4c21b7b69b3b
 crash-1086-external-schemes Packages/CraCore/Tests/CraCoreTests/MobileExternalLinksTests.swift::theAppsOwnAddressesStay  6d4433526f85
