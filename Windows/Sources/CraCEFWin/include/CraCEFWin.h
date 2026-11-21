@@ -172,6 +172,9 @@ int cra_clipboard_set_file(const char *path);
 int cra_shell_recycle(const char *path);
 /// The user's Downloads folder (wherever they moved it), UTF-8 into `out`. 1 when known.
 int cra_downloads_folder(char *out, size_t capacity);
+/// Cra.exe's product version ("1.2.3") from its version information into `out`; 0 without it.
+/// A local build says "0.0.0" (Resources/Cra.rc).
+int cra_app_version(char *out, size_t capacity);
 /// Windows' Save dialog for a PNG, in Downloads, suggesting `file_name`. The chosen path goes to
 /// `out` (UTF-8, `capacity` bytes). 1 when a path was chosen. Modal.
 int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity);

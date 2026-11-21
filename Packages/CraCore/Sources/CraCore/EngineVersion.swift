@@ -14,4 +14,14 @@ public enum CraVersion {
         let version = build.isEmpty ? "Cra \(short)" : "Cra \(short) (\(build))"
         return engine.isEmpty ? version : "\(version) · \(engine)"
     }
+
+    /// Windows' About title and the line its click copies: Cra.exe's version (CraInfo.appLine:
+    /// just "Cra" for a local build's 0.0.0), with the engine after it. Windows builds carry no
+    /// build number.
+    public static func windowsTitle(version: String?) -> String { CraInfo.appLine(version: version) }
+
+    public static func windowsLine(version: String?, engine: String) -> String {
+        let app = windowsTitle(version: version)
+        return engine.isEmpty ? app : "\(app) · \(engine)"
+    }
 }
