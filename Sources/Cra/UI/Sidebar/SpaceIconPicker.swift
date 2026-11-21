@@ -118,11 +118,9 @@ struct SpaceIconPicker: View {
             .help(e.name)
     }
 
-    /// The grid opens with the current emoji's row at the top; rows are 8 wide, so that is the
-    /// first emoji of its row.
+    /// The grid opens with the current emoji's row at the top (EmojiCatalog.rowStart).
     private func rowAnchor(_ emoji: String) -> String? {
-        guard let i = EmojiCatalog.all.firstIndex(where: { $0.emoji == emoji }) else { return nil }
-        return EmojiCatalog.all[i - i % 8].emoji
+        EmojiCatalog.rowStart(of: emoji, columns: 8)
     }
 }
 

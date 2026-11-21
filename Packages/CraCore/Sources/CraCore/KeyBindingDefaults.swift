@@ -317,6 +317,9 @@ public enum KeyBindingDefaults {
             "newSpace": [],
             // The Library's Spaces page (no keys on the Mac either).
             "manageSpaces": [],
+            // Edit Space… (the theme editor on Windows) and Delete Space…, which asks first.
+            "editSpace": [],
+            "deleteSpace": [],
             "clearToday": [KeyChord("k", ctrlShift)],
             "showArchive": [],
             "clearArchive": [],

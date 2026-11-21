@@ -143,7 +143,7 @@ final class FindBarView {
             icons.append(icon)
             let button = UI.button(icon, padding: Thickness(left: 6, top: 6, right: 6, bottom: 6), run)
             button.verticalAlignment = .center
-            try? ToolTipService.setToolTip(button, tip)
+            ArcTip.set(button, tip)
             root.children.append(button)
             try? Grid.setColumn(button, Int32(3 + i))
         }
