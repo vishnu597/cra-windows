@@ -411,7 +411,7 @@ final class SpacesManagerView {
         let glyph = FontIcon()
         glyph.glyph = WinGlyph.code("plus")
         glyph.fontSize = 12
-        glyph.foreground = palette.fill
+        glyph.foreground = palette.ground
         let plus = UI.button(glyph, fill: palette.text, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in
             self?.actions?.newSpaceFromLibrary()
         }

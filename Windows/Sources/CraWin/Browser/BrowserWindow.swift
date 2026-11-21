@@ -1798,12 +1798,12 @@ final class BrowserWindow {
 
     /// The page area's own colour (between panes, in an empty pane) is the sidebar's.
     private func applyPaneColors(_ theme: SpaceTheme) {
-        let hex = SidebarMaterialFill.hex(theme: theme, active: window.activeLook, systemDark: WinAppearance.isDark,
-                                          reduceTransparency: WinAppearance.reduceTransparency)
-        let c = HexColor.components(hex) ?? (r: 0.11, g: 0.14, b: 0.17)
-        let fill = HostColor(r: UInt8(c.r * 255), g: UInt8(c.g * 255), b: UInt8(c.b * 255))
+        // The sidebar's top colour, as its palette draws it (SidebarColors over SidebarMaterialFill's grey).
+        let c = sidebar.palette.top
+        func byte(_ v: Double) -> UInt8 { UInt8((min(max(v, 0), 1) * 255).rounded()) }
+        let fill = HostColor(r: byte(c.r), g: byte(c.g), b: byte(c.b))
         window.background = fill
-        window.pillColor = fill.blended(with: theme.isDark ? HostColor(r: 255, g: 255, b: 255) : HostColor(r: 0, g: 0, b: 0), alpha: 0.45)
+        window.pillColor = fill.blended(with: sidebar.palette.isDark ? HostColor(r: 255, g: 255, b: 255) : HostColor(r: 0, g: 0, b: 0), alpha: 0.45)
     }
 
     // MARK: Permissions

@@ -1,6 +1,7 @@
 import CraCore
 import Foundation
 import UWP
+import WindowsFoundation
 import WinUI
 
 /// Small builders for the code-made XAML (there is no markup in the Windows shell).
@@ -77,37 +78,78 @@ enum UI {
     }
 
     static let clear = brush(0, 0, 0, alpha: 0)
+
+    /// A CraCore colour, 0...1 a channel.
+    static func color(_ c: RGB, alpha: UInt8 = 255) -> UWP.Color {
+        func byte(_ v: Double) -> UInt8 { UInt8((min(max(v, 0), 1) * 255).rounded()) }
+        return UWP.Color(a: alpha, r: byte(c.r), g: byte(c.g), b: byte(c.b))
+    }
+
+    static func brush(_ c: RGB, alpha: UInt8 = 255) -> SolidColorBrush { SolidColorBrush(color(c, alpha: alpha)) }
+
+    /// A sidebar tone: white or black at its opacity.
+    static func brush(_ tone: SidebarTones.Tone) -> SolidColorBrush {
+        let v: UInt8 = tone.white ? 255 : 0
+        return brush(v, v, v, alpha: UInt8((min(max(tone.alpha, 0), 1) * 255).rounded()))
+    }
 }
 
-/// The sidebar's colours for a space, from its theme: its first colour as the fill, and text
-/// and highlights that read on it.
+/// The sidebar's colours for a space, from its theme as the app shows it (an Auto theme's light or
+/// dark half by Windows' app mode or View ▸ Appearance): CraCore's SidebarColors, the Mac's
+/// SpacePalette. Windows has no live material behind the sidebar, so a see-through theme is drawn
+/// as it reads over Arc's, active or not (`flatStops(over:)` with SidebarMaterialFill's grey).
 @MainActor
 struct SidebarPalette {
+    /// The sidebar's gradient, top to bottom.
     let fill: Brush
+    /// Its top colour, opaque: a glyph or a line in the space's colour, the page area's ground.
+    let top: RGB
+    let ground: Brush
     let text: Brush
     let secondaryText: Brush
     /// The open tab's row and a hovered row.
     let selected: Brush
+    /// The URL pill and a favorite tile at rest (SidebarTones.pill).
     let tile: Brush
     /// The fill is dark: one-colour favicons are drawn white on it (FaviconView).
     let isDark: Bool
 
     /// `active` is the window's active look (HostWindow.activeLook): a theme Arc draws over its
-    /// material goes to the material's flat inactive grey under the colour (SidebarMaterialFill).
+    /// material goes to the material's flat inactive grey under its colours (SidebarMaterialFill).
     init(_ theme: SpaceTheme, active: Bool = true) {
-        isDark = theme.isDark
-        fill = UI.brush(SidebarMaterialFill.hex(theme: theme, active: active, systemDark: WinAppearance.isDark,
-                                                reduceTransparency: WinAppearance.reduceTransparency))
-        if theme.isDark {
-            text = UI.brush(255, 255, 255)
-            secondaryText = UI.brush(255, 255, 255, alpha: 150)
-            selected = UI.brush(255, 255, 255, alpha: 40)
-            tile = UI.brush(255, 255, 255, alpha: 22)
+        let dark = WinAppearance.isDark
+        let colors = SidebarColors.shown(theme, systemDark: dark)
+        let grey = SidebarMaterialFill.grey(theme: theme, active: active, systemDark: dark,
+                                            reduceTransparency: WinAppearance.reduceTransparency)
+        let stops = colors.flatStops(over: grey)
+        isDark = colors.dark
+        top = stops.first ?? .black
+        fill = Self.gradient(stops)
+        ground = UI.brush(top)
+        if colors.dark {
+            text = UI.brush(255, 255, 255, alpha: 235)
+            secondaryText = UI.brush(255, 255, 255, alpha: 153)
+            selected = UI.brush(255, 255, 255, alpha: 33)
         } else {
-            text = UI.brush(20, 20, 24)
-            secondaryText = UI.brush(20, 20, 24, alpha: 150)
-            selected = UI.brush(0, 0, 0, alpha: 26)
-            tile = UI.brush(0, 0, 0, alpha: 14)
+            // Arc's light themes: titles in the theme's ink, the open tab a near-white pill.
+            text = UI.brush(colors.ink)
+            secondaryText = UI.brush(0, 0, 0, alpha: 128)
+            selected = UI.brush(255, 255, 255, alpha: 189)
         }
+        tile = UI.brush(SidebarTones.pill(dark: colors.dark))
+    }
+
+    private static func gradient(_ stops: [RGB]) -> Brush {
+        guard stops.count > 1, stops.contains(where: { $0 != stops[0] }) else { return UI.brush(stops.first ?? .black) }
+        let brush = LinearGradientBrush()
+        brush.startPoint = WindowsFoundation.Point(x: 0.5, y: 0)
+        brush.endPoint = WindowsFoundation.Point(x: 0.5, y: 1)
+        for (i, c) in stops.enumerated() {
+            let stop = GradientStop()
+            stop.color = UI.color(c)
+            stop.offset = Double(i) / Double(stops.count - 1)
+            brush.gradientStops.append(stop)
+        }
+        return brush
     }
 }
