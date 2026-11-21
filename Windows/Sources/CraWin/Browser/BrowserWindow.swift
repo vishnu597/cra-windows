@@ -68,6 +68,8 @@ final class BrowserWindow {
     /// new pane after Add To Split), and that focus mustn't select its tab.
     private var newPages: [ObjectIdentifier: Date] = [:]
     private var shownTabID: UUID?
+    /// Tabs whose video went into Picture in Picture as they were left: it comes back with them.
+    private var autoPictureInPicture: Set<UUID> = []
     /// The panes on screen, in order: the selected tab, or every pane of its split. Their frames
     /// and the gaps between them, in physical pixels relative to the client area.
     private var paneIDs: [UUID] = []
@@ -455,13 +457,30 @@ final class BrowserWindow {
                 focusSidebar()
             }
         }
+        let left = shownTabID
         shownTabID = id
         // Another tab in front: its bar as it is, without the widening or the flash.
         syncLoadingBar(animated: false)
         guard changed else { return }
+        pictureInPictureOnTabChange(from: left, to: id)
         showAddress(page.map { _ in store.item(id ?? UUID())?.tab?.url ?? "" } ?? "")
         // An empty tab (a new pane) waits for an address.
         if id != nil && page == nil { openCommandBar(.editURL) }
+    }
+
+    /// Arc's "Enable Picture in Picture when you leave a video tab" (Settings ▸ Advanced; the Site
+    /// Control Center can turn it off for a site): a video playing aloud in the tab left goes out
+    /// into Picture in Picture, and back into its page when the tab is shown again
+    /// (BrowserManager.leaveTab and returnToTab on the Mac). A tab still in a split pane isn't left.
+    private func pictureInPictureOnTabChange(from left: UUID?, to shown: UUID?) {
+        if let shown, autoPictureInPicture.remove(shown) != nil { pages[shown]?.exitPictureInPicture() }
+        guard let left, left != shown, !paneIDs.contains(left), let page = pages[left],
+              store.settings.allowsAutoPictureInPicture(url: page.currentURL) else { return }
+        page.requestPictureInPicture(automatic: true) { [weak self] answer in
+            guard let self, answer == .entered else { return }
+            // Back on the tab before the page answered: its video comes straight back.
+            if self.shownTabID == left { page.exitPictureInPicture() } else { self.autoPictureInPicture.insert(left) }
+        }
     }
 
     /// Closes every page, then the window once Chromium is done with them (or after 3 s).
@@ -884,6 +903,7 @@ final class BrowserWindow {
         case "renameTab": renameSelectedTab()
         case "duplicateTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { _ = store.duplicateTab(t) }
         case "muteTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { toggleMute(t) }
+        case "pictureInPicture": shownPage?.requestPictureInPicture(automatic: false)
         case "pauseAllMedia": host?.pauseAllMedia { [weak self] text, action in self?.showToast(text, action: action) }
         case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
         case "newFolder": sidebar.newFolder()

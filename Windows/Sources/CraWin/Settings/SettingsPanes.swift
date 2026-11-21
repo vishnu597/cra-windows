@@ -229,6 +229,14 @@ enum SettingsPanes {
                           detail: "When Cra opens, it starts on a new tab instead of the tab you used last.", \.startOnNewTab,
                           store: store, palette: palette, syncs: &syncs),
         ], palette: palette))
+        // Arc's Advanced tile: the video of a tab left goes on playing in Picture in Picture.
+        let media = header("Media", palette: palette)
+        media.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
+        stack.children.append(media)
+        stack.children.append(card([
+            settingSwitch("Enable Picture in Picture when you leave a video tab", detail: nil, \.autoPictureInPicture,
+                          store: store, palette: palette, syncs: &syncs),
+        ], palette: palette))
         return SettingsPaneContent(element: stack) { syncs.forEach { $0() } }
     }
 
