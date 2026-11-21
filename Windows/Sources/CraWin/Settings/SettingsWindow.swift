@@ -43,6 +43,9 @@ final class SettingsWindow {
     /// Extensions ▸ Remove… and Open Chrome's Extension Manager: the page in a tab of the browser
     /// window in use.
     var onOpenURL: (String) -> Void = { _ in }
+    /// Profiles ▸ Languages…: Chromium's page for that profile (nil: Default), in a tab of one of
+    /// its spaces.
+    var onOpenProfilePage: (String, UUID?) -> Void = { _, _ in }
 
     init(store: SidebarStore) throws {
         self.store = store
@@ -281,7 +284,7 @@ final class SettingsWindow {
         case .profiles:
             built = SettingsPanes.profiles(store: store, palette: palette, owner: { [weak self] in
                 self.map { UInt($0.appWindow.id.value) } ?? 0
-            }) { [weak self] in self?.onNewProfile() }
+            }, openProfilePage: { [weak self] url, profile in self?.onOpenProfilePage(url, profile) }) { [weak self] in self?.onNewProfile() }
         case .extensions:
             built = SettingsPanes.extensions(store: store, palette: palette, owner: { [weak self] in
                 self.map { UInt($0.appWindow.id.value) } ?? 0

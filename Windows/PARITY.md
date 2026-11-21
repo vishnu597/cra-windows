@@ -29,14 +29,14 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 2 | 3 | 0 | 3 | 0 |
 | Media and capture | 0 | 4 | 0 | 1 | 1 |
-| Profiles, privacy and site data | 6 | 2 | 0 | 6 | 0 |
+| Profiles, privacy and site data | 7 | 1 | 0 | 6 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 3 | 0 | 2 | 0 |
 | Settings | 2 | 7 | 0 | 2 | 0 |
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 5 | 6 | 0 | 6 | 9 |
-| **All** | 46 | 66 | 1 | 36 | 18 |
+| **All** | 47 | 65 | 1 | 36 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -176,7 +176,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 |---|---|---|---|---|
 | Permission prompts | 🟡 [#17] | `CraCEF.mm`, `BrowserManager.swift` | `PermissionPrompt`, `PermissionAsk` | Windows prompts work. Upstream f8a9d1f queues a hidden tab's camera/microphone request until the tab is shown and logs outcomes; Windows does not yet use `PermissionAsk` for that waiting policy. |
 | Profiles: per-space cookie folders, Set Profile, Change Profile, New Profile, Settings ▸ Profiles | ✅ [#19] | `ProfilesPane.swift`, `ProfileDialogs.swift`, `NewProfileDialog.swift` | `SpaceProfiles`, `DeletedProfiles` | |
-| Website languages per profile in Settings ▸ Profiles, Language Settings (`languageSettings`) opens Chromium's page (#209) | 🟡 [#63] | `ProfilesPane.swift` | `BrowserLanguages` | Upstream b528590. Windows has the command ([#63], Chromium's page in a tab of the window's space). Left: the row in its Profiles pane, reading each profile's Preferences. |
+| Website languages per profile in Settings ▸ Profiles, Language Settings (`languageSettings`) opens Chromium's page (#209) | ✅ [#63] [#NEXT2] | `ProfilesPane.swift` | `BrowserLanguages` | Upstream b528590. Windows has the command ([#63], Chromium's page in a tab of the window's space). [#NEXT2]: each profile's row in Settings ▸ Profiles reads "Website languages: …" (Chromium's live `intl.accept_languages` once the profile has loaded, else its Preferences file, `BrowserLanguages.codes(livePref:preferencesFile:)`) and its Languages… button opens Chromium's page in the window's focused space when it's on that profile, else the profile's first space (`BrowserLanguages.space`); off, with the Mac's tip, for a profile no space uses. |
 | Rebuild profiles from Arc (`rebuildArcProfiles`) | ❌ | `ArcProfileRebuilder.swift` | `ArcProfileRebuild` | Waits for Arc import. |
 | Clear Cache, Clear Cookies | ✅ [#17] | `SiteData.swift` | `SiteDataClearing` | |
 | Clear Browsing Data (`clearBrowsingData`) | ✅ [#55] | `AppDelegate.swift` | `BrowsingDataClear` | Windows: Ctrl+Shift+Delete (Chrome for Windows' key; `KeyChord.forwardDelete`), the command bar and Settings ▸ Privacy ▸ Data ▸ Clear… open Chrome's dialog in a tab; what it deletes from history leaves the command bar too (`BrowsingDataClear.watchScript`, the Mac's script). Not from a private window. |

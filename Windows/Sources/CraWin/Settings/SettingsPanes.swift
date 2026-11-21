@@ -1,3 +1,4 @@
+import CraCEFWin
 import CraCore
 import Foundation
 import UWP
@@ -443,6 +444,7 @@ enum SettingsPanes {
     /// profiles no space uses, and never Default. `newProfile` opens Create a new Profile in the
     /// browser window in use.
     static func profiles(store: SidebarStore, palette: SettingsPalette, owner: @escaping @MainActor () -> UInt,
+                         openProfilePage: @escaping @MainActor (String, UUID?) -> Void = { _, _ in },
                          newProfile: @escaping @MainActor () -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
@@ -475,11 +477,14 @@ enum SettingsPanes {
                 + store.profiles.map { ($0.name, $0, store.spaces(usingProfile: $0.id)) }
             let signature = rows.map { "\($0.1?.id.uuidString ?? "-")|\($0.0)|" + $0.2.map { "\($0.emoji)\($0.title)" }.joined(separator: ",") }
                 .joined(separator: "\n") + "\n" + DownloadLocation.bridgeLines(store.settings.downloadLocations, profiles: store.profiles)
+                // Chromium's language page changes them while the pane is away.
+                + "\n" + rows.map { websiteLanguages(profileID: $0.1?.id, store: store).joined(separator: ",") }.joined(separator: "|")
             guard signature != shown else { return }
             shown = signature
             var parts: [AnyObject] = []
             holder.child = card(rows.map { name, profile, spaces in
-                profileRow(name: name, profile: profile, spaces: spaces, store: store, palette: palette, owner: owner) { parts.append($0) }
+                profileRow(name: name, profile: profile, spaces: spaces, store: store, palette: palette, owner: owner,
+                           openProfilePage: openProfilePage) { parts.append($0) }
             }, palette: palette)
             kept = parts
         }
@@ -496,8 +501,23 @@ enum SettingsPanes {
         }
     }
 
+    /// A profile's website languages: Chromium's live value once it has loaded, else its
+    /// Preferences file (`BrowserLanguages.codes(livePref:preferencesFile:)`).
+    private static func websiteLanguages(profileID: UUID?, store: SidebarStore) -> [String] {
+        let path = store.profilePath(profile: profileID)
+        var live: String?
+        if let json = cra_cef_preference_json(path, BrowserLanguages.pref) {
+            live = String(cString: json)
+            cra_data_free(json)
+        }
+        let folder = path.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? store.chromiumCache.appendingPathComponent("Default", isDirectory: true)
+        return BrowserLanguages.codes(livePref: live) { try? Data(contentsOf: folder.appendingPathComponent("Preferences")) }
+    }
+
     private static func profileRow(name: String, profile: BrowserProfile?, spaces: [Space], store: SidebarStore,
-                                   palette: SettingsPalette, owner: @escaping @MainActor () -> UInt, keep: (AnyObject) -> Void) -> Grid {
+                                   palette: SettingsPalette, owner: @escaping @MainActor () -> UInt,
+                                   openProfilePage: @escaping @MainActor (String, UUID?) -> Void, keep: (AnyObject) -> Void) -> Grid {
         let row = Grid()
         row.minHeight = Double(DiaSettingsMetrics.cardRowHeight) + 8
         row.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 6, right: Double(DiaSettingsMetrics.cardRowInset), bottom: 6)
@@ -509,6 +529,13 @@ enum SettingsPanes {
         labels.children.append(UI.text(name, color: palette.text))
         let used = spaces.isEmpty ? "No Spaces" : spaces.map { "\($0.emoji) \($0.title)" }.joined(separator: ", ")
         labels.children.append(UI.text(used, size: 11, color: palette.secondaryText))
+        // Not in Arc's card: the website languages are Chromium's, per profile (#209, the Mac's
+        // languageRow).
+        let languages = BrowserLanguages.summary(websiteLanguages(profileID: profile?.id, store: store))
+        let languagesLine = UI.text("Website languages: " + (languages.isEmpty ? "Chromium’s default languages" : languages),
+                                    size: 11, color: palette.secondaryText, trimmed: false)
+        languagesLine.textWrapping = .wrap
+        labels.children.append(languagesLine)
         row.children.append(labels)
 
         let buttons = StackPanel()
@@ -518,6 +545,15 @@ enum SettingsPanes {
         row.children.append(buttons)
         try? Grid.setColumn(buttons, 1)
         buttons.children.append(downloadLocationButton(name: name, profileID: profile?.id, store: store, owner: owner, keep: keep))
+        let languagesButton = Button()
+        languagesButton.content = UI.text("Languages…", trimmed: false)
+        languagesButton.isEnabled = !spaces.isEmpty
+        try? AutomationProperties.setName(languagesButton, "Website languages for \(name)")
+        try? ToolTipService.setToolTip(languagesButton, spaces.isEmpty ? "Set this Profile on a Space first."
+                                                                  : "Open Chromium’s language settings for this Profile.")
+        let profileID = profile?.id
+        languagesButton.click.addHandler { _, _ in openProfilePage(BrowserLanguages.settingsPage, profileID) }
+        buttons.children.append(languagesButton)
         guard let profile else { return row }
 
         // Rename…: the name in a field under the button, Return or Rename to keep it.

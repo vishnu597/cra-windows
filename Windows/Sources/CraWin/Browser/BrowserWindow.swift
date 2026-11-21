@@ -1440,6 +1440,14 @@ final class BrowserWindow {
             self.store.createTab(url: url, window: self.windowID)
             self.activate()
         }
+        Self.settingsWindow?.onOpenProfilePage = { [weak self] url, profile in
+            guard let self, !self.isIncognito else { return }
+            let spaces = self.store.spaces(usingProfile: profile).map(\.id)
+            guard let space = BrowserLanguages.space(focused: self.store.focusedSpaceID(window: self.windowID), onProfile: spaces)
+            else { return }
+            self.store.createTab(url: url, in: space, window: self.windowID)
+            self.activate()
+        }
         if let pane { Self.settingsWindow?.show(over: window, pane: pane) } else { Self.settingsWindow?.show(over: window) }
     }
 
