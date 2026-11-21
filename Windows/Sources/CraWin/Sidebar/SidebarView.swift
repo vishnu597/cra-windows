@@ -90,7 +90,7 @@ final class SidebarView {
     let store: SidebarStore
     /// The window it draws: its space, its selected tab (SidebarStore.WindowSession).
     let windowID: UUID
-    private let favicons: Favicons
+    let favicons: Favicons
     weak var actions: SidebarActions?
     private(set) var palette = SidebarPalette(SpaceTheme.presets[0])
     /// Controls a handler reaches weakly: a WinRT control made in Swift is only a wrapper, freed
@@ -137,6 +137,9 @@ final class SidebarView {
     private static let closeSize = 24.0, unreadDotSize = 6.0
     /// Each folder's row as drawn, for Change Icon…'s picker to hang under.
     private var folderRows: [UUID: FrameworkElement] = [:]
+    func folderRow(_ id: UUID) -> FrameworkElement? { folderRows[id] }
+    /// Dia's pill back to the open tab while its row is scrolled away (SidebarJumpPill.swift).
+    let jumpPill = SidebarJumpPill()
     /// The favorites' columns as drawn, nil with none.
     private var favoritesColumns: Int?
 
@@ -171,6 +174,12 @@ final class SidebarView {
             root.children.append(part)
             try? Grid.setRow(part, Int32(i))
         }
+        root.children.append(jumpPill.body)
+        try? Grid.setRow(jumpPill.body, 2)
+        try? Canvas.setZIndex(jumpPill.body, 50)
+        jumpPill.onClick = { [weak self] in self?.jumpToSelectedRow() }
+        scroll.viewChanged.addHandler { [weak self] _, _ in self?.updateJumpPill() }
+        scroll.sizeChanged.addHandler { [weak self] _, _ in self?.updateJumpPill() }
         creationHost.visibility = .collapsed
         root.children.append(creationHost)
         try? Grid.setRowSpan(creationHost, 3)
@@ -220,6 +229,7 @@ final class SidebarView {
         if !newTabAtTop { addNewTabRow(space) }
         showCreationPage(space)
         buildSpacesBar(space)
+        watchJumpPillRow()
     }
 
     // MARK: Create a Space

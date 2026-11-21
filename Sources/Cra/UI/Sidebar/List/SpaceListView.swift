@@ -853,7 +853,11 @@ final class SpaceListView: NSView, NSDraggingSource {
         var tabs: [UUID] = []
         if let (row, ids) = selectedRow(), visible.height > 0 {
             let f = placed(row)
-            if f.maxY <= visible.minY { edge = .top } else if f.minY >= visible.maxY { edge = .bottom }
+            switch JumpPillLayout.edge(rowTop: f.minY, rowBottom: f.maxY, visibleTop: visible.minY, visibleBottom: visible.maxY) {
+            case .top?: edge = .top
+            case .bottom?: edge = .bottom
+            case nil: break
+            }
             tabs = ids
         }
         let icons = tabs.map { id -> (image: NSImage?, flip: Bool, key: String?) in
@@ -924,7 +928,8 @@ final class SpaceListView: NSView, NSDraggingSource {
         let clip = scrollView.contentView
         let visible = clip.bounds
         let f = placed(row)
-        let y = min(max(0, f.midY - visible.height / 2), max(0, document.frame.height - visible.height))
+        let y = JumpPillLayout.scrollTarget(rowTop: f.minY, rowBottom: f.maxY, visibleHeight: visible.height,
+                                            contentHeight: document.frame.height)
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.45
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0, 0.2, 1)
