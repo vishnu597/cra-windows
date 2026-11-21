@@ -4,8 +4,8 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: bb167523 -->
-Upstream reviewed through **bb167523** (VictorKildahl/cra main, 21 Nov 2026), every commit triaged
+<!-- upstream-reviewed: 38c66c46 -->
+Upstream reviewed through **38c66c46** (VictorKildahl/cra main, 21 Nov 2026), every commit triaged
 under Waiting in upstream (sync #26: 16 commits after 15ae9afc). The Windows gaps below remain explicit rather
 than inheriting the Mac's status.
 
@@ -780,6 +780,15 @@ Upstream sync #27 merged 2 commits after 53322240, to bb167523, with no conflict
 |---|---|---|
 | bb167523 | Folders: Move to ▸ in the right-click menu, as in Arc (#662) | Folders row. The store's `moveTab` already moves a whole folder (CraCore); Windows' folder menu lacks Move to Space. ❌ |
 | 62e2b2f3 | A real mouse drag moves an extension popup again (#664) | Extension popups row; Mac window placement. ➖ |
+
+Upstream sync #28 merged 2 commits after bb167523, to 38c66c46. One conflict: `SidebarStore`'s
+profile names (#666). Upstream's code was taken, and `defaultProfileName`, `renameProfile(_: UUID?, to:)`,
+`profileName(_:)` and `onProfileNamesChanged` were made `public`. The rest merged cleanly.
+
+| Commits | What | Windows |
+|---|---|---|
+| 38c66c46 | Default profile can be renamed; Chromium shows Cra's profile names (#666) | Profiles row (`ProfileNames`, `ChromiumProfileNames.swift`). Windows still writes "Default" and can't rename it. ❌ |
+| eac73de5 | Engine 159: Boost tint becomes Arc's colorize between the wheel's handles (#602) | Boosts row (`Boost.Colorize`); Mac engine patch. Windows' CEF 156 has no engine tint. ➖ |
 
 ## Keeping this current
 

@@ -16,6 +16,8 @@ public final class SidebarStore {
     public private(set) var spaceOrder: [UUID] = []
     /// Profiles besides Default, in the order they were made.
     public private(set) var profiles: [BrowserProfile] = []
+    /// The Default profile's name once renamed (#666); nil shows "Default".
+    public private(set) var defaultProfileName: String?
     /// Arc's favorites per profile, with Share Favorites on (#154): the list each profile's
     /// spaces show. One stays while no space uses its profile.
     public private(set) var profileFavorites: [ProfileFavorites] = []
@@ -128,6 +130,7 @@ public final class SidebarStore {
             if s.standaloneWindowID != nil { blankSpaceIDs.insert(s.id) }
         }
         profiles = doc.profiles ?? []
+        defaultProfileName = doc.defaultProfileName
         profileFavorites = doc.profileFavorites ?? []
         spaceOrder = BlankWindow.spaceOrder(saved: doc.spaceOrder, spaces: doc.spaces)
         for it in doc.items { items[it.id] = it }
@@ -1059,6 +1062,7 @@ public final class SidebarStore {
         previousTab = [:]
         for s in doc.spaces { spaces[s.id] = s }
         profiles = doc.profiles ?? []
+        defaultProfileName = doc.defaultProfileName
         profileFavorites = doc.profileFavorites ?? []
         spaceOrder = BlankWindow.spaceOrder(saved: doc.spaceOrder, spaces: doc.spaces)
         for it in doc.items where !kept.contains(it.id) { items[it.id] = it }
@@ -1106,7 +1110,8 @@ public final class SidebarStore {
         let blank = blankSpaceIDs.compactMap { spaces[$0] }.sorted { $0.createdAt < $1.createdAt }
         let kept: [SidebarItem] = !withItems ? [] : hidden.isEmpty ? Array(items.values) : items.values.filter { !hidden.contains($0.id) }
         return SidebarDocument(version: 1, spaceOrder: spaceOrder, spaces: saved + blank, items: kept,
-                               profiles: profiles, profileFavorites: profileFavorites.isEmpty ? nil : profileFavorites)
+                               profiles: profiles, profileFavorites: profileFavorites.isEmpty ? nil : profileFavorites,
+                               defaultProfileName: defaultProfileName)
     }
 
     /// The tab switcher's list (⌃Tab): a space's most recently used tabs, newest first
@@ -2936,11 +2941,28 @@ public final class SidebarStore {
         return p
     }
 
-    public func renameProfile(_ id: UUID, to name: String) {
-        guard let i = profiles.firstIndex(where: { $0.id == id }), !name.isEmpty else { return }
-        profiles[i].name = name
+    /// Renames profile `id`, Default (nil) too, as Arc does (#666). A name of only spaces does nothing.
+    public func renameProfile(_ id: UUID?, to typed: String) {
+        guard let name = ProfileNames.cleaned(typed) else { return }
+        if let id {
+            guard let i = profiles.firstIndex(where: { $0.id == id }), profiles[i].name != name else { return }
+            profiles[i].name = name
+        } else {
+            let stored = ProfileNames.stored(defaultProfileName: name)
+            guard stored != defaultProfileName else { return }
+            defaultProfileName = stored
+        }
         touch()
+        onProfileNamesChanged()
     }
+
+    /// The name shown for profile `id` (nil: Default, "Default" until renamed, #666).
+    public func profileName(_ id: UUID?) -> String {
+        ProfileNames.name(of: id, profiles: profiles, defaultProfileName: defaultProfileName)
+    }
+
+    /// Run after a profile is named or renamed: the app tells Chromium (ChromiumProfileNames).
+    @ObservationIgnored public var onProfileNamesChanged: () -> Void = {}
 
     /// Pages already open in the space load again in the new profile (BrowserManager). An
     /// incognito space takes none: its pages load off the record whatever it names (#413).
