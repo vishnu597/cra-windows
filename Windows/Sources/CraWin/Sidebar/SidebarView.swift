@@ -122,6 +122,8 @@ final class SidebarView {
     private static let restingWidth = 260.0
     /// The close button's square and the unread dot centred where it shows (Arc 1.171, #139).
     private static let closeSize = 24.0, unreadDotSize = 6.0
+    /// Each folder's row as drawn, for Change Icon…'s picker to hang under.
+    private var folderRows: [UUID: FrameworkElement] = [:]
     /// The favorites' columns as drawn, nil with none.
     private var favoritesColumns: Int?
 
@@ -145,7 +147,7 @@ final class SidebarView {
         footer.children.append(spacesBar)
         plusButton.horizontalAlignment = .right
         plusButton.verticalAlignment = .center
-        plusButton.click.addHandler { [weak self] _, _ in self?.newSpace() }
+        plusButton.click.addHandler { [weak self] _, _ in _ = self?.newSpace() }
         try? ToolTipService.setToolTip(plusButton, "New Space")
         footer.children.append(plusButton)
         // A narrower or wider sidebar can squeeze the dock into dots or give them room again.
@@ -186,6 +188,7 @@ final class SidebarView {
         let space = store.focusedSpace(window: windowID)
         palette = SidebarPalette(space.theme)
         kept = []
+        folderRows = [:]
         rowMeta = []
         divider = nil
         buildFavorites(space)
@@ -418,31 +421,66 @@ final class SidebarView {
         }
     }
 
+    /// A folder's row (the Mac's FolderRowView and SidebarMenus.folder): its glyph open or closed,
+    /// with its symbol (Change Icon…) and colour (Icon Color ▸). A closed folder still lists the
+    /// open tab, and any tab peeked out of it, under itself (FolderPeek, #85).
     private func addFolderRow(_ folder: SidebarItem, depth: Int) {
         let open = store.isExpanded(folder.id)
+        let id = folder.id
         let menu = MenuFlyout()
-        menu.items.append(UI.menuItem(open ? "Collapse" : "Expand") { [weak self] in self?.store.setExpanded(folder.id, !open) })
+        menu.items.append(UI.menuItem(open ? "Collapse" : "Expand") { [weak self] in self?.store.setExpanded(id, !open) })
         if !folder.isLiveFolder {
+            menu.items.append(UI.menuItem("Change Icon…") { [weak self] in self?.showFolderIconPicker(id) })
+            menu.items.append(UI.menuItem("Rename…") { [weak self] in self?.beginRename(item: id) })
             menu.items.append(UI.menuItem("New Folder Inside") { [weak self] in
                 guard let self else { return }
-                // Arc names a new folder at once.
-                self.beginRename(item: self.store.createFolder(named: "New Folder", in: folder.id).id)
+                // Arc names a new folder at once, first inside the folder, which opens.
+                let inner = self.store.createFolder(named: "New Folder", in: id, index: 0)
+                self.store.setExpanded(id, true)
+                self.beginRename(item: inner.id)
             })
+            menu.items.append(folderIconColorMenu(folder))
         }
-        if !folder.isLiveFolder {
-            menu.items.append(UI.menuItem("Rename…") { [weak self] in self?.beginRename(item: folder.id) })
+        // Arc's Move to ▸ (upstream #662): every space, the folder's own ticked, then New Space….
+        // The folder goes to the end of that space's Pinned with all it holds.
+        if !store.isIncognito(item: id) {
+            let move = MenuFlyoutSubItem()
+            move.text = "Move to"
+            let own = store.spaceID(ofItem: id)
+            for space in store.orderedSpaces where !store.isIncognito(space: space.id) {
+                let entry = ToggleMenuFlyoutItem()
+                entry.text = "\(space.emoji) \(space.title)"
+                entry.isChecked = space.id == own
+                entry.click.addHandler { [weak self] _, _ in
+                    guard let self, space.id != own else { return }
+                    self.store.moveTab(id, toSpace: space.id, window: self.windowID)
+                }
+                move.items.append(entry)
+            }
+            move.items.append(MenuFlyoutSeparator())
+            move.items.append(UI.menuItem("New Space…") { [weak self] in
+                guard let self, let space = self.newSpace() else { return }
+                self.store.moveTab(id, toSpace: space.id, window: self.windowID)
+            })
+            menu.items.append(move)
         }
         menu.items.append(MenuFlyoutSeparator())
-        menu.items.append(UI.menuItem("Delete Folder") { [weak self] in self?.store.deleteFolder(folder.id) })
-        appendRow(icon: .text(open ? "▾" : "▸"), title: folder.displayTitle, depth: depth, selected: false, unread: false, closable: nil,
-                  menu: menu, renames: folder.isLiveFolder ? nil : folder.id) { [weak self] in
+        menu.items.append(UI.menuItem("Delete Folder (archives tabs)") { [weak self] in self?.store.deleteFolder(id) })
+        let peeked = open ? [] : store.peekedTabs(in: id)
+        let row = appendRow(icon: .folder(open: open, symbol: folder.folderSymbol, style: folder.folderIcon, peeking: !peeked.isEmpty),
+                  title: folder.displayTitle, depth: depth, selected: false, unread: false, closable: nil,
+                  menu: menu, renames: folder.isLiveFolder ? nil : id) { [weak self] in
             // A drag that starts here leaves the folder as it was.
-            self?.dragPressed(.item(folder.id)) { [weak self] in self?.store.setExpanded(folder.id, open) }
-            self?.store.setExpanded(folder.id, !open)
+            self?.dragPressed(.item(id)) { [weak self] in self?.store.setExpanded(id, open) }
+            self?.store.setExpanded(id, FolderPeek.clickOpens(expanded: open))
         }
         noteRow(folder, depth: depth, at: list.children.count - 1)
-        guard open else { return }
-        let children = store.children(of: folder.id)
+        folderRows[id] = row
+        guard open else {
+            for tab in peeked { addRow(tab, depth: depth + 1) }
+            return
+        }
+        let children = store.children(of: id)
         if children.isEmpty {
             let empty = UI.text("Empty", size: 12, color: palette.secondaryText)
             empty.margin = Thickness(left: Double(depth + 1) * 16 + 10, top: 2, right: 0, bottom: 4)
@@ -451,16 +489,151 @@ final class SidebarView {
         for child in children { addRow(child, depth: depth + 1) }
     }
 
+    /// Icon Color ▸ Auto, White, Black (the Mac's SidebarMenus.iconColor).
+    private func folderIconColorMenu(_ folder: SidebarItem) -> MenuFlyoutSubItem {
+        let sub = MenuFlyoutSubItem()
+        sub.text = "Icon Color"
+        for (title, style) in [("Auto", FolderIconStyle?.none), ("White", .white), ("Black", .black)] {
+            let entry = ToggleMenuFlyoutItem()
+            entry.text = title
+            entry.isChecked = folder.folderIcon == style
+            entry.click.addHandler { [weak self] _, _ in self?.store.setFolderIcon(style, for: folder.id) }
+            sub.items.append(entry)
+        }
+        return sub
+    }
+
+    /// Change Icon…: Arc's picker under the folder's row (the Mac's FolderIconPicker): "Icon",
+    /// Remove Icon while it has one, and the 24 symbols eight to a row, its own one filled.
+    func showFolderIconPicker(_ id: UUID) {
+        guard let folder = store.item(id), let row = folderRows[id] else { return }
+        let current = folder.folderSymbol
+        let flyout = Flyout()
+        let panel = StackPanel()
+        panel.orientation = .vertical
+        panel.spacing = 8
+        let header = StackPanel()
+        header.orientation = .horizontal
+        header.spacing = 14
+        let title = UI.text("Icon", size: 13, trimmed: false)
+        title.fontWeight = UWP.FontWeight(weight: 700)
+        title.verticalAlignment = .center
+        header.children.append(title)
+        if current != nil {
+            let bin = FontIcon()
+            bin.glyph = "\u{E74D}"  // Delete
+            bin.fontSize = 14
+            let remove = UI.button(bin, padding: Thickness(left: 4, top: 2, right: 4, bottom: 2)) { [weak self, weak flyout] in
+                self?.store.setFolderSymbol(nil, for: id)
+                try? flyout?.hide()
+            }
+            try? AutomationProperties.setName(remove, "Remove Icon")
+            try? ToolTipService.setToolTip(remove, "Remove Icon")
+            header.children.append(remove)
+        }
+        panel.children.append(header)
+        let grid = Grid()
+        for _ in 0..<8 { grid.columnDefinitions.append(UI.column(UI.pixels(31))) }
+        for _ in 0..<3 { grid.rowDefinitions.append(UI.row(UI.pixels(31))) }
+        for (i, symbol) in FolderSymbol.allCases.enumerated() {
+            let mark = Self.folderSymbolText(symbol, size: 14)
+            let cell = UI.button(mark, fill: symbol == current ? palette.selected : nil,
+                                 padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self, weak flyout] in
+                self?.store.setFolderSymbol(symbol, for: id)
+                try? flyout?.hide()
+            }
+            cell.width = 29
+            cell.height = 29
+            try? AutomationProperties.setName(cell, symbol.title)
+            try? ToolTipService.setToolTip(cell, symbol.title)
+            grid.children.append(cell)
+            try? Grid.setRow(cell, Int32(i / 8))
+            try? Grid.setColumn(cell, Int32(i % 8))
+        }
+        panel.children.append(grid)
+        flyout.content = panel
+        kept.append(flyout)
+        try? flyout.showAt(row)
+    }
+
+    /// A folder symbol in one colour: Segoe UI Symbol's character for it (Arc draws its own).
+    static func folderSymbolText(_ symbol: FolderSymbol, size: Double, color: Brush? = nil) -> TextBlock {
+        let t = UI.text(folderSymbolCharacter(symbol), size: size, color: color, trimmed: false)
+        t.fontFamily = FontFamily("Segoe UI Symbol")
+        t.isColorFontEnabled = false
+        t.horizontalAlignment = .center
+        t.verticalAlignment = .center
+        return t
+    }
+
+    private static func folderSymbolCharacter(_ symbol: FolderSymbol) -> String {
+        switch symbol {
+        case .star: return "\u{2605}"
+        case .bookmark: return "\u{1F516}"
+        case .heart: return "\u{2665}"
+        case .bolt: return "\u{26A1}"
+        case .triangle: return "\u{25B2}"
+        case .asterisk: return "\u{2731}"
+        case .bell: return "\u{1F514}"
+        case .lightbulb: return "\u{1F4A1}"
+        case .chat: return "\u{1F4AC}"
+        case .people: return "\u{1F465}"
+        case .tools: return "\u{1F527}"
+        case .egg: return "\u{2B2E}"
+        case .circle: return "\u{25CF}"
+        case .moon: return "\u{263E}"
+        case .planet: return "\u{2644}"
+        case .leaf: return "\u{1F343}"
+        case .cloud: return "\u{2601}"
+        case .paw: return "\u{1F43E}"
+        case .cutlery: return "\u{1F374}"
+        case .airplane: return "\u{2708}"
+        case .music: return "\u{266A}"
+        case .video: return "\u{1F3AC}"
+        case .code: return "</>"
+        case .skull: return "\u{1F480}"
+        }
+    }
+
     /// What leads a row: a tab's favicon (a globe until it loads), or a mark for folders and splits.
     private enum RowIcon {
         case favicon(String?)
         case text(String)
+        /// A folder's glyph: open or closed, its symbol and fixed colour, and three dots while it
+        /// lists tabs from inside it closed.
+        case folder(open: Bool, symbol: FolderSymbol?, style: FolderIconStyle?, peeking: Bool)
     }
 
     private func rowIcon(_ icon: RowIcon) -> FrameworkElement {
         switch icon {
         case .text(let mark):
             return UI.text(mark, color: palette.secondaryText, trimmed: false)
+        case .folder(let open, let symbol, let style, let peeking):
+            let ink: Brush = switch style {
+            case .white?: UI.brush(255, 255, 255)
+            case .black?: UI.brush(0, 0, 0)
+            case nil: palette.secondaryText
+            }
+            let cell = Grid()
+            cell.width = 16
+            cell.height = 16
+            let glyph = FontIcon()
+            glyph.glyph = open ? "\u{E838}" : "\u{E8B7}"  // FolderOpen, Folder
+            glyph.fontSize = 15
+            glyph.foreground = ink
+            cell.children.append(glyph)
+            if let symbol {
+                let mark = Self.folderSymbolText(symbol, size: 7, color: ink)
+                mark.margin = Thickness(left: 0, top: 3, right: 0, bottom: 0)
+                cell.children.append(mark)
+            } else if peeking {
+                let dots = UI.text("•••", size: 5, color: ink, trimmed: false)
+                dots.horizontalAlignment = .center
+                dots.verticalAlignment = .center
+                dots.margin = Thickness(left: 0, top: 3, right: 0, bottom: 0)
+                cell.children.append(dots)
+            }
+            return cell
         case .favicon(let key):
             if let bitmap = favicons.bitmap(forKey: key, onDark: palette.isDark) { return UI.image(bitmap, size: 16) }
             // FaviconView's fallback: a globe in the tertiary text colour.
@@ -473,9 +646,10 @@ final class SidebarView {
         }
     }
 
+    @discardableResult
     private func appendRow(icon: RowIcon, title: String, subtitle: String? = nil, depth: Int, selected: Bool, ring: Bool = false,
                            unread: Bool, closable: UUID?, sound: (UUID, TabSound)? = nil, peek: RowIcon? = nil, menu: MenuFlyout?, renames: UUID? = nil,
-                           homeIcon: UUID? = nil, _ action: @escaping @MainActor () -> Void) {
+                           homeIcon: UUID? = nil, _ action: @escaping @MainActor () -> Void) -> Grid {
         let row = Grid()
         row.columnDefinitions.append(UI.column(UI.star))
         row.columnDefinitions.append(UI.column(UI.auto))
@@ -523,7 +697,7 @@ final class SidebarView {
             row.children.append(pill)
             try? Grid.setColumnSpan(pill, 2)
             list.children.append(row)
-            return
+            return row
         }
         // Arc 1.171's speaker between the favicon and the title; a click mutes or unmutes the tab.
         if let sound {
@@ -660,6 +834,7 @@ final class SidebarView {
         }
         if ring { addDeveloperRing(to: row) }
         list.children.append(row)
+        return row
     }
 
     /// Arc's ring round a Developer Mode site's open tab (CraCore's DeveloperTabRing): yellow
@@ -780,23 +955,23 @@ final class SidebarView {
         let menu = MenuFlyout()
         let favorite = store.isFavorite(id), pinned = store.isPinned(id)
         if favorite {
-            menu.items.append(UI.menuItem("Remove from Favorites") { [weak self] in self?.store.removeFromFavorites(id) })
+            menu.items.append(UI.menuItem("Remove from Favorites", action: "favoriteTab") { [weak self] in self?.store.removeFromFavorites(id) })
         } else {
-            menu.items.append(UI.menuItem("Add to Favorites") { [weak self] in self?.store.addToFavorites(id) })
-            menu.items.append(UI.menuItem(pinned ? "Unpin" : "Pin") { [weak self] in self?.store.togglePinned(id) })
+            menu.items.append(UI.menuItem("Add to Favorites", action: "favoriteTab") { [weak self] in self?.store.addToFavorites(id) })
+            menu.items.append(UI.menuItem(pinned ? "Unpin" : "Pin", action: "pinTab") { [weak self] in self?.store.togglePinned(id) })
         }
         if item.isTab {
             // Favorites draw as tiles, which have no name to edit.
-            if !favorite { menu.items.append(UI.menuItem("Rename…") { [weak self] in self?.beginRename(item: id) }) }
+            if !favorite { menu.items.append(UI.menuItem("Rename…", action: "renameTab") { [weak self] in self?.beginRename(item: id) }) }
             if favorite { menu.items.append(tileColorMenu(item)) }
             // Arc: "Add Split View" on the open tab, "Open in Split View" on another in its space.
             if store.isSelected(id, window: windowID) {
-                menu.items.append(UI.menuItem("Add Split View") { [weak self] in self?.actions?.addSplitView() })
+                menu.items.append(UI.menuItem("Add Split View", action: "addSplitView") { [weak self] in self?.actions?.addSplitView() })
             } else if store.selectedTabID(window: windowID) != nil, store.spaceID(ofItem: id) == store.focusedSpaceID(window: windowID) {
                 menu.items.append(UI.menuItem("Open in Split View") { [weak self] in self?.actions?.openInSplitView(id) })
             }
-            menu.items.append(UI.menuItem("Duplicate") { [weak self] in _ = self?.store.duplicateTab(id) })
-            menu.items.append(UI.menuItem(TabSound.menuTitle(muted: item.tab?.muted ?? false)) { [weak self] in
+            menu.items.append(UI.menuItem("Duplicate", action: "duplicateTab") { [weak self] in _ = self?.store.duplicateTab(id) })
+            menu.items.append(UI.menuItem(TabSound.menuTitle(muted: item.tab?.muted ?? false), action: "muteTab") { [weak self] in
                 self?.actions?.toggleMute(id)
             })
             // A pinned tab away from its pinned page (the Mac's tab menu).
@@ -826,7 +1001,7 @@ final class SidebarView {
             menu.items.append(move)
         }
         menu.items.append(MenuFlyoutSeparator())
-        menu.items.append(UI.menuItem(pinned ? "Close (Unload)" : "Close Tab") { [weak self] in self?.actions?.closeTab(id) })
+        menu.items.append(UI.menuItem(pinned ? "Close (Unload)" : "Close Tab", action: "closeTab") { [weak self] in self?.actions?.closeTab(id) })
         // Arc's Today tab menu: Archive Tabs Below, when there are tabs below it.
         if let parent = item.parentID, let rows = store.item(parent)?.children, rows.last != id,
            store.spaceID(ofItem: id).flatMap(store.space)?.todayContainerID == parent {
@@ -873,7 +1048,7 @@ final class SidebarView {
         add.isEnabled = open && panes.count < SplitPaneLayout.Constants.maximumPanes
         menu.items.append(add)
         let vertical = split.split?.orientation == .vertical
-        menu.items.append(UI.menuItem(vertical ? "Convert to Horizontal Split View" : "Convert to Vertical Split View") { [weak self] in
+        menu.items.append(UI.menuItem(vertical ? "Convert to Horizontal Split View" : "Convert to Vertical Split View", action: "flipSplitOrientation") { [weak self] in
             self?.store.flipSplitOrientation(id)
         })
         menu.items.append(MenuFlyoutSeparator())
@@ -898,25 +1073,47 @@ final class SidebarView {
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Rename Space…") { [weak self] in self?.beginRename(space: space.id) })
         }
-        menu.items.append(UI.menuItem("New Folder") { [weak self] in self?.newFolder(in: space, atTop: false) })
+        menu.items.append(UI.menuItem("New Folder", action: "newFolder") { [weak self] in self?.newFolder(in: space, atTop: false) })
         if !store.isIncognito(space: space.id) {
-            menu.items.append(UI.menuItem("New Space") { [weak self] in self?.newSpace() })
+            menu.items.append(UI.menuItem("New Space") { [weak self] in _ = self?.newSpace() })
         }
-        menu.items.append(UI.menuItem("Clear Today") { [weak self] in self?.store.clearToday(space.id, playing: []) })
+        menu.items.append(UI.menuItem("Clear Today", action: "clearToday") { [weak self] in self?.store.clearToday(space.id, playing: []) })
         if !store.isIncognito(space: space.id) { menu.items.append(profileMenu(space)) }
+        menu.items.append(searchEngineMenu(space))
         if !store.isIncognito(space: space.id) {
             // Arc's group of Manage Spaces… and, with one space, Hide Space Header (SpaceMenuLayout).
             menu.items.append(MenuFlyoutSeparator())
-            menu.items.append(UI.menuItem("Manage Spaces…") { [weak self] in self?.actions?.showLibrary(.spaces) })
+            menu.items.append(UI.menuItem("Manage Spaces…", action: "manageSpaces") { [weak self] in self?.actions?.showLibrary(.spaces) })
         }
         if store.spaceOrder.count == 1 && !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Hide Space Header") { [weak self] in self?.store.settings.showSpaceHeaderOnSingleSpace = false })
         }
         if store.spaceOrder.count > 1 {
             menu.items.append(MenuFlyoutSeparator())
-            menu.items.append(UI.menuItem("Delete Space") { [weak self] in self?.store.deleteSpace(space.id) })
+            menu.items.append(UI.menuItem("Delete Space", action: "deleteSpace") { [weak self] in self?.store.deleteSpace(space.id) })
         }
         return menu
+    }
+
+    /// GitHub #306, not in Arc: the engine the command bar searches in this space (SpaceSearchEngineMenu,
+    /// the Mac's SpaceMenu.addSearchEngines). Windows reads no Chromium engine list, so Cra's own stands in.
+    private func searchEngineMenu(_ space: Space) -> MenuFlyoutSubItem {
+        let sub = MenuFlyoutSubItem()
+        sub.text = "Search Engine"
+        let rows = SpaceSearchEngineMenu(defaultEngine: ChromiumSearchEngine(store.settings.searchEngine), engines: [],
+                                         spaceKeyword: space.searchEngine)
+        func choice(_ row: SpaceSearchEngineMenu.Row) -> ToggleMenuFlyoutItem {
+            let item = ToggleMenuFlyoutItem()
+            item.text = row.title
+            item.isChecked = row.isOn
+            let id = space.id
+            item.click.addHandler { [weak self] _, _ in self?.store.setSearchEngine(row.keyword, forSpace: id) }
+            return item
+        }
+        sub.items.append(choice(rows.defaultRow))
+        sub.items.append(MenuFlyoutSeparator())
+        for row in rows.choices { sub.items.append(choice(row)) }
+        return sub
     }
 
     /// Arc's Set Profile: Default, the profiles (the space's ticked), New Profile….
@@ -946,11 +1143,13 @@ final class SidebarView {
         beginRename(item: store.createFolder(named: "New Folder", in: space.pinnedContainerID, index: atTop ? 0 : nil).id)
     }
 
-    func newSpace() {
+    @discardableResult
+    func newSpace() -> Space? {
         let n = store.spaceOrder.count
         // Arc's New Space starts on the profile of the space it was opened from.
         let profile = SpaceProfiles.forNewSpace(from: store.focusedSpace(window: windowID), profiles: store.profiles)
         let space = store.createSpace(title: "Space \(n + 1)", emoji: Self.spaceEmoji[n % Self.spaceEmoji.count])
         if profile != nil { store.setProfile(profile, forSpace: space.id) }
+        return store.space(space.id)
     }
 }

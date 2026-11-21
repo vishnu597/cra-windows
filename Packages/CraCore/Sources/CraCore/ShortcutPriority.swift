@@ -180,3 +180,41 @@ public struct KeyBindingOverrides: Codable, Equatable, Sendable {
         try file.encode(to: encoder)
     }
 }
+
+/// Where a shortcut's press goes before the page sees it (#374): the Mac's AppDelegate.handleReservedKey
+/// decision, shared with Windows' browser and Little Windows. It keeps Use Both's memory between presses.
+public struct ShortcutRouter: Equatable, Sendable {
+    public enum BeforePage: Equatable, Sendable {
+        /// Cra runs the shortcut now; the page never sees the press.
+        case take
+        /// The page gets the press; Cra runs the shortcut if the page hands it back.
+        case pass
+        /// As `pass`, and Use Both watches: `UseBothPresses.answerTime` later, call `pageKept`.
+        case passAndWatch
+    }
+
+    public private(set) var useBoth = UseBothPresses()
+
+    public init() {}
+
+    /// A press of `action` (whose priority is `priority`) at `time`, before the page sees it.
+    public mutating func beforePage(_ action: String, priority: ShortcutPriority, at time: TimeInterval, isRepeat: Bool) -> BeforePage {
+        guard priority == .useBoth else { return priority.takesBeforePage() ? .take : .pass }
+        if useBoth.beforePage(action, at: time, isRepeat: isRepeat) { return .take }
+        return isRepeat ? .pass : .passAndWatch
+    }
+
+    /// The page handed the press back (OnKeyEvent), or the command ran another way: no offer for it.
+    public mutating func pageLeft(_ action: String) { useBoth.pageLeft(action) }
+
+    /// `answerTime` after a watched press: true when the page kept it, and the next press is Cra's
+    /// until `now + offerTime` (the toast saying "Press Ctrl+W again to Close Tab" is up).
+    public mutating func pageKept(_ action: String, pressedAt: TimeInterval, now: TimeInterval, offerTime: TimeInterval) -> Bool {
+        useBoth.pageKept(action, pressedAt: pressedAt, now: now, offerTime: offerTime)
+    }
+
+    /// Use Both's toast: Arc's `webContentConsumedHotkey` wording, with the keys as the platform writes them.
+    public static func againText(keys: String, actionName: String) -> String {
+        "Press \(keys) again to \(actionName.trimmingCharacters(in: CharacterSet(charactersIn: "…")))"
+    }
+}

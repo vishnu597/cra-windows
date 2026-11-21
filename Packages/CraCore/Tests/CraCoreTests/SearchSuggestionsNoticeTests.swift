@@ -37,6 +37,13 @@ struct SearchSuggestionsNoticeTests {
     }
 
     /// Default theme, focus (70,77,219): Arc's buttons are (48,47,99) inside (99,98,174).
+    /// The banner's "here", the Mac's and Windows' alike: Cra's privacy page, tagged with where it was opened.
+    @Test func hereOpensTheTaggedPrivacyPage() {
+        #expect(SearchSuggestionsNotice.privacyPage.hasPrefix("https://crabrowser.app/privacy"))
+        #expect(SearchSuggestionsNotice.privacyPage == SiteLinks.tagged("https://crabrowser.app/privacy", from: .commandBarNotice))
+        #expect(SearchSuggestionsNotice.privacyPage.contains("command-bar-notice"))
+    }
+
     @Test(.bug("https://github.com/VictorKildahl/cra/issues/314")) func theButtonsTakeTheSpacesFocusColour() {
         let tones = CommandBarTones(selection: ArcThemeData.Color(RGB(70 / 255, 77 / 255, 219 / 255), 0.86), badge: .black)
         func gap(_ a: RGB, _ b: (Int, Int, Int)) -> Int {

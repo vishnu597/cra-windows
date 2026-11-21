@@ -28,6 +28,11 @@ final class ShortcutsPaneView {
     private let conflictText = UI.text("", size: 11, trimmed: false)
     private let resetItem = MenuFlyoutItem()
     private let removeItem = MenuFlyoutItem()
+    /// Arc 1.172.2's priority pop-up under a rule: who gets the keys when the page wants them too (#374).
+    private let priorityPanel = StackPanel()
+    private let priorityLabel = UI.text("", size: 13, trimmed: false)
+    private let prioritySubtitle = UI.text("", size: 12, trimmed: false)
+    private var priorityItems: [(ShortcutPriority, ToggleMenuFlyoutItem)] = []
 
     private var selectedID: String?
     private var recording = false
@@ -195,6 +200,47 @@ final class ShortcutsPaneView {
         conflictText.textWrapping = .wrap
         detail.children.append(conflictText)
 
+        priorityPanel.orientation = .vertical
+        priorityPanel.spacing = 10
+        let rule = Border()
+        rule.height = 1
+        rule.background = palette.hairline
+        rule.margin = Thickness(left: 0, top: 8, right: 0, bottom: 6)
+        priorityPanel.children.append(rule)
+        let choice = StackPanel()
+        choice.orientation = .horizontal
+        choice.spacing = 8
+        priorityLabel.foreground = palette.text
+        choice.children.append(priorityLabel)
+        let chevron = FontIcon()
+        chevron.glyph = "\u{E70D}"  // ChevronDown
+        chevron.fontSize = 10
+        chevron.foreground = palette.secondaryText
+        chevron.verticalAlignment = .center
+        choice.children.append(chevron)
+        let pop = UI.button(choice, fill: palette.hairline, padding: Thickness(left: 10, top: 4, right: 10, bottom: 4)) {}
+        pop.clickMode = .release
+        pop.horizontalAlignment = .left
+        let options = MenuFlyout()
+        for p in ShortcutPriority.allCases {
+            let item = ToggleMenuFlyoutItem()
+            item.text = p.title
+            item.click.addHandler { [weak self] _, _ in
+                guard let self, let id = self.selectedID else { return }
+                self.bindings.setPriority(p, for: id)
+                self.render()
+            }
+            options.items.append(item)
+            priorityItems.append((p, item))
+        }
+        pop.flyout = options
+        try? AutomationProperties.setName(pop, "Priority")
+        priorityPanel.children.append(pop)
+        prioritySubtitle.foreground = palette.secondaryText
+        prioritySubtitle.textWrapping = .wrap
+        priorityPanel.children.append(prioritySubtitle)
+        detail.children.append(priorityPanel)
+
         empty.orientation = .vertical
         empty.spacing = 14
         empty.margin = Thickness(left: 0, top: 14, right: 0, bottom: 0)
@@ -287,6 +333,12 @@ final class ShortcutsPaneView {
         let note = ShortcutsList.conflictNote(bindings.conflicts(of: action))
         conflictText.text = note ?? ""
         conflictText.visibility = note == nil ? .collapsed : .visible
+        // Only an action with keys has keys to give anyone (Arc shows no pop-up without one).
+        let priority = bindings.priority(of: action.id)
+        priorityPanel.visibility = action.shortcuts.isEmpty ? .collapsed : .visible
+        priorityLabel.text = priority.title
+        prioritySubtitle.text = priority.subtitle
+        for (p, item) in priorityItems { item.isChecked = p == priority }
     }
 
     // MARK: Recording

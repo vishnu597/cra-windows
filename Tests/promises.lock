@@ -427,6 +427,7 @@
 #256   Packages/CraCore/Tests/CraCoreTests/SlowResponseNoticeTests.swift::namesTheSiteItWaitsFor  77131f187ae0
 #256   Packages/CraCore/Tests/CraCoreTests/SlowResponseNoticeTests.swift::showsAfterTenSecondsWithoutAResponse  652b2e9348ba
 #256   Tests/Scenarios/slow-first-response.scenario  ef5ecd1c5764
+#257   Packages/CraCore/Tests/CraCoreTests/LinkMenuTests.swift::splitViewThenLittleWindowWhereThePageCanHaveThem  7b15ba3bdc0b
 #257   Tests/StoreTests.swift::openLinkInSplit  93b1ecb4d3f2
 #258   Packages/CraCore/Tests/CraCoreTests/LinkRoutingTests.swift::littleWindowRouteNamesItsSpace  ca310c9880ea
 #258   Packages/CraCore/Tests/CraCoreTests/LinkRoutingTests.swift::littleWindowSpaceFormat  a265f8c194b8
@@ -544,6 +545,7 @@
 #305   Packages/CraCore/Tests/CraCoreTests/AddressBarPlacementTests.swift::startsInTheSidebar  fb73715b0ab0
 #306   Packages/CraCore/Tests/CraCoreTests/SpaceSearchEngineTests.swift::aSpaceSearchesItsOwnEngine  2162c1ba580b
 #306   Packages/CraCore/Tests/CraCoreTests/SpaceSearchEngineTests.swift::theEngineIsSavedWithTheSpace  0e82d53e86b9
+#306   Packages/CraCore/Tests/CraCoreTests/SpaceSearchEngineTests.swift::theSubmenuTicksTheSpacesEngine  fd32d0cc77ff
 #306   Packages/CraCore/Tests/CraCoreTests/SpaceSearchEngineTests.swift::withoutOneTheSpaceInheritsTheDefault  862d2c21caef
 #306   Tests/Scenarios/space-search-engine.scenario  305a5e5abcd0
 #307   Packages/CraCore/Tests/CraCoreTests/TabSearchScopeTests.swift::commandBarTabsFollowTheSetting  316e28600e93
@@ -715,6 +717,7 @@
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::defaultsAreTodaysBehaviour  2aa619dc5553
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::pickingAndUnpickingAPriority  deda0ebc668b
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::priorityRidesOnTheChords  b06d1069481d
+#374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::theRouterFollowsEachPriority  7eaf445fe663
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::useBothLateAnswerDropsTheOffer  aac663f3848f
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::useBothOfferIsForThatShortcutWhileItStands  174d275e00ec
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::useBothPressThePageLeftIsNotOffered  04d582b8163a
@@ -1176,6 +1179,7 @@
 #554   Packages/CraCore/Tests/CraCoreTests/RecentTabOrderTests.swift::unshownPanesFollowTheirSplit  6d787990b8f6
 #554   Packages/CraCore/Tests/CraCoreTests/SwitcherSplitLayoutTests.swift::anEvenSplitMatchesArc  3e1ceda7fbaf
 #554   Packages/CraCore/Tests/CraCoreTests/SwitcherSplitLayoutTests.swift::widthsFollowThePanesShares  5910512f0e2f
+#554   Packages/CraCore/Tests/CraCoreTests/TabSwitcherCycleTests.swift::aSplitsCardStaysWhileAnyPaneIsOpen  089ac21a8ff1
 #554   Tests/Scenarios/tab-switcher-split.scenario  5682663e4a74
 #554   Tests/StoreTests.swift::recentCardsKeepSplitsWhole  25829ca1142c
 #556   Packages/CraCore/Tests/CraCoreTests/MobileTests.swift::aQuickLookOnlyAddsSpaces  f7cc377147bf
@@ -1328,8 +1332,8 @@
 #601   Packages/CraCore/Tests/CraCoreTests/ReopenClosedTabTests.swift::onlyThisSpaceWithNothingClosedHereStays  8c1082fa6684
 #601   Tests/Scenarios/reopen-closed-tab-this-space.scenario  187bee3640c1
 #601   Tests/StoreTests.swift::reopenClosedTabInThisSpaceOnly  2600e34f494e
-#602   Packages/CraCore/Tests/CraCoreTests/BoostTests.swift::theTintIsAColourMatrixTheEngineDrawsAroundImages  41852c0f0a52
-#602   Tests/Scenarios/boost-tint.scenario  09e24db04ac5
+#602   Packages/CraCore/Tests/CraCoreTests/BoostTests.swift::theTintIsArcsColorizeTheEngineDrawsAroundImages  a91a530ab839
+#602   Tests/Scenarios/boost-tint.scenario  840181c675ef
 #604   Packages/CraCore/Tests/CraCoreTests/AppLinksTests.swift::aTypedAppAddressOpensItsApp  22affcbfecae
 #604   Tests/Scenarios/command-bar-app-address.scenario  9dc5b635b27a
 #607   Packages/CraCore/Tests/CraCoreTests/LittleWindowRaiseTests.swift::itGoesBackAsTheLinkArrivesThoughItIsKeyFromCraComingForward  61dbaf57cee0
@@ -1482,6 +1486,11 @@
 #663   Packages/CraCore/Tests/CraCoreTests/SidebarAddressPanelTests.swift::widthFollowsTheAddress  79805ff882f9
 #663   Tests/Scenarios/sidebar-address-panel.scenario  47c1675a154a
 #664   Tests/ExtensionPopupWindowTests.swift::keepsADragWithARealMouse  6a0e405853da
+#666   Packages/CraCore/Tests/CraCoreTests/ProfileNamesTests.swift::aRenameIsTrimmedAndNeverEmpty  a39efd93ca0c
+#666   Packages/CraCore/Tests/CraCoreTests/ProfileNamesTests.swift::chromiumGetsTheSameName  5df19de3a607
+#666   Packages/CraCore/Tests/CraCoreTests/ProfileNamesTests.swift::defaultHasANameOfItsOwn  e0de71ee2e1b
+#666   Packages/CraCore/Tests/CraCoreTests/ProfileNamesTests.swift::sidebarKeepsDefaultsName  a5ee177c86bd
+#666   Tests/Scenarios/profile-names.scenario  d12822edd448
 crash-1086-external-schemes Packages/CraCore/Tests/CraCoreTests/MobileExternalLinksTests.swift::aFrameWithoutATapDoesNothing  ddb0de68baae
 crash-1086-external-schemes Packages/CraCore/Tests/CraCoreTests/MobileExternalLinksTests.swift::aTappedLinkToAnotherAppsAddressOpensThatApp  4c21b7b69b3b
 crash-1086-external-schemes Packages/CraCore/Tests/CraCoreTests/MobileExternalLinksTests.swift::theAppsOwnAddressesStay  6d4433526f85
