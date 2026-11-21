@@ -265,6 +265,18 @@ void cra_arc_tip_show(int x, int y, double width, double height, double scale, d
                       const CraArcTipColors *colors);
 void cra_arc_tip_hide(void);
 
+// MARK: - Download flight
+
+/// Arc's download flight (CraDownloadFlight.cpp): a small borderless window owned by `owner` (an
+/// HWND) that the mouse goes through. Hidden until drawn.
+uintptr_t cra_download_flight_create(uintptr_t owner);
+/// One frame (CraCore's DownloadFlightPath.Frame), in screen pixels: the glyph `diameter` wide
+/// centred on `center_x, center_y`, its arrow turned `angle` radians (y down: 0 ↓, −π/4 ↘), at
+/// `opacity`, with a `glow` pixel blue glow around it. Moves and shows the window.
+void cra_download_flight_draw(uintptr_t flight, int center_x, int center_y, double diameter, double angle,
+                              double opacity, double glow);
+void cra_download_flight_destroy(uintptr_t flight);
+
 // MARK: - Images
 
 /// A decoded image: premultiplied BGRA, top-down, `width * 4` bytes a row (a XAML

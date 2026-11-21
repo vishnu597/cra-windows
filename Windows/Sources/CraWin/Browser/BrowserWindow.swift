@@ -2739,8 +2739,24 @@ extension BrowserWindow: WebPageDelegate {
             // Chrome's glyph would fly from the page's top left to a toolbar Cra hides; the
             // sidebar's downloads button shows the progress (ChromeDownloadAnimation on the Mac).
             cra_hide_download_started_animation()
+            if download.state == .inProgress { throwDownloadGlyph() }
         }
         record(download)
+    }
+
+    /// Arc's download flight: the glyph thrown from the pointer onto the sidebar's downloads
+    /// button (DownloadFlight), while this window is in front with its sidebar out.
+    private func throwDownloadGlyph() {
+        guard !closing, let host = HWND(bitPattern: hwnd), IsWindowVisible(host), !IsIconic(host),
+              GetForegroundWindow() == host, store.window(windowID).sidebarVisible,
+              let centre = downloads.glyphCenter else { return }
+        let scale = window.scale, column = window.columnOrigin
+        var to = POINT(x: Int32((Double(centre.x) * scale).rounded()) + column.x,
+                       y: Int32((Double(centre.y) * scale).rounded()) + column.y)
+        _ = ClientToScreen(host, &to)
+        var from = POINT(x: 0, y: 0)
+        guard GetCursorPos(&from) else { return }
+        DownloadFlight.launch(owner: UInt(hwnd), from: from, to: to, scale: scale, dispatcher: dispatcher)
     }
 
     /// Progress and failures show in the downloads list, as in Arc (it has no download toast);
