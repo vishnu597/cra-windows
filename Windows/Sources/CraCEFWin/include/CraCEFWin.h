@@ -196,6 +196,22 @@ void cra_round_buttons_place(uintptr_t window, int x, int y, int width, int heig
                              uint32_t ink, double scale, uintptr_t insert_after);
 void cra_round_buttons_destroy(uintptr_t window);
 
+// MARK: - Loading bar
+
+/// Arc's loading bar over the top middle of a browser window (CraLoadingBar.cpp): a borderless
+/// window owned by `owner` (an HWND) that the mouse goes through. Hidden until drawn.
+uintptr_t cra_loading_bar_create(uintptr_t owner);
+/// One frame (CraCore's LoadingIndicator.Frame) in a window at `x, y, width, height` (screen
+/// pixels): the track `track_width` × `bar_height` DIPs (`scale` pixels a DIP), centred, at
+/// `opacity`, in `ink` (0xRRGGBB). `lit` lights all of it at `bright_alpha`; otherwise it is at
+/// `track_alpha` with a bright segment from `segment_start` to `segment_end` (0...1 of the track,
+/// -1 for none). Shows the window.
+void cra_loading_bar_draw(uintptr_t bar, int x, int y, int width, int height, double scale, double track_width,
+                          double bar_height, double opacity, int lit, double segment_start, double segment_end,
+                          uint32_t ink, double bright_alpha, double track_alpha);
+void cra_loading_bar_hide(uintptr_t bar);
+void cra_loading_bar_destroy(uintptr_t bar);
+
 // MARK: - Images
 
 /// A decoded image: premultiplied BGRA, top-down, `width * 4` bytes a row (a XAML
