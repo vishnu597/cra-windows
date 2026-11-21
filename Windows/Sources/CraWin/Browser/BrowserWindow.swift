@@ -380,6 +380,7 @@ final class BrowserWindow {
             }
             syncSidebarMode()
             syncSidebarWidth()
+            syncSidebarSide()
             placeSidebarEdge()
             syncPages()
             syncSlowResponse()
@@ -1178,6 +1179,17 @@ final class BrowserWindow {
         }
     }
 
+    /// Settings ▸ Tabs ▸ Sidebar on the right (#464): the window in a mirror, the sidebar docked,
+    /// floating and dragged from the right, the pages on the left.
+    private func syncSidebarSide() {
+        let side = store.settings.sidebarSide
+        guard window.sidebarSide != side else { return }
+        window.sidebarSide = side
+        floatingSidebar?.side = side
+        sidebarEdge?.side = side
+        placeSidebarEdge()
+    }
+
     /// Another window's drag changed the saved width: this one follows.
     private func syncSidebarWidth() {
         guard sidebarResize == nil else { return }
@@ -1199,7 +1211,9 @@ final class BrowserWindow {
             && self.host?.hasPeek(over: self) != true
         guard resizable else { return sidebarEdge.place(x: 0, y: 0, width: 0, height: 0) }
         let strip = SidebarResizeHandle.strip(sidebarWidth: window.sidebarWidth)
-        var origin = POINT(x: Int32((strip.x * scale).rounded()), y: 0)
+        let clientWidth = Double(window.appWindow.clientSize.width) / scale
+        let left = window.sidebarSide == .right ? clientWidth - strip.x - strip.width : strip.x
+        var origin = POINT(x: Int32((left * scale).rounded()), y: 0)
         _ = ClientToScreen(host, &origin)
         sidebarEdge.place(x: origin.x, y: origin.y, width: Int32((strip.width * scale).rounded()),
                           height: window.appWindow.clientSize.height)
@@ -1281,7 +1295,7 @@ final class BrowserWindow {
         _ = ClientToScreen(host, &origin)
         let size = window.appWindow.clientSize
         return PeekPlacement(client: PixelRect(x: origin.x, y: origin.y, width: size.width, height: size.height),
-                             sidebar: window.sidebarWidth, scale: window.scale)
+                             sidebar: window.sidebarWidth, side: window.sidebarSide, scale: window.scale)
     }
 
     /// Arc badges the tab a Peek came from with the peeked page's favicon.
@@ -2931,7 +2945,7 @@ extension BrowserWindow {
         let region = splitDropTarget?.insert.flatMap { splitDropFrames(inserting: $0)[Self.splitDropRegion] }
         guard let proposal = SplitDropProposal.propose(at: point, ids: paneIDs, frames: splitDropFrames(inserting: nil), orientation: paneOrientation,
                                                        area: CGRect(origin: .zero, size: size), region: region, current: splitDropTarget,
-                                                       sidebarSide: true) else {
+                                                       sidebarSide: true, sidebarOn: window.sidebarSide) else {
             clearSplitDrop()
             return false
         }

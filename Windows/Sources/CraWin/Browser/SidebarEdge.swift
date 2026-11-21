@@ -13,6 +13,8 @@ final class SidebarEdge {
     var onEnd: () -> Void = {}
     /// Pixels a DIP, for the drag's translation.
     var scale = 1.0
+    /// The sidebar's side: on the right a drag toward the window's left makes it wider (#464).
+    var side: SidebarSide = .left
     private(set) var dragging = false
 
     private final class Box {
@@ -58,10 +60,10 @@ final class SidebarEdge {
             onBegin()
         case 1:
             guard dragging else { return }
-            let dx = Double(x - lastX) / scale
+            let dx = Double(side.place(dx: CGFloat(x - lastX))) / scale
             speed = SidebarResizeHandle.smoothedSpeed(speed, dx: dx, dt: seconds - lastTime)
             (lastX, lastTime) = (x, seconds)
-            onResize(Double(x - startX) / scale, speed)
+            onResize(Double(side.place(dx: CGFloat(x - startX))) / scale, speed)
         default:
             guard dragging else { return }
             dragging = false
