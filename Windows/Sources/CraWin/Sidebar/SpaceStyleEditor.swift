@@ -30,24 +30,36 @@ final class SpaceStyleEditorView {
     private let previous = Button()
     private let next = Button()
     private let swatches = StackPanel()
-    private let intensity = Slider()
-    private let grain = Slider()
+    private var intensity: ThemeSlider!
+    private var grain: ThemeSlider!
     private var labels: [TextBlock] = []
     private var icons: [FontIcon] = []
     private var knobViews: [WinUI.Ellipse] = []
 
-    private let store: SidebarStore
-    private let spaceID: UUID
+    /// Each change, drawn at once (a space's previewTheme, or the Create a Space draft), and the
+    /// editor closing.
+    private let onChange: @MainActor (SpaceTheme) -> Void
+    private let onClose: @MainActor () -> Void
     private var key: [String]
     private var appearance: String
     private var page: Int
     /// The knob a press holds (0 is the main colour).
     private var held: Int?
 
-    init(store: SidebarStore, space: Space) {
-        self.store = store
-        spaceID = space.id
-        let theme = space.theme
+    /// The editor on a space: it wears each change (SidebarStore.previewTheme), which is written
+    /// when the editor closes.
+    convenience init(store: SidebarStore, space: Space) {
+        let id = space.id
+        self.init(theme: space.theme) { theme in
+            store.previewTheme(theme, forSpace: id)
+        } onClose: {
+            store.endThemePreview(forSpace: id, keep: true)
+        }
+    }
+
+    init(theme: SpaceTheme, onChange: @escaping @MainActor (SpaceTheme) -> Void, onClose: @escaping @MainActor () -> Void) {
+        self.onChange = onChange
+        self.onClose = onClose
         key = SpaceThemeVariants.padKey(of: theme)
         appearance = theme.appearance
         page = SpaceColorPresets.page(of: key) ?? (SpaceColorPresets.pages.indices.contains(Self.lastPage) ? Self.lastPage : 0)
@@ -160,21 +172,18 @@ final class SpaceStyleEditorView {
         column.children.append(swatchRow)
 
         // The intensity and the grain.
-        for (slider, name, value) in [(intensity, "Intensity", theme.intensity), (grain, "Grain", theme.noise)] {
+        intensity = ThemeSlider(value: theme.intensity) { [weak self] in self?.changed() }
+        grain = ThemeSlider(value: theme.noise) { [weak self] in self?.changed() }
+        for (slider, name) in [(intensity!, "Intensity"), (grain!, "Grain")] {
             let row = Grid()
             row.columnDefinitions.append(UI.column(UI.pixels(70)))
             row.columnDefinitions.append(UI.column(UI.star))
             let title = label(name, size: 12)
             title.verticalAlignment = .center
             row.children.append(title)
-            slider.minimum = 0
-            slider.maximum = 1
-            slider.stepFrequency = 0.01
-            slider.value = value
-            try? AutomationProperties.setName(slider, name)
-            slider.valueChanged.addHandler { [weak self] _, _ in self?.changed() }
-            row.children.append(slider)
-            try? Grid.setColumn(slider, 1)
+            try? AutomationProperties.setName(slider.root, name)
+            row.children.append(slider.root)
+            try? Grid.setColumn(slider.root, 1)
             row.margin = Thickness(left: 10, top: 0, right: 10, bottom: 0)
             column.children.append(row)
         }
@@ -185,10 +194,7 @@ final class SpaceStyleEditorView {
         flyout.placement = .rightEdgeAlignedTop
         // A windowed popup: over the page's own window, which XAML inside the island would sit under.
         flyout.shouldConstrainToRootBounds = false
-        flyout.closed.addHandler { [weak self] _, _ in
-            guard let self else { return }
-            self.store.endThemePreview(forSpace: self.spaceID, keep: true)
-        }
+        flyout.closed.addHandler { [weak self] _, _ in self?.onClose() }
         fillSwatches()
         refresh(theme)
     }
@@ -203,7 +209,7 @@ final class SpaceStyleEditorView {
     /// The pad's state as a theme (SpaceThemeVariants), shown in the space at once.
     private func changed() {
         let theme = SpaceThemeVariants.theme(key: key, intensity: intensity.value, noise: grain.value, appearance: appearance)
-        store.previewTheme(theme, forSpace: spaceID)
+        onChange(theme)
         refresh(theme)
     }
 
@@ -254,6 +260,7 @@ final class SpaceStyleEditorView {
         for t in labels { t.foreground = ink(0.85) }
         for i in icons { i.foreground = ink(0.75) }
         for (value, b) in appearanceButtons { b.background = value == appearance ? ink(0.12) : UI.clear }
+        for slider in [intensity, grain] { slider?.apply(track: ink(0.15), fill: ink(0.6)) }
         minus.isEnabled = SpaceColorWheel.canRemove(key.count)
         plus.isEnabled = SpaceColorWheel.canAdd(key)
         minus.opacity = minus.isEnabled ? 1 : 0.3
