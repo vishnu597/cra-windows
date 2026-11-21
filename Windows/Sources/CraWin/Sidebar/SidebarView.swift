@@ -67,7 +67,13 @@ final class SidebarView {
     let spacesBar = StackPanel()
     /// The downloads button on the left (Arc's Library button) over the same cell as the spaces,
     /// so they stay centred whatever the button shows.
-    private let footer = Grid()
+    let footer = Grid()
+    /// Arc's + at the dock's right end: a new space.
+    let plusButton = UI.button("+") {}
+    /// The dock's cells as drawn, the space under the pointer, and Shift + wheel's running total.
+    var dockCells: [SidebarDockCell] = []
+    var dockHovered: UUID?
+    var wheel = WheelSpaceSwitch()
     let store: SidebarStore
     /// The window it draws: its space, its selected tab (SidebarStore.WindowSession).
     let windowID: UUID
@@ -133,10 +139,17 @@ final class SidebarView {
         list.spacing = 1
         scroll.content = list
         spacesBar.orientation = .horizontal
-        spacesBar.spacing = 2
+        spacesBar.spacing = 0
         spacesBar.horizontalAlignment = .center
         footer.margin = Thickness(left: 0, top: 8, right: 0, bottom: 0)
         footer.children.append(spacesBar)
+        plusButton.horizontalAlignment = .right
+        plusButton.verticalAlignment = .center
+        plusButton.click.addHandler { [weak self] _, _ in self?.newSpace() }
+        try? ToolTipService.setToolTip(plusButton, "New Space")
+        footer.children.append(plusButton)
+        // A narrower or wider sidebar can squeeze the dock into dots or give them room again.
+        footer.sizeChanged.addHandler { [weak self] _, _ in self?.refreshDock() }
         let parts: [FrameworkElement] = [favorites, header, scroll, footer]
         for (i, part) in parts.enumerated() {
             root.children.append(part)
@@ -158,6 +171,14 @@ final class SidebarView {
             args.handled = true
             self.store.focusSpace(offset: offset, window: self.windowID)
         }
+        // Shift + wheel or a sideways wheel switches spaces (#93); a plain wheel scrolls the list.
+        root.pointerWheelChanged.addHandler { [weak self] _, args in
+            guard let self, let args, let point = try? args.getCurrentPoint(nil), let properties = point.properties else { return }
+            if self.wheelOverSidebar(delta: Int(properties.mouseWheelDelta), horizontal: properties.isHorizontalMouseWheel) {
+                args.handled = true
+            }
+        }
+        root.pointerExited.addHandler { [weak self] _, _ in self?.hoverDock(nil) }
     }
 
     /// Draws the focused space. Everything it reads from the store is what a change redraws.
@@ -872,7 +893,7 @@ final class SidebarView {
         return menu
     }
 
-    private func spaceMenu(_ space: Space) -> MenuFlyout {
+    func spaceMenu(_ space: Space) -> MenuFlyout {
         let menu = MenuFlyout()
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Rename Space…") { [weak self] in self?.beginRename(space: space.id) })
@@ -917,28 +938,6 @@ final class SidebarView {
     }
 
     // MARK: Spaces
-
-    private func buildSpacesBar(_ focused: Space) {
-        spacesBar.children.clear()
-        spaceCells = []
-        // An incognito window pages only its own space (SidebarStore.pagedSpaces).
-        for space in store.pagedSpaces(window: windowID) where !store.hidesSpaceHeader(space.id) {
-            let mark = UI.text(space.emoji.isEmpty ? String(space.title.prefix(1)) : space.emoji, size: 15, color: palette.text, trimmed: false)
-            let dot = UI.button(mark, fill: space.id == focused.id ? palette.selected : nil,
-                                padding: Thickness(left: 6, top: 3, right: 6, bottom: 3)) { [weak self] in
-                self?.dragPressed(.space(space.id))
-                self?.store.focusSpace(space.id, window: self?.windowID)
-            }
-            spaceCells.append((dot, space.id))
-            try? ToolTipService.setToolTip(dot, space.title)
-            dot.contextFlyout = spaceMenu(space)
-            spacesBar.children.append(dot)
-        }
-        guard !store.isIncognito(space: focused.id) else { return }
-        let add = UI.button("+", color: palette.secondaryText) { [weak self] in self?.newSpace() }
-        try? ToolTipService.setToolTip(add, "New Space")
-        spacesBar.children.append(add)
-    }
 
     /// New Folder in the pinned section of `space` (the one in front by default), named at once
     /// as in Arc: at the top for the command (the Mac's), after the rest from the space's menu.

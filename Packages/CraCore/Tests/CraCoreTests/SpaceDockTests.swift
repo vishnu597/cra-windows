@@ -88,4 +88,22 @@ struct SpaceDockTests {
         #expect(SpaceDock.mark(for: .image(png), isOpen: true, squeezed: true) == .image(png))
         #expect(SpaceDock.mark(for: .image(png), isOpen: false, squeezed: true) == .dot(diameter: SpaceDock.squeezedDotDiameter))
     }
+
+    /// 217 pt between the buttons in a 300 pt sidebar's 280 pt dock; never negative.
+    @Test
+    func roomBetweenTheButtons() {
+        #expect(SpaceDock.room(dockWidth: 280) == 217)
+        #expect(SpaceDock.room(dockWidth: 40) == 0)
+    }
+
+    /// Arc's space tip: the name, the profile ("Default" without one), and Go to Space N for the
+    /// first nine spaces only.
+    @Test
+    func tipNamesTheProfileAndTheFirstNineKeys() {
+        #expect(SpaceDock.tip(title: "Work", profileName: nil, index: 0) == .init(title: "Work", profile: "Default", number: 1))
+        #expect(SpaceDock.tip(title: "Home", profileName: "Personal", index: 8).number == 9)
+        #expect(SpaceDock.tip(title: "Home", profileName: "Personal", index: 8).profile == "Personal")
+        #expect(SpaceDock.tip(title: "Ten", profileName: nil, index: 9).number == nil)
+        #expect(SpaceDock.tip(title: "Gone", profileName: nil, index: nil).number == nil)
+    }
 }

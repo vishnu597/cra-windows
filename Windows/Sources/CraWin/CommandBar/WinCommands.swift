@@ -8,6 +8,11 @@ import FoundationNetworking
 /// FontIcon draws with on Windows 11 (Segoe MDL2 Assets, with the same code points, on 10).
 enum WinGlyph {
     static func code(_ symbol: String) -> String {
+        known(symbol) ?? "\u{E721}"  // magnifyingglass
+    }
+
+    /// The glyph for an SF Symbols name this table knows, nil for any other.
+    static func known(_ symbol: String) -> String? {
         switch symbol {
         case "globe": return "\u{E774}"
         case "clock": return "\u{E81C}"
@@ -52,7 +57,7 @@ enum WinGlyph {
         // A tab's speaker (TabSound).
         case "speaker.wave.3": return "\u{E995}"  // Volume3
         case "speaker.slash": return "\u{E74F}"  // Mute
-        default: return "\u{E721}"  // magnifyingglass
+        default: return nil
         }
     }
 
