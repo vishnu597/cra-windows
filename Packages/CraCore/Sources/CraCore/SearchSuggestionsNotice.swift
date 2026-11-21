@@ -29,6 +29,9 @@ public enum SearchSuggestionsNotice {
     /// Points the banner takes at the bottom of the bar: the last row's 46, the 4 between rows, and the
     /// bar's bottom padding. Arc: 60, from the 4th row's bottom to the bar's edge.
     public static let bannerHeight: Double = 60
+
+    /// The banner's "here": Cra's privacy page, tagged as opened from the notice.
+    public static var privacyPage: String { SiteLinks.tagged("https://crabrowser.app/privacy", from: .commandBarNotice) }
 }
 
 public extension CommandBarTones {

@@ -13,6 +13,8 @@ protocol BrowserWindowHost: AnyObject {
     func newLittleWindow()
     /// Close Little Windows: each archives its page.
     func closeLittleWindows()
+    /// A page's Open Link in Little Window: one for `url`, in front, its links going to `space`.
+    func openLinkInLittleWindow(_ url: String, space: UUID?)
     func windowDidClose(_ window: BrowserWindow)
     /// Arc's Peek over `window`, from its tab `fromTab`: one at a time over a window.
     func openPeek(url: String, over window: BrowserWindow, fromTab: UUID?)
@@ -120,6 +122,10 @@ final class WindowList: BrowserWindowHost {
 
     func newLittleWindow() {
         openLittleWindow(url: "", opener: nil, activate: true)
+    }
+
+    func openLinkInLittleWindow(_ url: String, space: UUID?) {
+        openLittleWindow(url: url, opener: nil, activate: true, space: space)
     }
 
     /// A Little Window on `url` ("" asks for an address; nil hosts `opener`'s window.open),
@@ -339,6 +345,19 @@ final class WindowList: BrowserWindowHost {
         store.activeWindowID = target.windowID
         _ = store.restoreArchived(id)
         target.activate()
+    }
+
+    /// `url` in a new tab of the browser window used last, in front (a Little Window's notice link).
+    func openInLastWindow(_ url: String) {
+        guard let target = lastNormalWindow() else { return }
+        store.activeWindowID = target.windowID
+        store.createTab(url: url, select: true, window: target.windowID)
+        target.activate()
+    }
+
+    /// Settings on `pane`, over the browser window used last.
+    func openSettings(pane: DiaSettingsPane) {
+        lastNormalWindow()?.openSettings(pane: pane)
     }
 
     /// An action a Little Window leaves to the browser window used last (Ctrl+N, Ctrl+, …).

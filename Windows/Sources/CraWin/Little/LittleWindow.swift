@@ -78,6 +78,11 @@ final class LittleWindow {
     private var slowResponse = SlowResponseNotice()
     private var slowResponseShown = false
     private var slowResponseCheck: ScheduledWork?
+    /// Use Both's check that the page kept a press (watchUseBoth).
+    private var useBothWatch: ScheduledWork?
+    /// A Peek's close waiting for a second one, with Close as the Confirm pill (attemptPeekClose).
+    private var closeHold: PeekCloseHold?
+    private var closeHoldReset: ScheduledWork?
     private lazy var clock = WinScheduler(queue: dispatcher)
     private var permissionQueue: [(page: WeakPage, origin: String, kinds: PermissionKinds, answer: (Bool) -> Void)] = []
     private let permissionPrompt = PermissionPromptView()
@@ -306,6 +311,9 @@ final class LittleWindow {
 
     private func makeCommandBar() {
         commandBar.onCommit = { [weak self] row, typed, mode in self?.handleCommit(row, typed: typed, mode: mode) }
+        // The search-suggestions notice, as the Mac's Little Window has it: both open in the browser window.
+        commandBar.onNoticeSettings = { [weak self] in self?.list?.openSettings(pane: .profiles) }
+        commandBar.onNoticeLearnMore = { [weak self] in self?.list?.openInLastWindow(SearchSuggestionsNotice.privacyPage) }
         commandBar.onResize = { [weak self] height in
             self?.commandBarHeight = height
             self?.placeCommandBar()
@@ -408,7 +416,7 @@ final class LittleWindow {
     @discardableResult
     func handle(action id: String) -> Bool {
         switch id {
-        case "closeTab", "closeWindow": requestClose()
+        case "closeTab", "closeWindow": isPeek ? attemptPeekClose(.closeShortcut) : requestClose()
         case "newTab", "editURL": openCommandBar()
         case "goBack": page?.goBack()
         case "goForward": page?.goForward()
@@ -546,10 +554,10 @@ final class LittleWindow {
         let made = PeekOverlays(owner: parent.window.hwnd, background: parent.window.background,
                                 buttons: ["xmark", "arrow.up.left.and.arrow.down.right", "square.split.2x1"].map(WinGlyph.code),
                                 tips: ["Close" + keyHint("closeTab"), "Expand" + keyHint("promoteLittleWindow"), "Add To Split"])
-        made.onClickOutside = { [weak self] in self?.requestClose() }
+        made.onClickOutside = { [weak self] in self?.attemptPeekClose(.background) }
         made.onButton = { [weak self] index in
             switch index {
-            case 0: self?.requestClose()
+            case 0: self?.attemptPeekClose(.closeButton)
             case 1: self?.promote(to: nil)
             default: self?.promoteToSplit()
             }
@@ -916,21 +924,72 @@ extension LittleWindow: WebPageDelegate {
         return host.page
     }
 
+    /// Before the page: the shortcuts that prefer Cra, as in a browser window (WinShortcutRouting, #374).
     func page(_ page: WebPage, handleKey key: KeyPress) -> Bool {
         guard !key.isRepeat || key.keyCode == 0x09 else { return false }
-        return handleShortcut(key)
+        guard let action = WinShortcutRouting.beforePage(key, watch: { [weak self] action, at in self?.watchUseBoth(action, pressedAt: at) })
+        else { return false }
+        return perform(shortcut: action.id)
     }
 
-    /// Arc's "Exit the current context": Escape the page didn't use closes a Peek.
+    /// Arc's "Exit the current context": Escape the page didn't use closes a Peek; a shortcut the page
+    /// left alone runs now.
     func page(_ page: WebPage, handleUnhandledKey key: KeyPress) -> Bool {
-        exitPeek(on: key)
+        if exitPeek(on: key) { return true }
+        guard !key.isRepeat || key.keyCode == 0x09, let action = WinShortcutRouting.pageLeft(key) else { return false }
+        return perform(shortcut: action.id)
+    }
+
+    /// This window's action, else the browser window's.
+    private func perform(shortcut id: String) -> Bool {
+        handle(action: id) || (list?.perform(id) ?? false)
+    }
+
+    private func watchUseBoth(_ action: KeyAction, pressedAt: TimeInterval) {
+        useBothWatch = clock.after(UseBothPresses.answerTime) { [weak self] in
+            guard let self, !self.closing, let text = WinShortcutRouting.keptText(action, pressedAt: pressedAt) else { return }
+            self.showToast(text)
+        }
+    }
+
+    /// A Little Window's or a Peek's link menu: Open Link in Little Window only, as on the Mac
+    /// (no tab to split).
+    func linkMenuExtras(for page: WebPage) -> [LinkMenuExtra] {
+        page === self.page ? LinkMenuExtra.offered(splits: false, incognito: page.isIncognito) : []
+    }
+
+    func page(_ page: WebPage, opensLink url: String, in extra: LinkMenuExtra) {
+        guard extra == .littleWindow, !url.isEmpty, !url.lowercased().hasPrefix("cra:") else { return }
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { return }
+            self.list?.openLittleWindow(url: url, opener: nil, activate: true, space: self.targetSpaceID)
+        }
     }
 
     /// Escape closes a Peek, a turn later (not inside the key's own handler).
     private func exitPeek(on key: KeyPress) -> Bool {
         guard isPeek, key.keyCode == 0x1B, !key.control, !key.shift, !key.alt, !key.isRepeat else { return false }
-        _ = try? dispatcher.tryEnqueue { [weak self] in self?.requestClose() }
+        _ = try? dispatcher.tryEnqueue { [weak self] in self?.attemptPeekClose(.escape(prefersConfirmation: false)) }
         return true
+    }
+
+    /// The Peek's user closes (Close, Ctrl+W, Esc, a click outside) go through here. A Peek on a
+    /// call holds the first one: Close becomes Arc's red Confirm pill, and the next close goes
+    /// through (PeekCloseHold, #425; the Mac's attemptPeekClose).
+    func attemptPeekClose(_ attempt: PeekCloseAttempt) {
+        guard isPeek, !closing else { return requestClose() }
+        let next = PeekCloseHold.after(attempt, holding: closeHold, capturingMedia: page?.isCapturingMedia == true)
+        closeHoldReset?.cancel()
+        closeHoldReset = nil
+        closeHold = next
+        overlays?.showHold(next)
+        guard let next else { return requestClose() }
+        // Arc gives up waiting after a while, and Close is round again.
+        closeHoldReset = clock.after(next.timeout) { [weak self] in
+            guard let self, self.closeHold != nil else { return }
+            self.closeHold = nil
+            self.overlays?.showHold(nil)
+        }
     }
 
     func page(_ page: WebPage, handleDevToolsKey key: KeyPress) -> Bool {

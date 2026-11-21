@@ -211,8 +211,12 @@ enum SettingsPanes {
         stack.orientation = .vertical
         stack.margin = Thickness(left: Double(DiaSettingsMetrics.paneInset), top: Double(DiaSettingsMetrics.paneTop),
                                  right: Double(DiaSettingsMetrics.paneInset), bottom: 20)
-        stack.children.append(header("Opening and quitting", palette: palette))
         var syncs: [() -> Void] = []
+        // The search engine and its suggestions are in Profiles, where Arc has them.
+        for part in commandBarSection(store: store, palette: palette, syncs: &syncs) { stack.children.append(part) }
+        let opening = header("Opening and quitting", palette: palette)
+        opening.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
+        stack.children.append(opening)
         stack.children.append(card([
             // Arc's Advanced switch: off, only the window in use last comes back.
             settingSwitch("When opening Cra, restore windows from previous session", detail: nil, \.restoreWindows,
@@ -474,7 +478,16 @@ enum SettingsPanes {
             kept = parts
         }
         rebuild()
-        return SettingsPaneContent(element: stack) { rebuild() }
+        // Search, as the Mac's Profiles pane has it (the command bar notice's Search Settings… opens here).
+        var searchSyncs: [() -> Void] = []
+        let search = header("Search", palette: palette)
+        search.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
+        stack.children.append(search)
+        stack.children.append(searchCard(store: store, palette: palette, syncs: &searchSyncs))
+        return SettingsPaneContent(element: stack) {
+            rebuild()
+            searchSyncs.forEach { $0() }
+        }
     }
 
     private static func profileRow(name: String, profile: BrowserProfile?, spaces: [Space], store: SidebarStore,
