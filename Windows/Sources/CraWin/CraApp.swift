@@ -250,12 +250,18 @@ public final class CraApp: SwiftApplication {
 
     private func startChromium() -> Bool {
         let helper = Self.exeFolder.appendingPathComponent("CraHelper.exe").path
-        CrashRecovery.prepare(cache: WinPaths.chromiumCache)
-        // Deleted profiles' folders, while Chromium has none of them open.
-        DeletedProfiles(directory: WinPaths.supportDir, chromiumCache: WinPaths.chromiumCache).run()
-        // Passwords and sign-ins an import staged go in while no Chromium has the profile open
-        // (another Cra holding it keeps them waiting).
-        CredentialImport.applyPending(root: WinPaths.chromiumCache)
+        // The steps that change the data folder run only when no other Cra holds it (#299): a
+        // second launch, a link from another app, is handed to the Cra already running and goes.
+        let lock = DataFolderOwner.WindowsLockFile(rawValue: WinPaths.native(WinPaths.chromiumCache).withCString { cra_cef_data_folder_lock_state($0) }) ?? .otherError
+        if DataFolderOwner.isFree(windowsLockFile: lock) {
+            CrashRecovery.prepare(cache: WinPaths.chromiumCache)
+            // Deleted profiles' folders, while Chromium has none of them open.
+            DeletedProfiles(directory: WinPaths.supportDir, chromiumCache: WinPaths.chromiumCache).run()
+            // Passwords and sign-ins an import staged go in while no Chromium has the profile open.
+            CredentialImport.applyPending(root: WinPaths.chromiumCache)
+        } else {
+            print("Cra: the data folder is held (\(lock)); launch steps left to the Cra running on it")
+        }
         // Cra's own unpacked extensions (Settings ▸ Extensions), as Windows paths.
         let folders = ExtensionFolders.loadable(in: WinPaths.extensions).map(WinPaths.native)
         cra_cef_set_extension_folders(ExtensionFolders.commandLineValue(paths: folders) ?? "")

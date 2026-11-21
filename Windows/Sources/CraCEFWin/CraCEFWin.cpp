@@ -2278,6 +2278,22 @@ extern "C" void cra_browser_execute_javascript(CraBrowser *b, const char *script
     }
 }
 
+extern "C" int cra_cef_data_folder_lock_state(const char *folder) {
+    if (!folder) return 3;
+    std::wstring path = Wide(folder);
+    if (!path.empty() && path.back() != L'\\' && path.back() != L'/') path += L'\\';
+    path += L"lockfile";
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        CloseHandle(file);
+        return 1;
+    }
+    DWORD error = GetLastError();
+    if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return 0;
+    return error == ERROR_SHARING_VIOLATION ? 2 : 3;
+}
+
 extern "C" void cra_browser_execute_javascript_in_subframes(CraBrowser *b, const char *script) {
     if (!b || !b->browser || !script) return;
     std::vector<CefString> ids;
