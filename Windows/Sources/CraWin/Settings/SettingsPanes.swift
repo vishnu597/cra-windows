@@ -229,6 +229,14 @@ enum SettingsPanes {
                           detail: "When Cra opens, it starts on a new tab instead of the tab you used last.", \.startOnNewTab,
                           store: store, palette: palette, syncs: &syncs),
         ], palette: palette))
+        // Arc's Advanced tile: the video of a tab left goes on playing in Picture in Picture.
+        let media = header("Media", palette: palette)
+        media.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
+        stack.children.append(media)
+        stack.children.append(card([
+            settingSwitch("Enable Picture in Picture when you leave a video tab", detail: nil, \.autoPictureInPicture,
+                          store: store, palette: palette, syncs: &syncs),
+        ], palette: palette))
         return SettingsPaneContent(element: stack) { syncs.forEach { $0() } }
     }
 
@@ -292,6 +300,12 @@ enum SettingsPanes {
         form.group("Spaces:", [
             checkbox("Show the space header with only one space", \.showSpaceHeaderOnSingleSpace),
             note("Off hides the space’s name and its icon at the bottom of the sidebar while you have one space.", palette: palette),
+        ])
+        // GitHub #464, not in Arc: the window's layout in a mirror (SidebarSide), as on the Mac.
+        form.group("Sidebar:", [
+            checkbox("Sidebar on the right", get: { store.settings.sidebarSide == .right },
+                     set: { store.settings.sidebarSide = $0 ? .right : .left }),
+            note("The sidebar sits on the right of the window. Hidden, it slides in from the right edge.", palette: palette),
         ])
         // #154: Arc's favorites, one set per profile (the Mac's "Tabs and Favorites" card).
         form.group("Favorites:", [

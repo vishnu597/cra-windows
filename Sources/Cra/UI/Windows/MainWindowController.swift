@@ -4078,15 +4078,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         guard !isStandalone, window != nil else { return showSpaceEditor(space: nil, created: created) }
         if sidebarUI.libraryPage != nil { closeLibrary() }
         commandBar.close()
-        let origin = focusedSpaceID
-        // Arc starts the page on the profile of the space it was opened from.
-        let draft = SpaceCreationDraft(theme: SpaceColorPresets.newSpaceTheme(),
-                                       profile: SpaceProfiles.forNewSpace(from: store.focusedSpace, profiles: store.profiles))
+        // Arc starts the page on the profile of the space it was opened from, and the page area
+        // shows the new space's empty page (SidebarStore.beginSpaceCreation, shared with Windows).
+        let (draft, origin) = store.beginSpaceCreation(window: windowID)
         creationOrigin = origin
         creationDone = created
-        store.previewTheme(draft.theme, forSpace: origin)
-        // The page area shows the new space's empty page, as Arc's does.
-        store.windowsMakingSpace.insert(windowID)
         sidebarUI.spaceCreation = draft
         // With the sidebar hidden it comes out over the page and stays while the page is up.
         if !sidebarVisible, !shell.contentFullscreen { floatingSidebar?.show() }
@@ -4174,10 +4170,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     func cancelSpaceCreation() {
         guard sidebarUI.spaceCreation != nil else { return }
         closeCreationPanels()
-        if let origin = creationOrigin { store.endThemePreview(forSpace: origin, keep: false) }
+        if let origin = creationOrigin { store.cancelSpaceCreation(origin: origin, window: windowID) }
         creationOrigin = nil
         creationDone = nil
-        store.windowsMakingSpace.remove(windowID)
         sidebarUI.spaceCreation = nil
         currentBrowser?.setFocused(true)
         CraLog.note("space creation cancelled")
@@ -4195,16 +4190,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private func finishSpaceCreation() {
         guard let draft = sidebarUI.spaceCreation, let origin = creationOrigin else { return }
         let done = creationDone
-        store.endThemePreview(forSpace: origin, keep: false)
+        // Made and shown in this window, whichever one is active.
+        guard let id = store.finishSpaceCreation(draft, origin: origin, window: windowID) else { return }
         creationOrigin = nil
         creationDone = nil
-        let id = store.createSpace(title: draft.createdTitle, emoji: draft.icon.emoji, symbol: draft.icon.symbol,
-                                   iconImage: draft.icon.image, theme: draft.theme, focus: false).id
-        if let profile = draft.profile { store.setProfile(profile, forSpace: id) }
-        store.setSearchEngine(draft.searchEngine, forSpace: id)
-        // In this window, whichever one is active.
-        store.focusSpace(id, window: windowID)
-        store.windowsMakingSpace.remove(windowID)
         sidebarUI.spaceCreation = nil
         CraLog.note("space creation made \"\(draft.createdTitle)\" on \(draft.profile == nil ? "Default" : "a profile"), theme \(draft.themeChosen ? "chosen" : "as opened"), search \(store.space(id)?.searchEngine ?? "default")")
         done?(id)

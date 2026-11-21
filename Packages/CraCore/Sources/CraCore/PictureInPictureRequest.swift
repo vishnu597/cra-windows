@@ -60,6 +60,27 @@ public enum PictureInPictureRequest {
         """
     }
 
+    /// Coming back to a tab whose video Cra sent out: the video returns to its page (Windows'
+    /// stock CEF, which has no exitPictureInPicture of its own). Answers "ok" or "none".
+    public static let exitScript =
+        "document.pictureInPictureElement ? document.exitPictureInPicture().then(() => 'ok', () => 'none') : 'none'"
+
+    /// DevTools `Runtime.evaluate` parameters for one of these scripts: awaited, by value, and with
+    /// the user gesture a request needs (the look and the exit need none).
+    public static func evaluateParams(_ script: String, userGesture: Bool) -> String {
+        let params: [String: Any] = ["expression": script, "returnByValue": true, "awaitPromise": true, "userGesture": userGesture]
+        let data = (try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys])) ?? Data("{}".utf8)
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// The string a `Runtime.evaluate` reply carries, nil without one (an exception, no reply).
+    public static func value(fromReply reply: String?) -> String? {
+        guard let data = reply?.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["exceptionDetails"] == nil else { return nil }
+        return (json["result"] as? [String: Any])?["value"] as? String
+    }
+
     /// What the page answered to `script`.
     public enum Answer: Equatable, Sendable {
         /// The video is in Picture in Picture.
