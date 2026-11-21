@@ -348,7 +348,13 @@ final class LibraryView {
         pageMenu.items.clear()
         switch page {
         case .downloads:
-            pageMenu.items.append(UI.menuItem("Open Downloads Folder") { Shell.openDownloadsFolder() })
+            pageMenu.items.append(UI.menuItem("Open Downloads Folder") { [weak self] in
+                // The focused space's profile, as the Mac's opens the Library's profile's folder.
+                guard let store = self?.store else { return }
+                let sid = store.focusedSpaceID
+                let profile = store.isIncognito(space: sid) ? nil : store.spaces[sid]?.profileID
+                Shell.openDownloadsFolder(store.settings.downloadLocation(profileID: profile))
+            })
         case .archive:
             let clear = UI.menuItem("Clear Archive") { [weak self] in self?.store.clearArchive() }
             clear.isEnabled = !store.archive.isEmpty
