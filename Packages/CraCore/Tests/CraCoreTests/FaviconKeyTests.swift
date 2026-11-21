@@ -41,6 +41,19 @@ struct FaviconKeyTests {
         #expect(FaviconKey.siteKey(of: "custom-abc") == "custom-abc")
     }
 
+    /// A loaded icon goes under the site and the tab's own key; the tab keeps its own across a
+    /// relaunch, and a page without a host (data:, file:) stays on the site it was on.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/291"))
+    func aTabsIconIsKeptUnderItsSiteAndItsOwnKey() throws {
+        let id = UUID(uuidString: "00000000-0000-0000-0000-000000000007")!
+        let keys = try #require(FaviconKey.tabIcon(pageURL: "https://GitLab.com/a/b", current: nil, tabID: id))
+        #expect(keys.site == "gitlab.com")
+        #expect(keys.tab == FaviconKey.key(site: "gitlab.com", tabID: id))
+        let data = try #require(FaviconKey.tabIcon(pageURL: "data:text/html,hi", current: keys.tab, tabID: id))
+        #expect(data.site == "gitlab.com" && data.tab == keys.tab)
+        #expect(FaviconKey.tabIcon(pageURL: "data:text/html,hi", current: nil, tabID: id) == nil)
+    }
+
     @Test func aNavigationKeepsTheIconOnTheSameHost() {
         let own = FaviconKey.key(site: "localhost", iconURL: "http://localhost:3000/favicon.ico")
         #expect(FaviconKey.key(after: own, goingTo: "http://localhost:3000/settings") == own)
