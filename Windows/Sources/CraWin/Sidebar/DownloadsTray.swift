@@ -35,7 +35,10 @@ final class DownloadsTray {
     /// a disc on the glyph's bottom right corner with the ring and an arrow, a check when done.
     private let badge = Grid()
     private let badgeDisc = WinUI.Ellipse()  // not GDI's Ellipse
-    private let ring = ProgressRing()
+    /// The ring's track (an outline) and its arc, drawn as a path: the projection has no ProgressRing.
+    private let track = WinUI.Ellipse()  // not GDI's Ellipse
+    private let ring = WinUI.Path()
+    private var ringValue = -1.0
     private let badgeMark = FontIcon()
     private var badgeState = DownloadBadge()
     /// Re-reads the badge while it shows (a download can go stuck without a report) and ends the
@@ -78,19 +81,21 @@ final class DownloadsTray {
         badge.visibility = .collapsed
         badgeDisc.width = size
         badgeDisc.height = size
-        ring.isIndeterminate = false
-        ring.minimum = 0
-        ring.maximum = 100
-        ring.width = size - 3
-        ring.height = size - 3
-        ring.minWidth = 0
-        ring.minHeight = 0
-        ring.horizontalAlignment = .center
-        ring.verticalAlignment = .center
+        // The Mac's: 1.5 wide, its centre line 2.25 inside the badge's edge.
+        let inset = 2.25 - 0.75
+        track.width = size - 2 * inset
+        track.height = size - 2 * inset
+        track.strokeThickness = 1.5
+        track.horizontalAlignment = HorizontalAlignment.center
+        track.verticalAlignment = VerticalAlignment.center
+        ring.width = size
+        ring.height = size
+        ring.strokeThickness = 1.5
         badgeMark.fontSize = 7
         badgeMark.horizontalAlignment = .center
         badgeMark.verticalAlignment = .center
         badge.children.append(badgeDisc)
+        badge.children.append(track)
         badge.children.append(ring)
         badge.children.append(badgeMark)
         try? AutomationProperties.setName(badge, "Downloads")
@@ -131,8 +136,8 @@ final class DownloadsTray {
         // The Mac's: a white (or dark grey) disc, the ring and mark in 85 % ink, the track 15 %.
         badgeDisc.fill = palette.isDark ? UI.brush(41, 41, 41) : UI.brush(255, 255, 255)
         let ink: UInt8 = palette.isDark ? 255 : 0
-        ring.foreground = UI.brush(ink, ink, ink, alpha: 217)
-        ring.background = UI.brush(ink, ink, ink, alpha: 38)
+        ring.stroke = UI.brush(ink, ink, ink, alpha: 217)
+        track.stroke = UI.brush(ink, ink, ink, alpha: 38)
         badgeMark.foreground = UI.brush(ink, ink, ink, alpha: 217)
         for row in rows { row.apply(palette) }
     }
@@ -171,20 +176,54 @@ final class DownloadsTray {
         badgeState.update(live, now: Date())
         switch badgeState.look {
         case .hidden:
-            badge.visibility = .collapsed
+            badge.visibility = Visibility.collapsed
             stopBadgeTimer()
             return
         case .running(let fraction):
-            ring.value = fraction * 100
-            ring.visibility = .visible
+            drawRing(fraction)
+            ring.visibility = Visibility.visible
+            track.visibility = Visibility.visible
             badgeMark.glyph = "\u{E74B}"  // Down
             startBadgeTimer(every: 1, repeating: true)
         case .done:
-            ring.visibility = .collapsed
+            ring.visibility = Visibility.collapsed
+            track.visibility = Visibility.collapsed
             badgeMark.glyph = "\u{E73E}"  // CheckMark
             startBadgeTimer(every: DownloadBadge.doneFor, repeating: false)
         }
-        badge.visibility = .visible
+        badge.visibility = Visibility.visible
+    }
+
+    /// The arc from 12 o'clock, clockwise, `fraction` of the way round (the Mac's strokeEnd), in
+    /// steps of at most 6°.
+    private func drawRing(_ fraction: Double) {
+        let fraction = min(1, max(0, fraction))
+        guard abs(fraction - ringValue) > 0.002 else { return }
+        ringValue = fraction
+        let size = 16.0, radius = size / 2 - 2.25, centre = size / 2
+        func point(_ angle: Double) -> WindowsFoundation.Point {
+            WindowsFoundation.Point(x: Float(centre + radius * sin(angle)), y: Float(centre - radius * cos(angle)))
+        }
+        let sweep = fraction * 2 * Double.pi
+        let steps = max(1, Int((sweep / (Double.pi / 30)).rounded(.up)))
+        let figure = PathFigure()
+        figure.startPoint = point(0)
+        figure.isClosed = false
+        figure.isFilled = false
+        let segments = PathSegmentCollection()
+        if fraction > 0 {
+            for i in 1...steps {
+                let line = LineSegment()
+                line.point = point(sweep * Double(i) / Double(steps))
+                segments.append(line)
+            }
+        }
+        figure.segments = segments
+        let figures = PathFigureCollection()
+        figures.append(figure)
+        let geometry = PathGeometry()
+        geometry.figures = figures
+        ring.data = geometry
     }
 
     private func startBadgeTimer(every seconds: TimeInterval, repeating: Bool) {
