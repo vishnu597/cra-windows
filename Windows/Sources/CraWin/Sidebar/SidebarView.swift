@@ -127,8 +127,8 @@ final class SidebarView {
 
     /// Emoji a new space picks from, in turn.
     private static let spaceEmoji = ["🌱", "💼", "🎮", "📚", "🎨", "🏠", "✈️", "🧪"]
-    /// The sidebar's content width before its first layout (BrowserWindow's 280 less 10 each side).
-    private static let restingWidth = 260.0
+    /// The sidebar's content width before its first layout (the default 328 DIPs, WindowPrefs, less 10 each side).
+    private static let restingWidth = 308.0
     /// The close button's square and the unread dot centred where it shows (Arc 1.171, #139).
     private static let closeSize = 24.0, unreadDotSize = 6.0
     /// Each folder's row as drawn, for Change Icon…'s picker to hang under.
