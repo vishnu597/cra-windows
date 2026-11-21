@@ -102,6 +102,10 @@ enum WinAppearance {
     /// Appearance picks Light or Dark.
     static var isDark: Bool { forcedDark ?? (WinRegistry.dword(personalize, "AppsUseLightTheme") == 0) }
 
+    /// Settings ▸ Personalization ▸ Colors ▸ "Transparency effects" turned off: macOS's Reduce
+    /// transparency, which flattens the sidebar's material to one grey, active or not.
+    static var reduceTransparency: Bool { WinRegistry.dword(personalize, "EnableTransparency") == 0 }
+
     /// The accent colour (DWM keeps it as 0xAABBGGRR); Windows 11's default blue without one.
     static var accent: (r: UInt8, g: UInt8, b: UInt8) {
         guard let v = WinRegistry.dword(#"Software\Microsoft\Windows\DWM"#, "AccentColor") else { return (0, 103, 192) }
