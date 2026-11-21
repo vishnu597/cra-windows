@@ -64,6 +64,14 @@ final class HostWindow {
     var onActivate: (() -> Void)?
     /// Another window became the active one (an extension's popup closes then, as Chrome's do).
     var onDeactivate: (() -> Void)?
+    /// The window's active look changed (`activeLook`).
+    var onActiveLookChanged: ((Bool) -> Void)?
+    /// Whether the sidebar draws its active look: Cra is the active app, the window isn't minimized,
+    /// and it or a window it owns (the command bar, a dialog) is the active one, as a Mac window's
+    /// child windows count as the window (SidebarBackdrop.windowActive).
+    private(set) var activeLook = true
+    private var appActive = true, holdsActive = true
+
     /// A move or resize by the user ended (its frame is then worth saving).
     var onMoveEnded: (() -> Void)?
     /// The window's own client area shows wherever no page and no XAML covers it: between split
@@ -300,10 +308,24 @@ final class HostWindow {
     private static let wmSetCursor: UINT = 0x0020, wmPaint: UINT = 0x000F, wmEraseBackground: UINT = 0x0014
     private static let wmMouseMove: UINT = 0x0200, wmLeftDown: UINT = 0x0201, wmLeftUp: UINT = 0x0202
     private static let wmCaptureChanged: UINT = 0x0215
-    private static let wmActivate: UINT = 0x0006, wmExitSizeMove: UINT = 0x0232
+    private static let wmActivate: UINT = 0x0006, wmExitSizeMove: UINT = 0x0232, wmActivateApp: UINT = 0x001C
     private static let clipChildren: UInt32 = 0x0200_0000  // WS_CLIPCHILDREN
     private static let hitClient = 1  // HTCLIENT
     private static let doubleClickWidth: Int32 = 36, doubleClickHeight: Int32 = 37  // SM_CXDOUBLECLK, SM_CYDOUBLECLK
+
+    /// Whether `other` is this window or one it owns, directly or through another owned window.
+    private func owns(_ other: UInt) -> Bool {
+        guard other != 0, let w = HWND(bitPattern: other), let root = GetAncestor(w, UINT(GA_ROOTOWNER)) else { return false }
+        return UInt(bitPattern: root) == hwnd
+    }
+
+    private func updateActiveLook() {
+        let iconic = HWND(bitPattern: hwnd).map { IsIconic($0) } ?? false
+        let look = SidebarBackdrop.windowActive(appActive: appActive, miniaturized: iconic, holdsKeyOrMain: holdsActive)
+        guard look != activeLook else { return }
+        activeLook = look
+        onActiveLookChanged?(look)
+    }
 
     /// The result for a message this window answers itself; nil passes it on to AppWindow's.
     private func handle(_ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT? {
@@ -349,7 +371,16 @@ final class HostWindow {
             return nil
         case Self.wmActivate:
             // WA_INACTIVE is 0; WA_ACTIVE and WA_CLICKACTIVE are not.
-            if wParam & 0xFFFF != 0 { onActivate?() } else { onDeactivate?() }
+            let activated = wParam & 0xFFFF != 0
+            // Going inactive, lParam is the window becoming active: one this window owns keeps the look.
+            holdsActive = activated || owns(UInt(bitPattern: Int(lParam)))
+            updateActiveLook()
+            if activated { onActivate?() } else { onDeactivate?() }
+            return nil
+        case Self.wmActivateApp:
+            appActive = wParam != 0
+            if appActive { holdsActive = owns(GetForegroundWindow().map { UInt(bitPattern: $0) } ?? 0) || holdsActive }
+            updateActiveLook()
             return nil
         case Self.wmExitSizeMove:
             onMoveEnded?()
