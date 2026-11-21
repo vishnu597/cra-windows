@@ -65,8 +65,11 @@ struct TabRowTrailingTests {
     /// Windows keeps the name this far from the row's end: Arc's 13 pt of air before the close
     /// button on hover, and the resting tail without it (#243).
     @Test(.bug("https://github.com/VictorKildahl/cra/issues/243")) func tailBeforeTheControls() {
-        #expect(TabRowTrailing.tail(controls: []) == 21)
-        #expect(TabRowTrailing.tail(controls: [Self.close]) == 6 + 24 + 15)
-        #expect(TabRowTrailing.tail(controls: [TabRowTrailing.Control(width: 6, slot: 24)]) == 6 + 15 + 6 + 15)
+        // End inset, the control (a dot sits 9 in from its 24 pt slot's end), the name's gap.
+        let cases: [([TabRowTrailing.Control], Double)] = [([], 21), ([Self.close], 6 + 24 + 15),
+                                                            ([TabRowTrailing.Control(width: 6, slot: 24)], 6 + 9 + 6 + 15)]
+        for (controls, tail) in cases {
+            #expect(abs(Double(TabRowTrailing.tail(controls: controls)) - tail) < 0.001)
+        }
     }
 }
