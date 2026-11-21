@@ -77,7 +77,7 @@ final class SidebarView {
     let store: SidebarStore
     /// The window it draws: its space, its selected tab (SidebarStore.WindowSession).
     let windowID: UUID
-    private let favicons: Favicons
+    let favicons: Favicons
     weak var actions: SidebarActions?
     private(set) var palette = SidebarPalette(SpaceTheme.presets[0])
     /// Controls a handler reaches weakly: a WinRT control made in Swift is only a wrapper, freed
@@ -124,6 +124,9 @@ final class SidebarView {
     private static let closeSize = 24.0, unreadDotSize = 6.0
     /// Each folder's row as drawn, for Change Icon…'s picker to hang under.
     private var folderRows: [UUID: FrameworkElement] = [:]
+    func folderRow(_ id: UUID) -> FrameworkElement? { folderRows[id] }
+    /// Dia's pill back to the open tab while its row is scrolled away (SidebarJumpPill.swift).
+    let jumpPill = SidebarJumpPill()
     /// The favorites' columns as drawn, nil with none.
     private var favoritesColumns: Int?
 
@@ -157,6 +160,12 @@ final class SidebarView {
             root.children.append(part)
             try? Grid.setRow(part, Int32(i))
         }
+        root.children.append(jumpPill.body)
+        try? Grid.setRow(jumpPill.body, 2)
+        try? Canvas.setZIndex(jumpPill.body, 50)
+        jumpPill.onClick = { [weak self] in self?.jumpToSelectedRow() }
+        scroll.viewChanged.addHandler { [weak self] _, _ in self?.updateJumpPill() }
+        scroll.sizeChanged.addHandler { [weak self] _, _ in self?.updateJumpPill() }
         makeDragChrome()
         makeLinkDropTarget()
         root.sizeChanged.addHandler { [weak self] _, _ in self?.favoritesWidthChanged() }
@@ -202,6 +211,7 @@ final class SidebarView {
         for item in store.children(of: space.todayContainerID) { addRow(item, depth: 0) }
         if !newTabAtTop { addNewTabRow(space) }
         buildSpacesBar(space)
+        watchJumpPillRow()
     }
 
     /// The downloads button goes in the footer, its list over the bottom of the tab list.
