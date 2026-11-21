@@ -133,6 +133,8 @@ final class WebPage: @unchecked Sendable {
     /// Anything the shell wants to hang on the page (the tab id).
     var userInfo: AnyHashable?
     private(set) var isClosed = false
+    /// The page's background ("#RRGGBB") as it last reported it; nil before it did.
+    fileprivate(set) var backgroundColor: String?
     private var handle: OpaquePointer?
 
     /// The profile folder the page loads in (SidebarStore.profilePath); nil is Default, and
@@ -379,7 +381,10 @@ final class WebPage: @unchecked Sendable {
             WebPage.with(ctx) { $0.delegate?.page($0, didReportThemeColor: string(hex)) }
         }
         cb.background_color_reported = { ctx, hex in
-            WebPage.with(ctx) { $0.delegate?.page($0, didReportBackgroundColor: string(hex)) }
+            WebPage.with(ctx) {
+                $0.backgroundColor = string(hex)
+                $0.delegate?.page($0, didReportBackgroundColor: string(hex))
+            }
         }
         cb.fullscreen_changed = { ctx, fullscreen in
             WebPage.with(ctx) { $0.delegate?.page($0, didChangeFullscreen: fullscreen != 0) }
