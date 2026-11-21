@@ -181,6 +181,6 @@ struct CredentialImportTests {
         #expect(helium.userData(in: folders)?.pathComponents.suffix(4) == ["L", "imput", "Helium", "User Data"])
         let aside = WindowsImportSource.all.first { $0.id == "aside" }!
         #expect(aside.userData(in: folders)?.pathComponents.suffix(3) == ["L", "Aside", "User Data"])
-        #expect(WindowsImportSource.names == "Arc, Chrome, Brave, Edge, Opera, Opera GX, Vivaldi, Chromium, Helium or Aside")
+        #expect(WindowsImportSource.names == "Arc, Chrome, Brave, Edge, Opera, Opera GX, Vivaldi, Chromium, Helium, Aside, Firefox or Zen")
     }
 }

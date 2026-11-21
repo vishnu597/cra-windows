@@ -4,7 +4,8 @@ import Foundation
 /// (`ImportSource` in the app) with Windows' folders. Chromium browsers keep "User Data" under
 /// %LOCALAPPDATA% (Opera under %APPDATA%); Arc, a packaged app, keeps its files under
 /// %LOCALAPPDATA%\Packages\TheBrowserCompany.Arc_<publisher>\LocalCache\Local\Arc. Dia and Safari
-/// don't run on Windows; Firefox and Zen come with their SQLite reader. Aside, a Chromium browser
+/// don't run on Windows. Firefox and Zen keep profiles.ini under %APPDATA%\Mozilla\Firefox and
+/// %APPDATA%\zen, and the app reads their places.sqlite with its own SQLite. Aside, a Chromium browser
 /// with no Mac counterpart in the list, is offered on Windows too.
 public struct WindowsImportSource: Identifiable, Hashable {
     public enum Kind: Hashable {
@@ -12,6 +13,10 @@ public struct WindowsImportSource: Identifiable, Hashable {
         case arc
         /// Bookmarks and the last session of each Chromium profile.
         case chromium
+        /// Firefox's default profile: bookmarks and open tabs (FirefoxImport).
+        case firefox
+        /// Zen's default profile: its spaces, Essentials and pinned tabs (ZenImport).
+        case zen
     }
 
     /// The Windows folder a source's path starts from.
@@ -26,7 +31,8 @@ public struct WindowsImportSource: Identifiable, Hashable {
     public let name: String
     public let kind: Kind
     public let root: Root
-    /// Folders under `root`: Chromium's "User Data" (Opera's profile folder), or Arc's support folder.
+    /// Folders under `root`: Chromium's "User Data" (Opera's profile folder), Arc's support folder,
+    /// or the folder with Firefox's or Zen's profiles.ini.
     public let path: [String]
 
     public init(id: String, name: String, kind: Kind, root: Root, path: [String]) {
@@ -76,9 +82,11 @@ public struct WindowsImportSource: Identifiable, Hashable {
         chromium("chromium", "Chromium", .local, "Chromium", "User Data"),
         chromium("helium", "Helium", .local, "imput", "Helium", "User Data"),
         chromium("aside", "Aside", .local, "Aside", "User Data"),
+        WindowsImportSource(id: "firefox", name: "Firefox", kind: .firefox, root: .roaming, path: ["Mozilla", "Firefox"]),
+        WindowsImportSource(id: "zen", name: "Zen", kind: .zen, root: .roaming, path: ["zen"]),
     ]
 
-    /// The browsers' names for "Cra didn't find …", in the list's order: "Arc, Chrome, …, Helium or Aside".
+    /// The browsers' names for "Cra didn't find …", in the list's order: "Arc, Chrome, …, Firefox or Zen".
     public static var names: String {
         let all = self.all.map(\.name)
         return all.dropLast().joined(separator: ", ") + " or " + (all.last ?? "")
@@ -101,15 +109,20 @@ public struct WindowsImportSource: Identifiable, Hashable {
     }
 
     /// Chromium's User Data folder, with Local State (the key passwords and cookies are sealed
-    /// with) beside the profiles: Arc's is inside its support folder.
+    /// with) beside the profiles: Arc's is inside its support folder. Firefox and Zen have none, so
+    /// their passwords and extensions don't come.
     public func userData(in folders: Folders) -> URL? {
-        folder(in: folders).map { kind == .arc ? ArcImporter.userData(in: $0) : $0 }
+        switch kind {
+        case .arc: return folder(in: folders).map(ArcImporter.userData(in:))
+        case .chromium: return folder(in: folders)
+        case .firefox, .zen: return nil
+        }
     }
 
     /// The Chromium profiles whose data can come over (Arc's own, for Arc).
     public func profiles(in folders: Folders) -> [ChromiumProfile] {
-        guard let dir = folder(in: folders) else { return [] }
-        return ChromiumImporter.profiles(userData: kind == .arc ? ArcImporter.userData(in: dir) : dir)
+        guard let dir = userData(in: folders) else { return [] }
+        return ChromiumImporter.profiles(userData: dir)
     }
 
     /// Has data to bring over.
@@ -118,6 +131,18 @@ public struct WindowsImportSource: Identifiable, Hashable {
         switch kind {
         case .arc: return ArcImporter.isAvailable(in: dir)
         case .chromium: return !ChromiumImporter.profiles(userData: dir).isEmpty
+        case .firefox, .zen: return FirefoxImport.defaultProfile(root: dir) != nil
+        }
+    }
+
+    /// The line under the browser's name in the import card and onboarding: what comes over, or
+    /// a Chromium browser's profiles when it has more than one.
+    public func detail(profiles: [String]) -> String {
+        switch kind {
+        case .arc: return "Spaces, pinned tabs, favorites and archive"
+        case .chromium: return profiles.count > 1 ? "\(profiles.count) profiles: " + profiles.joined(separator: ", ") : "Bookmarks and open tabs"
+        case .firefox: return "Bookmarks and open tabs"
+        case .zen: return "Spaces, Essentials and pinned tabs"
         }
     }
 
@@ -126,11 +151,23 @@ public struct WindowsImportSource: Identifiable, Hashable {
     }
 
     /// What importing this browser adds. Arc on Windows keeps no preferences Cra reads.
-    public func plan(in folders: Folders) throws -> ImportPlan {
+    /// `sqlite` reads a query's rows from a database file another app may hold open (Firefox's
+    /// and Zen's places.sqlite); without it their bookmarks and older Zen's spaces are skipped.
+    public func plan(in folders: Folders, sqlite: (URL, String) -> [[String: Any]] = { _, _ in [] }) throws -> ImportPlan {
         guard let dir = folder(in: folders) else { throw ImportError.notFound(name) }
         switch kind {
         case .arc: return try ArcImporter.plan(supportDir: dir, preferences: .init())
         case .chromium: return try ChromiumImporter.plan(browser: name, userData: dir)
+        case .firefox, .zen:
+            guard let profile = FirefoxImport.defaultProfile(root: dir) else { throw ImportError.notFound(name) }
+            let places = profile.appendingPathComponent("places.sqlite")
+            let bookmarks = FirefoxImport.bookmarks(rows: sqlite(places, FirefoxImport.bookmarksQuery))
+            if kind == .zen {
+                let sidebar = ZenImport.sidebar(profile: profile) { sqlite(places, ZenImport.workspacesQuery) }
+                return ZenImport.plan(sidebar: sidebar, bookmarks: bookmarks)
+            }
+            return FirefoxImport.plan(browser: name, bookmarks: bookmarks,
+                                      openTabs: FirefoxImport.session(profile: profile).map(FirefoxImport.openTabs) ?? [])
         }
     }
 }

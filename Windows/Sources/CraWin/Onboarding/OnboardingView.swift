@@ -201,13 +201,7 @@ final class OnboardingView {
         let stack = StackPanel()
         stack.orientation = .vertical
         stack.children.append(UI.text(entry.source.name, size: 14, color: Self.white, trimmed: false))
-        let detail: String
-        switch entry.source.kind {
-        case .arc: detail = "Spaces, pinned tabs, favorites and archive"
-        case .chromium:
-            detail = entry.profiles.count > 1 ? "\(entry.profiles.count) profiles: " + entry.profiles.map(\.name).joined(separator: ", ")
-                : "Bookmarks and open tabs"
-        }
+        let detail = entry.source.detail(profiles: entry.profiles.map(\.name))
         stack.children.append(UI.text(detail, size: 12, color: Self.muted, trimmed: true))
         let button = Button()
         button.content = stack

@@ -198,11 +198,7 @@ final class ImportDialogView {
         let stack = StackPanel()
         stack.orientation = .vertical
         stack.children.append(UI.text(source.name, size: 14, color: Self.white, trimmed: false))
-        let detail: String
-        switch source.kind {
-        case .arc: detail = "Spaces, pinned tabs, favorites and archive"
-        case .chromium: detail = profiles.count > 1 ? "\(profiles.count) profiles: " + profiles.map(\.name).joined(separator: ", ") : "Bookmarks and open tabs"
-        }
+        let detail = source.detail(profiles: profiles.map(\.name))
         let line = UI.text(detail, size: 12, color: Self.muted, trimmed: true)
         stack.children.append(line)
         let button = Button()
