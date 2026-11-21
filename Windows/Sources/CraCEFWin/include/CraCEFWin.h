@@ -92,6 +92,13 @@ void cra_cef_set_https_only(int enabled);
 /// 0 Windows' own app mode, 1 light, 2 dark (`WebsiteAppearance.chromiumMode`).
 void cra_cef_set_website_appearance(int mode);
 
+/// Settings ▸ Profiles ▸ Download location (Arc's, per profile): one line per profile that chose
+/// something, "<Chromium folder>\t<folder>\t<1 to ask where to save>" (`DownloadLocation.bridgeLines`),
+/// the Chromium folder "Default" or "Profile <id>". A profile not listed, or whose folder is
+/// empty or gone, saves to the user's Downloads folder; asking shows Windows' Save dialog there.
+/// Private windows follow Default. Replaces the whole list; safe from the UI thread.
+void cra_cef_set_download_locations(const char *lines);
+
 /// Arc's "Allow window dragging from the top of webpages": a plain left press within `band` DIPs
 /// of a page's top (less `trailing_inset` DIPs at its right edge, for the scrollbar), over the
 /// ordinary arrow, moves the window once the pointer passes Windows' drag distance; the page gets
@@ -155,6 +162,13 @@ int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count);
 /// Windows' folder picker titled `title`, over `owner` (an HWND). The chosen folder's path goes
 /// to `out` (UTF-8, `capacity` bytes). 1 when a folder was chosen. Modal.
 int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *out, size_t capacity);
+/// The file itself on the clipboard, as Explorer's Copy puts it (CF_HDROP): it pastes into
+/// Explorer, Mail or a chat. 1 when it's there.
+int cra_clipboard_set_file(const char *path);
+/// The file into the Recycle Bin, without asking. 1 when it went.
+int cra_shell_recycle(const char *path);
+/// The user's Downloads folder (wherever they moved it), UTF-8 into `out`. 1 when known.
+int cra_downloads_folder(char *out, size_t capacity);
 /// Windows' Save dialog for a PNG, in Downloads, suggesting `file_name`. The chosen path goes to
 /// `out` (UTF-8, `capacity` bytes). 1 when a path was chosen. Modal.
 int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity);
@@ -162,6 +176,10 @@ int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_nam
 /// ("html", without the dot).
 int cra_save_file_dialog(uintptr_t owner, const char *title, const char *file_name, const char *type_name,
                          const char *extension, char *out, size_t capacity);
+/// The same dialog offering `count` kinds of file (`type_names[i]`, `extensions[i]`), the first
+/// selected; `chosen_type` gets the index of the one selected when the person saved.
+int cra_save_file_dialog_types(uintptr_t owner, const char *title, const char *file_name, const char *const *type_names,
+                               const char *const *extensions, size_t count, char *out, size_t capacity, int *chosen_type);
 
 // MARK: - Overlays
 
@@ -196,6 +214,22 @@ void cra_round_buttons_place(uintptr_t window, int x, int y, int width, int heig
 /// staying put.
 void cra_round_buttons_set_pill(uintptr_t window, int index, const char *glyph, const char *text, uint32_t fill, uint32_t ink);
 void cra_round_buttons_destroy(uintptr_t window);
+
+// MARK: - Loading bar
+
+/// Arc's loading bar over the top middle of a browser window (CraLoadingBar.cpp): a borderless
+/// window owned by `owner` (an HWND) that the mouse goes through. Hidden until drawn.
+uintptr_t cra_loading_bar_create(uintptr_t owner);
+/// One frame (CraCore's LoadingIndicator.Frame) in a window at `x, y, width, height` (screen
+/// pixels): the track `track_width` × `bar_height` DIPs (`scale` pixels a DIP), centred, at
+/// `opacity`, in `ink` (0xRRGGBB). `lit` lights all of it at `bright_alpha`; otherwise it is at
+/// `track_alpha` with a bright segment from `segment_start` to `segment_end` (0...1 of the track,
+/// -1 for none). Shows the window.
+void cra_loading_bar_draw(uintptr_t bar, int x, int y, int width, int height, double scale, double track_width,
+                          double bar_height, double opacity, int lit, double segment_start, double segment_end,
+                          uint32_t ink, double bright_alpha, double track_alpha);
+void cra_loading_bar_hide(uintptr_t bar);
+void cra_loading_bar_destroy(uintptr_t bar);
 
 // MARK: - Images
 
@@ -276,7 +310,20 @@ typedef struct CraDownloadInfo {
     int64_t total_bytes;
     int percent;
     CraDownloadState state;
+    /// Paused from its row's menu (still in progress for Chromium).
+    int paused;
 } CraDownloadInfo;
+
+/// What a download row's menu asks of one in progress (CraCEF.h's CraDownloadControl).
+typedef enum CraDownloadControl {
+    CraDownloadControlPause = 0,
+    CraDownloadControlResume = 1,
+    CraDownloadControlCancel = 2,
+} CraDownloadControl;
+
+/// Pauses, resumes or cancels download `identifier`; its next report shows the change. 0 when no
+/// download in progress has that id. UI thread.
+int cra_cef_control_download(uint32_t identifier, CraDownloadControl action);
 
 /// Modifier bits of CraKeyEvent, the same values as CEF's cef_event_flags_t.
 enum {

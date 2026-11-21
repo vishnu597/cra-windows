@@ -437,6 +437,8 @@ final class LittleWindow {
             if hasPage { share(url: currentURL, title: title) }
         case "viewSource": page?.viewSource()
         case "print": page?.printPage()
+        case "jumpToSelection": page?.jumpToSelection()
+        case "savePageAs": page?.savePageAs(owner: window.hwnd, title: title) { [weak self] in self?.showToast($0) }
         case "devTools": page?.runDevTools(.toggle)
         case "jsConsole": page?.runDevTools(.console)
         case "inspectElement": page?.runDevTools(.inspect)
@@ -449,7 +451,7 @@ final class LittleWindow {
             if let n = Int(id.dropFirst(14)), n >= 1, n <= store.spaceOrder.count { promote(to: store.spaceOrder[n - 1]) }
         // A Little Window has no sidebar, tabs, split or find bar: these stay off the browser
         // window behind it, as on the Mac.
-        case "find", "findNext", "findPrevious", "capturePage", "toggleSidebar", "pinTab", "favoriteTab", "renameTab",
+        case "find", "findNext", "findPrevious", "useSelectionForFind", "capturePage", "toggleSidebar", "pinTab", "favoriteTab", "renameTab",
              "duplicateTab", "resetTab", "muteTab", "clearToday", "nextTab", "previousTab", "recentTab", "recentTabBackward",
              "toggleDeveloperMode", "addSplitView", "closeSplitPane", "separateFromSplit", "flipSplitOrientation",
              "nextSplitPane", "previousSplitPane", "changeProfile":

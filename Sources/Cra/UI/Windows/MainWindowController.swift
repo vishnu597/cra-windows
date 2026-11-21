@@ -66,6 +66,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private var shownTheme: SpaceTheme?
     private var lastSidebarWidth: CGFloat = 0
     private var commandBarOpenedAt = Date.distantPast
+    /// The sidebar address the open bar hangs from (#663), nil while it is the centred bar.
+    private var commandBarAnchor: NSRect?
     private var commandBarClosingClick = DismissingClick()
     /// The window that took the keys from the bar and closed it (#429); nil when the bar closed itself.
     private var commandBarLostKeysTo: CommandBarClosing.KeyHolder?
@@ -392,6 +394,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         sidebarActions.openCommandBar = { [weak self] mode in
             // A click on the address field while it shows a Peek edits the Peek's address, as ⌘L there does (#648).
             if mode == .editURL, let peek = self?.sidebarPeek { peek.openCommandBar() } else { self?.openCommandBar(mode) }
+        }
+        sidebarActions.openAddressPanel = { [weak self] mode in
+            if mode == .editURL, let peek = self?.sidebarPeek { peek.openCommandBar() } else { self?.openCommandBar(mode, fromSidebarAddress: true) }
         }
         sidebarActions.closeTab = { [weak self] id in self?.closeTab(id) }
         sidebarActions.moveBlankWindow = { [weak self] space in
@@ -749,6 +754,34 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     /// The browser window the user is in (AppDelegate follows the key window).
     private var isActiveWindow: Bool { store.activeWindowID == windowID }
+
+    /// `cra://debug?tabIcon=` (#640): "picker" opens Change Icon…'s picker over the selected tab's row, as the
+    /// menu row does; "emoji:<e>", "symbol:<name>" or "none" picks that, as the picker does. Then logs the tab's
+    /// custom icon ("tab icon <step>: key=custom-emoji- dark=-" or "key=none").
+    func testTabIcon(_ step: String) {
+        guard let id = selectedTabID else { return CraLog.note("tab icon \(step): no tab") }
+        if step == "picker" {
+            func list(in v: NSView) -> SpaceListView? {
+                if let l = v as? SpaceListView, l.spaceID == focusedSpaceID { return l }
+                return v.subviews.lazy.compactMap { list(in: $0) }.first
+            }
+            guard let l = window?.contentView.flatMap(list(in:)) else { return CraLog.note("tab icon picker: no list") }
+            l.showTabIconPicker(id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                CraLog.note("tab icon picker: \(TabIconPicker.shown?.isShown == true ? "shown" : "not shown")")
+            }
+            return
+        }
+        let parts = step.split(separator: ":", maxSplits: 1).map(String.init)
+        let icon: SpaceIcon = parts.first == "emoji" && parts.count == 2 ? .emoji(parts[1])
+            : parts.first == "symbol" && parts.count == 2 ? .symbol(parts[1]) : .none
+        TabIconPicker.apply(icon, to: id, store: store, favicons: app.favicons)
+        let key = store.item(id)?.tab?.customIconKey
+        let prefix = key.map { k in ["custom-emoji-", "custom-symbol-", "custom-"].first { k.hasPrefix($0) } ?? k } ?? "none"
+        let dark = app.favicons.glyphIsDark(forKey: key).map { $0 ? "1" : "0" } ?? "-"
+        let image = key.flatMap { app.favicons.image(forKey: $0) } != nil ? 1 : 0
+        CraLog.note("tab icon \(step): key=\(prefix) dark=\(dark) image=\(image)")
+    }
 
     /// `cra://debug?dragEnd`: a drag of a row of this window's list let go at a screen point
     /// with nothing taking it, as a drag out of the sidebar ends (#219).
@@ -4656,16 +4689,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     func debugURLFieldEdit(_ step: String) {
         let sidebar = shell.sidebarHost as? SidebarView
         if step == "click" {
-            CraLog.note("url field click: " + (sidebar?.debugURLFieldClick() ?? "none") + ", command bar " + (commandBar.isOpen ? "open" : "closed"))
+            CraLog.note("url field click: " + (sidebar?.debugURLFieldClick() ?? "none") + ", command bar " + (commandBar.isOpen ? "open" : "closed")
+                        + (commandBar.isOpen ? ", " + debugCommandPanelPlace : ""))
             return
         }
         if step == "state" {
-            CraLog.note("url field state: " + (sidebar?.debugURLFieldState ?? "none") + ", command bar " + (commandBar.isOpen ? "open" : "closed"))
+            CraLog.note("url field state: " + (sidebar?.debugURLFieldState ?? "none") + ", command bar " + (commandBar.isOpen ? "open" : "closed")
+                        + (commandBar.isOpen ? ", " + debugCommandPanelPlace : ""))
             return
         }
         let commit = step.hasPrefix("type:")
         let text = String(step.drop(while: { $0 != ":" }).dropFirst())
         CraLog.note("url field \(commit ? "return" : "escape"): " + (sidebar?.debugURLFieldType(text, commit: commit) == true ? "done" : "not editing"))
+    }
+
+    /// Where the open bar is (#663): "panel compact w=<pt> h=<pt> at field" when it hangs from the sidebar's
+    /// address (its top left on the field's), "panel centred w=<pt>" otherwise.
+    private var debugCommandPanelPlace: String {
+        let f = commandPanel.frame
+        guard commandBar.compact else { return "panel centred w=\(Int(f.width))" }
+        let field = (shell.sidebarHost as? SidebarView)?.addressFrameOnScreen
+        let at = field.map { abs($0.minX - f.minX) < 0.5 && abs($0.maxY - f.maxY) < 0.5 } == true
+        return "panel compact w=\(Int(f.width.rounded())) h=\(Int(f.height.rounded())) " + (at ? "at field" : "away from field")
     }
 
     func debugURLFieldPress(_ name: String) {
@@ -5032,7 +5077,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     // MARK: Command bar
 
-    func openCommandBar(_ mode: CommandBarMode) {
+    /// `fromSidebarAddress`: a click on the sidebar's address, which opens Arc's panel hanging from it
+    /// (#663); ⌘L and the rest keep the centred bar.
+    func openCommandBar(_ mode: CommandBarMode, fromSidebarAddress: Bool = false) {
         guard let window else { return }
         // The bar takes over from the sidebar's address field edited in place (#344).
         (shell.sidebarHost as? SidebarView)?.endAddressEditing()
@@ -5046,15 +5093,24 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         let fillingEmptyPane = selectedTab?.isEmptyTab == true
         let prefill = mode == .editURL && !fillingEmptyPane ? selectedTab?.tab?.url : nil
         let effectiveMode: CommandBarMode = (mode == .editURL && (selectedTab == nil || fillingEmptyPane)) ? .newTab : mode
+        commandBarAnchor = fromSidebarAddress ? (shell.sidebarHost as? SidebarView)?.addressFrameOnScreen : nil
+        commandBar.compact = commandBarAnchor != nil
         commandBar.theme = focusedSpace.theme.shown
         commandBar.focusedSpaceID = focusedSpaceID
         commandBar.open(mode: effectiveMode, prefill: prefill)
         // Arc draws the New Tab row as the active one while the bar makes a new tab; the
         // sidebar scrolls to it (SpaceListView.revealActiveRow).
         sidebarUI.newTabPlaceholderActive = effectiveMode == .newTab && !fillingEmptyPane
-        // Always centred in the window, also when opened from the toolbar.
+        // Centred in the window, also when opened from the toolbar; from the sidebar's address, Arc's
+        // panel over the top of the sidebar, as wide as the address (#663).
         commandBar.attached = false
-        commandBar.panelWidth = min(CraMetrics.commandBarWidth, window.frame.width - 80)
+        if let anchor = commandBarAnchor {
+            let address = (prefill ?? "") as NSString
+            let textWidth = address.size(withAttributes: [.font: NSFont.systemFont(ofSize: CGFloat(SidebarAddressPanel.fontSize), weight: .medium)]).width
+            commandBar.panelWidth = CGFloat(SidebarAddressPanel.width(textWidth: Double(textWidth), available: Double(window.frame.maxX - anchor.minX)))
+        } else {
+            commandBar.panelWidth = min(CraMetrics.commandBarWidth, window.frame.width - 80)
+        }
         // The panel keeps no appearance of its own, so it follows macOS like the menus, sheets and
         // popovers (#171): Arc's bar is dark over a light space while the Mac runs dark (#187).
         positionCommandPanel()
@@ -5084,6 +5140,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     private func positionCommandPanel() {
         guard let window else { return }
+        if let opened = commandBarAnchor {
+            // Its top left on the address field's, where the field is now; the rows hang below (#663).
+            let anchor = (shell.sidebarHost as? SidebarView)?.addressFrameOnScreen ?? opened
+            let h = CGFloat(SidebarAddressPanel.height(rows: commandBar.rowPlaces))
+            commandPanel.setFrame(NSRect(x: anchor.minX, y: anchor.maxY - h, width: commandBar.panelWidth, height: h), display: true)
+            return
+        }
         let h = CommandBarView.height(forRows: commandBar.rowPlaces)
         let w = commandBar.panelWidth
         let wf = window.frame

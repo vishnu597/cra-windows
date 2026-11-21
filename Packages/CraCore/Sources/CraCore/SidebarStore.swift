@@ -444,8 +444,10 @@ public final class SidebarStore {
     public func isStandalone(window id: UUID?) -> Bool { window(id).isIncognito || isBlank(window: id) }
 
     /// Arc's New Incognito Window: a window with a space of its own whose tabs load
-    /// in an off-the-record profile and are never written anywhere.
-    public func addIncognitoWindow(frame: String?) -> WindowSession {
+    /// in an off-the-record profile and are never written anywhere. That is `profileID`'s, the profile
+    /// of the space it was opened from, as each Chrome profile has its own incognito (GitHub #620): its
+    /// extensions and their "Allow in Incognito". nil or a profile that is gone: Default's.
+    public func addIncognitoWindow(frame: String?, profileID: UUID? = nil) -> WindowSession {
         let id = UUID()
         let favorites = SidebarItem.container(.favorites(spaceID: id))
         let pinned = SidebarItem.container(.pinned(spaceID: id))
@@ -453,6 +455,7 @@ public final class SidebarStore {
         for c in [favorites, pinned, today] { items[c.id] = c }
         spaces[id] = Space(id: id, title: "Incognito", emoji: "🕶️", theme: .incognito, favoritesContainerID: favorites.id,
                            pinnedContainerID: pinned.id, todayContainerID: today.id, createdAt: clock.now)
+        spaces[id]?.profileID = profile(profileID)?.id
         incognitoSpaceIDs.insert(id)
         let w = WindowSession(focusedSpaceID: id, frame: frame, sidebarVisible: prefs.sidebarVisibleInNewWindows, isIncognito: true)
         prefs.windows.append(w)
@@ -2859,7 +2862,7 @@ public final class SidebarStore {
     public func spaces(usingProfile id: UUID?) -> [Space] { orderedSpaces.filter { $0.profileID == id } }
 
     /// The Chromium folder a tab's pages load in: its space's profile, or nil for the
-    /// Default profile (and for incognito, which has its own off-the-record one).
+    /// Default profile. An incognito tab's pages load in that profile's off-the-record one (#620).
     public func profilePath(item id: UUID) -> String? {
         if let l = profileList(ofItem: id) {
             return profile(l.profileID).map { chromiumCache.appendingPathComponent($0.directoryName, isDirectory: true).path }
@@ -2875,8 +2878,7 @@ public final class SidebarStore {
     }
 
     public func profilePath(space sid: UUID) -> String? {
-        guard !isIncognito(space: sid) else { return nil }
-        return profilePath(profile: spaces[sid]?.profileID)
+        profilePath(profile: spaces[sid]?.profileID)
     }
 
     /// A profile's Chromium folder, nil for Default (and for a profile that is gone).
@@ -2896,15 +2898,16 @@ public final class SidebarStore {
         return spaceID(ofItem: id).flatMap(profileID(space:))
     }
 
-    /// The profile a space's pages load in (nil = Default, and for an incognito space).
+    /// The profile a space's pages load in (nil = Default). An incognito space's is the profile whose
+    /// off-the-record one it uses (#620).
     public func profileID(space id: UUID) -> UUID? {
-        isIncognito(space: id) ? nil : profile(spaces[id]?.profileID)?.id
+        profile(spaces[id]?.profileID)?.id
     }
 
-    /// The Chromium profile folder ("Default" or "Profile <id>") a space's pages load in;
-    /// incognito spaces count as Default, whose off-the-record profile they use.
+    /// The Chromium profile folder ("Default" or "Profile <id>") a space's pages load in; an
+    /// incognito space's is the one whose off-the-record profile it uses (#620).
     public func profileDirectoryName(space id: UUID) -> String {
-        guard !isIncognito(space: id), let p = profile(spaces[id]?.profileID) else { return "Default" }
+        guard let p = profile(spaces[id]?.profileID) else { return "Default" }
         return p.directoryName
     }
 

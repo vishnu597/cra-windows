@@ -48,6 +48,9 @@ public enum KeyBindingDefaults {
             KeyAction(id: "copyURLMarkdown", name: "Copy URL as Markdown", section: .edit, shortcuts: [KeyChord("c", cmdOptShift)], triggers: ["markdown"]),
             // Arc: Edit ▸ Copy URL as Quote ⌃⇧⌘C, the selection with a link to it.
             KeyAction(id: "copyURLQuote", name: "Copy URL as Quote", section: .edit, shortcuts: [KeyChord("c", [.command, .shift, .control] as KeyChord.Modifiers)], triggers: ["quote", "highlight"]),
+            // Arc 2023's "paste clipboard as new tab" ⌥⌘V, which Arc dropped in March 2024; kept here (#610).
+            KeyAction(id: "pasteAndGo", name: "Paste and Go", section: .edit, shortcuts: [KeyChord("v", cmdOpt)],
+                      triggers: ["paste and go", "paste clipboard", "open clipboard"]),
             KeyAction(id: "find", name: "Find…", section: .edit, shortcuts: [KeyChord("f", cmd)], triggers: ["find", "search page"]),
             KeyAction(id: "findNext", name: "Find Next", section: .edit, shortcuts: [KeyChord("g", cmd)], inCommandBar: false),
             KeyAction(id: "findPrevious", name: "Find Previous", section: .edit, shortcuts: [KeyChord("g", cmdShift)], inCommandBar: false),
@@ -223,6 +226,7 @@ public enum KeyBindingDefaults {
                 a = KeyAction(id: action.id, name: text.name, section: action.section, shortcuts: [], triggers: text.triggers,
                               inCommandBar: action.inCommandBar, symbol: action.symbol)
             }
+            if windowsCommandBarAdds.contains(action.id) { a.inCommandBar = true }
             a.shortcuts = keys
             return a
         }
@@ -237,6 +241,11 @@ public enum KeyBindingDefaults {
         // the Library's Archived Tabs.
         "viewArchive": ("View History", "Open the archive of closed tabs.", ["archive", "history", "closed tabs"]),
     ]
+
+    /// The Mac's menu-bar-only commands (Edit ▸ Find's) that Windows lists in its command bar:
+    /// Windows has no menu bar, and their Mac keys (⌘E, ⌘J) are Open Extensions and the
+    /// Library's Downloads here, so the bar is the way to reach them.
+    public static let windowsCommandBarAdds: Set<String> = ["useSelectionForFind", "jumpToSelection"]
 
     /// Commands a private window's command bar leaves out: an import adds spaces and sign-ins to
     /// the normal windows, which a private window doesn't show or use, and Manage Spaces shows
@@ -265,6 +274,12 @@ public enum KeyBindingDefaults {
             "find": [KeyChord("f", ctrl)],
             "findNext": [KeyChord("g", ctrl), KeyChord(KeyChord.function(3), [] as KeyChord.Modifiers)],
             "findPrevious": [KeyChord("g", ctrlShift), KeyChord(KeyChord.function(3), KeyChord.Modifiers.shift)],
+            // Edit ▸ Find's Use Selection to Find and Jump to Selection, from the command bar: the
+            // Mac's ⌘E and ⌘J are Open Extensions and Downloads (Ctrl+E, Ctrl+J) here.
+            "useSelectionForFind": [],
+            "jumpToSelection": [],
+            // The Mac's ⇧⌘S, and Chrome's Ctrl+S is Hide Sidebar here as in Arc for Windows.
+            "savePageAs": [KeyChord("s", ctrlShift)],
             "reload": [KeyChord("r", ctrl), KeyChord(KeyChord.function(5), [] as KeyChord.Modifiers)],
             "hardReload": [KeyChord("r", ctrlShift), KeyChord(KeyChord.function(5), ctrl)],
             "addSplitView": [KeyChord("=", ctrlShift)],
@@ -442,6 +457,7 @@ public enum ShortcutDescriptions {
         "print": "Print the page.",
         "copyURL": "Copy the page’s URL.",
         "copyURLMarkdown": "Copy the page’s title and URL as a Markdown link.",
+        "pasteAndGo": "Open the copied link as a new tab, or search the copied text. In a text field it just pastes.",
         "find": "Search for text on the page.",
         "findNext": "Jump to the next match.",
         "findPrevious": "Jump to the previous match.",

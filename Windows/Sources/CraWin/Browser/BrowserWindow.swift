@@ -106,6 +106,8 @@ final class BrowserWindow {
     private var closing = false
     private var readyToClose = false
     private var closeTimer: WinAppSDK.DispatcherQueueTimer?
+    /// Arc's loading bar at the window's top middle, for the page in front.
+    private var loadingBar: LoadingBar?
     /// Tries the sidebar's keyboard focus again while the XAML is still loading (focusSidebar).
     private var sidebarFocusRetry: WinAppSDK.DispatcherQueueTimer?
     /// Ctrl+,: one for the app, made the first time any window opens it, then hidden and shown
@@ -203,7 +205,9 @@ final class BrowserWindow {
         window = try HostWindow(content: makeLayout(), topBar: developerBar.root, sidebarWidth: Self.sidebarWidth, frame: frame)
         window.title = Self.title(nil, incognito: isIncognito)
         hwnd = window.hwnd
+        loadingBar = LoadingBar(owner: hwnd, dispatcher: dispatcher)
         window.onLayout = { [weak self] _ in
+            self?.placeLoadingBar()
             self?.syncLibraryWidth()
             self?.repositionPeeks()
             self?.layoutPanes()
@@ -213,6 +217,7 @@ final class BrowserWindow {
             self?.hideSiteControlCenter()
         }
         window.onMove = { [weak self] in
+            self?.placeLoadingBar()
             self?.repositionPeeks()
             self?.placeFindBar()
             self?.placePermissionPrompt()
@@ -426,6 +431,8 @@ final class BrowserWindow {
             }
         }
         shownTabID = id
+        // Another tab in front: its bar as it is, without the widening or the flash.
+        syncLoadingBar(animated: false)
         guard changed else { return }
         showAddress(page.map { _ in store.item(id ?? UUID())?.tab?.url ?? "" } ?? "")
         // An empty tab (a new pane) waits for an address.
@@ -439,6 +446,8 @@ final class BrowserWindow {
         commandBar.close()
         hideFindBar()
         hideSiteControlCenter()
+        loadingBar?.close()
+        loadingBar = nil
         extensionPopup?.close()
         toast.hide()
         permissionWindow?.hide()
@@ -801,6 +810,12 @@ final class BrowserWindow {
         case "find": showFindBar()
         case "findNext": findNext(forward: true)
         case "findPrevious": findNext(forward: false)
+        case "useSelectionForFind": useSelectionForFind()
+        case "jumpToSelection": shownPage?.jumpToSelection()
+        case "savePageAs":
+            if let page = shownPage {
+                page.savePageAs(owner: hwnd, title: store.selectedTab(window: windowID)?.displayTitle ?? "") { [weak self] in self?.showToast($0) }
+            }
         case "settings": openSettings()
         case "essentialShortcuts": showEssentialShortcuts()
         // Chrome's own Task Manager and Cast dialogs, on the page in front (the Mac's runChromeCommand).
@@ -1223,6 +1238,20 @@ final class BrowserWindow {
     private func findNext(forward: Bool) {
         guard findVisible else { return showFindBar() }
         find(findBar.query, forward: forward)
+    }
+
+    /// Edit ▸ Find ▸ Use Selection to Find (MainWindowController.useSelectionForFind): the
+    /// page's selection becomes the search, and the bar shows it found.
+    private func useSelectionForFind() {
+        guard let page = shownPage else { return }
+        page.sendDevToolsMethod("Runtime.evaluate", params: FindSelection.evaluateParams) { [weak self, weak page] reply, _ in
+            guard let self, let page, page === self.shownPage, !self.closing,
+                  let query = FindSelection.query(fromReply: reply) else { return }
+            let needsSearch = FindSelection.needsSearch(selection: query, barQuery: self.findBar.query)
+            self.findBar.setQuery(query)  // a changed field searches as typing does
+            self.showFindBar()
+            if needsSearch { self.find(query, forward: true) }
+        }
     }
 
     /// Always a follow-up find: CEF restarts the search when the text changes, and unlike a first
@@ -2333,6 +2362,33 @@ extension BrowserWindow: WebPageDelegate {
 
     func page(_ page: WebPage, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool) {
         syncSlowResponse()
+        if page === shownPage { syncLoadingBar(animated: true) }
+    }
+
+    func page(_ page: WebPage, didReportBackgroundColor hex: String) {
+        if page === shownPage { placeLoadingBar() }
+    }
+
+    /// Arc's loading bar follows the page in front (LoadingIndicator.Phase): a pulsing pill
+    /// before the server answers, the sweep while the page loads, the flash once it has.
+    private func syncLoadingBar(animated: Bool) {
+        guard let loadingBar, !closing else { return }
+        let phase = shownPage.map { LoadingIndicator.Phase(isLoading: $0.isLoading, committed: $0.hasCommittedLoad) } ?? .hidden
+        placeLoadingBar()
+        loadingBar.set(phase, animated: animated)
+    }
+
+    /// Centred over the page area in the window's top 10 DIPs (LoadingIndicator.topBand), over
+    /// the developer bar while it shows, else over the page, in ink that shows on it.
+    private func placeLoadingBar() {
+        guard let loadingBar, !closing, let window, let host = HWND(bitPattern: hwnd) else { return }
+        let area = window.contentFrame
+        var top = POINT(x: area.x + area.width / 2, y: 0)
+        _ = ClientToScreen(host, &top)
+        let ground: LoadingIndicator.Ground = window.topBarHeight > 0 ? .developerBar : .page(shownPage?.backgroundColor)
+        let light = LoadingIndicator.lightInk(on: ground, themeDark: store.focusedSpace(window: windowID).theme.isDark,
+                                              canvasDark: WinAppearance.isDark)
+        loadingBar.place(centreX: top.x, top: top.y, scale: window.scale, lightInk: light, visible: !IsIconic(host))
     }
 
     // MARK: Back and Forward history
@@ -2378,6 +2434,7 @@ extension BrowserWindow: WebPageDelegate {
 
     func page(_ page: WebPage, didChangeCommittedLoad committed: Bool) {
         syncSlowResponse()
+        if page === shownPage { syncLoadingBar(animated: true) }
     }
 
     func page(_ page: WebPage, didChangeURL url: String) {
@@ -2535,7 +2592,8 @@ extension BrowserWindow: WebPageDelegate {
         let history = DownloadHistory.shared
         history.report(id: download.identifier, name: name, path: path, received: download.receivedBytes,
                        total: download.totalBytes, percent: download.percent, complete: download.state == .complete,
-                       cancelled: download.state == .cancelled, failed: download.state == .interrupted)
+                       cancelled: download.state == .cancelled, failed: download.state == .interrupted,
+                       paused: download.paused)
         if download.state == .complete, !path.isEmpty, finishedDownloads.insert(download.identifier).inserted {
             history.add(path: path)
         }

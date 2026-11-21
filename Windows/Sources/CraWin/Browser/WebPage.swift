@@ -38,6 +38,8 @@ struct DownloadInfo: Sendable {
     var totalBytes: Int64
     var percent: Int
     var state: State
+    /// Paused from its row's menu.
+    var paused = false
 }
 
 struct PermissionKinds: OptionSet, Sendable {
@@ -140,6 +142,8 @@ final class WebPage: @unchecked Sendable {
     /// Anything the shell wants to hang on the page (the tab id).
     var userInfo: AnyHashable?
     private(set) var isClosed = false
+    /// The page's background ("#RRGGBB") as it last reported it; nil before it did.
+    fileprivate(set) var backgroundColor: String?
     private var handle: OpaquePointer?
 
     /// The profile folder the page loads in (SidebarStore.profilePath); nil is Default, and
@@ -291,6 +295,28 @@ final class WebPage: @unchecked Sendable {
         method.withCString { m in params.withCString { p in cra_browser_send_dev_tools_method(handle, m, p, box, done) } }
     }
 
+    /// File ▸ Save Page As (the Mac's PageCommands.savePageAs): Windows' Save dialog with
+    /// Chrome's two kinds, then the file from DevTools (SavePage). `report` gets the toast.
+    @MainActor func savePageAs(owner: UInt, title: String, report: @escaping @MainActor (String) -> Void) {
+        let formats = SavePage.Format.allCases
+        guard !isClosed,
+              let chosen = WinShell.save(owner: owner, title: "Save Page As", fileName: SavePage.suggestedFileName(title: title),
+                                         types: formats.map { (name: $0.typeName, fileExtension: $0.fileExtension) }) else { return }
+        let format = SavePage.format(forPath: chosen.path, chosenType: formats[max(0, min(chosen.type, formats.count - 1))])
+        let request = format.request
+        sendDevToolsMethod(request.method, params: request.params) { reply, error in
+            guard let text = format.contents(fromReply: reply),
+                  (try? Data(text.utf8).write(to: URL(fileURLWithPath: chosen.path), options: .atomic)) != nil else {
+                print("Cra: saving the page failed: \(error ?? "no data")")
+                return report("Couldn’t Save the Page")
+            }
+            report("Page Saved")
+        }
+    }
+
+    /// Edit ▸ Find ▸ Jump to Selection: the page scrolls its selection into view.
+    func jumpToSelection() { executeJavaScript(FindSelection.jumpScript) }
+
     /// The connection of the page on screen (the Mac's sslStatus); nil before anything committed.
     var sslStatus: (status: ConnectionSecurity.Status, hasCertificate: Bool)? {
         guard let handle else { return nil }
@@ -372,7 +398,10 @@ final class WebPage: @unchecked Sendable {
             WebPage.with(ctx) { $0.delegate?.page($0, didReportThemeColor: string(hex)) }
         }
         cb.background_color_reported = { ctx, hex in
-            WebPage.with(ctx) { $0.delegate?.page($0, didReportBackgroundColor: string(hex)) }
+            WebPage.with(ctx) {
+                $0.backgroundColor = string(hex)
+                $0.delegate?.page($0, didReportBackgroundColor: string(hex))
+            }
         }
         cb.fullscreen_changed = { ctx, fullscreen in
             WebPage.with(ctx) { $0.delegate?.page($0, didChangeFullscreen: fullscreen != 0) }
@@ -422,7 +451,8 @@ final class WebPage: @unchecked Sendable {
             }
             let download = DownloadInfo(identifier: d.identifier, url: string(d.url), fullPath: string(d.full_path),
                                         suggestedName: string(d.suggested_name), receivedBytes: d.received_bytes,
-                                        totalBytes: d.total_bytes, percent: Int(d.percent), state: state)
+                                        totalBytes: d.total_bytes, percent: Int(d.percent), state: state,
+                                        paused: d.paused != 0)
             WebPage.with(ctx) { $0.delegate?.page($0, didUpdateDownload: download) }
         }
         cb.permission_requested = { ctx, id, origin, kinds in

@@ -286,6 +286,36 @@ std::wstring DownloadsFolder() {
     return out;
 }
 
+/// Downloads in progress by id, for their rows' menus. UI thread only.
+std::map<uint32_t, CefRefPtr<CefDownloadItemCallback>> g_downloadCallbacks;
+
+/// Settings ▸ Profiles ▸ Download location (cra_cef_set_download_locations): Chromium folder ->
+/// (folder, ask where to save). Set by Swift, read as downloads start.
+std::mutex g_downloadLocationsLock;
+std::map<std::string, std::pair<std::wstring, bool>> g_downloadLocations;
+
+/// The folder a profile's download goes to: its chosen one while it's there, else Downloads.
+std::wstring DownloadFolderFor(const std::string &profileFolder, bool *ask) {
+    std::wstring folder;
+    {
+        std::lock_guard<std::mutex> lock(g_downloadLocationsLock);
+        auto it = g_downloadLocations.find(profileFolder);
+        if (it != g_downloadLocations.end()) {
+            folder = it->second.first;
+            *ask = it->second.second;
+        }
+    }
+    while (folder.size() > 3 && (folder.back() == L'\\' || folder.back() == L'/')) folder.pop_back();
+    if (!folder.empty()) {
+        DWORD attributes = GetFileAttributesW(folder.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            if (folder.back() == L'\\' || folder.back() == L'/') folder.pop_back();  // "D:\\" -> "D:"
+            return folder;
+        }
+    }
+    return DownloadsFolder();
+}
+
 // Chrome's permission request types as the `kinds` bits (CraCEFWin.h), the table in
 // Sources/CraCEF/CraCEF.mm, so the prompt can say what a page asks for.
 const struct {
@@ -928,6 +958,8 @@ std::string PageStartScript() {
     return g_pageStartScript;
 }
 
+std::string ProfileFolderName(CefRefPtr<CefBrowser> browser);
+
 /// One page (or a popup host waiting for its popup). Holds its CraBrowser until OnBeforeClose.
 class CraClient : public CefClient,
                   public CefDisplayHandler,
@@ -1336,7 +1368,8 @@ public:
                           const CefString &suggested_name, CefRefPtr<CefBeforeDownloadCallback> callback) override {
         std::wstring name = suggested_name.ToWString();
         if (name.empty()) name = L"download";
-        std::wstring dir = DownloadsFolder();
+        bool ask = false;
+        std::wstring dir = DownloadFolderFor(ProfileFolderName(browser), &ask);
         if (dir.empty()) {
             callback->Continue(CefString(), true);  // Chromium's own Save As dialog
             return true;
@@ -1348,12 +1381,16 @@ public:
         for (int n = 1; GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES; n++) {
             path = dir + L"\\" + base + L" (" + std::to_wstring(n) + L")" + ext;
         }
-        callback->Continue(CefString(path), false);
+        // Ask Where to Save Each File: Windows' Save dialog, starting at that name in that folder.
+        callback->Continue(CefString(path), ask);
         return true;
     }
 
     void OnDownloadUpdated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDownloadItem> item,
                            CefRefPtr<CefDownloadItemCallback> callback) override {
+        // Kept while it runs, for its row's Pause, Resume and Cancel (cra_cef_control_download).
+        if (item->IsInProgress()) g_downloadCallbacks[item->GetId()] = callback;
+        else g_downloadCallbacks.erase(item->GetId());
         CraBrowser *o = Live();
         if (!o || !o->callbacks.download_updated) return;
         std::string url = item->GetURL().ToString(), path = item->GetFullPath().ToString(),
@@ -1370,6 +1407,7 @@ public:
                      : item->IsCanceled()    ? CraDownloadStateCancelled
                      : item->IsInterrupted() ? CraDownloadStateInterrupted
                                              : CraDownloadStateInProgress;
+        info.paused = item->IsInProgress() && item->IsPaused() ? 1 : 0;
         o->callbacks.download_updated(o->callbacks.context, &info);
     }
 
@@ -1881,6 +1919,35 @@ extern "C" int cra_cef_initialize(const CraCEFSettings *s) {
     ScheduleWork(0);
     if (!g_clickHook) g_clickHook = SetWindowsHookExW(WH_MOUSE, ClickHook, nullptr, GetCurrentThreadId());
     return 1;
+}
+
+extern "C" int cra_cef_control_download(uint32_t identifier, CraDownloadControl action) {
+    auto it = g_downloadCallbacks.find(identifier);
+    if (it == g_downloadCallbacks.end()) return 0;
+    switch (action) {
+        case CraDownloadControlPause: it->second->Pause(); break;
+        case CraDownloadControlResume: it->second->Resume(); break;
+        case CraDownloadControlCancel: it->second->Cancel(); break;
+    }
+    return 1;
+}
+
+extern "C" void cra_cef_set_download_locations(const char *lines) {
+    std::map<std::string, std::pair<std::wstring, bool>> parsed;
+    std::string all = lines ? lines : "";
+    size_t start = 0;
+    while (start <= all.size()) {
+        size_t end = all.find('\n', start);
+        if (end == std::string::npos) end = all.size();
+        std::string line = all.substr(start, end - start);
+        size_t a = line.find('\t'), b = a == std::string::npos ? a : line.find('\t', a + 1);
+        if (b != std::string::npos) {
+            parsed[line.substr(0, a)] = {Wide(line.substr(a + 1, b - a - 1).c_str()), line.substr(b + 1) == "1"};
+        }
+        start = end + 1;
+    }
+    std::lock_guard<std::mutex> lock(g_downloadLocationsLock);
+    g_downloadLocations = std::move(parsed);
 }
 
 extern "C" void cra_cef_set_page_top_drag(double band, double trailing_inset) {

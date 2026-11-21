@@ -50,7 +50,7 @@ struct KeyBindingsTests {
         #expect(mac["recentTabAllSpaces"]?.shortcuts == [Self.chord(KeyChord.tab, [.control, .option])])
         #expect(mac["pauseAllMedia"]?.shortcuts == [])
         // 109 built-in commands, four split-pane actions and 27 numbered tab/space actions.
-        #expect(KeyBindingDefaults.mac.count == 109 + 4 + 27)
+        #expect(KeyBindingDefaults.mac.count == 110 + 4 + 27)
     }
 
     /// Windows' table names only actions the Mac has, in the Mac's order, and its keys don't
