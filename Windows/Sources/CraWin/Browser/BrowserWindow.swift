@@ -46,6 +46,8 @@ final class BrowserWindow {
     private var downloads: DownloadsTray!
     /// Downloads this window's pages started (the stall check), and the ones it has recorded.
     private var windowDownloads: Set<UInt32> = []
+    /// Delete Space…'s question while it is up.
+    private var deleteSpaceSheet: AppDialog?
     private var finishedDownloads: Set<UInt32> = []
     private var downloadWatchdog: WinAppSDK.DispatcherQueueTimer?
     private let dispatcher: WinAppSDK.DispatcherQueue
@@ -2338,9 +2340,21 @@ extension BrowserWindow: SpacesManagerActions {
     /// last space only says it has to stay (SpaceDeleteConfirmation).
     func confirmDeleteSpace(_ id: UUID) {
         guard let space = store.space(id) else { return }
+        guard !closing, deleteSpaceSheet == nil else { return }
         let prompt = SpaceDeleteConfirmation.prompt(title: space.title, spaceCount: store.spaceOrder.count)
-        guard prompt.canDelete else { return WinDialog.notice(owner: hwnd, title: prompt.title) }
-        if WinDialog.confirm(owner: hwnd, title: prompt.title, message: prompt.message ?? "") { store.deleteSpace(id) }
+        // Arc's dialog sheet, as the Mac asks (AppDialog): Delete in red, Cancel with Escape.
+        let sheet = AppDialog(title: prompt.title, message: prompt.message ?? "", actions: prompt.actions)
+        deleteSpaceSheet = sheet
+        // After the click or key that asked, as the quit question shows.
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { self?.deleteSpaceSheet = nil; return }
+            sheet.present(over: self.window) { [weak self] picked in
+                guard let self else { return }
+                self.deleteSpaceSheet = nil
+                if prompt.deletes(picked: picked) { self.store.deleteSpace(id) }
+                self.focusContent()
+            }
+        }
     }
 }
 

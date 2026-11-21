@@ -14,6 +14,14 @@ public struct SpaceDeleteConfirmation: Equatable, Sendable {
         self.canDelete = canDelete
     }
 
+    /// The dialog's buttons: Delete (red) and Cancel, or only OK for the last space.
+    public var actions: [DialogAction] {
+        canDelete ? [DialogAction("Delete", role: .destructive), .cancel] : [DialogAction("OK")]
+    }
+
+    /// Whether the button picked (its index in `actions`, nil for none) deletes the space.
+    public func deletes(picked: Int?) -> Bool { canDelete && picked == 0 }
+
     /// What to ask before deleting the space named `title`, with `spaceCount` spaces in all.
     public static func prompt(title: String, spaceCount: Int) -> SpaceDeleteConfirmation {
         guard spaceCount > 1 else { return .init(title: "You need at least one space.", message: nil, canDelete: false) }
