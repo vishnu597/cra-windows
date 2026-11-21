@@ -41,6 +41,22 @@ public struct QuitDialog: Equatable, Sendable {
         }
     }
 
+    /// The buttons as Arc's dialog sheet draws them (`DialogActions`): the default one primary,
+    /// staying the cancel one, "Quit, and don’t ask again" secondary at the card's left edge.
+    public var actions: [DialogAction] {
+        buttons.map { button in
+            let role: DialogAction.Role = button.isDefault ? .primary
+                : button.answer == .stay ? .cancel : .secondary
+            return DialogAction(button.title, role: role)
+        }
+    }
+
+    /// The answer for the sheet's pick: its button's, or `dismissed` when it went without one.
+    public func answer(picked index: Int?) -> Answer {
+        guard let index, buttons.indices.contains(index) else { return Self.dismissed }
+        return buttons[index].answer
+    }
+
     /// Escape and closing the card: stay.
     public static let dismissed = Answer.stay
 

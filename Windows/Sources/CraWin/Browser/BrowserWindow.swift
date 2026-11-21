@@ -123,10 +123,8 @@ final class BrowserWindow {
     private var permissionWindow: FloatingWindow?
     private var permissionHeight = 120.0
     private let profileDialog = ProfileDialogView()
-    /// "Quit Cra?" over this window, made the first time it's asked.
-    private var quitDialog: QuitDialogView?
-    private var quitWindow: FloatingWindow?
-    private var quitAnswer: ((QuitDialog.Answer) -> Void)?
+    /// "Quit Cra?" over this window while it asks (Arc's dialog sheet).
+    private var quitSheet: AppDialog?
     /// Edit Pinned Page ▸ Edit… on a pinned tab or favorite.
     private lazy var editPinnedDialog = EditPinnedURLDialog()
     private var profileWindow: FloatingWindow?
@@ -1657,48 +1655,25 @@ final class BrowserWindow {
 
     // MARK: Quit
 
-    /// Shows `dialog` centred on the window; `answer` gets the button pressed, or stay for Escape,
-    /// Alt+F4 on the card and the window going first.
+    /// Shows `dialog` as Arc's dialog sheet centred on the window; `answer` gets the button
+    /// pressed, or stay for Escape, Alt+F4 on the card and the window going first.
     func askToQuit(_ dialog: QuitDialog, answer: @escaping (QuitDialog.Answer) -> Void) {
-        guard !closing else { return answer(.stay) }
-        if quitDialog == nil {
-            let view = QuitDialogView()
-            view.onAnswer = { [weak self] in self?.answerQuit($0) }
-            do {
-                quitWindow = try FloatingWindow(owner: window, content: view.root)
-                quitWindow?.onClose = { [weak self] in self?.answerQuit(QuitDialog.dismissed) }
-                quitDialog = view
-            } catch {
-                print("Cra: the quit dialog's window could not be made: \(error)")
-                return answer(.quit)
-            }
-        }
-        guard let quitDialog, let quitWindow else { return answer(.quit) }
-        quitAnswer = answer
-        let height = quitDialog.show(dialog)
-        let scale = window.scale
-        let position = window.appWindow.position, size = window.appWindow.size
-        let width = (QuitDialogView.width * scale).rounded(), h = (height * scale).rounded()
-        let left = Double(position.x) + (Double(size.width) - width) / 2
-        let top = Double(position.y) + max(0, (Double(size.height) - h) / 2)
+        guard !closing, quitSheet == nil else { return answer(.stay) }
+        let sheet = AppDialog(title: dialog.title, message: dialog.message ?? "", actions: dialog.actions)
+        quitSheet = sheet
+        print("Cra: quit asks: \(dialog.title)")
         // After the key or click that asked, as the profile dialog shows.
         _ = try? dispatcher.tryEnqueue { [weak self] in
-            guard let self, !self.closing, self.quitAnswer != nil else { return }
-            quitWindow.place(origin: PointInt32(x: Int32(left.rounded()), y: Int32(top.rounded())),
-                             size: SizeInt32(width: Int32(width), height: Int32(h)))
-            quitWindow.show { [weak self] in self?.quitDialog?.focus() }
+            guard let self, !self.closing else { self?.quitSheet = nil; return answer(.stay) }
+            sheet.present(over: self.window) { [weak self] picked in
+                guard let self else { return answer(dialog.answer(picked: picked)) }
+                self.quitSheet = nil
+                let picked = dialog.answer(picked: picked)
+                if let window = HWND(bitPattern: self.hwnd) { _ = SetForegroundWindow(window) }
+                if picked == .stay { self.focusContent() }
+                answer(picked)
+            }
         }
-    }
-
-    private func answerQuit(_ answer: QuitDialog.Answer) {
-        guard let done = quitAnswer else { return }
-        quitAnswer = nil
-        if quitWindow?.isVisible == true {
-            quitWindow?.hide()
-            if let window = HWND(bitPattern: hwnd) { _ = SetForegroundWindow(window) }
-            if answer == .stay { focusContent() }
-        }
-        done(answer)
     }
 
     // MARK: Import

@@ -40,6 +40,27 @@ struct QuitDialogTests {
         #expect(!warn, "Quit, and don’t ask again turns Warn before quitting off")
     }
 
+    @Test func sheetDrawsArcsQuitLayout() throws {
+        let quit = try #require(QuitDialog.asking(.confirmQuit))
+        let sheet = DialogActions(quit.actions)
+        #expect(quit.actions.map(\.role) == [.primary, .cancel, .secondary])
+        #expect(sheet.key(at: 0) == "↩", "Return quits")
+        #expect(sheet.key(at: 1) == "ESC", "Escape cancels")
+        #expect(sheet.leadingOrder == [2], "don’t ask again sits at the left edge, as in Arc")
+        #expect(sheet.trailingOrder == [1, 0], "Cancel, then Quit last")
+        #expect(quit.answer(picked: 0) == .quit)
+        #expect(quit.answer(picked: 1) == .stay)
+        #expect(quit.answer(picked: 2) == .quitAndStopAsking)
+        #expect(quit.answer(picked: nil) == QuitDialog.dismissed, "Alt+F4 on the card stays")
+        #expect(quit.answer(picked: 9) == QuitDialog.dismissed)
+
+        let downloads = try #require(QuitDialog.asking(.downloadsInProgress))
+        let downloadsSheet = DialogActions(downloads.actions)
+        #expect(downloadsSheet.trailingOrder == [1, 0], "Keep browsing, then Close Cra")
+        #expect(downloadsSheet.leadingOrder.isEmpty)
+        #expect(downloadsSheet.key(at: 1) == "ESC")
+    }
+
     @Test func oneQuestionAtATime() {
         var requests = QuitRequests()
         let first = requests.begin()
