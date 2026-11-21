@@ -83,6 +83,10 @@ final class SidebarView {
     var iconPicker: SpaceIconPickerView?
     var styleEditor: SpaceStyleEditorView?
     var creationMenu: MenuFlyout?
+    /// Arc's Create a Space page while it is up (SpaceCreationPage.swift), over the space's part.
+    var creationPage: SpaceCreationPageView?
+    /// Where the page goes: over the favorites, the header and the list, empty while it is down.
+    private let creationHost = Border()
     let store: SidebarStore
     /// The window it draws: its space, its selected tab (SidebarStore.WindowSession).
     let windowID: UUID
@@ -167,6 +171,9 @@ final class SidebarView {
             root.children.append(part)
             try? Grid.setRow(part, Int32(i))
         }
+        creationHost.visibility = .collapsed
+        root.children.append(creationHost)
+        try? Grid.setRowSpan(creationHost, 3)
         makeDragChrome()
         makeLinkDropTarget()
         root.sizeChanged.addHandler { [weak self] _, _ in self?.favoritesWidthChanged() }
@@ -211,7 +218,60 @@ final class SidebarView {
         if newTabAtTop { addNewTabRow(space) }
         for item in store.children(of: space.todayContainerID) { addRow(item, depth: 0) }
         if !newTabAtTop { addNewTabRow(space) }
+        showCreationPage(space)
         buildSpacesBar(space)
+    }
+
+    // MARK: Create a Space
+
+    /// New Space: Arc's Create a Space page takes the space's place in the sidebar, and the
+    /// window shows no tab until it is left. Asked again while it is up, its name field takes the
+    /// keys. A window with no spaces of its own makes the space at once.
+    /// `created` runs with the space once it is made (Move to ▸ New Space…).
+    func beginSpaceCreation(created: (@MainActor (UUID) -> Void)? = nil) {
+        if let page = creationPage { return page.focusName() }
+        guard !store.isStandalone(window: windowID) else {
+            if let made = newSpaceAtOnce() { created?(made.id) }
+            return
+        }
+        let page = SpaceCreationPageView(store: store, window: windowID, anchor: root) { [weak self] field in
+            self?.actions?.focusRenameField(field)
+        } onDraft: { [weak self] in
+            self?.refreshDock()
+        } onEnd: { [weak self] in
+            self?.endCreationPage()
+        }
+        page.created = created
+        creationPage = page
+        creationHost.child = page.root
+        creationHost.visibility = .visible
+        build()
+    }
+
+    /// The page was left (Create Space or Cancel): the space's part comes back.
+    private func endCreationPage() {
+        guard creationPage != nil else { return }
+        creationPage = nil
+        creationHost.child = nil
+        creationHost.visibility = .collapsed
+        build()
+        actions?.renameEnded()
+    }
+
+    /// While the page is up the space's favorites, header and list make way for it. Another space
+    /// picked (the dock, a key, the wheel) cancels it, as on the Mac.
+    private func showCreationPage(_ space: Space) {
+        let page = creationPage
+        let shown: Visibility = page == nil ? .visible : .collapsed
+        header.visibility = page == nil && !store.hidesSpaceHeader(space.id) ? .visible : .collapsed
+        scroll.visibility = shown
+        if page != nil { favorites.visibility = .collapsed }
+        guard let page else { return }
+        page.apply(palette: palette, width: favoritesWidth)
+        if space.id != page.origin {
+            // Not while the store is being read for this drawing.
+            _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { [weak page] in page?.cancelCreation() }
+        }
     }
 
     /// The downloads button goes in the footer, its list over the bottom of the tab list.
@@ -471,8 +531,11 @@ final class SidebarView {
             }
             move.items.append(MenuFlyoutSeparator())
             move.items.append(UI.menuItem("New Space…") { [weak self] in
-                guard let self, let space = self.newSpace() else { return }
-                self.store.moveTab(id, toSpace: space.id, window: self.windowID)
+                // Arc's Create a Space page; the tab moves once the space is made, as on the Mac.
+                self?.beginSpaceCreation { [weak self] made in
+                    guard let self else { return }
+                    self.store.moveTab(id, toSpace: made, window: self.windowID)
+                }
             })
             menu.items.append(move)
         }
@@ -1089,7 +1152,7 @@ final class SidebarView {
         }
         menu.items.append(UI.menuItem("New Folder", action: "newFolder") { [weak self] in self?.newFolder(in: space, atTop: false) })
         if !store.isIncognito(space: space.id) {
-            menu.items.append(UI.menuItem("New Space") { [weak self] in _ = self?.newSpace() })
+            menu.items.append(UI.menuItem("New Space") { [weak self] in self?.newSpace() })
         }
         menu.items.append(UI.menuItem("Clear Today", action: "clearToday") { [weak self] in self?.store.clearToday(space.id, playing: []) })
         if !store.isIncognito(space: space.id) { menu.items.append(profileMenu(space)) }
@@ -1182,8 +1245,12 @@ final class SidebarView {
         beginRename(item: store.createFolder(named: "New Folder", in: space.pinnedContainerID, index: atTop ? 0 : nil).id)
     }
 
+    func newSpace() { beginSpaceCreation() }
+
+    /// A space made at once, named after its place (the Library's +, and a window with no spaces of
+    /// its own, where the page has nowhere to go).
     @discardableResult
-    func newSpace() -> Space? {
+    func newSpaceAtOnce() -> Space? {
         let n = store.spaceOrder.count
         // Arc's New Space starts on the profile of the space it was opened from.
         let profile = SpaceProfiles.forNewSpace(from: store.focusedSpace(window: windowID), profiles: store.profiles)

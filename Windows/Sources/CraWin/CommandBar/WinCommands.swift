@@ -55,6 +55,10 @@ enum WinGlyph {
         // Extensions (the Site Control Center's tiles, Manage Extensions).
         case "puzzlepiece.extension", "puzzlepiece.extension.fill": return "\u{EA86}"  // Puzzle
         case "plus": return "\u{E710}"  // Add
+        // Arc's Create a Space page: its Profile and Choose a Theme rows, and the (i) on a row.
+        case "face.smiling": return "\u{E76E}"  // Emoji2
+        case "paintbrush.fill": return "\u{E771}"  // Personalize
+        case "info.circle": return "\u{E946}"  // Info
         // A tab's speaker (TabSound).
         case "speaker.wave.3": return "\u{E995}"  // Volume3
         case "speaker.slash": return "\u{E74F}"  // Mute
