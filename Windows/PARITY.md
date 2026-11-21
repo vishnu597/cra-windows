@@ -29,14 +29,14 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 2 | 3 | 0 | 3 | 0 |
 | Media and capture | 0 | 4 | 0 | 1 | 1 |
-| Profiles, privacy and site data | 7 | 1 | 0 | 6 | 0 |
+| Profiles, privacy and site data | 7 | 2 | 0 | 5 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 3 | 0 | 2 | 0 |
 | Settings | 2 | 7 | 0 | 2 | 0 |
 | Import and onboarding | 0 | 4 | 1 | 0 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 6 | 6 | 0 | 5 | 9 |
-| **All** | 48 | 70 | 1 | 30 | 18 |
+| **All** | 48 | 71 | 1 | 29 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -180,7 +180,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Rebuild profiles from Arc (`rebuildArcProfiles`) | ❌ | `ArcProfileRebuilder.swift` | `ArcProfileRebuild` | Waits for Arc import. |
 | Clear Cache, Clear Cookies | ✅ [#17] | `SiteData.swift` | `SiteDataClearing` | |
 | Clear Browsing Data (`clearBrowsingData`) | ✅ [#55] | `AppDelegate.swift` | `BrowsingDataClear` | Windows: Ctrl+Shift+Delete (Chrome for Windows' key; `KeyChord.forwardDelete`), the command bar and Settings ▸ Privacy ▸ Data ▸ Clear… open Chrome's dialog in a tab; what it deletes from history leaves the command bar too (`BrowsingDataClear.watchScript`, the Mac's script). Not from a private window. |
-| Added block lists in Settings | ❌ | `BlockLists.swift`, `PrivacyPane.swift` | `CustomBlocklists`, `CustomBlocklist`, `FilterList`, `BlocklistRules` | Sync #23, #507: URL validation, kept copies and domain parsing are shared. Windows still loads only the bundled list; added-list UI/fetching/persistence and merged-domain bridge remain. Sync #24: added lists apply their path and hiding rules (#570). |
+| Added block lists in Settings | 🟡 [#120] | `BlockLists.swift`, `PrivacyPane.swift` | `CustomBlocklists`, `CustomBlocklist`, `FilterList`, `BlocklistRules`, `BlocklistStore`, `BlocklistRow` | Sync #23, #507: URL validation, kept copies and domain parsing are shared. Sync #24: added lists apply their path and hiding rules (#570) on the iPhone. Windows [#120]: Settings ▸ Privacy ▸ Content blocking ▸ Block lists, as on the Mac: Add List… takes an address or Choose File…, each list shows its name, how many domains it blocks and when it was fetched (or why it couldn't be, with Try Again) and Remove. Copies are kept in %LOCALAPPDATA%\Cra\Blocklists and fetched again once a day at launch or a week while Cra runs. The Mac's BlockLists service moved to CraCore (`BlocklistStore`), so both apps fetch, keep and merge the same way; Windows hands the engine the merged list with `cra_cef_set_blocked_domains`. Left: as on the Mac, only a list's domain rules apply. |
 | Ad and tracker blocker | ✅ [#45] | `CraContentBlocker.h`, `CraCEF.mm` | `SiteControlCenter` | `CraCEFWin.cpp` includes the Mac's `CraContentBlocker.h` as is: the same matcher, the same third-party rule and the same `resources/blocklist` list, copied beside Cra.exe by build.ps1 and read off the UI thread at launch. The switch follows `blockAdsAndTrackers` live, from Settings ▸ Privacy, the Site Control Center and the onboarding. |
 | Block Cookie Banners (Arc's, off by default) | ✅ [#46] | `BrowserManager.swift`, `PrivacyPane.swift` | `CookieBanners` (`pageScript`), `SidebarStore` (`cookieBannerCSS`) | Upstream 93b20a6. The stylesheet is shared. Windows: Settings ▸ Privacy's switch; each page adopts it as it commits (`cra_cef_set_page_start_script`, from the main world, where the Mac uses an isolated one; nothing is left on `window`). |
 | Always use secure connections (HTTPS-only), Secure DNS | ✅ [#54], [#56] | `PrivacyPane.swift`, `SecureDNSSetting.swift` | `SecureDNS` | Both are Chromium prefs; the decisions are shared. Windows: Settings ▸ Privacy ▸ Connections has the HTTPS-only switch (`httpsOnly`, Chrome's `https_only_mode_enabled` on every profile, private windows and profiles that load later included) and the Secure DNS menu (Automatic, Off, Chrome's providers, Custom… with a template field; `SecureDNSChoice.menuGroups`, `SecureDNS.footnote(managed:)`), read from and written to Local State, read-only when a policy sets it. |
@@ -217,7 +217,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Links | 🟡 [#31] [#118] | `LinksPane.swift`, `AirTrafficControlView.swift` | `LinkRouting`, `AirTrafficControl` | Upstream b4c20de moves Little Windows, Peek, foreground-link preference and Air Traffic Control out of Tabs into Settings ▸ Links. Windows [#118]: Settings ▸ Links, listed after Tabs (`DiaSettingsPane.windowsPanes`), has the Mac's order: the Little Window blurb with its any-app key and links from other apps, the Peek blurb with Shift-click, links to other sites (only Favorites and Pinned tabs) and every tab, "Choose where links open inside Cra." with Air Traffic Control…, and New tabs' switch to links opened from the page menu. Not on Windows yet: the Little Window's ⌥⌘-click and archive time, Peek's Ctrl-click Expand, hiding either toolbar, background tabs below the current one and Split View's two switches. |
 | Shortcuts | ✅ [#15] | `ShortcutsPane.swift` | `KeyBindingRegistry` | |
 | Profiles | ✅ [#19] | `ProfilesPane.swift` | `SpaceProfiles` | |
-| Privacy | 🟡 [#45] | `PrivacyPane.swift` | `SecureDNS` | Windows has the Content blocking card's ad and tracker [#45] and cookie banner [#46] switches. Left: fingerprinting protection, secure connections and DNS, the Data card. |
+| Privacy | 🟡 [#45] [#120] | `PrivacyPane.swift` | `SecureDNS` | Windows has the Content blocking card's ad and tracker [#45] and cookie banner [#46] switches. Secure connections, DNS and the Data card's Clear browsing data are on Windows too; added block lists come with [#120]. Left: fingerprinting protection, which needs Cra's engine patch (stock CEF has none). |
 | Extensions | 🟡 | `ExtensionsPane.swift` | `ExtensionFolders`, `InstalledExtensions` | Windows lists every profile's installs once each, with Remove (Cra's own folder) or Remove… (chrome://extensions), Add Unpacked Extension… (Windows' folder picker) and Open Chrome's Extension Manager. Cra's folders load in every profile (stock CEF has no `extension-profiles.patch`). No Live Folder plugins under it yet (Plugins row). |
 | Plugins | ❌ | `PluginsPane.swift` | `LiveFolderPlugin`, `LiveFolderPluginPackage` | With the live-folder plugin runtime: install, permission summary, enable/disable, reload and remove packages. |
 | Advanced: engine, export bookmarks, versions | 🟡 [#65] | `AdvancedPane.swift`, `SidebarExport.swift` | `BookmarksExport` | The bookmarks-file writer is CraCore's `BookmarksExport` ([#65]); the Mac's `SidebarExport` keeps its save panel. Windows: Settings ▸ General ▸ Your data ▸ Export spaces and pinned tabs, with Windows' Save dialog. Windows [#114]: Settings ▸ Advanced ▸ About shows Cra.exe's version (its VERSIONINFO, `cra_app_version`; a local 0.0.0 build says just "Cra", `CraVersion.windowsTitle`), the engine (`EngineVersion.label`) and the data folder; a click on the version copies it with the engine for a bug report (#461, `CraVersion.windowsLine`), and Help ▸ Copy Cra Info now names the version too. Left: the brand mark on the card and the update channel rows (with the updater). |
@@ -892,4 +892,5 @@ the fork keeps in CraCore (`LibraryList.swift`), so it gained upstream's `railIc
 [#114]: https://github.com/vishnu597/cra-windows/pull/114
 [#118]: https://github.com/vishnu597/cra-windows/pull/118
 [#119]: https://github.com/vishnu597/cra-windows/pull/119
+[#120]: https://github.com/vishnu597/cra-windows/pull/120
 [#111]: https://github.com/vishnu597/cra-windows/pull/111

@@ -220,13 +220,22 @@ enum WinShell {
         pickFolderPath(owner: owner, title: title).map { URL(fileURLWithPath: $0, isDirectory: true) }
     }
 
-    /// The user's Downloads folder as Windows writes it, nil when Windows can't say.
+    /// Windows' file picker for one existing file; the chosen file, nil if cancelled.
+    static func pickFile(owner: UInt, title: String) -> URL? {
+        let capacity = 4096
+        var buffer = [CChar](repeating: 0, count: capacity)
+        let chosen = title.withCString { t in cra_pick_file_dialog(owner, t, &buffer, capacity) }
+        guard chosen != 0 else { return nil }
+        return URL(fileURLWithPath: String(cString: buffer), isDirectory: false)
+    }
+
     /// Cra.exe's product version ("1.2.3", "0.0.0" for a local build), nil without one.
     static var appVersion: String? {
         var buffer = [CChar](repeating: 0, count: 64)
         return cra_app_version(&buffer, 64) != 0 ? String(cString: buffer) : nil
     }
 
+    /// The user's Downloads folder as Windows writes it, nil when Windows can't say.
     static var downloadsFolder: String? {
         let capacity = 4096
         var buffer = [CChar](repeating: 0, count: capacity)

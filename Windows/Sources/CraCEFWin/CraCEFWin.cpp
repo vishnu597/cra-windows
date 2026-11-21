@@ -2082,6 +2082,12 @@ extern "C" void cra_cef_load_blocked_domains(const char *path) {
 
 extern "C" int cra_cef_blocked_domain_count(void) { return static_cast<int>(cra_blocker::Count()); }
 
+extern "C" void cra_cef_set_blocked_domains(const char *text) {
+    // The set before it stays alive, as on the Mac (CraContentBlocker.h never frees one): a page
+    // being checked on another thread may still hold it.
+    cra_blocker::Publish(cra_blocker::ParseList(text ? std::string_view(text) : std::string_view()));
+}
+
 extern "C" void cra_cef_set_link_menu_background(int background) { g_linkMenuBackground.store(background != 0); }
 
 extern "C" void cra_cef_set_page_start_script(const char *script) {

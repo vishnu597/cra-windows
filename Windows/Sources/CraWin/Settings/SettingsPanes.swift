@@ -138,7 +138,7 @@ enum SettingsPanes {
     /// far: the ad and tracker blocker and cookie banners. Fingerprinting, secure connections
     /// and the Data card wait for their features.
     /// `openURL` opens a page in the browser window in use (Clear browsing data's Chrome dialog).
-    static func privacy(store: SidebarStore, palette: SettingsPalette,
+    static func privacy(store: SidebarStore, palette: SettingsPalette, owner: @escaping @MainActor () -> UInt = { 0 },
                         openURL: @escaping @MainActor (String) -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
@@ -153,6 +153,7 @@ enum SettingsPanes {
             switchRow("Block ads and trackers",
                       detail: "Requests to known ad and tracker domains are cancelled, unless the domain belongs to the site you’re on.",
                       \.blockAdsAndTrackers),
+            blockLists(store: store, palette: palette, owner: owner, syncs: &syncs),
             // Arc: Settings ▸ General "Block Cookie Banners", off by default.
             switchRow("Block cookie banners",
                       detail: "Cookie banners from the common consent tools are hidden. Pages load again with the change.",
@@ -180,6 +181,138 @@ enum SettingsPanes {
         ], palette: palette))
         // The Site Control Center's switch and the onboarding change them too.
         return SettingsPaneContent(element: stack) { syncs.forEach { $0() } }
+    }
+
+    /// Block lists added on top of Cra's own (#507, the Mac's BlockListRows): Add List… asks for
+    /// an address or a file, and each list is a line with its name, what it blocks or why it
+    /// couldn't be fetched, Try Again and Remove. Its lines follow WinBlockLists as it fetches.
+    static func blockLists(store: SidebarStore, palette: SettingsPalette, owner: @escaping @MainActor () -> UInt,
+                           syncs: inout [() -> Void]) -> UIElement {
+        let lists = WinBlockLists.shared
+        let section = StackPanel()
+        section.orientation = .vertical
+
+        let add = Button()
+        add.content = UI.text("Add List…", trimmed: false)
+        let flyout = Flyout()
+        let field = TextBox()
+        field.placeholderText = "https://example.com/list.txt"
+        field.minWidth = 300
+        try? AutomationProperties.setName(field, "List address")
+        let error = UI.text("", size: 11, color: palette.secondaryText, trimmed: false)
+        error.textWrapping = .wrap
+        error.maxWidth = 300
+        error.visibility = .collapsed
+        // Weak: the flyout holds the buttons whose handlers close it.
+        weak var shown = flyout
+        func apply(_ addition: CustomBlocklist.Addition) {
+            switch addition {
+            case .invalid:
+                error.text = BlocklistRow.invalidAddress
+                error.visibility = .visible
+                return
+            case .added(let next):
+                store.settings.customBlocklists = next
+            case .alreadyAdded:
+                break
+            }
+            try? shown?.hide()
+        }
+        let addTyped = { [weak field] in
+            guard let field else { return }
+            apply(CustomBlocklist.adding(field.text, to: store.settings.customBlocklists, httpsOnly: false))
+        }
+        field.keyDown.addHandler { _, args in
+            guard let args, Int32(truncatingIfNeeded: args.key.rawValue) == 0x0D else { return }
+            args.handled = true
+            addTyped()
+        }
+        let buttons = StackPanel()
+        buttons.orientation = .horizontal
+        buttons.spacing = 8
+        buttons.horizontalAlignment = .right
+        let choose = Button()
+        choose.content = UI.text("Choose File…", trimmed: false)
+        choose.click.addHandler { _, _ in
+            try? shown?.hide()
+            guard let file = WinShell.pickFile(owner: owner(), title: "Choose a block list: a hosts file, a list of domains or an Adblock Plus list") else { return }
+            apply(CustomBlocklist.adding(file, to: store.settings.customBlocklists))
+        }
+        let confirm = Button()
+        confirm.content = UI.text("Add", trimmed: false)
+        confirm.click.addHandler { _, _ in addTyped() }
+        buttons.children.append(choose)
+        buttons.children.append(confirm)
+        let panel = StackPanel()
+        panel.orientation = .vertical
+        panel.spacing = 8
+        panel.children.append(UI.text("Add a Block List", color: palette.text))
+        panel.children.append(field)
+        panel.children.append(error)
+        panel.children.append(buttons)
+        flyout.content = panel
+        flyout.opened.addHandler { [weak field] _, _ in
+            field?.text = ""
+            error.visibility = .collapsed
+        }
+        add.flyout = flyout
+        section.children.append(cardRow("Block lists", detail: BlocklistRow.detail, trailing: add, palette: palette))
+
+        // One line per list, built again whenever the lists or their fetches change.
+        let rows = StackPanel()
+        rows.orientation = .vertical
+        rows.spacing = 6
+        rows.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 0, right: Double(DiaSettingsMetrics.cardRowInset), bottom: 10)
+        section.children.append(rows)
+        func render() {
+            let enabled = store.settings.blockAdsAndTrackers
+            add.isEnabled = enabled
+            rows.opacity = enabled ? 1 : 0.5
+            rows.children.clear()
+            let addresses = store.settings.customBlocklists
+            rows.visibility = addresses.isEmpty ? .collapsed : .visible
+            for address in addresses {
+                let line = Grid()
+                line.columnDefinitions.append(UI.column(UI.star))
+                line.columnDefinitions.append(UI.column(UI.auto))
+                let words = StackPanel()
+                words.spacing = 1
+                words.margin = Thickness(left: 0, top: 0, right: 12, bottom: 0)
+                let cached = lists.cached[address]
+                let name = BlocklistRow.name(address, cached: cached)
+                words.children.append(UI.text(name, size: 12, color: palette.text, trimmed: true))
+                let actions = StackPanel()
+                actions.orientation = .horizontal
+                actions.spacing = 4
+                actions.verticalAlignment = .center
+                let status: String
+                switch BlocklistRow.status(cached: cached, failure: lists.failures[address], now: Date()) {
+                case .fetching: status = "Fetching…"
+                case .fetched(let text): status = lists.fetching.contains(address) ? text + " · Fetching…" : text
+                case .failed(let why):
+                    status = why
+                    if !lists.fetching.contains(address) {
+                        actions.children.append(UI.button("Try Again", color: palette.text) { lists.fetch(address) })
+                    }
+                }
+                let detail = UI.text(status, size: 11, color: palette.secondaryText, trimmed: false)
+                detail.textWrapping = .wrap
+                words.children.append(detail)
+                let remove = UI.button("Remove", color: palette.text) {
+                    store.settings.customBlocklists.removeAll { $0 == address }
+                }
+                try? AutomationProperties.setName(remove, "Remove \(name)")
+                actions.children.append(remove)
+                line.children.append(words)
+                line.children.append(actions)
+                try? Grid.setColumn(actions, 1)
+                rows.children.append(line)
+            }
+        }
+        render()
+        // Reading WinBlockLists here is what lets the pane follow a fetch as it finishes.
+        syncs.append { render() }
+        return section
     }
 
     /// A card row with a switch for one of the store's settings; `syncs` gets what puts the

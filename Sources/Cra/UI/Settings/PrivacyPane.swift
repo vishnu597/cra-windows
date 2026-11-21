@@ -166,7 +166,7 @@ private struct BlockListRows: View {
 /// One added list: its name, then what it blocks and when it was fetched, or why it couldn't be.
 private struct BlockListLine: View {
     let address: String
-    let lists: BlockLists
+    let lists: BlocklistStore
     let remove: (String) -> Void
 
     var body: some View {
