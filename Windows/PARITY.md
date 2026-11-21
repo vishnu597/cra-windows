@@ -4,8 +4,8 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 38c66c46 -->
-Upstream reviewed through **38c66c46** (VictorKildahl/cra main, 21 Nov 2026), every commit triaged
+<!-- upstream-reviewed: 624c19f1 -->
+Upstream reviewed through **624c19f1** (VictorKildahl/cra main, 21 Nov 2026), every commit triaged
 under Waiting in upstream (sync #26: 16 commits after 15ae9afc). The Windows gaps below remain explicit rather
 than inheriting the Mac's status.
 
@@ -789,6 +789,19 @@ profile names (#666). Upstream's code was taken, and `defaultProfileName`, `rena
 |---|---|---|
 | 38c66c46 | Default profile can be renamed; Chromium shows Cra's profile names (#666) | Profiles row (`ProfileNames`, `ChromiumProfileNames.swift`). Windows still writes "Default" and can't rename it. ❌ |
 | eac73de5 | Engine 159: Boost tint becomes Arc's colorize between the wheel's handles (#602) | Boosts row (`Boost.Colorize`); Mac engine patch. Windows' CEF 156 has no engine tint. ➖ |
+
+Upstream sync #29 merged 4 commits after 38c66c46, to 624c19f1. Conflicts: `SidebarStore`'s
+`recordTyped` (#667), where upstream's code was taken and made `public`; and the Mac's `LibraryPage`, which
+the fork keeps in CraCore (`LibraryList.swift`), so it gained upstream's `railIcon` there. The new
+`LibraryRailIcons` draws with CGPath and CGContext, so its drawing half and its tests sit behind
+`#if canImport(CoreGraphics)`. Its timeline (`Track`, `Player`) and `LibraryRailTile` build everywhere.
+
+| Commits | What | Windows |
+|---|---|---|
+| 5248f2c2 | Typing a site's name completes to its most-typed address (#667) | Command bar row (`TypedCompletion`, in `SuggestionEngine` already). Windows' command bar doesn't call `recordTyped` yet. ❌ |
+| 624c19f1 | Library rail tiles and two-colour icons that play when picked (#668) | Library row (`LibraryRailTile`, `LibraryRailIcons`, `LibraryRailIconView.swift`). Windows' rail keeps its glyphs. ❌ |
+| fd89321f | Space swipes settle on Arc's spring (#613) | Swipe row (`LibrarySwipe`). Check that Windows' pager uses the same settle. ❌ |
+| e73dc456 | Permission card sits 12 pt below a page that starts under the menu bar | Mac menu bar placement (`PermissionPopover.swift`). ➖ |
 
 ## Keeping this current
 
