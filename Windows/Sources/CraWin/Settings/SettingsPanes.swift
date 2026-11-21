@@ -301,6 +301,14 @@ enum SettingsPanes {
             checkbox("Show the space header with only one space", \.showSpaceHeaderOnSingleSpace),
             note("Off hides the space’s name and its icon at the bottom of the sidebar while you have one space.", palette: palette),
         ])
+        // #305: Arc's View ▸ Show Toolbar, named for what it moves (AddressBarPlacement), and Arc's
+        // Show Full URL from the toolbar address's menu (Settings ▸ Advanced on the Mac).
+        form.group("Address bar:", [
+            checkbox("Show the address in a toolbar above the page", get: { store.settings.addressBarPlacement == .toolbar },
+                     set: { store.settings.addressBarPlacement = $0 ? .toolbar : .sidebar }),
+            checkbox("Show the full URL in the toolbar", \.toolbarShowsFullURL),
+            note("Off keeps the address at the top of the sidebar, as in Arc. Toggle Toolbar in the command bar switches it too.", palette: palette),
+        ])
         // GitHub #464, not in Arc: the window's layout in a mirror (SidebarSide), as on the Mac.
         form.group("Sidebar:", [
             checkbox("Sidebar on the right", get: { store.settings.sidebarSide == .right },

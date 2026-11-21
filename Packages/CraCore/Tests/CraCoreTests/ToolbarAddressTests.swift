@@ -1,0 +1,34 @@
+import CraCore
+import Testing
+
+/// The toolbar's address and which bar a window's strip shows (the Windows toolbar).
+struct ToolbarAddressTests {
+    @Test func showsTheHostUnlessFullURLIsOn() {
+        let host = ToolbarAddress.parts(url: "https://www.example.com/docs/page?q=1", showFullURL: false)
+        #expect(host.host == "example.com" && host.path == "")
+        let full = ToolbarAddress.parts(url: "https://www.example.com/docs/page?q=1", showFullURL: true)
+        #expect(full.host == "example.com" && full.path == "/docs/page?q=1")
+    }
+
+    @Test func anAddressWithNoHostShowsAsTyped() {
+        let parts = ToolbarAddress.parts(url: "about:blank", showFullURL: false)
+        #expect(parts.host == "about:blank" && parts.path == "")
+    }
+
+    @Test func developerModeWinsAndSplitsShowNoBar() {
+        #expect(WindowTopBar.resolve(showToolbar: false, developerMode: false, paneCount: 1, hasURL: true) == .none)
+        #expect(WindowTopBar.resolve(showToolbar: true, developerMode: false, paneCount: 1, hasURL: true) == .toolbar)
+        #expect(WindowTopBar.resolve(showToolbar: true, developerMode: true, paneCount: 1, hasURL: true) == .developer)
+        #expect(WindowTopBar.resolve(showToolbar: false, developerMode: true, paneCount: 1, hasURL: true) == .developer)
+        #expect(WindowTopBar.resolve(showToolbar: true, developerMode: true, paneCount: 2, hasURL: true) == .none)
+        // A window with no tab still shows the toolbar (its buttons disabled), not the developer bar.
+        #expect(WindowTopBar.resolve(showToolbar: true, developerMode: true, paneCount: 0, hasURL: false) == .toolbar)
+    }
+
+    @Test func toolbarCommandsRunOnWindows() {
+        let windows = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.windows.map { ($0.id, $0) })
+        #expect(windows["toggleToolbar"]?.inCommandBar == true)
+        #expect(windows["toggleToolbar"]?.name == "Toggle Toolbar")
+        #expect(windows["stop"] != nil)
+    }
+}

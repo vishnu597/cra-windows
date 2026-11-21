@@ -42,10 +42,14 @@ final class BrowserWindow {
     /// The open tab's address; a click opens the command bar on it (Arc's URL bar in the sidebar).
     private let address = TextBlock()
     private var addressButton: Button!
+    /// The sidebar's toggle button, which takes the keyboard when the toolbar has the address.
+    private var sidebarToggle: Button!
     /// Arc's downloads list over the bottom of the sidebar, and its button in the footer.
     private var downloads: DownloadsTray!
     /// Downloads this window's pages started (the stall check), and the ones it has recorded.
     private var windowDownloads: Set<UInt32> = []
+    /// Delete Space…'s question while it is up.
+    private var deleteSpaceSheet: AppDialog?
     private var finishedDownloads: Set<UInt32> = []
     private var downloadWatchdog: WinAppSDK.DispatcherQueueTimer?
     private let dispatcher: WinAppSDK.DispatcherQueue
@@ -105,6 +109,12 @@ final class BrowserWindow {
     /// Arc's Developer Mode bar over a site's page (HostWindow's strip).
     private let developerBar = DeveloperBarView()
     private var developerTabID: UUID?
+    /// Arc's toolbar over the page (View ▸ Show Toolbar), in the same strip.
+    private let pageToolbar = ToolbarView()
+    /// What the strip shows now.
+    private var topBar: WindowTopBar = .none
+    /// The sidebar's ← → ↻ and its address pill, which the toolbar takes over while it shows.
+    private var sidebarNavigation: [FrameworkElement] = []
     private var findWindow: FloatingWindow?
     private var findVisible = false
     private var refreshQueued = false
@@ -220,7 +230,10 @@ final class BrowserWindow {
             _ = SetCapture(host)
         }
         tabSidebarWidth = SidebarResizeHandle.restored(store.prefs.sidebarWidth)
-        window = try HostWindow(content: makeLayout(), topBar: developerBar.root, sidebarWidth: tabSidebarWidth, frame: frame)
+        let strip = Grid()
+        strip.children.append(developerBar.root)
+        strip.children.append(pageToolbar.root)
+        window = try HostWindow(content: makeLayout(), topBar: strip, sidebarWidth: tabSidebarWidth, frame: frame)
         window.title = Self.title(nil, incognito: isIncognito)
         hwnd = window.hwnd
         loadingBar = LoadingBar(owner: hwnd, dispatcher: dispatcher)
@@ -251,6 +264,11 @@ final class BrowserWindow {
             guard let self, !self.closing else { return }
             self.store.activeWindowID = self.windowID
         }
+        window.onActiveLookChanged = { [weak self] active in
+            guard let self, !self.closing else { return }
+            self.sidebar.windowActive = active
+            self.queueRefresh()
+        }
         window.onMoveEnded = { [weak self] in
             self?.saveFrame()
             // Dragging the title bar made the window under a Peek the active one: the card takes
@@ -271,6 +289,7 @@ final class BrowserWindow {
         makeCommandBar()
         makeFindBar()
         makeDeveloperBar()
+        makeToolbar()
         makePermissionPrompt()
         makeProfileDialog()
         makeImportDialog()
@@ -375,9 +394,9 @@ final class BrowserWindow {
             sidebar.build()
             sidebarPanel.background = sidebar.fill
             applyPaneColors(store.focusedSpace(window: windowID).theme)
-            downloads.apply(SidebarPalette(store.focusedSpace(window: windowID).theme), fill: sidebar.fill)
+            downloads.apply(sidebar.palette, fill: sidebar.fill)
             if libraryPage != nil {
-                library.build(SidebarPalette(store.focusedSpace(window: windowID).theme), dark: sidebar.isDark)
+                library.build(sidebar.palette, dark: sidebar.isDark)
                 syncLibraryWidth()
             }
             syncSidebarMode()
@@ -386,7 +405,7 @@ final class BrowserWindow {
             placeSidebarEdge()
             syncPages()
             syncSlowResponse()
-            syncDeveloperBar()
+            syncTopBar()
             showAddress(store.selectedTab(window: windowID)?.tab?.url ?? "")
         } onChange: { [weak self] in
             // Called inside the change, on the main thread: draw once it is done.
@@ -552,6 +571,7 @@ final class BrowserWindow {
         sidebarGlyph.glyph = WinGlyph.code("sidebar.left")
         sidebarGlyph.fontSize = 13
         let sidebarButton = UI.button(sidebarGlyph) { [weak self] in self?.toggleSidebar() }
+        sidebarToggle = sidebarButton
         ArcTip.set(sidebarButton, "Toggle Sidebar")
         try? AutomationProperties.setName(sidebarButton, "Toggle Sidebar")
         toolbar.children.append(sidebarButton)
@@ -563,7 +583,8 @@ final class BrowserWindow {
         forwardMenu.opening.addHandler { [weak self] _, _ in self?.openHistoryMenu(.forward) }
         toolbar.children.append(back)
         toolbar.children.append(forward)
-        toolbar.children.append(UI.button("\u{27F3}") { [weak self] in self?.shownPage?.reload() })
+        let reload = UI.button("\u{27F3}") { [weak self] in self?.shownPage?.reload() }
+        toolbar.children.append(reload)
 
         address.fontSize = 13
         address.textTrimming = .characterEllipsis
@@ -587,6 +608,7 @@ final class BrowserWindow {
         pill.children.append(sliders)
         try? Grid.setColumn(sliders, 1)
 
+        sidebarNavigation = [back, forward, reload, pill]
         let parts: [FrameworkElement] = [toolbar, pill, sidebar.root]
         for (i, part) in parts.enumerated() {
             sidebarPanel.children.append(part)
@@ -647,7 +669,7 @@ final class BrowserWindow {
         try? sidebarFocusRetry?.stop()
         sidebarFocusRetry = nil
         window.focusXAML()
-        if (try? addressButton.focus(.programmatic)) == true { return }
+        if focusSidebarControl() { return }
         var tries = 0
         let timer = try? dispatcher.createTimer()
         timer?.interval = TimeSpan(duration: 50 * 10_000)
@@ -663,13 +685,22 @@ final class BrowserWindow {
                 return
             }
             self.window.focusXAML()
-            if (try? self.addressButton.focus(.programmatic)) == true {
+            if self.focusSidebarControl() {
                 try? self.sidebarFocusRetry?.stop()
                 self.sidebarFocusRetry = nil
             }
         }
         sidebarFocusRetry = timer
         try? timer?.start()
+    }
+
+    /// The address pill, or the sidebar button while the toolbar has the address.
+    private func focusSidebarControl() -> Bool {
+        // The pill is the last of the parts the toolbar takes over.
+        if sidebarNavigation.last?.visibility != .collapsed, (try? addressButton.focus(.programmatic)) == true {
+            return true
+        }
+        return (try? sidebarToggle.focus(.programmatic)) == true
     }
 
     private func makeCommandBar() {
@@ -898,6 +929,8 @@ final class BrowserWindow {
         case "deleteSpace": if !isIncognito { confirmDeleteSpace(store.focusedSpaceID(window: windowID)) }
         case "closeTab": closeCurrentTab()
         case "reload": reload(ignoringCache: false)
+        case "stop": shownPage?.stopLoading()
+        case "toggleToolbar": store.settings.showToolbar.toggle()
         case "hardReload": reload(ignoringCache: true)
         case "pinTab": if let t = store.selectedTabID(window: windowID) { store.togglePinned(t) }
         case "renameTab": renameSelectedTab()
@@ -1471,12 +1504,16 @@ final class BrowserWindow {
         store.settings.toggleDeveloperMode(url: url)
     }
 
-    /// The bar shows over the open tab's page when its site is in Developer Mode, not in a split
-    /// (the Mac's ToolbarComposition kind `.developer`), and the pages move down under it.
-    private func syncDeveloperBar() {
+    /// The strip over the page (WindowTopBar): the developer bar over the open tab's page when its
+    /// site is in Developer Mode (the Mac's ToolbarComposition kind `.developer`), else Arc's
+    /// toolbar with View ▸ Show Toolbar, neither over a split; the pages move down under it.
+    private func syncTopBar() {
         let tab = store.selectedTab(window: windowID)
         let url = tab?.tab?.url ?? ""
-        let on = paneIDs.count <= 1 && !url.isEmpty && store.settings.isDeveloperMode(url: url)
+        let bar = WindowTopBar.resolve(showToolbar: store.settings.showToolbar, developerMode: !url.isEmpty && store.settings.isDeveloperMode(url: url),
+                                       paneCount: paneIDs.count, hasURL: !url.isEmpty)
+        topBar = bar
+        let on = bar == .developer
         // An edit ends without loading when the bar goes or shows another tab (as on the Mac):
         // the keyboard goes back to the page.
         if developerBar.isEditing, !on || tab?.id != developerTabID {
@@ -1485,7 +1522,53 @@ final class BrowserWindow {
         }
         developerTabID = on ? tab?.id : nil
         if on { developerBar.show(url: url, theme: store.focusedSpace(window: windowID).theme) }
-        window.topBarHeight = on ? DeveloperBarView.height : 0
+        developerBar.root.visibility = on ? .visible : .collapsed
+        pageToolbar.root.visibility = bar == .toolbar ? .visible : .collapsed
+        if bar == .toolbar { syncToolbar() }
+        // The toolbar carries ← → ↻ and the address, so the sidebar's header doesn't (Arc).
+        let sidebarNav: Visibility = store.settings.showToolbar && paneIDs.count <= 1 ? .collapsed : .visible
+        for part in sidebarNavigation { part.visibility = sidebarNav }
+        window.topBarHeight = switch bar {
+        case .developer: DeveloperBarView.height
+        case .toolbar: ToolbarView.height
+        case .none: 0
+        }
+    }
+
+    /// The toolbar's buttons and colour for the open tab (its page's state, which isn't observed:
+    /// the page's own callbacks call this too).
+    private func syncToolbar() {
+        guard topBar == .toolbar else { return }
+        let item = store.selectedTab(window: windowID)
+        var state = ToolbarView.State()
+        if let item, let t = item.tab, !item.isEmptyTab {
+            state.kind = .normal
+            state.url = t.url
+            state.easelTitle = item.displayTitle
+            state.themeColor = ToolbarColor.hex(reported: nil, remembered: t.themeColor)
+        }
+        if let page = shownPage {
+            state.canGoBack = page.canGoBack
+            state.canGoForward = page.canGoForward
+            state.isLoading = page.isLoading
+        }
+        state.sidebarVisible = sidebarDocked
+        state.sidebarSide = store.settings.sidebarSide
+        state.showFullURL = store.settings.toolbarShowsFullURL
+        pageToolbar.show(state)
+    }
+
+    private func makeToolbar() {
+        pageToolbar.onKey = { [weak self] key in self?.handleShortcut(key) ?? false }
+        pageToolbar.onAction = { [weak self] id in
+            guard let self else { return }
+            switch id {
+            case "siteControls": self.toggleSiteControlCenter()
+            case "toggleFullURL": self.store.settings.toolbarShowsFullURL.toggle()
+            case "stop": self.shownPage?.stopLoading()
+            default: _ = self.perform(id)
+            }
+        }
     }
 
     // MARK: Keys
@@ -1664,7 +1747,9 @@ final class BrowserWindow {
 
     /// The page area's own colour (between panes, in an empty pane) is the sidebar's.
     private func applyPaneColors(_ theme: SpaceTheme) {
-        let c = HexColor.components(theme.colors.first ?? "#1C242B") ?? (r: 0.11, g: 0.14, b: 0.17)
+        let hex = SidebarMaterialFill.hex(theme: theme, active: window.activeLook, systemDark: WinAppearance.isDark,
+                                          reduceTransparency: WinAppearance.reduceTransparency)
+        let c = HexColor.components(hex) ?? (r: 0.11, g: 0.14, b: 0.17)
         let fill = HostColor(r: UInt8(c.r * 255), g: UInt8(c.g * 255), b: UInt8(c.b * 255))
         window.background = fill
         window.pillColor = fill.blended(with: theme.isDark ? HostColor(r: 255, g: 255, b: 255) : HostColor(r: 0, g: 0, b: 0), alpha: 0.45)
@@ -2103,11 +2188,14 @@ final class BrowserWindow {
     /// Center and an extension's popup hang).
     private func slidersCorner(host: HWND, scale: Double) -> POINT {
         var corner = POINT(x: 0, y: 0)
+        // The toolbar's sliders while it shows (its strip starts at the page area's left edge).
+        let onToolbar = topBar == .toolbar ? pageToolbar.sliders : nil
+        let sliders: Button = onToolbar ?? self.sliders
         if let transform = try? sliders.transformToVisual(nil),
            let origin = try? transform.transformPoint(WindowsFoundation.Point(x: 0, y: 0)) {
             let right = (Double(origin.x) + sliders.actualWidth) * scale
             let bottom = (Double(origin.y) + sliders.actualHeight + 4) * scale
-            let origin = window.columnOrigin
+            let origin = onToolbar != nil ? (x: window.contentFrame.x, y: Int32(0)) : window.columnOrigin
             corner = POINT(x: Int32(right.rounded()) + origin.x, y: Int32(bottom.rounded()) + origin.y)
         }
         _ = ClientToScreen(host, &corner)
@@ -2372,9 +2460,21 @@ extension BrowserWindow: SpacesManagerActions {
     /// last space only says it has to stay (SpaceDeleteConfirmation).
     func confirmDeleteSpace(_ id: UUID) {
         guard let space = store.space(id) else { return }
+        guard !closing, deleteSpaceSheet == nil else { return }
         let prompt = SpaceDeleteConfirmation.prompt(title: space.title, spaceCount: store.spaceOrder.count)
-        guard prompt.canDelete else { return WinDialog.notice(owner: hwnd, title: prompt.title) }
-        if WinDialog.confirm(owner: hwnd, title: prompt.title, message: prompt.message ?? "") { store.deleteSpace(id) }
+        // Arc's dialog sheet, as the Mac asks (AppDialog): Delete in red, Cancel with Escape.
+        let sheet = AppDialog(title: prompt.title, message: prompt.message ?? "", actions: prompt.actions)
+        deleteSpaceSheet = sheet
+        // After the click or key that asked, as the quit question shows.
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { self?.deleteSpaceSheet = nil; return }
+            sheet.present(over: self.window) { [weak self] picked in
+                guard let self else { return }
+                self.deleteSpaceSheet = nil
+                if prompt.deletes(picked: picked) { self.store.deleteSpace(id) }
+                self.focusContent()
+            }
+        }
     }
 }
 
@@ -2556,6 +2656,7 @@ extension BrowserWindow: WebPageDelegate {
 
     func page(_ page: WebPage, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool) {
         syncSlowResponse()
+        if page === shownPage { syncToolbar() }
         if page === shownPage { syncLoadingBar(animated: true) }
     }
 
@@ -2579,7 +2680,12 @@ extension BrowserWindow: WebPageDelegate {
         let area = window.contentFrame
         var top = POINT(x: area.x + area.width / 2, y: 0)
         _ = ClientToScreen(host, &top)
-        let ground: LoadingIndicator.Ground = window.topBarHeight > 0 ? .developerBar : .page(shownPage?.backgroundColor)
+        let remembered = store.selectedTab(window: windowID)?.tab?.themeColor
+        let ground: LoadingIndicator.Ground = switch topBar {
+        case .developer: .developerBar
+        case .toolbar: .toolbar(ToolbarColor.hex(reported: nil, remembered: remembered))
+        case .none: .page(shownPage?.backgroundColor)
+        }
         let light = LoadingIndicator.lightInk(on: ground, themeDark: store.focusedSpace(window: windowID).theme.isDark,
                                               canvasDark: WinAppearance.isDark)
         loadingBar.place(centreX: top.x, top: top.y, scale: window.scale, lightInk: light, visible: !IsIconic(host))
@@ -2774,8 +2880,24 @@ extension BrowserWindow: WebPageDelegate {
             // Chrome's glyph would fly from the page's top left to a toolbar Cra hides; the
             // sidebar's downloads button shows the progress (ChromeDownloadAnimation on the Mac).
             cra_hide_download_started_animation()
+            if download.state == .inProgress { throwDownloadGlyph() }
         }
         record(download)
+    }
+
+    /// Arc's download flight: the glyph thrown from the pointer onto the sidebar's downloads
+    /// button (DownloadFlight), while this window is in front with its sidebar out.
+    private func throwDownloadGlyph() {
+        guard !closing, let host = HWND(bitPattern: hwnd), IsWindowVisible(host), !IsIconic(host),
+              GetForegroundWindow() == host, store.window(windowID).sidebarVisible,
+              let centre = downloads.glyphCenter else { return }
+        let scale = window.scale, column = window.columnOrigin
+        var to = POINT(x: Int32((Double(centre.x) * scale).rounded()) + column.x,
+                       y: Int32((Double(centre.y) * scale).rounded()) + column.y)
+        _ = ClientToScreen(host, &to)
+        var from = POINT(x: 0, y: 0)
+        guard GetCursorPos(&from) else { return }
+        DownloadFlight.launch(owner: UInt(hwnd), from: from, to: to, scale: scale, dispatcher: dispatcher)
     }
 
     /// Progress and failures show in the downloads list, as in Arc (it has no download toast);
