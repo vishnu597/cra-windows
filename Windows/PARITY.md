@@ -4,8 +4,8 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 53322240 -->
-Upstream reviewed through **53322240** (VictorKildahl/cra main, 21 Nov 2026), every commit triaged
+<!-- upstream-reviewed: bb167523 -->
+Upstream reviewed through **bb167523** (VictorKildahl/cra main, 21 Nov 2026), every commit triaged
 under Waiting in upstream (sync #26: 16 commits after 15ae9afc). The Windows gaps below remain explicit rather
 than inheriting the Mac's status.
 
@@ -773,6 +773,13 @@ exactly) and `Tests/test-browser-manager.sh`.
 | 53322240, 31e90cbc | Engine 159: Boost tint leaves images; store copies install normally (#602, #660) | Mac engine; Windows stays on stock CEF 156. ➖ |
 | d4efdf26, 8b68a0e3, 6b0ab370, ae468dc7 | iPhone (#656, #655, #657) | iPhone only (`MobileStatusBand`). ➖ |
 | f879942b | Extension action across two profiles locked (#621) | Test tooling. Nothing for Windows. |
+
+Upstream sync #27 merged 2 commits after 53322240, to bb167523, with no conflicts.
+
+| Commits | What | Windows |
+|---|---|---|
+| bb167523 | Folders: Move to ▸ in the right-click menu, as in Arc (#662) | Folders row. The store's `moveTab` already moves a whole folder (CraCore); Windows' folder menu lacks Move to Space. ❌ |
+| 62e2b2f3 | A real mouse drag moves an extension popup again (#664) | Extension popups row; Mac window placement. ➖ |
 
 ## Keeping this current
 
