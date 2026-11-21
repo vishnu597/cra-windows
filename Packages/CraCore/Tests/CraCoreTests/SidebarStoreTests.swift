@@ -20,7 +20,7 @@ struct SidebarStoreTests {
     @Test func whatIsSavedLoadsBack() {
         let f = StoreFixture()
         let tab = f.store.createTab(url: "https://a.test/", title: "A")
-        f.store.recordVisit(url: "https://a.test/", title: "A")
+        f.store.recordVisit(url: "https://a.test/", title: "A", profile: nil)
         f.store.recordCommandUse("newTab")
         f.store.settings.newTabsAtTop = false
         let other = f.store.createSpace(title: "Work", emoji: "💼", focus: false)
@@ -516,11 +516,11 @@ struct SidebarStoreTests {
 
     @Test func visitsAndPicksAreCounted() {
         let f = StoreFixture()
-        f.store.recordVisit(url: "cra://settings", title: "Settings")
+        f.store.recordVisit(url: "cra://settings", title: "Settings", profile: nil)
         #expect(f.store.history.isEmpty)
-        f.store.recordVisit(url: "https://a.test/", title: "A")
+        f.store.recordVisit(url: "https://a.test/", title: "A", profile: nil)
         f.clock.advance(by: 5)
-        f.store.recordVisit(url: "https://a.test/", title: "")
+        f.store.recordVisit(url: "https://a.test/", title: "", profile: nil)
         #expect(f.store.history["https://a.test/"]?.visitCount == 2)
         #expect(f.store.history["https://a.test/"]?.title == "A" && f.store.history["https://a.test/"]?.lastVisit == f.clock.now)
         f.store.recordQuerySelection(query: "  GitHub ", url: "https://github.com/")

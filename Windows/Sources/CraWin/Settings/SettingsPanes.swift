@@ -248,22 +248,25 @@ enum SettingsPanes {
     static func tabs(store: SidebarStore, palette: SettingsPalette,
                      airTrafficControl: @escaping @MainActor (Button) -> Void) -> SettingsPaneContent {
         var syncs: [() -> Void] = []
-        func checkbox(_ title: String, _ key: WritableKeyPath<AppSettings, Bool>) -> CheckBox {
+        func checkbox(_ title: String, get: @escaping @MainActor () -> Bool, set: @escaping @MainActor (Bool) -> Void) -> CheckBox {
             let box = CheckBox()
             let label = UI.text(title, trimmed: false)
             label.textWrapping = .wrap
             box.content = label
-            box.isChecked = store.settings[keyPath: key]
+            box.isChecked = get()
             box.click.addHandler { [weak box] _, _ in
                 guard let box else { return }
                 let on = box.isChecked == true
-                if store.settings[keyPath: key] != on { store.settings[keyPath: key] = on }
+                if get() != on { set(on) }
             }
             syncs.append {
-                let on = store.settings[keyPath: key]
+                let on = get()
                 if box.isChecked != on { box.isChecked = on }
             }
             return box
+        }
+        func checkbox(_ title: String, _ key: WritableKeyPath<AppSettings, Bool>) -> CheckBox {
+            checkbox(title, get: { store.settings[keyPath: key] }, set: { store.settings[keyPath: key] = $0 })
         }
 
         let form = Form(palette: palette)
@@ -280,6 +283,12 @@ enum SettingsPanes {
         form.group("Spaces:", [
             checkbox("Show the space header with only one space", \.showSpaceHeaderOnSingleSpace),
             note("Off hides the space’s name and its icon at the bottom of the sidebar while you have one space.", palette: palette),
+        ])
+        // #154: Arc's favorites, one set per profile (the Mac's "Tabs and Favorites" card).
+        form.group("Favorites:", [
+            checkbox("Share Favorites across Spaces", get: { store.settings.sharedFavorites }, set: { store.setFavoritesShared($0) }),
+            note("Spaces on the same profile show the same Favorites, as in Arc. Turning it on combines their Favorites; turning it off gives each Space its own copy.",
+                 palette: palette),
         ])
 
         let cleanup = StackPanel()
