@@ -92,9 +92,12 @@ struct SidebarPalette {
     /// The fill is dark: one-colour favicons are drawn white on it (FaviconView).
     let isDark: Bool
 
-    init(_ theme: SpaceTheme) {
+    /// `active` is the window's active look (HostWindow.activeLook): a theme Arc draws over its
+    /// material goes to the material's flat inactive grey under the colour (SidebarMaterialFill).
+    init(_ theme: SpaceTheme, active: Bool = true) {
         isDark = theme.isDark
-        fill = UI.brush(theme.colors.first ?? "#1C242B")
+        fill = UI.brush(SidebarMaterialFill.hex(theme: theme, active: active, systemDark: WinAppearance.isDark,
+                                                reduceTransparency: WinAppearance.reduceTransparency))
         if theme.isDark {
             text = UI.brush(255, 255, 255)
             secondaryText = UI.brush(255, 255, 255, alpha: 150)

@@ -253,6 +253,11 @@ final class BrowserWindow {
             guard let self, !self.closing else { return }
             self.store.activeWindowID = self.windowID
         }
+        window.onActiveLookChanged = { [weak self] active in
+            guard let self, !self.closing else { return }
+            self.sidebar.windowActive = active
+            self.queueRefresh()
+        }
         window.onMoveEnded = { [weak self] in
             self?.saveFrame()
             // Dragging the title bar made the window under a Peek the active one: the card takes
@@ -377,9 +382,9 @@ final class BrowserWindow {
             sidebar.build()
             sidebarPanel.background = sidebar.fill
             applyPaneColors(store.focusedSpace(window: windowID).theme)
-            downloads.apply(SidebarPalette(store.focusedSpace(window: windowID).theme), fill: sidebar.fill)
+            downloads.apply(sidebar.palette, fill: sidebar.fill)
             if libraryPage != nil {
-                library.build(SidebarPalette(store.focusedSpace(window: windowID).theme), dark: sidebar.isDark)
+                library.build(sidebar.palette, dark: sidebar.isDark)
                 syncLibraryWidth()
             }
             syncSidebarMode()
@@ -1666,7 +1671,9 @@ final class BrowserWindow {
 
     /// The page area's own colour (between panes, in an empty pane) is the sidebar's.
     private func applyPaneColors(_ theme: SpaceTheme) {
-        let c = HexColor.components(theme.colors.first ?? "#1C242B") ?? (r: 0.11, g: 0.14, b: 0.17)
+        let hex = SidebarMaterialFill.hex(theme: theme, active: window.activeLook, systemDark: WinAppearance.isDark,
+                                          reduceTransparency: WinAppearance.reduceTransparency)
+        let c = HexColor.components(hex) ?? (r: 0.11, g: 0.14, b: 0.17)
         let fill = HostColor(r: UInt8(c.r * 255), g: UInt8(c.g * 255), b: UInt8(c.b * 255))
         window.background = fill
         window.pillColor = fill.blended(with: theme.isDark ? HostColor(r: 255, g: 255, b: 255) : HostColor(r: 0, g: 0, b: 0), alpha: 0.45)
@@ -2788,8 +2795,24 @@ extension BrowserWindow: WebPageDelegate {
             // Chrome's glyph would fly from the page's top left to a toolbar Cra hides; the
             // sidebar's downloads button shows the progress (ChromeDownloadAnimation on the Mac).
             cra_hide_download_started_animation()
+            if download.state == .inProgress { throwDownloadGlyph() }
         }
         record(download)
+    }
+
+    /// Arc's download flight: the glyph thrown from the pointer onto the sidebar's downloads
+    /// button (DownloadFlight), while this window is in front with its sidebar out.
+    private func throwDownloadGlyph() {
+        guard !closing, let host = HWND(bitPattern: hwnd), IsWindowVisible(host), !IsIconic(host),
+              GetForegroundWindow() == host, store.window(windowID).sidebarVisible,
+              let centre = downloads.glyphCenter else { return }
+        let scale = window.scale, column = window.columnOrigin
+        var to = POINT(x: Int32((Double(centre.x) * scale).rounded()) + column.x,
+                       y: Int32((Double(centre.y) * scale).rounded()) + column.y)
+        _ = ClientToScreen(host, &to)
+        var from = POINT(x: 0, y: 0)
+        guard GetCursorPos(&from) else { return }
+        DownloadFlight.launch(owner: UInt(hwnd), from: from, to: to, scale: scale, dispatcher: dispatcher)
     }
 
     /// Progress and failures show in the downloads list, as in Arc (it has no download toast);

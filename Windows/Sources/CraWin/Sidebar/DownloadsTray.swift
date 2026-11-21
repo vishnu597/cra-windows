@@ -306,6 +306,14 @@ final class DownloadsTray {
         }
     }
 
+    /// The download glyph's centre in the XAML's coordinates (DIPs from the sidebar's top left),
+    /// where the download flight lands; nil while the button isn't laid out.
+    var glyphCenter: WindowsFoundation.Point? {
+        guard button.actualWidth > 0, let transform = try? glyph.transformToVisual(nil),
+              let origin = try? transform.transformPoint(WindowsFoundation.Point(x: 0, y: 0)) else { return nil }
+        return WindowsFoundation.Point(x: origin.x + Float(glyph.actualWidth / 2), y: origin.y + Float(glyph.actualHeight / 2))
+    }
+
     private func isOver(_ element: FrameworkElement) -> Bool {
         guard element.visibility == .visible, let p = pointer(),
               let transform = try? element.transformToVisual(nil),
