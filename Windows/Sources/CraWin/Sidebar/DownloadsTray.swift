@@ -31,6 +31,16 @@ final class DownloadsTray {
     private let dispatcher: WinAppSDK.DispatcherQueue
     private let glyph = FontIcon()
     private let progress = TextBlock()
+    /// Arc's badge on the bin while downloads run (#272, the Mac's DownloadProgressBadgeView):
+    /// a disc on the glyph's bottom right corner with the ring and an arrow, a check when done.
+    private let badge = Grid()
+    private let badgeDisc = WinUI.Ellipse()  // not GDI's Ellipse
+    private let ring = ProgressRing()
+    private let badgeMark = FontIcon()
+    private var badgeState = DownloadBadge()
+    /// Re-reads the badge while it shows (a download can go stuck without a report) and ends the
+    /// check after `DownloadBadge.doneFor`.
+    private var badgeTimer: WinAppSDK.DispatcherQueueTimer?
     private var rows: [Row] = []
     private var isOpen = false
     /// The pointer in the XAML's coordinates (DIPs from the sidebar's top left), nil when it
@@ -57,7 +67,38 @@ final class DownloadsTray {
         let content = StackPanel()
         content.orientation = .horizontal
         content.spacing = 6
-        content.children.append(glyph)
+        let size = 16.0
+        badge.width = size
+        badge.height = size
+        badge.horizontalAlignment = .right
+        badge.verticalAlignment = .bottom
+        // Over the glyph's corner, 4 DIPs out, as the Mac's sits on the bin's.
+        badge.margin = Thickness(left: 0, top: 0, right: -8, bottom: -6)
+        badge.isHitTestVisible = false
+        badge.visibility = .collapsed
+        badgeDisc.width = size
+        badgeDisc.height = size
+        ring.isIndeterminate = false
+        ring.minimum = 0
+        ring.maximum = 100
+        ring.width = size - 3
+        ring.height = size - 3
+        ring.minWidth = 0
+        ring.minHeight = 0
+        ring.horizontalAlignment = .center
+        ring.verticalAlignment = .center
+        badgeMark.fontSize = 7
+        badgeMark.horizontalAlignment = .center
+        badgeMark.verticalAlignment = .center
+        badge.children.append(badgeDisc)
+        badge.children.append(ring)
+        badge.children.append(badgeMark)
+        try? AutomationProperties.setName(badge, "Downloads")
+        let icon = Grid()
+        icon.verticalAlignment = .center
+        icon.children.append(glyph)
+        icon.children.append(badge)
+        content.children.append(icon)
         content.children.append(progress)
         button = UI.button(content, padding: Thickness(left: 6, top: 5, right: 6, bottom: 5)) {}
         button.verticalAlignment = .center
@@ -87,30 +128,86 @@ final class DownloadsTray {
         list.background = fill
         glyph.foreground = palette.secondaryText
         progress.foreground = palette.secondaryText
+        // The Mac's: a white (or dark grey) disc, the ring and mark in 85 % ink, the track 15 %.
+        badgeDisc.fill = palette.isDark ? UI.brush(41, 41, 41) : UI.brush(255, 255, 255)
+        let ink: UInt8 = palette.isDark ? 255 : 0
+        ring.foreground = UI.brush(ink, ink, ink, alpha: 217)
+        ring.background = UI.brush(ink, ink, ink, alpha: 38)
+        badgeMark.foreground = UI.brush(ink, ink, ink, alpha: 217)
         for row in rows { row.apply(palette) }
     }
 
     // MARK: The list
 
     private func observe() {
-        let (recent, running, _) = withObservationTracking {
+        let (recent, running, live, _) = withObservationTracking {
             // The thumbnails' revision too: a row redraws when its picture arrives.
-            (history.recent, history.live.filter(\.running), thumbnails.revision)
+            (history.recent, history.live.filter(\.running), history.live, thumbnails.revision)
         } onChange: { [weak self] in
             // Inside the change: draw once it is done.
             onMain { _ = try? self?.dispatcher.tryEnqueue { self?.observe() } }
         }
         show(recent)
-        // The button says how far the running downloads are (Arc throws the file at its Library
-        // button instead; the list has the detail).
-        if running.isEmpty {
+        showBadge(live)
+        showText(running)
+        if recent.isEmpty, isOpen { setOpen(false) }
+    }
+
+    /// The button says how far the running downloads are while the badge doesn't: it leaves a
+    /// stuck one (#491) to the text and the list.
+    private func showText(_ running: [DownloadList.Live]) {
+        if running.isEmpty || badge.visibility == .visible {
             progress.visibility = .collapsed
         } else {
             let received = running.reduce(Int64(0)) { $0 + $1.received }, total = running.reduce(Int64(0)) { $0 + max(0, $1.total) }
             progress.text = total > 0 ? "\(min(100, Int(received * 100 / total)))%" : DownloadRow.bytes(received)
             progress.visibility = .visible
         }
-        if recent.isEmpty, isOpen { setOpen(false) }
+    }
+
+    // MARK: The badge
+
+    private func showBadge(_ live: [DownloadList.Live]) {
+        badgeState.update(live, now: Date())
+        switch badgeState.look {
+        case .hidden:
+            badge.visibility = .collapsed
+            stopBadgeTimer()
+            return
+        case .running(let fraction):
+            ring.value = fraction * 100
+            ring.visibility = .visible
+            badgeMark.glyph = "\u{E74B}"  // Down
+            startBadgeTimer(every: 1, repeating: true)
+        case .done:
+            ring.visibility = .collapsed
+            badgeMark.glyph = "\u{E73E}"  // CheckMark
+            startBadgeTimer(every: DownloadBadge.doneFor, repeating: false)
+        }
+        badge.visibility = .visible
+    }
+
+    private func startBadgeTimer(every seconds: TimeInterval, repeating: Bool) {
+        if let badgeTimer, badgeTimer.isRepeating == repeating { return }
+        stopBadgeTimer()
+        badgeTimer = try? dispatcher.createTimer()
+        badgeTimer?.interval = TimeSpan(duration: Int64(seconds * 10_000_000))
+        badgeTimer?.isRepeating = repeating
+        badgeTimer?.tick.addHandler { [weak self] _, _ in
+            guard let self else { return }
+            if self.badgeState.look == .done {
+                self.badgeState.doneShown()
+                self.stopBadgeTimer()
+            }
+            self.showBadge(self.history.live)
+            self.showText(self.history.live.filter(\.running))
+        }
+        try? badgeTimer?.start()
+    }
+
+    private func stopBadgeTimer() {
+        try? badgeTimer?.stop()
+        badgeTimer = nil
     }
 
     /// One row per listed download. Also on the ticks: a file deleted since drops out, which
