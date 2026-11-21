@@ -55,11 +55,13 @@ enum StoreTests {
         persistenceFaults()
         incognitoStaysOffDisk()
         chromePagesLeaveIncognito()
+        incognitoKeepsItsSpacesProfile()
         mcpExcludesPrivateTabs()
         pinnedURL()
         tabFavicons()
         folderSymbols()
         moveTabToSpace()
+        moveFolderToSpace()
         folderPeek()
         folderPeekAfterClosing()
         collapsedPinnedPeek()
@@ -1020,6 +1022,30 @@ enum StoreTests {
                "MCP refuses containers")
     }
 
+    // promise: #620
+    /// Each Chrome profile has its own incognito: an incognito window opened from a space with a profile of
+    /// its own loads in that profile's off-the-record one, with its extensions and their "Allow in Incognito".
+    /// Cra put every incognito window in Default's, so a profile's extensions found nothing to work on there.
+    @MainActor
+    private static func incognitoKeepsItsSpacesProfile() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let work = store.createProfile(name: "Work")
+        let fromWork = store.addIncognitoWindow(frame: nil, profileID: work.id)
+        let space = fromWork.focusedSpaceID!
+        expect(store.isIncognito(space: space), "a window of its own, incognito")
+        expect(store.profileDirectoryName(space: space) == work.directoryName, "in Work's profile, whose off-the-record one it uses")
+        expect(store.profilePath(space: space) == store.profilePath(profile: work.id), "its pages load from Work's folder")
+        expect(store.profileID(space: space) == work.id, "and it counts as Work's for extensions and profile choices")
+        let tab = store.createTab(url: "https://example.com/private", window: fromWork.id)
+        expect(store.profileDirectoryName(item: tab.id) == work.directoryName && store.isIncognito(item: tab.id), "and so do its tabs")
+        let fromDefault = store.addIncognitoWindow(frame: nil)
+        expect(store.profileDirectoryName(space: fromDefault.focusedSpaceID!) == "Default"
+               && store.profilePath(space: fromDefault.focusedSpaceID!) == nil, "from a space on Default it is Default's, as before")
+        let gone = store.addIncognitoWindow(frame: nil, profileID: UUID())
+        expect(store.profileDirectoryName(space: gone.focusedSpaceID!) == "Default", "a profile that is gone falls back to Default")
+        expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
     // promise: #412
     /// Chrome keeps chrome://extensions, settings, history and the password manager out of
     /// incognito; Cra built the incognito page for chrome://extensions and quit (#412). From an
@@ -1659,6 +1685,39 @@ enum StoreTests {
                && store.isIncognito(item: secret.id) && store.focusedSpaceID(window: incognito.id) != home,
                "an incognito tab never leaves its window")
         expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
+    }
+
+    // promise: #662
+    @MainActor
+    private static func moveFolderToSpace() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let a = store.createSpace(title: "Folder source", emoji: "🏠", focus: false)
+        let b = store.createSpace(title: "Folder destination", emoji: "💼", focus: false)
+        let first = store.createTab(url: "https://example.com/first", in: a.id, pinned: true, select: false)
+        let folder = store.createFolder(named: "F", in: a.pinnedContainerID)
+        let last = store.createTab(url: "https://example.com/last", in: a.id, pinned: true, select: false)
+        let t1 = store.createTab(url: "https://example.com/t1", pinned: true, select: false, parent: folder.id)
+        let nested = store.createFolder(named: "N", in: folder.id)
+        let t2 = store.createTab(url: "https://example.com/t2", pinned: true, select: false, parent: nested.id)
+        let t3 = store.createTab(url: "https://example.com/t3", pinned: true, select: false, parent: folder.id)
+        let existing = store.createTab(url: "https://example.com/existing", in: b.id, pinned: true, select: false)
+        store.setExpanded(folder.id, true)
+        store.setExpanded(nested.id, false)
+        let window = store.addWindow(spaceID: a.id, frame: nil)
+        store.selectTab(t2.id, window: window.id)
+        store.setExpanded(nested.id, false)
+        let count = store.orderedSpaces.reduce(0) { $0 + store.tabs(under: $1.pinnedContainerID).count + store.tabs(under: $1.todayContainerID).count + store.tabs(under: $1.favoritesContainerID).count }
+        store.moveTab(folder.id, toSpace: b.id, window: nil)
+        expect(store.children(of: b.pinnedContainerID).map(\.id) == [existing.id, folder.id], "folder appends to target pinned")
+        expect(store.children(of: a.pinnedContainerID).map(\.id) == [first.id, last.id], "folder leaves source pinned")
+        expect(store.children(of: folder.id).map(\.id) == [t1.id, nested.id, t3.id] && store.children(of: nested.id).map(\.id) == [t2.id], "folder subtree keeps ids and order")
+        expect([folder.id, nested.id, t1.id, t2.id, t3.id].allSatisfy { store.spaceID(ofItem: $0) == b.id }, "whole subtree belongs to target")
+        let after = store.orderedSpaces.reduce(0) { $0 + store.tabs(under: $1.pinnedContainerID).count + store.tabs(under: $1.todayContainerID).count + store.tabs(under: $1.favoritesContainerID).count }
+        expect(count == after && store.integrityProblems().isEmpty, "moving preserves tabs and sidebar integrity")
+        expect(store.isExpanded(folder.id) && !store.isExpanded(nested.id), "folder expansion states survive")
+        expect(store.selectedTabID(in: a.id, window: window.id).map { ![t1.id, t2.id, t3.id].contains($0) } ?? true, "source selection does not follow moved tab")
+        store.moveTab(folder.id, toSpace: b.id, window: nil)
+        expect(store.children(of: b.pinnedContainerID).map(\.id) == [existing.id, folder.id] && store.children(of: folder.id).map(\.id) == [t1.id, nested.id, t3.id], "moving to own space does nothing")
     }
 
     // promise: #105

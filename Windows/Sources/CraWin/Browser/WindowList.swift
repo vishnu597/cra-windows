@@ -14,13 +14,15 @@ protocol BrowserWindowHost: AnyObject {
     /// Close Little Windows: each archives its page.
     func closeLittleWindows()
     func windowDidClose(_ window: BrowserWindow)
-    /// Closing `window` quits Cra: no other window or Little Window is open.
-    func isLastWindow(_ window: BrowserWindow) -> Bool
     /// Arc's Peek over `window`, from its tab `fromTab`: one at a time over a window.
     func openPeek(url: String, over window: BrowserWindow, fromTab: UUID?)
     /// Pause All Media in every window, Little Window and Peek; `report` gets the toast's text
     /// and, when a page kept playing, its Show.
     func pauseAllMedia(report: @escaping (String, ToastView.Action?) -> Void)
+    /// Closing `window` may go on now. Closing the last browser window with no Little Window
+    /// open quits Cra, which may ask first (QuitPrompt): then false, and the window is asked to
+    /// close again once the user says Quit.
+    func confirmQuit(closing window: BrowserWindow) -> Bool
     func closePeeks(over window: BrowserWindow)
     func hasPeek(over window: BrowserWindow) -> Bool
     /// A Peek over `window` is on screen and not on its way out (closing, or its page moved
@@ -43,6 +45,8 @@ final class WindowList: BrowserWindowHost {
     private(set) var windows: [BrowserWindow] = []
     private(set) var littleWindows: [LittleWindow] = []
     private lazy var clock = WinScheduler(queue: dispatcher)
+    /// One quit question at a time (#426): another Alt+F4 while it's open asks nothing.
+    private var quitRequests = QuitRequests()
     /// Arc cascades a new window this far right and down from the one in use (22 pt on the
     /// Mac), in DIPs.
     private static let cascadeStep = 22.0
@@ -82,10 +86,6 @@ final class WindowList: BrowserWindowHost {
         let session = incognito ? store.addIncognitoWindow(frame: frame?.string)
             : store.addWindow(spaceID: store.focusedSpaceID(window: store.lastNormalWindowID), frame: frame?.string)
         open(session, frame: frame, newWindow: true)?.activate()
-    }
-
-    func isLastWindow(_ window: BrowserWindow) -> Bool {
-        littleWindows.isEmpty && windows.allSatisfy { $0 === window }
     }
 
     func windowDidClose(_ window: BrowserWindow) {
@@ -342,6 +342,31 @@ final class WindowList: BrowserWindowHost {
     }
 
     /// An action a Little Window leaves to the browser window used last (Ctrl+N, Ctrl+, …).
+    func confirmQuit(closing window: BrowserWindow) -> Bool {
+        guard windows.count == 1, windows.first === window, littleWindows.isEmpty else { return true }
+        switch quitRequests.begin() {
+        case .quitting: return true
+        case .asking: return false
+        case .new: break
+        }
+        let prompt = QuitPrompt.on(source: .appMenu, downloadsRunning: DownloadHistory.shared.hasRunningDownloads,
+                                   warnBeforeQuitting: store.settings.warnBeforeQuitting)
+        guard let dialog = QuitDialog.asking(prompt) else {
+            quitRequests.answered(quit: true)
+            return true
+        }
+        print("Cra: quit asks: \(dialog.title)")
+        window.askToQuit(dialog) { [weak self, weak window] answer in
+            guard let self else { return }
+            var warn = self.store.settings.warnBeforeQuitting
+            let quits = QuitDialog.apply(answer, warnBeforeQuitting: &warn)
+            if warn != self.store.settings.warnBeforeQuitting { self.store.settings.warnBeforeQuitting = warn }
+            self.quitRequests.answered(quit: quits)
+            if quits { window?.requestClose() }
+        }
+        return false
+    }
+
     func pauseAllMedia(report: @escaping (String, ToastView.Action?) -> Void) {
         let all = (windows.flatMap { $0.mediaPauseTargets() } + littleWindows.compactMap(\.mediaPauseTarget))
             .filter { MediaPause.isTarget($0.page, in: .everything) }

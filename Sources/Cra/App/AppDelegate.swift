@@ -116,11 +116,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         CaptureOverlay.easels = { EaselFiles.all().map { CaptureMenuLayout.Destination(id: $0.id, title: $0.title) } }
         EaselBrowser.registerServices(self)
         // Arc's Boosts: each page on a boosted site gets its boosts; an edit shows at once.
-        BrowserManager.boostFor = { [store] url in
+        BrowserManager.boostFor = { [store] url, engineTints in
             guard store.settings.boostsEnabled else { return nil }
             let boosts = Boost.applying(to: url, from: BoostStore.shared.boosts)
             guard !boosts.isEmpty else { return nil }
-            return (boosts.map(\.stylesheet).joined(separator: "\n"), boosts.map(\.js).filter { !$0.isEmpty }.joined(separator: ";\n"))
+            // One tint, as the stylesheet's filters were: the last boost's wins.
+            return (boosts.map { $0.stylesheet(engineTints: engineTints) }.joined(separator: "\n"),
+                    boosts.map(\.js).filter { !$0.isEmpty }.joined(separator: ";\n"),
+                    boosts.compactMap(\.tintMatrixString).last)
         }
         BoostStore.changed = { [weak self] host in for m in self?.mainWindows ?? [] { m.browsers.reapplyBoosts(host: host) } }
         mainWindows = store.prefs.windows.map { MainWindowController(app: self, session: $0) }
@@ -875,7 +878,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             sourceFullScreen: current.map { $0.1.styleMask.contains(.fullScreen) && store.window($0.0.windowID).fullScreen } ?? false,
             screen: (current?.1.screen ?? NSScreen.main)?.visibleFrame, defaultSize: MainWindowController.defaultSize)
         let frame = placement.frame.map(NSStringFromRect)
-        let session = incognito ? store.addIncognitoWindow(frame: frame)
+        // Incognito from a space goes in that space's profile's off-the-record one, as in Chrome (#620).
+        let fromSpace = main.map { $0.focusedSpaceID } ?? store.focusedSpaceID(window: store.lastNormalWindowID)
+        let session = incognito ? store.addIncognitoWindow(frame: frame, profileID: store.profileID(space: fromSpace))
             : blank ? store.addBlankWindow(frame: frame)
             : store.addWindow(spaceID: store.focusedSpaceID(window: store.lastNormalWindowID), frame: frame)
         if placement.opensFullScreen { store.updateWindow(session.id) { $0.fullScreen = true } }
@@ -1528,6 +1533,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let target = dict["easelCanvas"], let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
                 canvas.debugCanvas(target); return
             }
+            // easelTextColor=<shade>: the open easel's first text (one is added if there is none) picked and given
+            // that colour from the picker; cra.log says whether the picker showed over it and the text's ink (#658).
+            if let name = dict["easelTextColor"], let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
+                CraLog.note("easel text color \(name): " + canvas.sheetView.debugTextColor(name)); return
+            }
             // easelPick=<n>: the open easel's n-th item (from 0) picked; cra.log says what shows over it and its menu.
             if let n = dict["easelPick"].flatMap(Int.init), let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
                 canvas.debugPick(n); return
@@ -1775,6 +1785,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 CraLog.note("little order \(label): \(order.joined(separator: " "))")
                 return
             }
+            // appActivated=1: AppKit's didBecomeActive, as when Cra comes forward (Mission Control's pick of a Little
+            // Window, #581); a background test copy is refused the real thing.
+            if dict["appActivated"] != nil { NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp); return }
+            // littleActivation=<label>: whether the newest Little Window is a non-activating panel (its style and AppKit's
+            // own flag, which the WindowServer goes by), and the kind of Space it is on (#581).
+            if let label = dict["littleActivation"], let w = littleWindows.last(where: { !$0.isPeek })?.window {
+                let prevents = (w as? LittleWindow)?.preventsActivation.map { $0 ? "1" : "0" } ?? "?"
+                CraLog.note("little activation \(label): nonactivating=\(w.styleMask.contains(.nonactivatingPanel) ? 1 : 0) prevents=\(prevents) space=\(WindowSpaces.space(of: w))")
+                return
+            }
             // littleRow=<text>&typed=<text>: the newest Little Window's ⌘L bar picks the row for that page (#599).
             if let address = dict["littleRow"] { littleWindows.last?.debugPickRow(containing: address, typed: dict["typed"] ?? ""); return }
             // littleMenu=<step>: the newest Little Window's "Open in" menu, see debugMenu (#331).
@@ -2003,6 +2023,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             // libraryShown=<label> (#649): the Library's page on screen, or "closed".
+            // tabIcon=picker|emoji:<e>|symbol:<name>|none (#640): Change Icon… on the selected tab, see testTabIcon.
+            if let step = dict["tabIcon"] { main.testTabIcon(step); return }
             if let label = dict["libraryShown"] {
                 CraLog.note("library shown \(label): \(main.sidebarUI.libraryPage?.rawValue ?? "closed")")
                 return
@@ -2530,8 +2552,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 return
             }
+            // pasteAndGo=<text>: ⌥⌘V with that text in place of the clipboard, which a test copy shares with the Mac (#610).
+            if let text = dict["pasteAndGo"] { pasteAndGo(clipboard: text, in: main); return }
+            // setPasteboard=<text>: what ⌥⌘V reads next, on the CRA_TEST_PASTEBOARD board only (#610).
+            if let text = dict["setPasteboard"], ProcessInfo.processInfo.environment["CRA_TEST_PASTEBOARD"] != nil {
+                Self.pasteboard.clearContents()
+                Self.pasteboard.setString(text, forType: .string)
+                return
+            }
             // themeEditor=1 opens it; themeEditor=intensity:<0…1> or noise:<0…1> moves its slider or
-            // dial as a drag would, and logs how many ticks that played.
+            // dial as a drag would, and logs how many ticks that played; swatch:<page><index>, add:1 and
+            // remove:1 press a swatch, + or −, and log "theme editor pad <n>: wheel=… key=…" (#632).
             if let step = dict["themeEditor"] {
                 let parts = step.split(separator: ":").map(String.init)
                 guard parts.count == 2, let v = Double(parts[1]) else { main.showSpaceStyleEditor(space: store.focusedSpace); return }
@@ -2688,6 +2719,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 NSLog("Cra menu shown: waiting")
                 return
             }
+            // pagePixel=<label>&x=<css px>&y=<css px>: the current page's colour there as drawn, a one-pixel
+            // DevTools capture, logged as sRGB r/g/b (boost-tint, #602).
+            if let label = dict["pagePixel"], let x = dict["x"].flatMap(Double.init), let y = dict["y"].flatMap(Double.init) {
+                let params = "{\"format\":\"png\",\"clip\":{\"x\":\(x),\"y\":\(y),\"width\":1,\"height\":1,\"scale\":1}}"
+                main.currentBrowser?.sendDevToolsMethod("Page.captureScreenshot", params: params) { result, error in
+                    guard let json = result?.data(using: .utf8),
+                          let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+                          let base64 = object["data"] as? String, let png = Data(base64Encoded: base64),
+                          let pixel = NSBitmapImageRep(data: png)?.converting(to: .sRGB, renderingIntent: .default)?.colorAt(x: 0, y: 0)
+                    else { CraLog.note("Cra page pixel \(label): none \(error ?? "")"); return }
+                    func byte(_ v: CGFloat) -> Int { Int((v * 255).rounded()) }
+                    CraLog.note("Cra page pixel \(label): \(byte(pixel.redComponent))/\(byte(pixel.greenComponent))/\(byte(pixel.blueComponent))")
+                }
+                return
+            }
             if let method = dict["cdp"] {
                 // target=little: the newest Little Window's (or Peek's) page; tab=<id>: that tab's page.
                 let tab = dict["tab"].flatMap(UUID.init(uuidString:)).flatMap { main.browsers.runtime(for: $0)?.browser }
@@ -2839,6 +2885,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // splitMenu=<n>[&label=][&run=<row>]: the n-th split row's menu, from the top (#600).
             if let n = dict["splitMenu"].flatMap(Int.init) {
                 main.testTabMenu(n, label: dict["label"] ?? "\(n)", run: dict["run"], split: true)
+                return
+            }
+            // folderMenu=<n>[&label=][&run=<row>]: the n-th visible folder's menu (#662).
+            if let n = dict["folderMenu"].flatMap(Int.init) {
+                main.testTabMenu(n, label: dict["label"] ?? "\(n)", run: dict["run"], folder: true)
                 return
             }
             // favoriteMenu=<n>[&label=][&run=<row>]: the n-th favorite tile's menu, see testFavoriteMenu (#387).
@@ -3201,10 +3252,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return nil
     }
 
+    /// The clipboard ⌥⌘V reads: the Mac's, or with CRA_TEST_PASTEBOARD a named one of the test copy's own,
+    /// so a scenario never touches what the user copied (cra://debug?setPasteboard=).
+    static let pasteboard: NSPasteboard = ProcessInfo.processInfo.environment["CRA_TEST_PASTEBOARD"]
+        .map { NSPasteboard(name: NSPasteboard.Name($0)) } ?? .general
+
+    /// ⌥⌘V: the clipboard as a new tab, an address or a search, or a paste where you type (#610).
+    private func pasteAndGo(clipboard: String?, in main: MainWindowController) {
+        // The key window's field, or with none (Cra in the background) the shown page's.
+        let window = NSApp.keyWindow ?? main.currentBrowser?.hostWindow ?? main.window
+        switch PasteAndGo.outcome(typing: textFieldHasKey(in: window), clipboard: clipboard) {
+        case .paste:
+            CraLog.note("paste and go: pasted into the field")
+            NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+        case .open(let text):
+            CraLog.note("paste and go: \(SuggestionEngine.looksLikeURL(text) ? "address" : "search")")
+            main.sidebarActions.openTyped(text)
+        case .nothing:
+            CraLog.note("paste and go: nothing to open")
+            NSSound.beep()
+        }
+    }
+
     /// A text field, or a page input, has the key: ⌥← moves by word there, and ⌘Z undoes text
     /// rather than the last closed tab. Chromium's page view reports its ui::TextInputType (0 = none).
-    private func textFieldHasKey(_ event: NSEvent) -> Bool {
-        let responder = (event.window ?? NSApp.keyWindow)?.firstResponder
+    private func textFieldHasKey(_ event: NSEvent) -> Bool { textFieldHasKey(in: event.window ?? NSApp.keyWindow) }
+
+    private func textFieldHasKey(in window: NSWindow?) -> Bool {
+        let responder = window?.firstResponder
         if responder is NSText { return true }
         if let view = responder as? NSView, NSStringFromClass(type(of: view)) == "RenderWidgetHostViewCocoa",
            view.responds(to: NSSelectorFromString("textInputType")),
@@ -3447,6 +3522,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 main.showToast("Copied URL as Markdown")
             }
         case "copyURLQuote": main.copyURLAsQuote()
+        case "pasteAndGo":
+            // Read on the press: the user asked for the paste, so macOS lets it through or asks once.
+            pasteAndGo(clipboard: Self.pasteboard.string(forType: .string), in: main)
         case "savePageAs": main.savePageAs()
         case "captureFullPage": main.captureFullPage()
         case "capturePortrait": main.capturePortrait()
@@ -3508,11 +3586,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let normal = useNormalWindow()
             _ = store.createTab(url: HistoryPage.url, select: true)
             normal.showWindow(nil)
-        // Arc's page shortcuts are show/hide toggles too (LibraryShortcut, #649).
+        // View Downloads (⇧⌘J) is a show/hide toggle like Open Library, as in Arc (LibraryShortcut, #649). The other
+        // pages' commands (no key of their own) show their page: the command bar and scripts ask for a page.
         case "viewDownloads": main.toggleLibrary(.downloads)
-        case "viewMedia": main.toggleLibrary(.media)
-        case "viewEasels": main.toggleLibrary(.easels)
-        case "viewBoosts": main.toggleLibrary(.boosts)
+        case "viewMedia": main.showLibrary(.media)
+        case "viewEasels": main.showLibrary(.easels)
+        case "viewBoosts": main.showLibrary(.boosts)
         case "goBack": main.goBack()
         case "goForward": main.currentBrowser?.goForward()
         case "pinTab": if let c = current, !main.isBlank { store.togglePinned(c) }
@@ -3765,6 +3844,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         edit.addItem(std("Cut", #selector(NSText.cut(_:)), "x"))
         edit.addItem(std("Copy", #selector(NSText.copy(_:)), "c"))
         edit.addItem(item("copyURL")); edit.addItem(item("copyURLMarkdown")); edit.addItem(item("copyURLQuote"))
+        edit.addItem(item("pasteAndGo"))
         edit.addItem(std("Paste", #selector(NSText.paste(_:)), "v"))
         edit.addItem(std("Paste and Match Style", #selector(pasteAsPlainText(_:)), "v", [.command, .shift]))
         edit.addItem(std("Delete", #selector(NSText.delete(_:))))
