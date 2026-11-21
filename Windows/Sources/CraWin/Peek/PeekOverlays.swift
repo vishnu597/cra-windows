@@ -109,6 +109,20 @@ final class PeekOverlays {
         cra_overlay_place(catcher, c.x, c.y, c.width, c.height, veil)
     }
 
+    /// Close as Arc's red Confirm pill while a close waits for a second one (PeekCloseHold, #425),
+    /// or round again (nil).
+    func showHold(_ hold: PeekCloseHold?) {
+        guard !destroyed else { return }
+        let fill = Self.hex(PeekCloseHold.fill), ink = Self.hex(PeekCloseHold.ink)
+        guard let hold else { return cra_round_buttons_set_pill(buttons, -1, nil, nil, fill, ink) }
+        cra_round_buttons_set_pill(buttons, 0, WinGlyph.code(hold.symbol), PeekCloseHold.text, fill, ink)
+    }
+
+    private static func hex(_ c: RGB) -> UInt32 {
+        func byte(_ v: Double) -> UInt32 { UInt32(max(0, min(255, (v * 255).rounded()))) }
+        return byte(c.r) << 16 | byte(c.g) << 8 | byte(c.b)
+    }
+
     /// The page fades to `PeekLayout.pageAlpha` on an ease-out cubic (Arc's open, 0.18 s).
     func fadeIn() {
         fade(to: Self.darkestVeil, over: PeekLayout.openVeilDuration)

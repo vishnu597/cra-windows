@@ -39,6 +39,20 @@ struct SpaceSearchEngineTests {
         #expect(ChromiumSearchEngine.spaceChoices(among: []).map(\.keyword) == ["google.com", "duckduckgo.com", "bing.com", "kagi.com"])
     }
 
+    /// The space menu's Search Engine submenu, the Mac's and Windows' alike: Default first, the space's own ticked.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/306"))
+    func theSubmenuTicksTheSpacesEngine() {
+        let menu = SpaceSearchEngineMenu(defaultEngine: E.google, engines: Self.rows, spaceKeyword: "DuckDuckGo.com")
+        #expect(menu.defaultRow == .init(title: "Default (\(E.google.name))", keyword: nil, isOn: false))
+        #expect(menu.choices.map(\.keyword) == ["google.com", "dk.yahoo.com", "bing.com", "duckduckgo.com", "wda"])
+        #expect(menu.choices.filter(\.isOn).map(\.keyword) == ["duckduckgo.com"])
+        let none = SpaceSearchEngineMenu(defaultEngine: E.google, engines: [], spaceKeyword: nil)
+        #expect(none.defaultRow.isOn)
+        #expect(none.choices.map(\.title) == ["Google", "DuckDuckGo", "Microsoft Bing", "Kagi"], "Cra's own list before Web Data loads (Windows)")
+        let anyOn = none.choices.contains { $0.isOn }
+        #expect(!anyOn)
+    }
+
     @Test func theMenuOffersBuiltInAndAddedEnginesOnly() {
         #expect(ChromiumSearchEngine.spaceChoices(among: Self.rows).map(\.keyword)
                 == ["google.com", "dk.yahoo.com", "bing.com", "duckduckgo.com", "wda"])

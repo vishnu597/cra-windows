@@ -494,7 +494,7 @@ enum SpaceMenu {
             MenuItems.add(m, "Edit Theme Color…") { open(); actions.editSpaceTheme(space) }
         case .setProfile:
             let profiles = MenuItems.submenu(m, "Set Profile")
-            MenuItems.add(profiles, "Default", on: space.profileID == nil) { store.setProfile(nil, forSpace: id) }
+            MenuItems.add(profiles, store.profileName(nil), on: space.profileID == nil) { store.setProfile(nil, forSpace: id) }
             for p in store.profiles {
                 MenuItems.add(profiles, p.name, on: space.profileID == p.id) { store.setProfile(p.id, forSpace: id) }
             }
@@ -533,12 +533,12 @@ extension SpaceMenu {
     static func addSearchEngines(to menu: NSMenu, space: Space, store: SidebarStore) {
         let profile = store.profilePath(space: space.id)
         let fallback = SearchEngines.shared.defaultEngine(profilePath: profile, legacy: store.settings.searchEngine)
-        let choices = ChromiumSearchEngine.spaceChoices(among: SearchEngines.shared.keywords(profilePath: profile))
-        let current = space.searchEngine?.lowercased()
-        MenuItems.add(menu, "Default (\(fallback.name))", on: current == nil) { store.setSearchEngine(nil, forSpace: space.id) }
+        let rows = SpaceSearchEngineMenu(defaultEngine: fallback, engines: SearchEngines.shared.keywords(profilePath: profile),
+                                         spaceKeyword: space.searchEngine)
+        MenuItems.add(menu, rows.defaultRow.title, on: rows.defaultRow.isOn) { store.setSearchEngine(nil, forSpace: space.id) }
         menu.addItem(.separator())
-        for e in choices {
-            MenuItems.add(menu, e.name, on: current == e.keyword.lowercased()) { store.setSearchEngine(e.keyword, forSpace: space.id) }
+        for row in rows.choices {
+            MenuItems.add(menu, row.title, on: row.isOn) { store.setSearchEngine(row.keyword, forSpace: space.id) }
         }
     }
 }
@@ -1907,7 +1907,7 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
     private static func moveToProfile(_ menu: NSMenu, _ id: UUID, _ store: SidebarStore) {
         guard let list = store.profileList(ofItem: id) else { return }
         let profiles = MenuItems.submenu(MenuItems.submenu(menu, "Move to"), "Profile")
-        MenuItems.add(profiles, "Default", on: list.profileID == nil) { store.moveFavorite(id, toProfile: nil) }
+        MenuItems.add(profiles, store.profileName(nil), on: list.profileID == nil) { store.moveFavorite(id, toProfile: nil) }
         for p in store.profiles {
             MenuItems.add(profiles, p.name, on: list.profileID == p.id) { store.moveFavorite(id, toProfile: p.id) }
         }

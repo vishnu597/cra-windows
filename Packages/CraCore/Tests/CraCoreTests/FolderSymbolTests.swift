@@ -40,4 +40,14 @@ struct FolderSymbolTests {
         #expect(reloaded.folderIcon == nil)
         #expect(reloaded.folderSymbol == .star)
     }
+
+    /// The picker's names, shared by the Mac and Windows pickers: one each, Arc's "Lightning" for
+    /// the bolt.
+    @Test func everySymbolHasItsOwnName() {
+        let titles = FolderSymbol.allCases.map(\.title)
+        #expect(Set(titles).count == FolderSymbol.allCases.count)
+        #expect(FolderSymbol.bolt.title == "Lightning")
+        #expect(FolderSymbol.star.title == "Star")
+        #expect(titles.allSatisfy { !$0.isEmpty })
+    }
 }

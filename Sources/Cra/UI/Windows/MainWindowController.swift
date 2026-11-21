@@ -872,16 +872,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// opens, nothing picked (rows as menuReadout writes them, then its Edit Pinned Page and Move to
     /// submenus). `run` picks a row by title, in a submenu too, and logs the space's pinned and Today
     /// rows (page queries) and the open tab (#600).
-    func testTabMenu(_ n: Int, label: String, run: String?, split: Bool = false) {
-        let kind = split ? "split menu" : "tab menu"
+    func testTabMenu(_ n: Int, label: String, run: String?, split: Bool = false, folder: Bool = false) {
+        let kind = folder ? "folder menu" : split ? "split menu" : "tab menu"
         func rows(in v: NSView) -> [SidebarRowView] {
-            if let r = v as? TabRowView, !split { return [r] }
+            if let r = v as? TabRowView, !split, !folder { return [r] }
+            if let r = v as? FolderRowView, folder, !r.isHiddenOrHasHiddenAncestor { return [r] }
             if let r = v as? SplitRowView, split, !r.isHiddenOrHasHiddenAncestor { return [r] }
             return v.subviews.flatMap { rows(in: $0) }
         }
         let found = window?.contentView.flatMap(rows(in:)) ?? []
         let row: SidebarRowView?
-        if split {
+        if folder {
+            let folders = found.compactMap { $0 as? FolderRowView }.sorted { $0.convert($0.bounds, to: nil).maxY > $1.convert($1.bounds, to: nil).maxY }
+            row = folders.indices.contains(n - 1) ? folders[n - 1] : nil
+        } else if split {
             // The n-th split row from the top of the list.
             let splits = found.compactMap { $0 as? SplitRowView }.sorted { $0.convert($0.bounds, to: nil).maxY > $1.convert($1.bounds, to: nil).maxY }
             row = splits.indices.contains(n - 1) ? splits[n - 1] : nil
@@ -3100,9 +3104,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private func openRecentCards(limit: Int, allSpaces: Bool = false) -> [RecentTabOrder.Card] {
         let recent = allSpaces ? store.recentCardsInAllSpaces(limit: .max, window: windowID)
             : store.recentCards(in: focusedSpaceID, limit: .max, window: windowID)
-        return Array(recent.filter { card in
-            card.panes.contains { $0 == selectedTabID || !store.isPinned($0) || app.runtime(for: $0) != nil }
-        }.prefix(limit))
+        return TabSwitcherCycle.cards(recent, selected: selectedTabID, isPinned: { store.isPinned($0) },
+                                      isLoaded: { app.runtime(for: $0) != nil }, limit: limit)
     }
 
     func resetPinnedTab(_ id: UUID) {
@@ -4635,7 +4638,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     func debugSiteControlsPress(_ label: String, accessory: Bool) { siteControlCenter.debugPress(label, accessory: accessory) }
 
     /// Cra's privacy page, where the command bar's search-suggestions banner says "Learn more".
-    static let privacyPage = SiteLinks.tagged("https://crabrowser.app/privacy", from: .commandBarNotice)
+    static var privacyPage: String { SearchSuggestionsNotice.privacyPage }
 
     /// Scenario hook (#314): the command bar's (i) ("badge") or a banner button ("settings", "dismiss",
     /// "learnMore") pressed as a click would, then the bar as it stands:
@@ -4946,10 +4949,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     /// Arc's Switch to Split View 1–4 (⌃⇧1…4): the n-th pane of the open split.
     func selectSplitPane(_ n: Int) {
-        guard let current = selectedTabID else { return }
-        let panes = store.paneTabIDs(for: current)
-        guard panes.count > 1, n >= 1, n <= panes.count else { return }
-        store.selectTab(panes[n - 1], window: windowID)
+        store.selectSplitPane(n, window: windowID)
     }
 
     /// Chrome's extensions page, as the Site Control Center's Manage Extensions… opens it.
@@ -5336,51 +5336,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     var toastIsShown: Bool { toast.isShown }
 
     /// ⌥Return in the bar: the row opens as a split pane beside the current tab instead of in its
-    /// place, an open tab of this space joining the split as it is. False takes it as Return: no
-    /// tab to split, an empty one (the row fills it), a tab in another space, a row with no page.
+    /// place (`SidebarStore.openInSplit`, shared with Windows). False takes it as Return.
     private func openInSplit(_ s: Suggestion?, typed: String) -> Bool {
-        guard let current = selectedTabID, store.item(current)?.isEmptyTab == false else { return false }
-        if case .switchToTab(let id)? = s?.kind {
-            guard id != current, store.spaceID(ofItem: id) == store.spaceID(ofItem: current) else { return false }
-            if store.paneTabIDs(for: current).contains(id) {
-                store.selectTab(id, window: windowID)
-                return true
-            }
+        switch store.openInSplit(s, typed: typed, query: commandBar.query, current: selectedTabID, window: windowID,
+                                 searchURL: commandBar.engine.searchURL) {
+        case .asReturn: return false
+        case .full: showToast("Cannot Add New Pane")
+        case .joined: break
+        case .addedPane: refresh()
         }
-        guard store.paneTabIDs(for: current).count < store.splitPaneLimit else {
-            showToast("Cannot Add New Pane")
-            return true
-        }
-        if case .switchToTab(let id)? = s?.kind {
-            store.recordQuerySelection(query: commandBar.query, url: s?.url ?? "")
-            let split = store.splitContaining(current).map { sp in store.addToSplit(sp.id, tabID: id, at: nil); return store.item(sp.id) }
-                ?? store.createSplit(with: [current, id], at: current)
-            store.selectTab(split.flatMap { store.paneID(for: id, in: $0) } ?? id, window: windowID)
-            return true
-        }
-        guard let url = pageURL(s, typed: typed) else { return false }
-        store.recordQuerySelection(query: commandBar.query, url: url)
-        guard store.addEmptyPane(nextTo: current, url: url) != nil else { return false }
-        refresh()
         return true
     }
 
-    /// The page a row opens anew (⌘Return, ⌥Return), nil for rows that open none.
+    /// The page a row opens anew (⌘Return, ⌥Return), nil for rows that open none (`CommandBarRowPage`).
     private func pageURL(_ s: Suggestion?, typed: String) -> String? {
-        let url: String?
-        switch s?.kind {
-        case nil:
-            url = typed.isEmpty ? nil : SuggestionEngine.looksLikeURL(typed) ? SuggestionEngine.urlFromInput(typed) : commandBar.engine.searchURL(typed)
-        case .navigate?:
-            url = TypedURL.navigation(typed: typed, rowURL: s?.url, rowIsForTyped: typed == commandBar.query) ?? commandBar.engine.searchURL(typed)
-        case .search?:
-            url = s?.url ?? commandBar.engine.searchURL(typed)
-        case .switchToTab?, .archived?, .history?, .topDomain?:
-            url = s?.url
-        default:
-            url = nil
-        }
-        return url?.isEmpty == false ? url : nil
+        CommandBarRowPage.url(row: s, typed: typed, query: commandBar.query, searchURL: commandBar.engine.searchURL)
     }
 
     /// The first time a service plays in a WebKit page (docs/protected-media.md): "Spotify plays
@@ -5668,7 +5638,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         let profilePath = space.flatMap { store.profilePath(space: $0.id) } ?? store.profilePath(profile: initialProfile)
         let defaultEngine = SearchEngines.shared.defaultEngine(profilePath: profilePath, legacy: store.settings.searchEngine)
         let engines = ChromiumSearchEngine.spaceChoices(among: SearchEngines.shared.keywords(profilePath: profilePath))
-        let view = SpaceEditorView(existing: space, profiles: store.profiles, initialProfile: initialProfile, searchEngines: engines,
+        let view = SpaceEditorView(existing: space, profiles: store.profiles, defaultProfileName: store.profileName(nil), initialProfile: initialProfile, searchEngines: engines,
                                    defaultEngineName: defaultEngine.name, onSave: { [weak panel] title, icon, theme, profile, newName, searchEngine in
             let id: UUID
             if let sid = space?.id, var s = store.space(sid) {

@@ -42,6 +42,15 @@ enum UI {
         return item
     }
 
+    /// A row for a KeyBindings command, its shortcut on the right as the Mac's context menus show it
+    /// (MenuItems.add(_:action:), #89): the key the user set in Settings ▸ Shortcuts, nothing when
+    /// the command has none on Windows.
+    static func menuItem(_ title: String, action id: String, _ action: @escaping @MainActor () -> Void) -> MenuFlyoutItem {
+        let item = menuItem(title, action)
+        if let keys = WinKeyBindings.shared.action(id)?.primary?.windowsDisplay { item.keyboardAcceleratorTextOverride = keys }
+        return item
+    }
+
     static func column(_ length: GridLength) -> ColumnDefinition {
         let c = ColumnDefinition()
         c.width = length

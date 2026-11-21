@@ -25,6 +25,8 @@ final class SpaceCreationPageView {
     /// The page was left, by Create Space or Cancel.
     private let onEnd: @MainActor () -> Void
     private let focusField: @MainActor (TextBox) -> Void
+    /// Runs with the space Create Space made.
+    var created: (@MainActor (UUID) -> Void)?
 
     private let column = StackPanel()
     private let picture = Border()
@@ -387,8 +389,10 @@ final class SpaceCreationPageView {
     func createSpace() {
         guard !ended, draft.canCreate else { return }
         closePanels()
-        guard store.finishSpaceCreation(draft, origin: origin, window: windowID) != nil else { return }
+        guard let id = store.finishSpaceCreation(draft, origin: origin, window: windowID) else { return }
+        let done = created
         end()
+        done?(id)
     }
 
     /// Cancel, Escape, or another space picked: the space it was opened on comes back as it was.
