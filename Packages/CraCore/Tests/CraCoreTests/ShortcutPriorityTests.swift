@@ -169,18 +169,33 @@ struct ShortcutPriorityTests {
     @Test(.bug("https://github.com/VictorKildahl/cra/issues/374"))
     func theRouterFollowsEachPriority() {
         var r = ShortcutRouter()
-        #expect(r.beforePage("closeTab", priority: .preferCra, at: 1, isRepeat: false) == .take)
-        #expect(r.beforePage("find", priority: .preferWebsites, at: 1, isRepeat: false) == .pass)
+        func press(_ action: String, _ priority: ShortcutPriority, at time: TimeInterval, isRepeat: Bool = false) -> ShortcutRouter.BeforePage {
+            r.beforePage(action, priority: priority, at: time, isRepeat: isRepeat)
+        }
+        func kept(pressedAt: TimeInterval, now: TimeInterval) -> Bool {
+            r.pageKept("closeTab", pressedAt: pressedAt, now: now, offerTime: 3)
+        }
+        let cra = press("closeTab", .preferCra, at: 1)
+        #expect(cra == .take)
+        let websites = press("find", .preferWebsites, at: 1)
+        #expect(websites == .pass)
         // Use Both: the first press is the page's, watched; kept, the next one is Cra's.
-        #expect(r.beforePage("closeTab", priority: .useBoth, at: 10, isRepeat: false) == .passAndWatch)
-        #expect(r.beforePage("closeTab", priority: .useBoth, at: 10.1, isRepeat: true) == .pass, "a repeat goes where the press went")
-        #expect(r.pageKept("closeTab", pressedAt: 10, now: 10.5, offerTime: 3))
-        #expect(r.beforePage("closeTab", priority: .useBoth, at: 12, isRepeat: false) == .take)
+        let first = press("closeTab", .useBoth, at: 10)
+        #expect(first == .passAndWatch)
+        let held = press("closeTab", .useBoth, at: 10.1, isRepeat: true)
+        #expect(held == .pass, "a repeat goes where the press went")
+        let wasKept = kept(pressedAt: 10, now: 10.5)
+        #expect(wasKept)
+        let again = press("closeTab", .useBoth, at: 12)
+        #expect(again == .take)
         // After the offer, a press is the page's again.
-        #expect(r.beforePage("closeTab", priority: .useBoth, at: 20, isRepeat: false) == .passAndWatch)
+        let later = press("closeTab", .useBoth, at: 20)
+        #expect(later == .passAndWatch)
         r.pageLeft("closeTab")
-        #expect(!r.pageKept("closeTab", pressedAt: 20, now: 20.5, offerTime: 3), "the page handed it back")
-        #expect(r.beforePage("closeTab", priority: .useBoth, at: 21, isRepeat: false) == .passAndWatch)
+        let handedBack = !kept(pressedAt: 20, now: 20.5)
+        #expect(handedBack, "the page handed it back")
+        let next = press("closeTab", .useBoth, at: 21)
+        #expect(next == .passAndWatch)
     }
 
     @Test func theAgainToastNamesTheKeysAndTheCommand() {
