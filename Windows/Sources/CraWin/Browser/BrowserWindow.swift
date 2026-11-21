@@ -70,6 +70,8 @@ final class BrowserWindow {
     /// new pane after Add To Split), and that focus mustn't select its tab.
     private var newPages: [ObjectIdentifier: Date] = [:]
     private var shownTabID: UUID?
+    /// Tabs whose video went into Picture in Picture as they were left: it comes back with them.
+    private var autoPictureInPicture: Set<UUID> = []
     /// The panes on screen, in order: the selected tab, or every pane of its split. Their frames
     /// and the gaps between them, in physical pixels relative to the client area.
     private var paneIDs: [UUID] = []
@@ -382,6 +384,7 @@ final class BrowserWindow {
             }
             syncSidebarMode()
             syncSidebarWidth()
+            syncSidebarSide()
             placeSidebarEdge()
             syncPages()
             syncSlowResponse()
@@ -456,13 +459,30 @@ final class BrowserWindow {
                 focusSidebar()
             }
         }
+        let left = shownTabID
         shownTabID = id
         // Another tab in front: its bar as it is, without the widening or the flash.
         syncLoadingBar(animated: false)
         guard changed else { return }
+        pictureInPictureOnTabChange(from: left, to: id)
         showAddress(page.map { _ in store.item(id ?? UUID())?.tab?.url ?? "" } ?? "")
         // An empty tab (a new pane) waits for an address.
         if id != nil && page == nil { openCommandBar(.editURL) }
+    }
+
+    /// Arc's "Enable Picture in Picture when you leave a video tab" (Settings ▸ Advanced; the Site
+    /// Control Center can turn it off for a site): a video playing aloud in the tab left goes out
+    /// into Picture in Picture, and back into its page when the tab is shown again
+    /// (BrowserManager.leaveTab and returnToTab on the Mac). A tab still in a split pane isn't left.
+    private func pictureInPictureOnTabChange(from left: UUID?, to shown: UUID?) {
+        if let shown, autoPictureInPicture.remove(shown) != nil { pages[shown]?.exitPictureInPicture() }
+        guard let left, left != shown, !paneIDs.contains(left), let page = pages[left],
+              store.settings.allowsAutoPictureInPicture(url: page.currentURL) else { return }
+        page.requestPictureInPicture(automatic: true) { [weak self] answer in
+            guard let self, answer == .entered else { return }
+            // Back on the tab before the page answered: its video comes straight back.
+            if self.shownTabID == left { page.exitPictureInPicture() } else { self.autoPictureInPicture.insert(left) }
+        }
     }
 
     /// Closes every page, then the window once Chromium is done with them (or after 3 s).
@@ -885,6 +905,7 @@ final class BrowserWindow {
         case "renameTab": renameSelectedTab()
         case "duplicateTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { _ = store.duplicateTab(t) }
         case "muteTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { toggleMute(t) }
+        case "pictureInPicture": shownPage?.requestPictureInPicture(automatic: false)
         case "pauseAllMedia": host?.pauseAllMedia { [weak self] text, action in self?.showToast(text, action: action) }
         case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
         case "newFolder": sidebar.newFolder()
@@ -1180,6 +1201,17 @@ final class BrowserWindow {
         }
     }
 
+    /// Settings ▸ Tabs ▸ Sidebar on the right (#464): the window in a mirror, the sidebar docked,
+    /// floating and dragged from the right, the pages on the left.
+    private func syncSidebarSide() {
+        let side = store.settings.sidebarSide
+        guard window.sidebarSide != side else { return }
+        window.sidebarSide = side
+        floatingSidebar?.side = side
+        sidebarEdge?.side = side
+        placeSidebarEdge()
+    }
+
     /// Another window's drag changed the saved width: this one follows.
     private func syncSidebarWidth() {
         guard sidebarResize == nil else { return }
@@ -1201,7 +1233,9 @@ final class BrowserWindow {
             && self.host?.hasPeek(over: self) != true
         guard resizable else { return sidebarEdge.place(x: 0, y: 0, width: 0, height: 0) }
         let strip = SidebarResizeHandle.strip(sidebarWidth: window.sidebarWidth)
-        var origin = POINT(x: Int32((strip.x * scale).rounded()), y: 0)
+        let clientWidth = Double(window.appWindow.clientSize.width) / scale
+        let left = window.sidebarSide == .right ? clientWidth - strip.x - strip.width : strip.x
+        var origin = POINT(x: Int32((left * scale).rounded()), y: 0)
         _ = ClientToScreen(host, &origin)
         sidebarEdge.place(x: origin.x, y: origin.y, width: Int32((strip.width * scale).rounded()),
                           height: window.appWindow.clientSize.height)
@@ -1283,7 +1317,7 @@ final class BrowserWindow {
         _ = ClientToScreen(host, &origin)
         let size = window.appWindow.clientSize
         return PeekPlacement(client: PixelRect(x: origin.x, y: origin.y, width: size.width, height: size.height),
-                             sidebar: window.sidebarWidth, scale: window.scale)
+                             sidebar: window.sidebarWidth, side: window.sidebarSide, scale: window.scale)
     }
 
     /// Arc badges the tab a Peek came from with the peeked page's favicon.
@@ -2945,7 +2979,7 @@ extension BrowserWindow {
         let region = splitDropTarget?.insert.flatMap { splitDropFrames(inserting: $0)[Self.splitDropRegion] }
         guard let proposal = SplitDropProposal.propose(at: point, ids: paneIDs, frames: splitDropFrames(inserting: nil), orientation: paneOrientation,
                                                        area: CGRect(origin: .zero, size: size), region: region, current: splitDropTarget,
-                                                       sidebarSide: true) else {
+                                                       sidebarSide: true, sidebarOn: window.sidebarSide) else {
             clearSplitDrop()
             return false
         }

@@ -26,13 +26,22 @@ final class HostWindow {
 
     /// The XAML column's width, in DIPs.
     var sidebarWidth: Double { didSet { layout() } }
+    /// Which side of the window the column docks on (Settings ▸ Tabs ▸ Sidebar on the right):
+    /// on the right the pages start at the window's left edge.
+    var sidebarSide: SidebarSide = .left { didSet { if sidebarSide != oldValue { layout() } } }
     /// The XAML column floated over the pages (the hidden sidebar brought out), in physical pixels
     /// relative to the client area; nil keeps it in its column. Set it with `sidebarWidth` at 0:
     /// the pages then fill the window and the column sits over their left edge.
     var floatingSidebar: PixelRect? { didSet { if floatingSidebar != oldValue { layout() } } }
     /// Where the XAML column's top left is in the client area, in physical pixels: XAML's own
     /// coordinates start there.
-    var columnOrigin: (x: Int32, y: Int32) { floatingSidebar.map { ($0.x, $0.y) } ?? (0, 0) }
+    var columnOrigin: (x: Int32, y: Int32) {
+        floatingSidebar.map { ($0.x, $0.y) } ?? (sidebarSide == .right ? appWindow.clientSize.width - dockedColumnWidth : 0, 0)
+    }
+    /// The docked column's width in physical pixels (0 when it isn't docked).
+    private var dockedColumnWidth: Int32 {
+        min(appWindow.clientSize.width, Int32((sidebarWidth * scale).rounded()))
+    }
     /// The floating column's corner radius, in physical pixels.
     var floatingCornerRadius: Int32 = 16
     /// The strip's height over the page area, in DIPs; 0 hides it and the pages fill the area.
@@ -245,13 +254,13 @@ final class HostWindow {
         return dpi > 0 ? Double(dpi) / 96 : 1
     }
 
-    /// The page area: right of the sidebar and under the top strip, in physical pixels relative
+    /// The page area: beside the sidebar and under the top strip, in physical pixels relative
     /// to the client area.
     var contentFrame: PixelRect {
         let size = appWindow.clientSize
-        let x = min(size.width, Int32((sidebarWidth * scale).rounded()))
+        let column = dockedColumnWidth
         let y = min(size.height, Int32((topBarHeight * scale).rounded()))
-        return PixelRect(x: x, y: y, width: size.width - x, height: size.height - y)
+        return PixelRect(x: sidebarSide == .right ? 0 : column, y: y, width: size.width - column, height: size.height - y)
     }
 
     /// Moves Win32 focus into the top strip's XAML, for a programmatic XAML focus to take.
@@ -422,12 +431,13 @@ extension HostWindow {
             // Over the pages, which are its siblings.
             let noSize: UINT = 0x0001, noMove: UINT = 0x0002, noActivate: UINT = 0x0010
             _ = SetWindowPos(column, HWND(bitPattern: 0), 0, 0, 0, 0, noSize | noMove | noActivate)
-        } else if frame.x > 0 {
+        } else if dockedColumnWidth > 0 {
             if lastRegionSize != nil {
                 _ = SetWindowRgn(column, nil, true)
                 lastRegionSize = nil
             }
-            try? bridge.moveAndResize(RectInt32(x: 0, y: 0, width: frame.x, height: height))
+            let width = dockedColumnWidth
+            try? bridge.moveAndResize(RectInt32(x: sidebarSide == .right ? frame.x + frame.width : 0, y: 0, width: width, height: height))
             _ = ShowWindow(column, SW_SHOWNA)
         } else {
             _ = ShowWindow(column, SW_HIDE)

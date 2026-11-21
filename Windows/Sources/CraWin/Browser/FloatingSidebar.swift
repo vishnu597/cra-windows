@@ -16,6 +16,8 @@ final class FloatingSidebar {
     private let dispatcher: WinAppSDK.DispatcherQueue
     /// The sidebar's width while it is out, in DIPs (the Library makes it wider).
     var width: Double = 280 { didSet { if width != oldValue { place() } } }
+    /// The window's edge it comes out from (Settings ▸ Tabs ▸ Sidebar on the right).
+    var side: SidebarSide = .left { didSet { if side != oldValue { place() } } }
     /// How the window presents its sidebar now.
     var presentation: () -> SidebarPresentation = { SidebarPresentation(sidebarVisible: true, hasSelectedTab: true) }
     /// Something the sidebar opened is up (the Library, a rename, a drag): it stays out.
@@ -24,7 +26,8 @@ final class FloatingSidebar {
     var onRetracted: (() -> Void)?
 
     private(set) var isOut = false
-    /// Where its left edge is now, in DIPs from the window's (a slide moves it).
+    /// Where its near edge is now, in DIPs from the window's edge on its side (a slide moves it;
+    /// mirrored for a sidebar on the right).
     private var x: Double = 0
     private var pointer = FloatingSidebarPointer()
     private var poll: DispatcherQueueTimer?
@@ -98,7 +101,7 @@ final class FloatingSidebar {
         let buttons = [Int32(0x01), 0x02, 0x04].filter { GetAsyncKeyState($0) < 0 }.count
         let step = pointer.sample(point, in: bounds, sidebarWidth: CGFloat(width), isOut: isOut, presentation: presentation(),
                                   keptOut: overOwnedPopup || keptOut(), mayReveal: front && !IsIconic(host),
-                                  pressedMouseButtons: buttons, edgeToEdge: true,
+                                  pressedMouseButtons: buttons, edgeToEdge: true, side: side,
                                   at: ProcessInfo.processInfo.systemUptime)
         switch step {
         case .reveal: show()
@@ -154,7 +157,9 @@ final class FloatingSidebar {
         let scale = window.scale, height = window.appWindow.clientSize.height
         let margin = Int32((FloatingSidebarGeometry.margin * scale).rounded())
         window.floatingCornerRadius = Int32((12 * scale).rounded())
-        window.floatingSidebar = PixelRect(x: Int32((x * scale).rounded()), y: margin,
-                                           width: Int32((width * scale).rounded()), height: max(1, height - 2 * margin))
+        let w = Int32((width * scale).rounded()), left = Int32((x * scale).rounded())
+        let clientWidth = window.appWindow.clientSize.width
+        window.floatingSidebar = PixelRect(x: side == .right ? clientWidth - left - w : left, y: margin,
+                                           width: w, height: max(1, height - 2 * margin))
     }
 }

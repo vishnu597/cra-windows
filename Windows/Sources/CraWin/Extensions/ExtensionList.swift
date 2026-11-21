@@ -43,7 +43,38 @@ final class ExtensionList {
 
     private func changed() {
         icons.removeAll()
+        dropRemovedCopies()
         for f in onChange { f() }
+    }
+
+    /// The profiles to watch for a removed copy: Default's (nil) and each profile's folder.
+    var profilePaths: () -> [String?] = { [nil] }
+    private var copyRemovals = ExtensionCopyRemovals()
+
+    /// Remove in chrome://extensions for one of Cra's own folders (an import, Add Unpacked
+    /// Extension…): Chromium only drops its record of a --load-extension install, so the next
+    /// launch would load the folder again. Its folder goes (the Mac's ExtensionStore
+    /// dropRemovedCopies). Windows loads Cra's folders in every profile at once, so a removal in
+    /// one profile removes it from all of them after the next launch.
+    func dropRemovedCopies() {
+        let fm = FileManager.default
+        let folders = ExtensionFolders.loadable(in: WinPaths.extensions)
+        for path in profilePaths() {
+            guard let settings = Self.liveSettings(profilePath: path) else { continue }
+            for folder in folders {
+                let manifest = (try? Data(contentsOf: folder.appendingPathComponent("manifest.json")))
+                    .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                let id = ExtensionCopyRemovals.keyedID(base64Key: manifest?["key"] as? String) ?? ""
+                guard copyRemovals.wasRemoved(folder: folder.lastPathComponent, copyPath: WinPaths.native(folder), extensionID: id,
+                                              profile: path ?? "Default", settings: settings) else { continue }
+                do {
+                    try fm.removeItem(at: folder)
+                    print("Cra: extension \(folder.lastPathComponent) was removed in chrome://extensions; its folder is gone")
+                } catch {
+                    print("Cra: extension \(folder.lastPathComponent): could not remove its folder (\(error))")
+                }
+            }
+        }
     }
 
     /// The extensions of the profile whose folder is `profilePath` (nil: Default), turned off
