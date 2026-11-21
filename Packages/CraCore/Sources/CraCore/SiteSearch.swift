@@ -270,3 +270,28 @@ public struct SiteSearch: Equatable, Sendable {
         SiteSearch(name: "Spotify", host: "spotify.com", url: "https://open.spotify.com/search/%s", color: "#1DB954"),
     ]
 }
+
+/// A space's Search Engine submenu (GitHub #306): "Default (<the profile's engine>)", then each of
+/// `ChromiumSearchEngine.spaceChoices`, the space's own ticked. The Mac's SpaceMenu.addSearchEngines
+/// and Windows' space menu list these rows.
+public struct SpaceSearchEngineMenu: Equatable, Sendable {
+    public struct Row: Equatable, Sendable {
+        public let title: String
+        /// What picking it sets (`SidebarStore.setSearchEngine`): nil follows the default.
+        public let keyword: String?
+        public let isOn: Bool
+
+        public init(title: String, keyword: String?, isOn: Bool) { (self.title, self.keyword, self.isOn) = (title, keyword, isOn) }
+    }
+
+    public let defaultRow: Row
+    public let choices: [Row]
+
+    public init(defaultEngine: ChromiumSearchEngine, engines: [ChromiumSearchEngine], spaceKeyword: String?) {
+        let current = spaceKeyword?.lowercased()
+        defaultRow = Row(title: "Default (\(defaultEngine.name))", keyword: nil, isOn: current == nil)
+        choices = ChromiumSearchEngine.spaceChoices(among: engines).map {
+            Row(title: $0.name, keyword: $0.keyword, isOn: current == $0.keyword.lowercased())
+        }
+    }
+}

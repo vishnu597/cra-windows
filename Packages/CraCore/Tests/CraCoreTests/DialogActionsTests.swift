@@ -67,4 +67,23 @@ struct DialogActionsTests {
         #expect(actions.cancelIndex == 1)
         #expect(actions.key(at: 2).isEmpty)
     }
+
+    // Windows draws Arc's sheet buttons from these (the Mac's DialogButton colours).
+    @Test func buttonColoursFollowTheRole() {
+        #expect(DialogButtonColors.style(for: .primary) == .accent)
+        #expect(DialogButtonColors.style(for: .destructive) == .destructive)
+        #expect(DialogButtonColors.style(for: .cancel) == .secondary)
+        #expect(DialogButtonColors.style(for: .secondary) == .secondary)
+        let quit = DialogButtonColors(.accent)
+        #expect(quit.fill == "#3239FB" && quit.rim == "#5B61FD" && quit.lip == "#2C3475" && !quit.hoverIsWhite)
+        #expect(quit.badgeFill == "#464DFB" && quit.title == "#FFFFFF")
+        let delete = DialogButtonColors(.destructive)
+        #expect(delete.fill == "#F53516" && delete.lip == "#41232A" && delete.badgeRim == "#FA624C")
+        let cancel = DialogButtonColors(.secondary)
+        #expect(cancel.fill == "#302F60" && cancel.rim == "#6362A9" && cancel.lip == nil && cancel.hoverIsWhite)
+        #expect(cancel.badgeText == "#B7B7DD")
+        let off = DialogButtonColors(.accent, enabled: false)
+        #expect(off.fill == "#1C1D4C" && off.rim == nil && off.lip == "#1D2259" && off.title == "#5B5C7F")
+        #expect(DialogButtonColors(.destructive, enabled: false).lip == nil)
+    }
 }

@@ -51,6 +51,19 @@ struct TabSwitcherCycleTests {
         #expect(cards == [ids[0], ids[2], ids[3], ids[4], ids[5]])
     }
 
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/554")) func aSplitsCardStaysWhileAnyPaneIsOpen() {
+        let ids = (0..<4).map { _ in UUID() }
+        let pinnedSplit = UUID(), closedSplit = UUID()
+        let recent = [
+            RecentTabOrder.Card(id: pinnedSplit, panes: [ids[0], ids[1]], opens: ids[0], isSplit: true),
+            RecentTabOrder.Card(id: closedSplit, panes: [ids[2], ids[3]], opens: ids[2], isSplit: true),
+        ]
+        let pinned = Set(ids), loaded: Set<UUID> = [ids[1]]
+        let cards = TabSwitcherCycle.cards(recent, selected: nil, isPinned: pinned.contains, isLoaded: loaded.contains)
+        #expect(cards.map(\.id) == [pinnedSplit], "one open pane keeps the split; none drops it")
+        #expect(TabSwitcherCycle.cards(recent, selected: ids[3], isPinned: pinned.contains, isLoaded: { _ in false }).map(\.id) == [closedSplit])
+    }
+
     @Test func thePanelIsArcsSize() {
         #expect(TabSwitcherLayout.panelSize(count: 3) == CGSize(width: 577, height: 190))
         #expect(TabSwitcherLayout.panelSize(count: 0) == TabSwitcherLayout.panelSize(count: 1))

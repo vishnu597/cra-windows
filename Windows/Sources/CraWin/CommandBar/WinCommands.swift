@@ -42,6 +42,7 @@ enum WinGlyph {
         case "square.split.2x1": return "\u{E89A}"  // TwoPage
         // The Peek's.
         case "xmark": return "\u{E711}"  // Cancel
+        case "phone.down.fill": return "\u{E778}"  // HangUp
         case "minus": return "\u{E738}"  // Remove
         case "arrow.up.left.and.arrow.down.right": return "\u{E740}"  // FullScreen
         case "arrow.left": return "\u{E72B}"  // Back

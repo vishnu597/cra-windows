@@ -20,6 +20,8 @@ final class TabSwitcherWindow {
         let id: UUID
         let title: String
         let iconKey: String?
+        /// A split's panes (#554), in pane order with their share of its width; empty for a tab.
+        var panes: [(iconKey: String?, width: Double)] = []
     }
 
     private typealias L = TabSwitcherLayout
@@ -123,6 +125,11 @@ final class TabSwitcherWindow {
         view.cornerRadius = CornerRadius(topLeft: Double(L.cardCornerRadius), topRight: Double(L.cardCornerRadius),
                                          bottomRight: Double(L.cardCornerRadius), bottomLeft: Double(L.cardCornerRadius))
         let content = Grid()
+        guard card.panes.count < 2 else {
+            makeSplitCard(card, in: content)
+            view.child = content
+            return watchPointer(view, index: index)
+        }
         // No page pictures yet on Windows: Arc's empty card for a tab not seen since launch.
         let thumb = Border()
         thumb.width = Double(L.thumbnail.width)
@@ -161,7 +168,57 @@ final class TabSwitcherWindow {
         line.children.append(title)
         content.children.append(line)
         view.child = content
+        return watchPointer(view, index: index)
+    }
 
+    /// A split's card (#554, Arc 1.172): the picture's place is a dark frame with each pane's own
+    /// (empty) picture in it, as wide as the pane's share (CraCore SwitcherSplitLayout), and each
+    /// pane's favicon centred under its picture; no titles.
+    private func makeSplitCard(_ card: Card, in content: Grid) {
+        let r = Double(L.thumbnailCornerRadius)
+        let frame = Border()
+        frame.width = Double(L.thumbnail.width)
+        frame.height = Double(L.thumbnail.height)
+        frame.cornerRadius = CornerRadius(topLeft: r, topRight: r, bottomRight: r, bottomLeft: r)
+        frame.background = dark ? UI.brush(12, 12, 12) : UI.brush(200, 200, 200)
+        frame.horizontalAlignment = .left
+        frame.verticalAlignment = .top
+        frame.margin = Thickness(left: Double(L.thumbnailOrigin.x), top: Double(L.thumbnailOrigin.y), right: 0, bottom: 0)
+        content.children.append(frame)
+        let panes = SwitcherSplitLayout.paneFrames(in: L.thumbnail, widths: card.panes.map { CGFloat($0.width) })
+        let rowTop = Double(L.thumbnailOrigin.y + L.thumbnail.height)
+        let iconTop = rowTop + (Double(L.card.height) - rowTop - Double(L.favicon)) / 2
+        for (pane, f) in zip(card.panes, panes) {
+            let picture = Border()
+            picture.width = Double(f.width)
+            picture.height = Double(f.height)
+            let pr = max(0, r - Double(SwitcherSplitLayout.inset))
+            picture.cornerRadius = CornerRadius(topLeft: pr, topRight: pr, bottomRight: pr, bottomLeft: pr)
+            picture.background = dark ? UI.brush(28, 28, 28) : UI.brush(230, 230, 230)
+            picture.horizontalAlignment = .left
+            picture.verticalAlignment = .top
+            picture.margin = Thickness(left: Double(L.thumbnailOrigin.x + f.minX), top: Double(L.thumbnailOrigin.y + f.minY), right: 0, bottom: 0)
+            content.children.append(picture)
+            let icon: FrameworkElement
+            if let bitmap = Favicons.shared.bitmap(forKey: pane.iconKey, onDark: dark) {
+                icon = UI.image(bitmap, size: Double(L.favicon))
+            } else {
+                let square = Border()
+                square.width = Double(L.favicon)
+                square.height = Double(L.favicon)
+                square.cornerRadius = CornerRadius(topLeft: 4.5, topRight: 4.5, bottomRight: 4.5, bottomLeft: 4.5)
+                square.background = dark ? UI.brush(255, 255, 255, alpha: 36) : UI.brush(0, 0, 0, alpha: 26)
+                icon = square
+            }
+            icon.horizontalAlignment = .left
+            icon.verticalAlignment = .top
+            icon.margin = Thickness(left: Double(L.thumbnailOrigin.x + f.midX) - Double(L.favicon) / 2, top: iconTop, right: 0, bottom: 0)
+            content.children.append(icon)
+        }
+    }
+
+    /// Hover selects the card, a click picks it.
+    private func watchPointer(_ view: Border, index: Int) -> Border {
         view.pointerMoved.addHandler { [weak self] _, _ in self?.hover(index) }
         view.pointerPressed.addHandler { [weak self] _, _ in
             guard let self else { return }

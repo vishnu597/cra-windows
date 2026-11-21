@@ -110,6 +110,13 @@ struct Buttons {
     int hover = -1;   // the button under the pointer
     int shown = -1;   // the button whose tip shows
     bool tracking = false;  // TrackMouseEvent asked for WM_MOUSELEAVE
+    // A button widened into a pill (the Peek's Close as Confirm, cra_round_buttons_set_pill): its
+    // circle stays, `pillText` follows it, and the window is `pillExtra` wider than placed.
+    int pill = -1;
+    std::wstring pillText, pillGlyph;
+    uint32_t pillFill = 0, pillInk = 0xFFFFFF;
+    int pillExtra = 0;
+    int placedWidth = 0;
 };
 
 constexpr UINT_PTR kTipTimer = 1;
@@ -126,15 +133,48 @@ ULONG_PTR GdiplusToken() {
     return token;
 }
 
-/// The button under a client point, or -1: a circle in its rect.
+/// The button under a client point, or -1: a circle in its rect, a capsule for the pill.
 int ButtonAt(const Buttons &b, int x, int y) {
     for (size_t i = 0; i < b.rects.size(); ++i) {
         const RECT &r = b.rects[i];
-        double cx = (r.left + r.right) / 2.0, cy = (r.top + r.bottom) / 2.0;
         double radius = std::min(r.right - r.left, r.bottom - r.top) / 2.0;
+        double cy = (r.top + r.bottom) / 2.0;
+        double left = r.left + radius, right = r.right + (static_cast<int>(i) == b.pill ? b.pillExtra : 0) - radius;
+        double cx = std::clamp(static_cast<double>(x), left, std::max(left, right));
         if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= radius * radius) return static_cast<int>(i);
     }
     return -1;
+}
+
+/// The pill's text: CraCore PeekCloseHold.textSize (13), in Segoe UI Semibold for Arc's medium.
+constexpr wchar_t kPillFont[] = L"Segoe UI Semibold";
+Gdiplus::REAL PillTextSize(double scale) { return static_cast<Gdiplus::REAL>(13 * scale); }
+
+/// How much wider the pill is than its button: PeekCloseHold.pillWidth's spacing (4) and the text.
+int PillExtra(const Buttons &b) {
+    if (b.pill < 0 || b.pillText.empty()) return 0;
+    GdiplusToken();
+    Gdiplus::Font font(kPillFont, PillTextSize(b.scale), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+    Gdiplus::RectF measured;
+    HDC screen = GetDC(nullptr);
+    {
+        Gdiplus::Graphics measure(screen);
+        measure.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
+        measure.MeasureString(b.pillText.c_str(), -1, &font, Gdiplus::PointF(0, 0), &measured);
+    }
+    ReleaseDC(nullptr, screen);
+    return static_cast<int>(std::lround(4 * b.scale + std::ceil(measured.Width)));
+}
+
+/// A capsule `w` wide and `h` tall at `x, y`.
+void AddCapsule(Gdiplus::GraphicsPath &path, Gdiplus::REAL x, Gdiplus::REAL y, Gdiplus::REAL w, Gdiplus::REAL h) {
+    if (w <= h) {
+        path.AddEllipse(x, y, w, h);
+        return;
+    }
+    path.AddArc(x, y, h, h, 90, 180);
+    path.AddArc(x + w - h, y, h, h, 270, 180);
+    path.CloseFigure();
 }
 
 Gdiplus::Color ColorOf(uint32_t rgb, BYTE alpha) {
@@ -185,10 +225,12 @@ void Draw(HWND hwnd) {
             const RECT &r = b->rects[i];
             auto x = static_cast<Gdiplus::REAL>(r.left), y = static_cast<Gdiplus::REAL>(r.top);
             auto bw = static_cast<Gdiplus::REAL>(r.right - r.left), bh = static_cast<Gdiplus::REAL>(r.bottom - r.top);
+            const bool isPill = static_cast<int>(i) == b->pill;
+            auto pw = bw + static_cast<Gdiplus::REAL>(isPill ? b->pillExtra : 0);
             // The Mac's layer shadow: black at 25 %, 4 pt soft, 1 pt down.
             auto blur = static_cast<Gdiplus::REAL>(4 * b->scale), drop = static_cast<Gdiplus::REAL>(1 * b->scale);
             Gdiplus::GraphicsPath shadowPath;
-            shadowPath.AddEllipse(x - blur, y - blur + drop, bw + 2 * blur, bh + 2 * blur);
+            AddCapsule(shadowPath, x - blur, y - blur + drop, pw + 2 * blur, bh + 2 * blur);
             Gdiplus::PathGradientBrush shadow(&shadowPath);
             shadow.SetCenterColor(Gdiplus::Color(64, 0, 0, 0));
             Gdiplus::Color edge(0, 0, 0, 0);
@@ -199,12 +241,28 @@ void Draw(HWND hwnd) {
             g.FillPath(&shadow, &shadowPath);
             // Pressed: the button at 80 %, as the Mac's alphaValue.
             BYTE alpha = static_cast<int>(i) == b->pressed ? 204 : 255;
-            Gdiplus::SolidBrush disc(ColorOf(b->fill, alpha));
-            g.FillEllipse(&disc, x, y, bw, bh);
+            Gdiplus::SolidBrush disc(ColorOf(isPill ? b->pillFill : b->fill, alpha));
+            Gdiplus::GraphicsPath shape;
+            AddCapsule(shape, x, y, pw, bh);
+            g.FillPath(&disc, &shape);
+            const uint32_t ink = isPill ? b->pillInk : b->ink;
             if (i < b->glyphs.size()) {
-                Gdiplus::SolidBrush glyph(ColorOf(b->ink, alpha));
+                Gdiplus::SolidBrush glyph(ColorOf(ink, alpha));
                 Gdiplus::RectF box(x, y, bw, bh);
-                g.DrawString(b->glyphs[i].c_str(), -1, &font, box, &centred, &glyph);
+                const std::wstring &drawn = isPill && !b->pillGlyph.empty() ? b->pillGlyph : b->glyphs[i];
+                g.DrawString(drawn.c_str(), -1, &font, box, &centred, &glyph);
+            }
+            if (isPill && !b->pillText.empty()) {
+                // PeekCloseHold.textMinX: the button's width less its padding (8), then the spacing (4).
+                Gdiplus::Font text(kPillFont, PillTextSize(b->scale), Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+                Gdiplus::StringFormat leading;
+                leading.SetAlignment(Gdiplus::StringAlignmentNear);
+                leading.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+                leading.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+                auto textX = x + bw - static_cast<Gdiplus::REAL>(4 * b->scale);
+                Gdiplus::SolidBrush label(ColorOf(ink, alpha));
+                Gdiplus::RectF box(textX, y, x + pw - textX, bh);
+                g.DrawString(b->pillText.c_str(), -1, &text, box, &leading, &label);
             }
         }
     }
@@ -481,6 +539,9 @@ void cra_round_buttons_place(uintptr_t window, int x, int y, int width, int heig
     b->fill = fill;
     b->ink = ink;
     b->scale = scale > 0 ? scale : 1;
+    b->placedWidth = width;
+    b->pillExtra = PillExtra(*b);
+    width += b->pillExtra;
     RECT before{};
     GetWindowRect(hwnd, &before);
     if (before.left != x || before.top != y) {  // moved: a tip would be left behind
@@ -489,6 +550,23 @@ void cra_round_buttons_place(uintptr_t window, int x, int y, int width, int heig
     }
     SetWindowPos(hwnd, InsertAfter(insert_after), x, y, std::max(width, 1), std::max(height, 1),
                  SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER | SWP_NOREDRAW);
+    Draw(hwnd);
+}
+
+void cra_round_buttons_set_pill(uintptr_t window, int index, const char *glyph, const char *text, uint32_t fill, uint32_t ink) {
+    HWND hwnd = reinterpret_cast<HWND>(window);
+    Buttons *b = hwnd ? ButtonsOf(hwnd) : nullptr;
+    if (!b) return;
+    b->pill = index >= 0 && index < static_cast<int>(b->rects.size()) ? index : -1;
+    b->pillText = b->pill >= 0 ? Wide(text) : std::wstring();
+    b->pillGlyph = b->pill >= 0 && glyph ? Wide(glyph) : std::wstring();
+    b->pillFill = fill;
+    b->pillInk = ink;
+    b->pillExtra = PillExtra(*b);
+    RECT frame{};
+    GetWindowRect(hwnd, &frame);
+    SetWindowPos(hwnd, nullptr, 0, 0, std::max(b->placedWidth + b->pillExtra, 1), std::max<int>(frame.bottom - frame.top, 1),
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
     Draw(hwnd);
 }
 

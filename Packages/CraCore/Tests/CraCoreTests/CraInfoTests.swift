@@ -28,7 +28,7 @@ struct CraInfoTests {
 
     @Test func helpCommandsAreInTheWindowsCommandBar() {
         let windows = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.windows.map { ($0.id, $0) })
-        for id in ["revealData", "copyAppInfo", "languageSettings"] {
+        for id in ["revealData", "copyAppInfo", "languageSettings", "taskManager", "cast", "essentialShortcuts"] {
             #expect(windows[id]?.inCommandBar == true, "\(id)")
             #expect(windows[id]?.shortcuts == [], "\(id)")
         }

@@ -43,14 +43,14 @@ struct SidebarRowCommandsTests {
     }
 }
 
-/// Split View's commands the Windows app performs: Expand Current Split in the command bar.
-/// Switch to Split View 1–4 wait for keys of their own (Ctrl+Shift+2 is Capture on Windows).
+/// Split View's commands the Windows app performs: Expand Current Split in the command bar, and
+/// Switch to Split View 1–4 with no default keys (Ctrl+Shift+2 is Capture on Windows).
 struct WindowsSplitCommandsTests {
-    @Test func expandIsInTheWindowsTableAndSwitchToPaneIsNot() {
+    @Test func expandAndSwitchToPaneAreInTheWindowsTable() {
         let windows = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.windows.map { ($0.id, $0) })
         #expect(windows["expandSplitPane"]?.shortcuts == [])
         #expect(windows["expandSplitPane"]?.inCommandBar == true)
-        for n in 1...4 { #expect(windows["splitPane\(n)"] == nil, "splitPane\(n)") }
+        for n in 1...4 { #expect(windows["splitPane\(n)"]?.shortcuts == [], "splitPane\(n)") }
         #expect(windows["capturePage"]?.shortcuts.map(\.windowsDisplay) == ["Ctrl+Shift+2"])
     }
 }
