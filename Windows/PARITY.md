@@ -880,6 +880,7 @@ the fork keeps in CraCore (`LibraryList.swift`), so it gained upstream's `railIc
 [#97]: https://github.com/vishnu597/cra-windows/pull/97
 [#99]: https://github.com/vishnu597/cra-windows/pull/99
 [#101]: https://github.com/vishnu597/cra-windows/pull/101
+[#116]: https://github.com/vishnu597/cra-windows/pull/116
 [#102]: https://github.com/vishnu597/cra-windows/pull/102
 [#104]: https://github.com/vishnu597/cra-windows/pull/104
 [#105]: https://github.com/vishnu597/cra-windows/pull/105
