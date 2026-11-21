@@ -2509,7 +2509,8 @@ extension BrowserWindow: WebPageDelegate {
         let history = DownloadHistory.shared
         history.report(id: download.identifier, name: name, path: path, received: download.receivedBytes,
                        total: download.totalBytes, percent: download.percent, complete: download.state == .complete,
-                       cancelled: download.state == .cancelled, failed: download.state == .interrupted)
+                       cancelled: download.state == .cancelled, failed: download.state == .interrupted,
+                       paused: download.paused)
         if download.state == .complete, !path.isEmpty, finishedDownloads.insert(download.identifier).inserted {
             history.add(path: path)
         }

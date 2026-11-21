@@ -5,6 +5,7 @@
 
 #include <windows.h>
 #include <dwmapi.h>
+#include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <wincodec.h>
@@ -161,6 +162,31 @@ extern "C" int cra_clipboard_set_text(const char *text) {
     std::wstring wide = Wide(text);
     Clipboard clipboard;
     return clipboard.open && clipboard.Put(CF_UNICODETEXT, wide.c_str(), (wide.size() + 1) * sizeof(wchar_t)) ? 1 : 0;
+}
+
+extern "C" int cra_clipboard_set_file(const char *path) {
+    if (!path || !*path) return 0;
+    std::wstring wide = Wide(path);
+    // DROPFILES, then the path and the list's closing empty string.
+    std::vector<uint8_t> drop(sizeof(DROPFILES) + (wide.size() + 2) * sizeof(wchar_t), 0);
+    auto *files = reinterpret_cast<DROPFILES *>(drop.data());
+    files->pFiles = sizeof(DROPFILES);
+    files->fWide = TRUE;
+    memcpy(drop.data() + sizeof(DROPFILES), wide.c_str(), wide.size() * sizeof(wchar_t));
+    Clipboard clipboard;
+    return clipboard.open && clipboard.Put(CF_HDROP, drop.data(), drop.size()) ? 1 : 0;
+}
+
+extern "C" int cra_shell_recycle(const char *path) {
+    if (!path || !*path) return 0;
+    // SHFileOperation's list ends in two NULs.
+    std::wstring from = Wide(path);
+    from.push_back(L'\0');
+    SHFILEOPSTRUCTW op{};
+    op.wFunc = FO_DELETE;
+    op.pFrom = from.c_str();
+    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT;
+    return SHFileOperationW(&op) == 0 && !op.fAnyOperationsAborted ? 1 : 0;
 }
 
 extern "C" int cra_clipboard_set_png(const uint8_t *png, size_t length) {

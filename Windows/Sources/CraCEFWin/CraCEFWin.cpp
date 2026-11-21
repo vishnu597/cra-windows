@@ -286,6 +286,9 @@ std::wstring DownloadsFolder() {
     return out;
 }
 
+/// Downloads in progress by id, for their rows' menus. UI thread only.
+std::map<uint32_t, CefRefPtr<CefDownloadItemCallback>> g_downloadCallbacks;
+
 /// Settings ▸ Profiles ▸ Download location (cra_cef_set_download_locations): Chromium folder ->
 /// (folder, ask where to save). Set by Swift, read as downloads start.
 std::mutex g_downloadLocationsLock;
@@ -1364,6 +1367,9 @@ public:
 
     void OnDownloadUpdated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDownloadItem> item,
                            CefRefPtr<CefDownloadItemCallback> callback) override {
+        // Kept while it runs, for its row's Pause, Resume and Cancel (cra_cef_control_download).
+        if (item->IsInProgress()) g_downloadCallbacks[item->GetId()] = callback;
+        else g_downloadCallbacks.erase(item->GetId());
         CraBrowser *o = Live();
         if (!o || !o->callbacks.download_updated) return;
         std::string url = item->GetURL().ToString(), path = item->GetFullPath().ToString(),
@@ -1380,6 +1386,7 @@ public:
                      : item->IsCanceled()    ? CraDownloadStateCancelled
                      : item->IsInterrupted() ? CraDownloadStateInterrupted
                                              : CraDownloadStateInProgress;
+        info.paused = item->IsInProgress() && item->IsPaused() ? 1 : 0;
         o->callbacks.download_updated(o->callbacks.context, &info);
     }
 
@@ -1890,6 +1897,17 @@ extern "C" int cra_cef_initialize(const CraCEFSettings *s) {
     }
     ScheduleWork(0);
     if (!g_clickHook) g_clickHook = SetWindowsHookExW(WH_MOUSE, ClickHook, nullptr, GetCurrentThreadId());
+    return 1;
+}
+
+extern "C" int cra_cef_control_download(uint32_t identifier, CraDownloadControl action) {
+    auto it = g_downloadCallbacks.find(identifier);
+    if (it == g_downloadCallbacks.end()) return 0;
+    switch (action) {
+        case CraDownloadControlPause: it->second->Pause(); break;
+        case CraDownloadControlResume: it->second->Resume(); break;
+        case CraDownloadControlCancel: it->second->Cancel(); break;
+    }
     return 1;
 }
 
