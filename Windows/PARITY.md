@@ -220,7 +220,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Privacy | 🟡 [#45] | `PrivacyPane.swift` | `SecureDNS` | Windows has the Content blocking card's ad and tracker [#45] and cookie banner [#46] switches. Left: fingerprinting protection, secure connections and DNS, the Data card. |
 | Extensions | 🟡 | `ExtensionsPane.swift` | `ExtensionFolders`, `InstalledExtensions` | Windows lists every profile's installs once each, with Remove (Cra's own folder) or Remove… (chrome://extensions), Add Unpacked Extension… (Windows' folder picker) and Open Chrome's Extension Manager. Cra's folders load in every profile (stock CEF has no `extension-profiles.patch`). No Live Folder plugins under it yet (Plugins row). |
 | Plugins | ❌ | `PluginsPane.swift` | `LiveFolderPlugin`, `LiveFolderPluginPackage` | With the live-folder plugin runtime: install, permission summary, enable/disable, reload and remove packages. |
-| Advanced: engine, export bookmarks, versions | 🟡 [#65] | `AdvancedPane.swift`, `SidebarExport.swift` | `BookmarksExport` | The bookmarks-file writer is CraCore's `BookmarksExport` ([#65]); the Mac's `SidebarExport` keeps its save panel. Windows: Settings ▸ General ▸ Your data ▸ Export spaces and pinned tabs, with Windows' Save dialog. Left: the engine and version rows. Sync #23: clicking the Mac version copies bug-report text (#461); Windows still needs the version/engine rows. |
+| Advanced: engine, export bookmarks, versions | 🟡 [#65] | `AdvancedPane.swift`, `SidebarExport.swift` | `BookmarksExport` | The bookmarks-file writer is CraCore's `BookmarksExport` ([#65]); the Mac's `SidebarExport` keeps its save panel. Windows: Settings ▸ General ▸ Your data ▸ Export spaces and pinned tabs, with Windows' Save dialog. Windows [#114]: Settings ▸ Advanced ▸ About shows Cra.exe's version (its VERSIONINFO, `cra_app_version`; a local 0.0.0 build says just "Cra", `CraVersion.windowsTitle`), the engine (`EngineVersion.label`) and the data folder; a click on the version copies it with the engine for a bug report (#461, `CraVersion.windowsLine`), and Help ▸ Copy Cra Info now names the version too. Left: the brand mark on the card and the update channel rows (with the updater). |
 | Max, Performance | ❌ | `MaxPane.swift`, `PerformancePane.swift` | | See Arc Max and DevTools. |
 
 ## Import and onboarding
@@ -888,4 +888,5 @@ the fork keeps in CraCore (`LibraryList.swift`), so it gained upstream's `railIc
 [#110]: https://github.com/vishnu597/cra-windows/pull/110
 [#112]: https://github.com/vishnu597/cra-windows/pull/112
 [#113]: https://github.com/vishnu597/cra-windows/pull/113
+[#114]: https://github.com/vishnu597/cra-windows/pull/114
 [#111]: https://github.com/vishnu597/cra-windows/pull/111

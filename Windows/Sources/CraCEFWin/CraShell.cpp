@@ -270,6 +270,31 @@ extern "C" int cra_downloads_folder(char *out, size_t capacity) {
     return n > 0 ? 1 : 0;
 }
 
+extern "C" int cra_app_version(char *out, size_t capacity) {
+    if (!out || capacity == 0) return 0;
+    out[0] = '\0';
+    // Cra.exe's own VERSIONINFO (Resources/Cra.rc): its VS_FIXEDFILEINFO, found by its signature,
+    // so no version.lib is needed.
+    HRSRC info = FindResourceW(nullptr, MAKEINTRESOURCEW(1), MAKEINTRESOURCEW(16));  // RT_VERSION
+    if (!info) return 0;
+    HGLOBAL loaded = LoadResource(nullptr, info);
+    const auto *bytes = loaded ? static_cast<const unsigned char *>(LockResource(loaded)) : nullptr;
+    DWORD size = SizeofResource(nullptr, info);
+    if (!bytes || size < 52) return 0;
+    for (DWORD i = 0; i + 52 <= size; i += 4) {
+        DWORD signature = 0;
+        std::memcpy(&signature, bytes + i, 4);
+        if (signature != 0xFEEF04BD) continue;
+        DWORD ms = 0, ls = 0;  // dwProductVersionMS, dwProductVersionLS
+        std::memcpy(&ms, bytes + i + 16, 4);
+        std::memcpy(&ls, bytes + i + 20, 4);
+        int n = std::snprintf(out, capacity, "%u.%u.%u", static_cast<unsigned>(HIWORD(ms)), static_cast<unsigned>(LOWORD(ms)),
+                              static_cast<unsigned>(HIWORD(ls)));
+        return n > 0 && static_cast<size_t>(n) < capacity ? 1 : 0;
+    }
+    return 0;
+}
+
 extern "C" int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *out, size_t capacity) {
     if (!out || capacity == 0) return 0;
     out[0] = '\0';

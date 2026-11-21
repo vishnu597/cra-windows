@@ -969,7 +969,7 @@ final class BrowserWindow {
         case "revealData": Shell.open(WinPaths.native(WinPaths.supportDir))
         case "copyAppInfo":
             let engine = EngineVersion.label(chromium: String(cString: cra_cef_chromium_version()), cef: String(cString: cra_cef_version()))
-            if WinShell.copy(CraInfo.text(app: CraInfo.appLine(version: nil), engine: engine, system: WinVersion.line)) {
+            if WinShell.copy(CraInfo.text(app: CraInfo.appLine(version: WinShell.appVersion), engine: engine, system: WinVersion.line)) {
                 showToast("Copied Cra Info")
             }
         // Chromium's page edits the profile of the space it opens in, so not a private window's.

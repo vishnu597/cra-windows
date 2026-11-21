@@ -221,6 +221,12 @@ enum WinShell {
     }
 
     /// The user's Downloads folder as Windows writes it, nil when Windows can't say.
+    /// Cra.exe's product version ("1.2.3", "0.0.0" for a local build), nil without one.
+    static var appVersion: String? {
+        var buffer = [CChar](repeating: 0, count: 64)
+        return cra_app_version(&buffer, 64) != 0 ? String(cString: buffer) : nil
+    }
+
     static var downloadsFolder: String? {
         let capacity = 4096
         var buffer = [CChar](repeating: 0, count: capacity)

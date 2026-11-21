@@ -4,6 +4,7 @@ import Foundation
 import UWP
 import WinAppSDK
 import WinUI
+import WindowsFoundation
 
 /// A pane's XAML and how to put its controls in step with the settings again.
 @MainActor
@@ -242,8 +243,55 @@ enum SettingsPanes {
             settingSwitch("Enable Picture in Picture when you leave a video tab", detail: nil, \.autoPictureInPicture,
                           store: store, palette: palette, syncs: &syncs),
         ], palette: palette))
+        // The Mac's About card: the version (a click copies it with the engine, for a bug report,
+        // #461), the engine and where Cra keeps its data.
+        let about = header("About", palette: palette)
+        about.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
+        stack.children.append(about)
+        stack.children.append(aboutCard(palette: palette))
         return SettingsPaneContent(element: stack) { syncs.forEach { $0() } }
     }
+
+    private static func aboutCard(palette: SettingsPalette) -> FrameworkElement {
+        let version = WinShell.appVersion
+        let engine = EngineVersion.label(chromium: String(cString: cra_cef_chromium_version()), cef: String(cString: cra_cef_version()))
+        let title = CraVersion.windowsTitle(version: version)
+        let lines = StackPanel()
+        lines.orientation = .vertical
+        lines.spacing = 3
+        lines.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 12, right: Double(DiaSettingsMetrics.cardRowInset), bottom: 12)
+        let label = UI.text(title, color: palette.text, trimmed: false)
+        label.fontWeight = UWP.FontWeight(weight: 600)
+        label.fontSize = 14
+        let copy = Button()
+        copy.content = label
+        copy.background = UI.clear
+        copy.borderThickness = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        copy.padding = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        try? ToolTipService.setToolTip(copy, "Copy the Cra version")
+        try? AutomationProperties.setName(copy, "Copy the Cra version")
+        copy.click.addHandler { [weak label] _, _ in
+            guard WinShell.copy(CraVersion.windowsLine(version: version, engine: engine)) else { return }
+            // Settings has no toast: the title says so for a moment.
+            label?.text = "Cra version copied to clipboard"
+            try? aboutTimer?.stop()
+            guard let queue = (try? WinAppSDK.DispatcherQueue.getForCurrentThread()) ?? nil,
+                  let timer = try? queue.createTimer() else { return }
+            timer.interval = TimeSpan(duration: 2 * 10_000_000)
+            timer.isRepeating = false
+            timer.tick.addHandler { [weak label] _, _ in label?.text = title }
+            try? timer.start()
+            aboutTimer = timer
+        }
+        lines.children.append(copy)
+        lines.children.append(UI.text(engine, size: 12, color: palette.secondaryText, trimmed: false))
+        let folder = UI.text(WinPaths.native(WinPaths.supportDir), size: 11, color: palette.secondaryText, trimmed: false)
+        lines.children.append(folder)
+        return card([lines], palette: palette)
+    }
+
+    /// Puts the About title back after "copied", kept until it fires.
+    private static var aboutTimer: WinAppSDK.DispatcherQueueTimer?
 
     /// The Mac's SidebarExport.run: asks where to save CraCore's bookmarks file, writes it and
     /// shows it in Explorer. `owner` is the window the Save dialog opens over.
