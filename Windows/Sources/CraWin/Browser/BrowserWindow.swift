@@ -117,12 +117,20 @@ final class BrowserWindow {
     /// Ctrl+,: one for the app, made the first time any window opens it, then hidden and shown
     /// again (over the window that asked).
     private static var settingsWindow: SettingsWindow?
+    /// Help ▸ Essential Keyboard Shortcuts, made the first time it is asked for.
+    private var essentialShortcutsCard: EssentialShortcutsCard?
+    /// Use Both's check that the page kept a press (watchUseBoth).
+    private var useBothWatch: ScheduledWork?
     /// Permission requests waiting for the user, oldest first; the first is on screen.
     private var permissionQueue: [(page: WeakPage, origin: String, kinds: PermissionKinds, answer: (Bool) -> Void)] = []
     private let permissionPrompt = PermissionPromptView()
     private var permissionWindow: FloatingWindow?
     private var permissionHeight = 120.0
     private let profileDialog = ProfileDialogView()
+    /// "Quit Cra?" over this window, made the first time it's asked.
+    private var quitDialog: QuitDialogView?
+    private var quitWindow: FloatingWindow?
+    private var quitAnswer: ((QuitDialog.Answer) -> Void)?
     /// Edit Pinned Page ▸ Edit… on a pinned tab or favorite.
     private lazy var editPinnedDialog = EditPinnedURLDialog()
     private var profileWindow: FloatingWindow?
@@ -261,6 +269,8 @@ final class BrowserWindow {
         // Chromium closes its pages before their parent window goes (CEF's DoClose order).
         window.shouldClose = { [weak self] in
             guard let self, !self.readyToClose else { return true }
+            // Closing the last window quits Cra: "Quit Cra?" or "Downloads in progress" first.
+            guard self.closing || self.host?.confirmQuit(closing: self) != false else { return false }
             self.saveFrame()
             guard !self.canFinishClosing else { return true }
             self.beginClosing()
@@ -631,6 +641,13 @@ final class BrowserWindow {
     private func makeCommandBar() {
         commandBar.onCommit = { [weak self] row, typed, mode in self?.handleCommit(row, typed: typed, mode: mode) }
         commandBar.onOpenInBackground = { [weak self] row, typed in self?.openInBackground(row, typed: typed) ?? false }
+        commandBar.onOpenInSplit = { [weak self] row, typed in self?.openInSplit(row, typed: typed) ?? false }
+        // The search-suggestions notice: Search Settings… is Settings ▸ Profiles (the engine), "here" Cra's privacy page.
+        commandBar.onNoticeSettings = { [weak self] in self?.openSettings(pane: .profiles) }
+        commandBar.onNoticeLearnMore = { [weak self] in
+            guard let self else { return }
+            self.store.createTab(url: SearchSuggestionsNotice.privacyPage, window: self.windowID)
+        }
         commandBar.onResize = { [weak self] height in
             self?.commandBarHeight = height
             self?.placeCommandBar()
@@ -761,24 +778,27 @@ final class BrowserWindow {
     /// Ctrl+Return in the bar (Arc's ⌘Return): the row's page in a new background tab, the bar
     /// staying open; an open tab's row opens its address again rather than switching.
     private func openInBackground(_ s: Suggestion?, typed: String) -> Bool {
-        let query = commandBar.query
-        let url: String?
-        switch s?.kind {
-        case nil:
-            url = typed.isEmpty ? nil : SuggestionEngine.looksLikeURL(typed) ? SuggestionEngine.urlFromInput(typed) : engine.searchURL(typed)
-        case .navigate?:
-            url = typed == query ? (s?.url ?? SuggestionEngine.urlFromInput(typed)) : SuggestionEngine.urlFromInput(typed)
-        case .search?:
-            url = s?.url ?? engine.searchURL(typed)
-        case .switchToTab?, .archived?, .history?, .topDomain?:
-            url = s?.url
-        default:
-            url = nil
-        }
-        guard let url, !url.isEmpty else { return false }
+        let query = commandBar.query, engine: SuggestionEngine = engine
+        guard let url = CommandBarRowPage.url(row: s, typed: typed, query: query, searchURL: { engine.searchURL($0) })
+        else { return false }
         store.recordQuerySelection(query: query, url: url)
         let tab = store.createTab(url: url, select: false, window: windowID)
         store.markUnread(tab.id, false)  // Arc saves these read, unlike a link opened in the background
+        return true
+    }
+
+    /// Alt+Return in the bar (Arc's ⌥Return): the row opens as a split pane beside the current tab,
+    /// an open tab of this space joining the split (`SidebarStore.openInSplit`, the Mac's too).
+    /// False takes it as Return.
+    private func openInSplit(_ s: Suggestion?, typed: String) -> Bool {
+        let engine: SuggestionEngine = engine
+        switch store.openInSplit(s, typed: typed, query: commandBar.query, current: store.selectedTabID(window: windowID),
+                                 window: windowID, searchURL: { engine.searchURL($0) }) {
+        case .asReturn: return false
+        case .full: showToast("Cannot Add New Pane")
+        case .joined: break
+        case .addedPane: refresh()
+        }
         return true
     }
 
@@ -809,6 +829,10 @@ final class BrowserWindow {
                 page.savePageAs(owner: hwnd, title: store.selectedTab(window: windowID)?.displayTitle ?? "") { [weak self] in self?.showToast($0) }
             }
         case "settings": openSettings()
+        case "essentialShortcuts": showEssentialShortcuts()
+        // Chrome's own Task Manager and Cast dialogs, on the page in front (the Mac's runChromeCommand).
+        case "taskManager": if shownPage?.runChromeCommand("IDC_TASK_MANAGER") != true { showToast("Open a Page First") }
+        case "cast": if shownPage?.runChromeCommand("IDC_ROUTE_MEDIA") != true { showToast("Nothing to Cast") }
         // Arc's Open Extensions (⌘E on the Mac): the Site Control Center, its extension tiles.
         case "openExtensions": toggleSiteControlCenter()
         case "manageExtensions": store.createTab(url: SiteControlCenter.manageExtensionsURL, window: windowID)
@@ -913,6 +937,10 @@ final class BrowserWindow {
                 }
                 return true
             }
+            if id.hasPrefix("splitPane"), let n = Int(id.dropFirst(9)), (1...4).contains(n) {
+                store.selectSplitPane(n, window: windowID)
+                return true
+            }
             guard id.hasPrefix("item"), let n = Int(id.dropFirst(4)), (1...9).contains(n) else { return false }
             selectTab(number: n)
         }
@@ -965,7 +993,10 @@ final class BrowserWindow {
         let now = Date()
         let cutoff = now.addingTimeInterval(-policy.hiddenFor)
         let visible = paneIDs
-        let list = pages.keys.map { TabSleepPolicy.Page(id: $0, hiddenAt: hiddenAt[$0]) }
+        // "Always keep these sites active" (#458): a listed site's page never sleeps on the timer.
+        let list = pages.map { id, page in
+            TabSleepPolicy.Page(id: id, hiddenAt: hiddenAt[id], keptActive: settings.keepsActive(url: page.currentURL))
+        }
         for id in policy.candidates(list, visible: visible, now: now) {
             guard let page = pages[id], sleepAskAfter[id].map({ $0 <= now }) ?? true else { continue }
             let state = TabSleepPolicy.PageState(hiddenAt: hiddenAt[id], visible: visible.contains(id), created: page.isCreated,
@@ -1010,12 +1041,17 @@ final class BrowserWindow {
         let space = store.focusedSpace(window: windowID)
         let selected = store.selectedTabID(window: windowID)
         tabSwitcher.cycle(delta, theme: space.theme, dark: WinAppearance.isDark) {
-            let recent = store.recentTabs(in: space.id, limit: .max, window: windowID)
-            let ids = TabSwitcherCycle.cards(recent: recent, selected: selected, isPinned: { self.store.isPinned($0) },
-                                             isLoaded: { self.pages[$0] != nil })
-            return ids.compactMap { id in
-                guard let item = store.item(id), let tab = item.tab else { return nil }
-                return TabSwitcherWindow.Card(id: id, title: item.displayTitle, iconKey: tab.iconKey)
+            // A split is one card (#554): open when any pane is (MainWindowController.openRecentCards).
+            let recent = TabSwitcherCycle.cards(store.recentCards(in: space.id, limit: .max, window: windowID), selected: selected,
+                                                isPinned: { self.store.isPinned($0) }, isLoaded: { self.pages[$0] != nil })
+            return recent.compactMap { card in
+                guard let item = store.item(card.opens), let tab = item.tab else { return nil }
+                var c = TabSwitcherWindow.Card(id: card.opens, title: item.displayTitle, iconKey: tab.iconKey)
+                if card.isSplit {
+                    let factors = SplitPaneLayout.normalizedFactors(ids: card.panes, stored: store.item(card.id)?.split?.widthFactors ?? [:])
+                    c.panes = card.panes.map { (iconKey: store.item($0)?.tab?.iconKey, width: Double(factors[$0] ?? 1)) }
+                }
+                return c
             }
         }
     }
@@ -1260,7 +1296,7 @@ final class BrowserWindow {
     // MARK: Settings
 
     /// Ctrl+, (Arc's ⌘,): the Settings window, centred on this one when it opens.
-    private func openSettings() {
+    func openSettings(pane: DiaSettingsPane? = nil) {
         if Self.settingsWindow == nil {
             do {
                 Self.settingsWindow = try SettingsWindow(store: store)
@@ -1276,7 +1312,16 @@ final class BrowserWindow {
             self.store.createTab(url: url, window: self.windowID)
             self.activate()
         }
-        Self.settingsWindow?.show(over: window)
+        if let pane { Self.settingsWindow?.show(over: window, pane: pane) } else { Self.settingsWindow?.show(over: window) }
+    }
+
+    /// Arc's Help ▸ Essential Keyboard Shortcuts card; its View All is Settings ▸ Shortcuts.
+    private func showEssentialShortcuts() {
+        guard let window else { return }
+        let card = essentialShortcutsCard ?? EssentialShortcutsCard()
+        essentialShortcutsCard = card
+        card.onViewAll = { [weak self] in self?.openSettings(pane: .shortcuts) }
+        card.show(over: window)
     }
 
     // MARK: Developer Mode
@@ -1612,6 +1657,52 @@ final class BrowserWindow {
         let top = Double(position.y) + max(0, (Double(size.height) - height) / 2)
         profileWindow.place(origin: PointInt32(x: Int32(left.rounded()), y: Int32(top.rounded())),
                             size: SizeInt32(width: Int32(width), height: Int32(height)))
+    }
+
+    // MARK: Quit
+
+    /// Shows `dialog` centred on the window; `answer` gets the button pressed, or stay for Escape,
+    /// Alt+F4 on the card and the window going first.
+    func askToQuit(_ dialog: QuitDialog, answer: @escaping (QuitDialog.Answer) -> Void) {
+        guard !closing else { return answer(.stay) }
+        if quitDialog == nil {
+            let view = QuitDialogView()
+            view.onAnswer = { [weak self] in self?.answerQuit($0) }
+            do {
+                quitWindow = try FloatingWindow(owner: window, content: view.root)
+                quitWindow?.onClose = { [weak self] in self?.answerQuit(QuitDialog.dismissed) }
+                quitDialog = view
+            } catch {
+                print("Cra: the quit dialog's window could not be made: \(error)")
+                return answer(.quit)
+            }
+        }
+        guard let quitDialog, let quitWindow else { return answer(.quit) }
+        quitAnswer = answer
+        let height = quitDialog.show(dialog)
+        let scale = window.scale
+        let position = window.appWindow.position, size = window.appWindow.size
+        let width = (QuitDialogView.width * scale).rounded(), h = (height * scale).rounded()
+        let left = Double(position.x) + (Double(size.width) - width) / 2
+        let top = Double(position.y) + max(0, (Double(size.height) - h) / 2)
+        // After the key or click that asked, as the profile dialog shows.
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing, self.quitAnswer != nil else { return }
+            quitWindow.place(origin: PointInt32(x: Int32(left.rounded()), y: Int32(top.rounded())),
+                             size: SizeInt32(width: Int32(width), height: Int32(h)))
+            quitWindow.show { [weak self] in self?.quitDialog?.focus() }
+        }
+    }
+
+    private func answerQuit(_ answer: QuitDialog.Answer) {
+        guard let done = quitAnswer else { return }
+        quitAnswer = nil
+        if quitWindow?.isVisible == true {
+            quitWindow?.hide()
+            if let window = HWND(bitPattern: hwnd) { _ = SetForegroundWindow(window) }
+            if answer == .stay { focusContent() }
+        }
+        done(answer)
     }
 
     // MARK: Import
@@ -2209,8 +2300,12 @@ extension BrowserWindow: LibraryActions {
     }
 
     /// Escape a page didn't use leaves the Library, if the page has the keyboard while it is open.
+    /// A shortcut the page left alone runs now (Prefer Websites, Use Both's first press).
     func page(_ page: WebPage, handleUnhandledKey key: KeyPress) -> Bool {
-        guard libraryPage != nil, key.keyCode == 0x1B, !key.control, !key.shift, !key.alt, !key.isRepeat else { return false }
+        guard libraryPage != nil, key.keyCode == 0x1B, !key.control, !key.shift, !key.alt, !key.isRepeat else {
+            guard !key.isRepeat || key.keyCode == 0x09, let action = WinShortcutRouting.pageLeft(key) else { return false }
+            return perform(action.id)
+        }
         _ = try? dispatcher.tryEnqueue { [weak self] in self?.closeLibrary() }
         return true
     }
@@ -2461,6 +2556,33 @@ extension BrowserWindow: WebPageDelegate {
         store.openLinkTab(url, from: tabID(of: page), inBackground: background, window: windowID)
     }
 
+    /// The link menu's Open Link in Split View and, outside a private window, in Little Window.
+    func linkMenuExtras(for page: WebPage) -> [LinkMenuExtra] {
+        guard let id = tabID(of: page), pages[id] === page else { return [] }
+        return LinkMenuExtra.offered(splits: true, incognito: isIncognito)
+    }
+
+    /// Open Link in Split View (#257): a pane beside the page's tab, as Alt+Return does from the
+    /// command bar (MainWindowController.browserManagerOpenLinkInSplit); Little Window: one for the
+    /// link, in the tab's space.
+    func page(_ page: WebPage, opensLink url: String, in extra: LinkMenuExtra) {
+        // cra:// is Cra's scripting scheme; a page must not drive it.
+        guard !url.isEmpty, !url.lowercased().hasPrefix("cra:"), let id = tabID(of: page), store.item(id) != nil else { return }
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { return }
+            switch extra {
+            case .splitView:
+                guard self.store.openLinkInSplit(url, from: id, window: self.windowID) != nil else {
+                    self.showToast("Cannot Add New Pane")
+                    return
+                }
+                self.refresh()
+            case .littleWindow:
+                self.host?.openLinkInLittleWindow(url, space: self.store.spaceID(ofItem: id))
+            }
+        }
+    }
+
     /// Arc's Peek (PeekTrigger, Settings ▸ Tabs ▸ Links): the link opens over the window and the
     /// tab stays put. Never in a private window.
     func page(_ page: WebPage, opensPeekForURL url: String, shiftClick: Bool, newTab: Bool) -> Bool {
@@ -2490,10 +2612,26 @@ extension BrowserWindow: WebPageDelegate {
         return host
     }
 
+    /// Before the page sees a key: the shortcuts that prefer Cra, and Use Both's second press of one the
+    /// page kept (Settings ▸ Shortcuts, #374). The rest go to the page and come back through
+    /// handleUnhandledKey if it leaves them alone (the Mac's handleReservedKey).
     func page(_ page: WebPage, handleKey key: KeyPress) -> Bool {
         if tabSwitcher?.isOpen == true { return switcherKey(key) }
         guard !key.isRepeat || key.keyCode == 0x09 else { return false }
-        return handleShortcut(key)
+        let action = WinShortcutRouting.beforePage(key) { [weak self] action, at in self?.watchUseBoth(action, pressedAt: at) }
+        guard let action else { return false }
+        return perform(action.id)
+    }
+
+    /// Use Both: a press the page hasn't handed back by `UseBothPresses.answerTime` was the page's.
+    /// Arc's toast says so ("Press Ctrl+W again to Close Tab", Edit the shortcut) and the next press is Cra's.
+    private func watchUseBoth(_ action: KeyAction, pressedAt: TimeInterval) {
+        useBothWatch = clock.after(UseBothPresses.answerTime) { [weak self] in
+            guard let self, !self.closing, let text = WinShortcutRouting.keptText(action, pressedAt: pressedAt) else { return }
+            self.showToast(text, action: ToastView.Action(title: "Edit the shortcut") { [weak self] in
+                self?.openSettings(pane: .shortcuts)
+            })
+        }
     }
 
     /// In DevTools only their own commands, on the page they inspect: every other key is the

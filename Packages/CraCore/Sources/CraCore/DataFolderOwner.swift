@@ -18,4 +18,24 @@ public enum DataFolderOwner {
         guard lockHost == host else { return false }
         return pid == me || !isAlive(pid)
     }
+
+    /// Windows' Chromium holds `lockfile` in the data folder open for as long as it runs (its process
+    /// singleton; the file goes when it closes). How opening it for writing went:
+    public enum WindowsLockFile: Int32, Equatable, Sendable {
+        /// No such file: no Chromium has the folder.
+        case missing = 0
+        /// It opened: left behind, held by no one.
+        case opened = 1
+        /// Another process has it open: a Cra runs on this folder.
+        case sharingViolation = 2
+        /// Anything else (no access): counts as held, as an unreadable `SingletonLock` does.
+        case otherError = 3
+    }
+
+    /// Windows: the launch steps that change the folder (crash recovery, deleted profiles, staged
+    /// sign-ins) run only when this is true. A second launch, handed to the Cra already running,
+    /// leaves them to it.
+    public static func isFree(windowsLockFile: WindowsLockFile) -> Bool {
+        windowsLockFile == .missing || windowsLockFile == .opened
+    }
 }

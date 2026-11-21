@@ -33,6 +33,13 @@ public enum RecentTabOrder {
         /// Where picking the card goes: the tab, or the split's pane on screen or used last.
         public var opens: UUID
         public var isSplit: Bool
+
+        public init(id: UUID, panes: [UUID], opens: UUID, isSplit: Bool) {
+            self.id = id
+            self.panes = panes
+            self.opens = opens
+            self.isSplit = isSplit
+        }
     }
 
     /// `entries` in sidebar order (spaces in their order, each one's favorites, pinned, Today; a

@@ -20,7 +20,7 @@ enum SettingsPanes {
     /// Dia's card idiom (GeneralPane on the Mac): a "System" card with Cra's place in Windows.
     /// `importData` opens Import from Another Browser in the browser window in use (the Mac's
     /// Advanced ▸ Your data row; Windows' Advanced pane has only how Cra opens).
-    static func general(palette: SettingsPalette, importData: @escaping @MainActor () -> Void,
+    static func general(store: SidebarStore, palette: SettingsPalette, importData: @escaping @MainActor () -> Void,
                         exportSpaces: @escaping @MainActor () -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
@@ -101,8 +101,12 @@ enum SettingsPanes {
         setDefaultButton = setDefault
         _ = syncBrowser()
 
+        // The Mac's General ▸ Warn before quitting: on Windows, closing the last window quits.
+        var syncs: [() -> Void] = []
+        let warn = settingSwitch("Warn before quitting", detail: "Closing the last window asks “Quit Cra?” first.",
+                                 \.warnBeforeQuitting, store: store, palette: palette, syncs: &syncs)
         stack.children.append(card([cardRow("Default browser", trailing: browser, palette: palette),
-                                    cardRow("Open Cra at login", trailing: toggle, palette: palette)], palette: palette))
+                                    cardRow("Open Cra at login", trailing: toggle, palette: palette), warn], palette: palette))
         stack.children.append(hint)
         stack.children.append(footnote)
 
@@ -122,6 +126,7 @@ enum SettingsPanes {
             let on = LaunchAtLogin.isEnabled
             if toggle.isOn != on { toggle.isOn = on }
             _ = syncBrowser()
+            syncs.forEach { $0() }
         }
     }
 
@@ -206,8 +211,12 @@ enum SettingsPanes {
         stack.orientation = .vertical
         stack.margin = Thickness(left: Double(DiaSettingsMetrics.paneInset), top: Double(DiaSettingsMetrics.paneTop),
                                  right: Double(DiaSettingsMetrics.paneInset), bottom: 20)
-        stack.children.append(header("Opening and quitting", palette: palette))
         var syncs: [() -> Void] = []
+        // The search engine and its suggestions are in Profiles, where Arc has them.
+        for part in commandBarSection(store: store, palette: palette, syncs: &syncs) { stack.children.append(part) }
+        let opening = header("Opening and quitting", palette: palette)
+        opening.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
+        stack.children.append(opening)
         stack.children.append(card([
             // Arc's Advanced switch: off, only the window in use last comes back.
             settingSwitch("When opening Cra, restore windows from previous session", detail: nil, \.restoreWindows,
@@ -245,7 +254,7 @@ enum SettingsPanes {
 
     /// Dia's two-column form (TabsPane on the Mac): a label per group, checkboxes beside it.
     /// `airTrafficControl` opens the routes sheet from its button.
-    static func tabs(store: SidebarStore, palette: SettingsPalette,
+    static func tabs(store: SidebarStore, palette: SettingsPalette, keepActiveSites: @escaping @MainActor (Button) -> Void,
                      airTrafficControl: @escaping @MainActor (Button) -> Void) -> SettingsPaneContent {
         var syncs: [() -> Void] = []
         func checkbox(_ title: String, get: @escaping @MainActor () -> Bool, set: @escaping @MainActor (Bool) -> Void) -> CheckBox {
@@ -344,7 +353,32 @@ enum SettingsPanes {
         syncs.append {
             sleepNote.text = TabSleepPolicy.settingsNote(timerOn: store.settings.tabSleepTimerEnabled, after: store.settings.tabSleepAfter)
         }
-        form.group("Memory:", [memory, sleepNote])
+        // #458: Arc's (and Chrome's) list at arc://settings/performance.
+        let keepRow = StackPanel()
+        keepRow.orientation = .horizontal
+        keepRow.spacing = 8
+        keepRow.margin = Thickness(left: 0, top: 6, right: 0, bottom: 2)
+        let sitesButton = Button()
+        sitesButton.content = UI.text("Always Keep Sites Active…", trimmed: false)
+        sitesButton.click.addHandler { [weak sitesButton] _, _ in
+            if let sitesButton { keepActiveSites(sitesButton) }
+        }
+        keepRow.children.append(sitesButton)
+        func keptSummary() -> String {
+            switch store.settings.keepActiveSites.count {
+            case 0: return "No sites"
+            case 1: return "1 site"
+            case let n: return "\(n) sites"
+            }
+        }
+        let keptCount = UI.text(keptSummary(), size: 11, color: palette.secondaryText)
+        keptCount.verticalAlignment = .center
+        keepRow.children.append(keptCount)
+        syncs.append { [sitesButton] in
+            _ = sitesButton
+            keptCount.text = keptSummary()
+        }
+        form.group("Memory:", [memory, sleepNote, keepRow])
         // Arc's Links pane: where links from other apps open, "Open Little Arc when I press ⌥⌘N"
         // (#195), New Little Window's key from any app, Peek's, and "Air Traffic Control…" with
         // how many routes there are.
@@ -436,7 +470,16 @@ enum SettingsPanes {
             kept = parts
         }
         rebuild()
-        return SettingsPaneContent(element: stack) { rebuild() }
+        // Search, as the Mac's Profiles pane has it (the command bar notice's Search Settings… opens here).
+        var searchSyncs: [() -> Void] = []
+        let search = header("Search", palette: palette)
+        search.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
+        stack.children.append(search)
+        stack.children.append(searchCard(store: store, palette: palette, syncs: &searchSyncs))
+        return SettingsPaneContent(element: stack) {
+            rebuild()
+            searchSyncs.forEach { $0() }
+        }
     }
 
     private static func profileRow(name: String, profile: BrowserProfile?, spaces: [Space], store: SidebarStore,

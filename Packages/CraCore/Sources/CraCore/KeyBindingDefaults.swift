@@ -325,6 +325,10 @@ public enum KeyBindingDefaults {
             // Help ▸ Troubleshooting's Reveal Cra Data and Copy Cra Info, and Language Settings
             // (Chromium's page), from the command bar.
             "revealData": [], "copyAppInfo": [], "languageSettings": [],
+            // Help ▸ Essential Keyboard Shortcuts, Arc's card (no keys on the Mac either).
+            "essentialShortcuts": [],
+            // Chrome's Task Manager and Cast…, from the command bar (no keys on the Mac either).
+            "taskManager": [], "cast": [],
             // Arc's ⌃Tab: the switcher over the space's recent tabs. Sidebar order moves to
             // Chrome for Windows' other keys for it.
             "recentTab": [KeyChord(KeyChord.tab, ctrl)],
@@ -382,6 +386,9 @@ public enum KeyBindingDefaults {
             // would be AltGr, which types on many layouts' digits.
             table["moveTabToSpace\(n)"] = [KeyChord("\(n)", [.option, .shift] as KeyChord.Modifiers)]
         }
+        // Arc's Switch to Split View 1–4 (⌃⇧1…4) take no keys on Windows: Ctrl+Shift+2 is Capture
+        // and Ctrl+Alt is AltGr. Settings ▸ Shortcuts can give them some.
+        for n in 1...4 { table["splitPane\(n)"] = [] }
         return table
     }()
 }

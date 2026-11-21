@@ -14,14 +14,8 @@ final class EssentialShortcutsWindow {
     static let shared = EssentialShortcutsWindow()
     private var panel: NSPanel?
 
-    /// The rows: Arc's five, with Cra's action for each.
-    static let rows: [(action: String, title: String, detail: String)] = [
-        ("newTab", "Open a New Tab", "Open the Command Bar to create a new tab"),
-        ("recentTab", "Switch to a Recent Tab", "Hold this to quickly switch between recent tabs"),
-        ("copyURL", "Copy Page URL", "Copy the current tab's URL without trackers"),
-        ("addSplitView", "Add Split View", "View multiple websites side-by-side"),
-        ("newLittleWindow", "Open Little Window", "Use a smaller browser window for quick searches"),
-    ]
+    /// The rows: Arc's five, with Cra's action for each (CraCore, Windows' card too).
+    static var rows: [EssentialShortcuts.Row] { EssentialShortcuts.rows }
 
     func show(bindings: KeyBindingRegistry, viewAll: @escaping () -> Void) {
         if let panel {

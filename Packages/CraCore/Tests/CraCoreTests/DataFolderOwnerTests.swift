@@ -28,4 +28,13 @@ struct DataFolderOwnerTests {
         #expect(!DataFolderOwner.isFree(lockTarget: "other-321", host: "mac", me: 777) { alive.contains($0) })
         #expect(!DataFolderOwner.isFree(lockTarget: "garbage", host: "mac", me: 777) { alive.contains($0) })
     }
+
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/299"))
+    func windowsLaunchStepsWaitForTheCraHoldingTheFolder() {
+        #expect(DataFolderOwner.isFree(windowsLockFile: .missing))
+        #expect(DataFolderOwner.isFree(windowsLockFile: .opened), "a lock file no one holds is left over")
+        #expect(!DataFolderOwner.isFree(windowsLockFile: .sharingViolation), "another Cra runs on this folder")
+        #expect(!DataFolderOwner.isFree(windowsLockFile: .otherError))
+        #expect(DataFolderOwner.WindowsLockFile(rawValue: 2) == .sharingViolation, "the bridge's numbers")
+    }
 }

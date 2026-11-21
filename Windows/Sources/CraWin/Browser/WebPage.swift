@@ -90,6 +90,11 @@ protocol WebPageDelegate: AnyObject {
               answer: @escaping (Bool) -> Void)
     func page(_ page: WebPage, didFindMatches count: Int, activeMatch: Int)
     func page(_ page: WebPage, didChangeMediaCapture capturing: Bool)
+    /// What the page's link menu adds under Open Link in New Window (LinkMenuExtra.offered).
+    func linkMenuExtras(for page: WebPage) -> [LinkMenuExtra]
+    /// One of them, picked for the link at `url`, from inside Chromium's menu callback: a pane or
+    /// a window that makes a page waits a turn.
+    func page(_ page: WebPage, opensLink url: String, in extra: LinkMenuExtra)
     func pageDidReceiveFocus(_ page: WebPage)
     func pageDidClose(_ page: WebPage)
 }
@@ -117,6 +122,8 @@ extension WebPageDelegate {
               answer: @escaping (Bool) -> Void) { answer(false) }
     func page(_ page: WebPage, didFindMatches count: Int, activeMatch: Int) {}
     func page(_ page: WebPage, didChangeMediaCapture capturing: Bool) {}
+    func linkMenuExtras(for page: WebPage) -> [LinkMenuExtra] { [] }
+    func page(_ page: WebPage, opensLink url: String, in extra: LinkMenuExtra) {}
     func pageDidReceiveFocus(_ page: WebPage) {}
     func pageDidClose(_ page: WebPage) {}
 }
@@ -144,6 +151,8 @@ final class WebPage: @unchecked Sendable {
     /// and made again (BrowserManager.pruneMissingTabs on the Mac).
     let profilePath: String?
     let isIncognito: Bool
+    /// The page uses the camera or microphone (a call): a Peek's close asks first (PeekCloseHold).
+    private(set) var isCapturingMedia = false
 
     /// A page loading `url` now; `incognito` in the off-the-record profile private windows share,
     /// else in `profilePath`'s profile.
@@ -222,6 +231,19 @@ final class WebPage: @unchecked Sendable {
     }
     func stopFinding(clearSelection: Bool) { if let handle { cra_browser_stop_finding(handle, clearSelection ? 1 : 0) } }
     func setAudioMuted(_ muted: Bool) { if let handle { cra_browser_set_audio_muted(handle, muted ? 1 : 0) } }
+    /// Another app's link (zoommtg:, slack:) that asked for a new tab or window opens no tab (#207):
+    /// this page loads it, and Chrome asks "Open <app>?" over it as for a link followed in place;
+    /// a scheme Chrome never hands to Windows (or cra:) does nothing. True when it was one.
+    func opensAppLinkHere(_ url: String) -> Bool {
+        switch AppLinks.kind(of: url) {
+        case .page: return false
+        case .refused: return true
+        case .asksFirst, .opens:
+            loadURL(url)
+            return true
+        }
+    }
+
     func executeJavaScript(_ script: String) { if let handle { script.withCString { cra_browser_execute_javascript(handle, $0) } } }
     /// Every frame but the main one, other sites' included (Pause All Media).
     func executeJavaScriptInSubframes(_ script: String) {
@@ -254,6 +276,12 @@ final class WebPage: @unchecked Sendable {
 
     func printPage() { if let handle { cra_browser_print(handle) } }
     func viewSource() { if let handle { cra_browser_view_source(handle) } }
+
+    /// One of Chrome's own commands by its IDC_ name; false when Chrome can't run it here.
+    func runChromeCommand(_ name: String) -> Bool {
+        guard let handle else { return false }
+        return cra_browser_run_chrome_command(handle, name) != 0
+    }
 
     /// CEF's ViewSource opens a temporary text file through Windows. The app command and the
     /// page/frame menu instead use the same shared address policy as the Mac, in a Cra tab.
@@ -392,7 +420,19 @@ final class WebPage: @unchecked Sendable {
             WebPage.with(ctx) { $0.delegate?.page($0, didChangeFullscreen: fullscreen != 0) }
         }
         cb.new_tab_requested = { ctx, url, background in
-            WebPage.with(ctx) { $0.delegate?.page($0, requestsNewTabWithURL: string(url), inBackground: background != 0) }
+            let url = string(url)
+            WebPage.with(ctx) { page in
+                guard !page.opensAppLinkHere(url) else { return }
+                page.delegate?.page(page, requestsNewTabWithURL: url, inBackground: background != 0)
+            }
+        }
+        cb.link_menu_items = { ctx in
+            WebPage.with(ctx, Int32(0)) { page in LinkMenuExtra.mask(page.delegate?.linkMenuExtras(for: page) ?? []) }
+        }
+        cb.link_menu_chosen = { ctx, url, item in
+            let url = string(url)
+            guard let extra = LinkMenuExtra(rawValue: Int(item)) else { return }
+            WebPage.with(ctx) { $0.delegate?.page($0, opensLink: url, in: extra) }
         }
         cb.view_source_requested = { ctx, url in
             WebPage.with(ctx) { $0.viewSource(of: string(url)) }
@@ -400,7 +440,8 @@ final class WebPage: @unchecked Sendable {
         cb.popup_host_requested = { ctx, url, background in
             let url = string(url)
             let host = WebPage.with(ctx, UInt(0)) { page in
-                page.delegate?.page(page, popupHostForURL: url, inBackground: background != 0)?.opaque.map { UInt(bitPattern: $0) } ?? 0
+                if page.opensAppLinkHere(url) { return 0 }
+                return page.delegate?.page(page, popupHostForURL: url, inBackground: background != 0)?.opaque.map { UInt(bitPattern: $0) } ?? 0
             }
             return OpaquePointer(bitPattern: host)
         }
@@ -448,7 +489,10 @@ final class WebPage: @unchecked Sendable {
             WebPage.with(ctx) { $0.delegate?.page($0, didFindMatches: Int(count), activeMatch: Int(active)) }
         }
         cb.media_capture_changed = { ctx, capturing in
-            WebPage.with(ctx) { $0.delegate?.page($0, didChangeMediaCapture: capturing != 0) }
+            WebPage.with(ctx) { page in
+                page.isCapturingMedia = capturing != 0
+                page.delegate?.page(page, didChangeMediaCapture: capturing != 0)
+            }
         }
         cb.focus_received = { ctx in
             WebPage.with(ctx) { $0.delegate?.pageDidReceiveFocus($0) }
