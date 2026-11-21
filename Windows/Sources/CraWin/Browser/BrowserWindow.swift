@@ -131,7 +131,12 @@ final class BrowserWindow {
     private var hiddenByResize = false
     /// The tab sidebar's width in DIPs: the one saved (`WindowPrefs.sidebarWidth`, shared by
     /// every window), or the drag's while one is on.
-    private var tabSidebarWidth = WindowPrefs().sidebarWidth
+    private var tabSidebarWidth = WindowPrefs().sidebarWidth { didSet { syncHeaderLayout() } }
+    /// The sidebar header's row (Arc's regular or narrow layout, SidebarHeaderLayout) and its parts.
+    private var headerRow: StackPanel?
+    private var headerButtons: (back: Button, forward: Button, reload: Button, more: Button)?
+    /// The narrow header's ••• menu (Reload, Toggle Sidebar), kept: a Swift MenuFlyout is a wrapper.
+    private let headerMoreMenu = MenuFlyout()
     /// Tries the sidebar's keyboard focus again while the XAML is still loading (focusSidebar).
     private var sidebarFocusRetry: WinAppSDK.DispatcherQueueTimer?
     /// Ctrl+,: one for the app, made the first time any window opens it, then hidden and shown
@@ -585,6 +590,23 @@ final class BrowserWindow {
         toolbar.children.append(forward)
         let reload = UI.button("\u{27F3}") { [weak self] in self?.shownPage?.reload() }
         toolbar.children.append(reload)
+        // Arc's narrow header (under 212): ← → and •••, whose menu has Reload and Toggle Sidebar.
+        let more = UI.button("\u{2022}\u{2022}\u{2022}") { [weak self] in
+            guard let self, let more = self.headerButtons?.more else { return }
+            try? self.headerMoreMenu.showAt(more)
+        }
+        ArcTip.set(more, "More options")
+        try? AutomationProperties.setName(more, "More options")
+        for (title, action) in [("Reload", "reload"), ("Toggle Sidebar", "toggleSidebar")] {
+            let entry = MenuFlyoutItem()
+            entry.text = title
+            if let key = WinKeyBindings.shared.action(action)?.primary { entry.keyboardAcceleratorTextOverride = key.windowsDisplay }
+            entry.click.addHandler { [weak self] _, _ in _ = self?.perform(action) }
+            headerMoreMenu.items.append(entry)
+        }
+        toolbar.children.append(more)
+        headerRow = toolbar
+        headerButtons = (back, forward, reload, more)
 
         address.fontSize = 13
         address.textTrimming = .characterEllipsis
@@ -608,7 +630,7 @@ final class BrowserWindow {
         pill.children.append(sliders)
         try? Grid.setColumn(sliders, 1)
 
-        sidebarNavigation = [back, forward, reload, pill]
+        sidebarNavigation = [back, forward, reload, more, pill]
         let parts: [FrameworkElement] = [toolbar, pill, sidebar.root]
         for (i, part) in parts.enumerated() {
             sidebarPanel.children.append(part)
@@ -1528,10 +1550,31 @@ final class BrowserWindow {
         // The toolbar carries ← → ↻ and the address, so the sidebar's header doesn't (Arc).
         let sidebarNav: Visibility = store.settings.showToolbar && paneIDs.count <= 1 ? .collapsed : .visible
         for part in sidebarNavigation { part.visibility = sidebarNav }
+        syncHeaderLayout()
         window.topBarHeight = switch bar {
         case .developer: DeveloperBarView.height
         case .toolbar: ToolbarView.height
         case .none: 0
+        }
+    }
+
+    /// Arc's sidebar header by width (SidebarHeaderLayout, #287): from 212 DIPs the toggle then ← → ↻
+    /// as 32 DIP boxes 2 apart; under it ← → ••• as 28 DIP boxes with no gap and no toggle, both at
+    /// the sidebar's right. With the toolbar shown only the toggle is left (28 under 212).
+    private func syncHeaderLayout() {
+        guard let row = headerRow, let b = headerButtons, let toggle = sidebarToggle else { return }
+        let narrow = SidebarHeaderLayout.isNarrow(width: tabSidebarWidth)
+        let toolbarHasNav = sidebarNavigation.last?.visibility == .collapsed
+        let size = narrow ? 28.0 : 32.0
+        row.spacing = narrow ? 0 : 2
+        row.horizontalAlignment = toolbarHasNav ? .left : .right
+        toggle.visibility = narrow && !toolbarHasNav ? .collapsed : .visible
+        b.reload.visibility = narrow || toolbarHasNav ? .collapsed : .visible
+        b.more.visibility = narrow && !toolbarHasNav ? .visible : .collapsed
+        for button in [toggle, b.back, b.forward, b.reload, b.more] {
+            button.width = size
+            button.height = size
+            button.padding = Thickness(left: 0, top: 0, right: 0, bottom: 0)
         }
     }
 
