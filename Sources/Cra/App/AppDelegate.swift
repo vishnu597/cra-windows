@@ -693,10 +693,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func buildMenuBarItemMenu(_ menu: NSMenu) {
-        for id in ["newWindow", "newIncognitoWindow", "newLittleWindow"] { menu.addItem(item(id)) }
-        menu.addItem(.separator())
-        menu.addItem(item("settings"))
-        menu.addItem(.separator())
+        for group in MenuBarMode.menuCommands {
+            for id in group { menu.addItem(item(id)) }
+            menu.addItem(.separator())
+        }
         menu.addItem(withTitle: "Quit Cra", action: #selector(quitFromMenuBar), keyEquivalent: "").target = self
     }
 

@@ -20,6 +20,8 @@ public final class CraApp: SwiftApplication {
     @MainActor private var periodic: [ScheduledWork] = []
     /// New Little Window's key from any app (Settings ▸ Tabs).
     @MainActor private var hotkey: GlobalHotkey?
+    /// Settings ▸ Advanced ▸ "Keep Cra in the notification area": there while the setting is on.
+    @MainActor private var notificationAreaIcon: NotificationAreaIcon?
 
     public required init() {
         super.init()
@@ -100,6 +102,7 @@ public final class CraApp: SwiftApplication {
                 windows.windowInUse?.openCommandBar(.newTab)
             }
             observeGlobalShortcut(store: store, windows: windows)
+            observeNotificationArea(store: store, windows: windows)
             openLinksFromOtherApps(windows: windows)
             openStrayPages(windows: windows, store: store)
             DefaultBrowser.updateRegistrationIfMoved()
@@ -179,6 +182,36 @@ public final class CraApp: SwiftApplication {
                 onMain { _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { follow() } }
             }
             hotkey.set(chord)
+        }
+        follow()
+    }
+
+    /// The Mac's observeMenuBarMode (#231): the notification-area icon follows the setting. Its
+    /// click and New Window bring back the window the last close put away (its session, as after
+    /// a launch); turned off with no window open, that window comes back, or nothing of Cra would
+    /// be left to click.
+    @MainActor
+    private func observeNotificationArea(store: SidebarStore, windows: WindowList) {
+        func follow() {
+            let on = withObservationTracking { store.settings.keepInMenuBar } onChange: {
+                onMain { _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { follow() } }
+            }
+            if on, notificationAreaIcon == nil {
+                notificationAreaIcon = NotificationAreaIcon(perform: { [weak windows] id in
+                    guard let windows else { return }
+                    switch id {
+                    case "newWindow" where !windows.windows.contains(where: { !$0.isIncognito }), "show": windows.showLastWindow()
+                    case "newWindow": windows.openNewWindow(incognito: false)
+                    case "newIncognitoWindow": windows.openNewWindow(incognito: true)
+                    case "newLittleWindow": windows.newLittleWindow()
+                    default: _ = windows.perform(id)
+                    }
+                }, quit: { [weak windows] in windows?.quitFromNotificationArea() })
+            } else if !on, let icon = notificationAreaIcon {
+                icon.remove()
+                notificationAreaIcon = nil
+                if windows.isEmpty { windows.showLastWindow() }
+            }
         }
         follow()
     }
