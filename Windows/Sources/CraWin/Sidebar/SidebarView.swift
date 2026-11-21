@@ -116,7 +116,10 @@ final class SidebarView {
 
     /// Emoji a new space picks from, in turn.
     private static let spaceEmoji = ["🌱", "💼", "🎮", "📚", "🎨", "🏠", "✈️", "🧪"]
-    private static let favoritesPerRow = 4
+    /// The sidebar's content width before its first layout (BrowserWindow's 280 less 10 each side).
+    private static let restingWidth = 260.0
+    /// The favorites' columns as drawn, nil with none.
+    private var favoritesColumns: Int?
 
     init(store: SidebarStore, windowID: UUID, actions: SidebarActions, favicons: Favicons = .shared) {
         self.store = store
@@ -125,8 +128,8 @@ final class SidebarView {
         self.actions = actions
         for height in [UI.auto, UI.auto, UI.star, UI.auto] { root.rowDefinitions.append(UI.row(height)) }
         favorites.margin = Thickness(left: 0, top: 0, right: 0, bottom: 8)
-        favorites.columnSpacing = 6
-        favorites.rowSpacing = 6
+        favorites.columnSpacing = Double(FavoritesLayout.gap)
+        favorites.rowSpacing = Double(FavoritesLayout.gap)
         header.margin = Thickness(left: 0, top: 4, right: 0, bottom: 4)
         list.orientation = .vertical
         list.spacing = 1
@@ -150,6 +153,7 @@ final class SidebarView {
         }
         makeDragChrome()
         makeLinkDropTarget()
+        root.sizeChanged.addHandler { [weak self] _, _ in self?.favoritesWidthChanged() }
         // A mouse's back and forward buttons over the sidebar switch spaces (Arc's
         // SidebarView.otherMouseUp:, #233); over a page they stay Chromium's. A clear fill so the
         // sidebar's empty space takes the press too.
@@ -207,6 +211,9 @@ final class SidebarView {
 
     // MARK: Favorites
 
+    /// Arc's grid (FavoritesLayout, #29): up to four columns that keep a tile at least as wide as
+    /// it is tall, then the fewest that need no more rows; a short last row keeps the tile width.
+    /// A tile's own colour (Tile Color) fills it, with a shade while it's open.
     private func buildFavorites(_ space: Space) {
         favorites.children.clear()
         favorites.columnDefinitions.clear()
@@ -215,18 +222,31 @@ final class SidebarView {
         let items = store.children(of: space.favoritesContainerID).filter { $0.isTab || $0.isSplit }
         favorites.visibility = items.isEmpty ? .collapsed : .visible
         showFavoritesCard()
+        let grid = FavoritesLayout(count: items.count, width: CGFloat(favoritesWidth))
+        favoritesColumns = items.isEmpty ? nil : grid.columns
         guard !items.isEmpty else { return }
-        let perRow = Self.favoritesPerRow
+        let perRow = grid.columns
         for _ in 0..<perRow { favorites.columnDefinitions.append(UI.column(UI.star)) }
-        for _ in 0..<((items.count + perRow - 1) / perRow) { favorites.rowDefinitions.append(UI.row(UI.pixels(44))) }
+        for _ in 0..<grid.rows { favorites.rowDefinitions.append(UI.row(UI.pixels(Double(FavoritesLayout.tileHeight)))) }
         let open = store.selectedTabID(window: windowID).map { store.splitContaining($0)?.id ?? $0 }
         for (i, item) in items.enumerated() {
-            let label = tileIcon(item)
+            let tileColor = item.isSplit ? nil : item.tab?.tileColor
+            let dark = FavoriteTileColors.isDark(tileColor: tileColor, spaceIsDark: palette.isDark)
+            let label = tileIcon(item, dark: dark, colored: tileColor != nil)
             label.horizontalAlignment = .center
-            let tile = UI.button(label, fill: item.id == open ? palette.selected : palette.tile) { [weak self] in
-                self?.clickTracker.cancel()
-                self?.dragPressed(.item(item.id))
-                self?.select(item.id)
+            let selected = item.id == open
+            let fill = FavoriteTileColors.fill(tileColor: tileColor, selected: selected, hovered: false).map { UI.brush($0) }
+                ?? (selected ? palette.selected : palette.tile)
+            // Away from its pinned page, the second click of a double-click goes back there (#264).
+            let away = item.tab.map { $0.url != $0.savedURL } == true
+            let tile = UI.button(label, fill: fill) { [weak self] in
+                guard let self else { return }
+                let clicks = self.mouseClickCount(.item(item.id))
+                self.dragPressed(.item(item.id))
+                if FavoriteClick.action(clickCount: clicks, navigatedAway: away) == .backToPinnedPage {
+                    self.actions?.resetPinnedTab(item.id)
+                }
+                self.select(item.id)
             }
             favoriteTiles.append((tile, item.id))
             tile.horizontalAlignment = .stretch
@@ -239,14 +259,29 @@ final class SidebarView {
         }
     }
 
+    /// The grid's width: the sidebar's, or its fixed width before the first layout.
+    var favoritesWidth: Double {
+        root.actualWidth > 0 ? root.actualWidth : Self.restingWidth
+    }
+
+    /// The grid again when the sidebar's width changes its columns.
+    private func favoritesWidthChanged() {
+        guard let columns = favoritesColumns else { return }
+        let count = favoriteTiles.count
+        guard FavoritesLayout(count: count, width: CGFloat(favoritesWidth)).columns != columns else { return }
+        buildFavorites(store.focusedSpace(window: windowID))
+    }
+
     /// A tile's favicon at 20 DIPs (FavoriteTileView), or its site's first letter until the
-    /// icon has loaded. A split's tile shows its first tab's.
-    private func tileIcon(_ item: SidebarItem) -> FrameworkElement {
+    /// icon has loaded. A split's tile shows its first tab's. On a coloured tile the icon and
+    /// letter take the tile's tone, not the space's.
+    private func tileIcon(_ item: SidebarItem, dark: Bool, colored: Bool) -> FrameworkElement {
         let tab = item.isSplit ? store.children(of: item.id).first?.tab : item.tab
-        if let bitmap = favicons.bitmap(forKey: tab?.iconKey, onDark: palette.isDark) {
+        if let bitmap = favicons.bitmap(forKey: tab?.iconKey, onDark: dark) {
             return UI.image(bitmap, size: 20)
         }
-        return UI.text(Self.tileLabel(item), size: 15, color: palette.text, trimmed: false)
+        let ink = colored ? (dark ? UI.brush(255, 255, 255) : UI.brush(20, 20, 24)) : palette.text
+        return UI.text(Self.tileLabel(item), size: 15, color: ink, trimmed: false)
     }
 
     private static func tileLabel(_ item: SidebarItem) -> String {
@@ -678,6 +713,7 @@ final class SidebarView {
         if item.isTab {
             // Favorites draw as tiles, which have no name to edit.
             if !favorite { menu.items.append(UI.menuItem("Rename…") { [weak self] in self?.beginRename(item: id) }) }
+            if favorite { menu.items.append(tileColorMenu(item)) }
             // Arc: "Add Split View" on the open tab, "Open in Split View" on another in its space.
             if store.isSelected(id, window: windowID) {
                 menu.items.append(UI.menuItem("Add Split View") { [weak self] in self?.actions?.addSplitView() })
@@ -712,6 +748,33 @@ final class SidebarView {
             menu.items.append(UI.menuItem("Archive Tabs Below") { [weak self] in self?.store.archiveTabsBelow(id) })
         }
         return menu
+    }
+
+    /// A favorite's Tile Color ▸ (the Mac's favorite menu): Default, the presets and its own
+    /// colour ticked (FavoriteTileColors), then Use This Color for All Favorites in its space.
+    private func tileColorMenu(_ item: SidebarItem) -> MenuFlyoutSubItem {
+        let id = item.id, current = item.tab?.tileColor
+        let sub = MenuFlyoutSubItem()
+        sub.text = "Tile Color"
+        for choice in FavoriteTileColors.choices(current: current) {
+            let entry = ToggleMenuFlyoutItem()
+            entry.text = choice.title
+            entry.isChecked = choice.checked
+            if let hex = choice.hex {
+                let dot = FontIcon()
+                dot.glyph = "\u{E91F}"  // Segoe Fluent Icons' filled circle
+                dot.foreground = UI.brush(hex)
+                entry.icon = dot
+            }
+            entry.click.addHandler { [weak self] _, _ in self?.store.setTileColor(choice.hex, for: [id]) }
+            sub.items.append(entry)
+        }
+        sub.items.append(MenuFlyoutSeparator())
+        sub.items.append(UI.menuItem("Use This Color for All Favorites") { [weak self] in
+            guard let self, let space = self.store.spaceID(ofItem: id).flatMap(self.store.space) else { return }
+            self.store.setTileColor(current, for: self.store.favoriteTabs(in: space).map(\.id))
+        })
+        return sub
     }
 
     /// Arc 1.171's split menu where the Windows app has the feature (SidebarMenus.split on the Mac).

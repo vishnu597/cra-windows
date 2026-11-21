@@ -1470,7 +1470,7 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
     /// Share the tile's effective tone with its note overlay.
     var tileIsDark: Bool {
         guard let m = model, let palette else { return false }
-        return m.tileColor.flatMap(HexColor.luminance).map { $0 < 0.5 } ?? palette.isDark
+        return FavoriteTileColors.isDark(tileColor: m.tileColor, spaceIsDark: palette.isDark)
     }
 
     private func refresh() {
