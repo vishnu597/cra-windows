@@ -293,6 +293,12 @@ enum SettingsPanes {
             checkbox("Show the space header with only one space", \.showSpaceHeaderOnSingleSpace),
             note("Off hides the space’s name and its icon at the bottom of the sidebar while you have one space.", palette: palette),
         ])
+        // GitHub #464, not in Arc: the window's layout in a mirror (SidebarSide), as on the Mac.
+        form.group("Sidebar:", [
+            checkbox("Sidebar on the right", get: { store.settings.sidebarSide == .right },
+                     set: { store.settings.sidebarSide = $0 ? .right : .left }),
+            note("The sidebar sits on the right of the window. Hidden, it slides in from the right edge.", palette: palette),
+        ])
         // #154: Arc's favorites, one set per profile (the Mac's "Tabs and Favorites" card).
         form.group("Favorites:", [
             checkbox("Share Favorites across Spaces", get: { store.settings.sharedFavorites }, set: { store.setFavoritesShared($0) }),

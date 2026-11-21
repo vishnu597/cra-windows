@@ -18,11 +18,14 @@ struct PeekPlacement: Equatable {
     /// Close, Expand and Add To Split, top first.
     var buttons: [PixelRect]
 
-    /// `client`: the browser window's client area on screen; `sidebar`: its sidebar's width in DIPs.
-    init(client: PixelRect, sidebar: Double, scale: Double) {
+    /// `client`: the browser window's client area on screen; `sidebar`: its sidebar's width in DIPs,
+    /// on `side`.
+    init(client: PixelRect, sidebar: Double, side: SidebarSide = .left, scale: Double) {
         self.client = client
         let width = Double(client.width) / scale, height = Double(client.height) / scale
-        let area = PeekLayout.area(window: CGSize(width: width, height: height), contentMinX: CGFloat(sidebar))
+        let area = side == .right
+            ? PeekLayout.area(window: CGSize(width: width, height: height), contentMinX: 0, contentMaxX: CGFloat(width - sidebar))
+            : PeekLayout.area(window: CGSize(width: width, height: height), contentMinX: CGFloat(sidebar))
         let card = PeekLayout.card(in: area)
         func pixels(_ r: CGRect) -> PixelRect {
             let top = height - Double(r.maxY)
