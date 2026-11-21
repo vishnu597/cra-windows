@@ -184,6 +184,37 @@ enum WinShell {
         return String(cString: buffer)
     }
 
+    /// Windows' Save dialog offering several kinds of file (name, extension without the dot), in
+    /// Downloads, the first selected; the chosen path and the index of the kind selected, nil if
+    /// cancelled.
+    static func save(owner: UInt, title: String, fileName: String, types: [(name: String, fileExtension: String)]) -> (path: String, type: Int)? {
+        guard !types.isEmpty else { return nil }
+        let capacity = 4096
+        var buffer = [CChar](repeating: 0, count: capacity)
+        let copy: (String) -> UnsafeMutablePointer<CChar> = { text in
+            let utf8 = text.utf8CString
+            let copy = UnsafeMutablePointer<CChar>.allocate(capacity: utf8.count)
+            for (i, c) in utf8.enumerated() { copy[i] = c }
+            return copy
+        }
+        let names = types.map { copy($0.name) }, extensions = types.map { copy($0.fileExtension) }
+        defer { (names + extensions).forEach { $0.deallocate() } }
+        let namePointers: [UnsafePointer<CChar>?] = names.map { UnsafePointer($0) }
+        let extensionPointers: [UnsafePointer<CChar>?] = extensions.map { UnsafePointer($0) }
+        var chosenType: Int32 = 0
+        let chosen = title.withCString { t in
+            fileName.withCString { f in
+                namePointers.withUnsafeBufferPointer { n in
+                    extensionPointers.withUnsafeBufferPointer { e in
+                        cra_save_file_dialog_types(owner, t, f, n.baseAddress, e.baseAddress, types.count, &buffer, capacity, &chosenType)
+                    }
+                }
+            }
+        }
+        guard chosen != 0 else { return nil }
+        return (String(cString: buffer), Int(chosenType))
+    }
+
     /// Windows' folder picker; the chosen folder, nil if cancelled.
     static func pickFolder(owner: UInt, title: String) -> URL? {
         let capacity = 4096
