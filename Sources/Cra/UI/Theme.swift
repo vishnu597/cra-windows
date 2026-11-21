@@ -65,35 +65,10 @@ extension SpaceTheme {
         return Color(.sRGB, red: x.r + (y.r - x.r) * k, green: x.g + (y.g - x.g) * k, blue: x.b + (y.b - x.b) * k, opacity: 1)
     }
 
-    private static func mix(_ hex: String, towardWhite: Bool, amount: Double) -> Color {
-        let c = HexColor.components(hex) ?? (0.5, 0.5, 0.5)
-        let target = towardWhite ? 1.0 : 0.0
-        let a = max(0, min(1, amount))
-        return Color(.sRGB, red: c.r + (target - c.r) * a, green: c.g + (target - c.g) * a, blue: c.b + (target - c.b) * a, opacity: 1)
-    }
+    /// Arc's light-theme ink and toolbar band (SidebarSurface, where the measurements are).
+    static func inkColor(_ hex: String) -> Color { Color(SidebarSurface.ink(hex)) }
 
-    /// Arc's toolbar band: the first theme colour pushed to a dark, fully
-    /// saturated shade on light themes (Victor: #72601D) and a muted,
-    /// slightly darker one on dark themes (JYSK: #0E0B16).
-    /// Light: 46% brightness, saturation +0.10 (Victor #F8D558 → #725F1D, Arc #72601D).
-    /// Dark: 60% saturation, 80% brightness (JYSK #010220 → #0A0B19, Arc #0E0B16).
-    /// Arc's light-theme ink: the first theme colour pushed to ~13% brightness
-    /// (Victor #F8D558 → ≈#201A0C; Arc's row titles sample 32/26/0).
-    static func inkColor(_ hex: String) -> Color {
-        let c = HexColor.components(hex) ?? (0.5, 0.5, 0.5)
-        var (h, s, v) = hsb(c.r, c.g, c.b)
-        s = min(1, s + 0.10); v *= 0.135
-        let o = rgb(h: h, s: s, v: v)
-        return Color(.sRGB, red: o.0, green: o.1, blue: o.2, opacity: 1)
-    }
-
-    static func toolbarColor(_ hex: String, dark: Bool) -> Color {
-        let c = HexColor.components(hex) ?? (0.5, 0.5, 0.5)
-        var (h, s, v) = hsb(c.r, c.g, c.b)
-        if dark { s *= 0.6; v *= 0.8 } else { s = min(1, s + 0.10); v *= 0.46 }
-        let o = rgb(h: h, s: s, v: v)
-        return Color(.sRGB, red: o.0, green: o.1, blue: o.2, opacity: 1)
-    }
+    static func toolbarColor(_ hex: String, dark: Bool) -> Color { Color(SidebarSurface.toolbar(hex, dark: dark)) }
 
     /// The theme as macOS shows it now: an Auto theme's light or dark half. Read under
     /// observation tracking, a switch of macOS' appearance redraws whatever showed the old half.
@@ -109,21 +84,16 @@ extension SpaceTheme {
 
     /// The palette of a resolved theme (its appearance is light or dark, or judged by colour).
     private func fixedPalette(lightMaterial: Bool) -> SpacePalette {
-        let dark = isDark
+        // The stops and their opacity are shared with Windows (SidebarSurface, where the rules are).
+        let shared = SidebarSurface(resolved: self, lightMaterial: lightMaterial)
+        let dark = shared.dark
         let base = colors.isEmpty ? ["#DDDDDD"] : colors
-        // Over Arc's material (one colour, or a gradient made in the editor, #643): the colours at
-        // Arc's one-colour opacity. Vibrant (an imported Arc theme): its stops at `intensity` over the blur.
-        // Opaque: intensity 1 = the raw colors; lower pulls toward white/black.
-        let overMaterial = drawnOverMaterial
-        let pull = vibrant || solid ? 0 : (1 - intensity) * (dark ? 0.35 : 0.6)
-        var stops = base.map { SpaceTheme.mix($0, towardWhite: !dark, amount: pull) }
-        if stops.count == 1 { stops.append(SpaceTheme.mix(base[0], towardWhite: !dark, amount: pull + 0.15)) }
+        let overMaterial = shared.overMaterial
+        let stops = shared.stops.map { Color($0) }
 
         let folder = FolderTones(themeColor: self.accent ?? base[0], dark: dark)
-        let alphaTop = overMaterial ? SpacePalette.solidAlpha(intensity: intensity)
-            : vibrant ? (dark ? max(0.35, min(0.9, intensity * 2.2)) : min(0.95, intensity * 1.70)) : 1
-        let alphaBottom = overMaterial ? SpacePalette.solidAlpha(intensity: intensity)
-            : vibrant ? (dark ? max(0.35, min(0.9, intensity * 2.2)) : min(0.95, intensity * 2.35)) : 1
+        let alphaTop = shared.alphaTop
+        let alphaBottom = shared.alphaBottom
         // Dark themes: Arc's palette tones (shadedDark front, midTone back) read wrong next to Cra's
         // dark sidebar (Victor, 4 Nov), so the folder keeps the earlier white-over-sidebar look, made
         // opaque. Under a translucent theme the sidebar is the top colour over the dark material

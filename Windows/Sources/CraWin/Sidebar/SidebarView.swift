@@ -223,6 +223,9 @@ final class SidebarView {
     /// Draws the focused space. Everything it reads from the store is what a change redraws.
     func build() {
         let space = store.focusedSpace(window: windowID)
+        // An Auto theme shows its light or dark half by View ▸ Appearance (WinAppearance.forcedDark,
+        // set from this setting): reading it here redraws the sidebar when it changes.
+        _ = store.settings.websiteAppearance
         palette = SidebarPalette(space.theme, active: windowActive)
         kept = []
         folderRows = [:]
@@ -303,7 +306,7 @@ final class SidebarView {
     }
 
     var fill: Brush { palette.fill }
-    var isDark: Bool { store.focusedSpace(window: windowID).theme.isDark }
+    var isDark: Bool { palette.isDark }
     var textColor: Brush { palette.text }
     var secondaryTextColor: Brush { palette.secondaryText }
 
