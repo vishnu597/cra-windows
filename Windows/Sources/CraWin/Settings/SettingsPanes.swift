@@ -212,6 +212,9 @@ enum SettingsPanes {
             // Arc's Advanced switch: off, only the window in use last comes back.
             settingSwitch("When opening Cra, restore windows from previous session", detail: nil, \.restoreWindows,
                           store: store, palette: palette, syncs: &syncs),
+            // The Mac's General ▸ Warn before quitting: closing the last window asks "Quit Cra?".
+            settingSwitch("Warn before quitting", detail: "Closing the last window asks before Cra quits.", \.warnBeforeQuitting,
+                          store: store, palette: palette, syncs: &syncs),
             // Arc's: a press near a page's top moves the window, as from the title bar.
             settingSwitch("Allow window dragging from the top of webpages", detail: nil, \.pageTopWindowDrag,
                           store: store, palette: palette, syncs: &syncs),

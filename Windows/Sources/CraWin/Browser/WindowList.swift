@@ -14,6 +14,8 @@ protocol BrowserWindowHost: AnyObject {
     /// Close Little Windows: each archives its page.
     func closeLittleWindows()
     func windowDidClose(_ window: BrowserWindow)
+    /// Closing `window` quits Cra: no other window or Little Window is open.
+    func isLastWindow(_ window: BrowserWindow) -> Bool
     /// Arc's Peek over `window`, from its tab `fromTab`: one at a time over a window.
     func openPeek(url: String, over window: BrowserWindow, fromTab: UUID?)
     /// Pause All Media in every window, Little Window and Peek; `report` gets the toast's text
@@ -80,6 +82,10 @@ final class WindowList: BrowserWindowHost {
         let session = incognito ? store.addIncognitoWindow(frame: frame?.string)
             : store.addWindow(spaceID: store.focusedSpaceID(window: store.lastNormalWindowID), frame: frame?.string)
         open(session, frame: frame, newWindow: true)?.activate()
+    }
+
+    func isLastWindow(_ window: BrowserWindow) -> Bool {
+        littleWindows.isEmpty && windows.allSatisfy { $0 === window }
     }
 
     func windowDidClose(_ window: BrowserWindow) {

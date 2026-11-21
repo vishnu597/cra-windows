@@ -255,6 +255,9 @@ final class BrowserWindow {
         // Chromium closes its pages before their parent window goes (CEF's DoClose order).
         window.shouldClose = { [weak self] in
             guard let self, !self.readyToClose else { return true }
+            // The last window quits Cra: Arc's "Downloads in progress", or "Quit Cra?" with
+            // Settings ▸ Advanced ▸ Warn before quitting, asks first (AppDelegate's quit prompts).
+            guard self.closing || self.quitConfirmed || !self.asksBeforeQuitting() else { return false }
             self.saveFrame()
             guard !self.canFinishClosing else { return true }
             self.beginClosing()
@@ -433,6 +436,40 @@ final class BrowserWindow {
         showAddress(page.map { _ in store.item(id ?? UUID())?.tab?.url ?? "" } ?? "")
         // An empty tab (a new pane) waits for an address.
         if id != nil && page == nil { openCommandBar(.editURL) }
+    }
+
+    /// Closing the last window was answered "Close Cra" or "Quit": it doesn't ask again.
+    private var quitConfirmed = false
+    private var quitDialog: AppDialog?
+
+    /// True when closing must wait for an answer: the dialog is up (or already was).
+    private func asksBeforeQuitting() -> Bool {
+        guard host?.isLastWindow(self) ?? false else { return false }
+        if quitDialog != nil { return true }
+        let prompt = QuitPrompt.on(source: .appMenu, downloadsRunning: DownloadHistory.shared.live.contains(where: \.running),
+                                   warnBeforeQuitting: store.settings.warnBeforeQuitting)
+        let dialog: AppDialog
+        switch prompt {
+        case .none: return false
+        case .downloadsInProgress:
+            dialog = AppDialog(title: "Downloads in progress",
+                               message: "There are downloads in progress. Closing the application will cancel them.",
+                               actions: [DialogAction("Close Cra"), DialogAction("Keep browsing", role: .cancel)])
+        case .confirmQuit:
+            dialog = AppDialog(title: "Quit Cra?",
+                               actions: [DialogAction("Quit"), .cancel, DialogAction("Quit, and don’t ask again", role: .secondary)])
+        }
+        quitDialog = dialog
+        print("Cra: quit asks: \(dialog.title)")
+        dialog.present(over: window) { [weak self] picked in
+            guard let self else { return }
+            self.quitDialog = nil
+            guard picked == 0 || picked == 2 else { return }
+            if picked == 2 { self.store.settings.warnBeforeQuitting = false }
+            self.quitConfirmed = true
+            self.requestClose()
+        }
+        return true
     }
 
     /// Closes every page, then the window once Chromium is done with them (or after 3 s).
