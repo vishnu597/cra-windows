@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 5 | 6 | 0 | 6 | 9 |
-| **All** | 42 | 60 | 1 | 46 | 18 |
+| **All** | 42 | 61 | 1 | 45 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
