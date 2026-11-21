@@ -39,7 +39,8 @@ struct NewSpaceWheelPullTests {
         #expect(NewSpaceSwipe.isActivated(overscroll: p.overscroll(width: width)))
         #expect(!p.isLifted(at: 1.40))
         #expect(p.isLifted(at: 1.39 + NewSpaceWheelPull.liftPause + 0.01))
-        #expect(p.lift())
+        let lifted = p.lift()
+        #expect(lifted)
         #expect(p.travel == 0 && p.fullSince == nil)
     }
 
@@ -47,13 +48,15 @@ struct NewSpaceWheelPullTests {
     func aRingFullTooBrieflyOrNotFullMakesNothing() {
         var short = pulled(3)
         #expect(!NewSpaceSwipe.isActivated(overscroll: short.overscroll(width: width)))
-        #expect(!short.lift())
+        let shortLifted = short.lift()
+        #expect(!shortLifted)
         // Full on the last event only.
         var p = NewSpaceWheelPull()
         var t: TimeInterval = 1
         while !NewSpaceSwipe.isActivated(overscroll: p.pull(lines: -0.5, width: width, at: t)) { t += 0.01 }
         #expect(p.fullSince == t)
-        #expect(!p.lift())
+        let lifted = p.lift()
+        #expect(!lifted)
     }
 
     @Test
@@ -62,7 +65,8 @@ struct NewSpaceWheelPullTests {
         #expect(p.fullSince != nil)
         p.pull(lines: 20, width: width, at: 1.40)
         #expect(p.fullSince == nil)
-        #expect(!p.lift())
+        let lifted = p.lift()
+        #expect(!lifted)
     }
 
     @Test
