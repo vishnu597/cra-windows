@@ -37,6 +37,18 @@ public enum LibraryPage: String, CaseIterable, Sendable {
         }
     }
 
+    /// Its icon on the Mac's rail (Cra's own drawing, moving as Arc's does, LibraryRailIcons).
+    public var railIcon: LibraryRailIcon {
+        switch self {
+        case .media: .media
+        case .downloads: .downloads
+        case .easels: .easels
+        case .spaces: .spaces
+        case .boosts: .boosts
+        case .archive: .archive
+        }
+    }
+
     public var searchPrompt: String {
         switch self {
         case .media: "Search Media…"
