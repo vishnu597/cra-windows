@@ -38,6 +38,8 @@ struct DownloadInfo: Sendable {
     var totalBytes: Int64
     var percent: Int
     var state: State
+    /// Paused from its row's menu.
+    var paused = false
 }
 
 struct PermissionKinds: OptionSet, Sendable {
@@ -444,7 +446,8 @@ final class WebPage: @unchecked Sendable {
             }
             let download = DownloadInfo(identifier: d.identifier, url: string(d.url), fullPath: string(d.full_path),
                                         suggestedName: string(d.suggested_name), receivedBytes: d.received_bytes,
-                                        totalBytes: d.total_bytes, percent: Int(d.percent), state: state)
+                                        totalBytes: d.total_bytes, percent: Int(d.percent), state: state,
+                                        paused: d.paused != 0)
             WebPage.with(ctx) { $0.delegate?.page($0, didUpdateDownload: download) }
         }
         cb.permission_requested = { ctx, id, origin, kinds in

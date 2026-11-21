@@ -235,6 +235,15 @@ public final class CraApp: SwiftApplication {
             cra_cef_set_page_top_drag(on ? PageTopDrag.band(barHeight: 0) : 0, PageTopDrag.trailingInset)
         }
         followPageTopDrag()
+        // Settings ▸ Profiles ▸ Download location: the folder (or Windows' Save dialog) each
+        // profile's downloads use (DownloadDestinations on the Mac).
+        func followDownloadLocations() {
+            let lines = withObservationTracking { DownloadLocation.bridgeLines(store.settings.downloadLocations, profiles: store.profiles) } onChange: {
+                onMain { _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { followDownloadLocations() } }
+            }
+            cra_cef_set_download_locations(lines)
+        }
+        followDownloadLocations()
     }
 
     private static var exeFolder: URL { URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent() }

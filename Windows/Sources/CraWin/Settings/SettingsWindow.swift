@@ -272,7 +272,10 @@ final class SettingsWindow {
                 self?.airTrafficControl.show(from: button)
             }
         case .privacy: built = SettingsPanes.privacy(store: store, palette: palette) { [weak self] url in self?.onOpenURL(url) }
-        case .profiles: built = SettingsPanes.profiles(store: store, palette: palette) { [weak self] in self?.onNewProfile() }
+        case .profiles:
+            built = SettingsPanes.profiles(store: store, palette: palette, owner: { [weak self] in
+                self.map { UInt($0.appWindow.id.value) } ?? 0
+            }) { [weak self] in self?.onNewProfile() }
         case .extensions:
             built = SettingsPanes.extensions(store: store, palette: palette, owner: { [weak self] in
                 self.map { UInt($0.appWindow.id.value) } ?? 0
