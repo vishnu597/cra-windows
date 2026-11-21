@@ -713,7 +713,7 @@
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::defaultsAreTodaysBehaviour  2aa619dc5553
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::pickingAndUnpickingAPriority  deda0ebc668b
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::priorityRidesOnTheChords  b06d1069481d
-#374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::theRouterFollowsEachPriority  b955de8f1c41
+#374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::theRouterFollowsEachPriority  7eaf445fe663
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::useBothLateAnswerDropsTheOffer  aac663f3848f
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::useBothOfferIsForThatShortcutWhileItStands  174d275e00ec
 #374   Packages/CraCore/Tests/CraCoreTests/ShortcutPriorityTests.swift::useBothPressThePageLeftIsNotOffered  04d582b8163a
