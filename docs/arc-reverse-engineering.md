@@ -3122,6 +3122,26 @@ Cra's runs switch tabs with `cra://debug?selectTab=` in a CRA_TEST_BACKGROUND co
   at once), on tab and space switches alike. Now the bar takes ToolbarColor (CraCore): the page's report,
   else TabData.themeColor, else white, and fades to a new report over 0.18 s (14–15 frames).
 
+## The address panel from the sidebar (Arc 1.174, 20 Nov 2026, issue #663, offline Arc)
+- [O live] Offline Arc on a fake home (network denied, pages from a loopback server), `topBarURLEnabled` NO so the
+  address is in the sidebar, the toolbar hidden; AX frames and 2x window captures. A click on the sidebar's
+  address opens a compact command bar hanging from it: its top left on the field's (window x 8, y 45), not the
+  centred bar. ⌘L in the same state opens Arc's bar across the top of the page card instead (field 1431 pt wide),
+  as with the toolbar shown (above). With no tab the click opens the same panel, empty, "Search or Enter URL…".
+- [O] Width: the field is the address in 13 pt medium + ~2 pt, at least 240 (22–40 characters) and at most 610
+  (101 characters, truncated); the panel is the field + 110 (glyph centred 32 pt in, field at 53, ⓘ 10 pt after
+  the field and 21 from the edge): 350 to 720 pt. The reporter's 1x capture agrees (717 pt). Fit within 2.3 pt
+  on four addresses.
+- [O] Input row 45 pt (glyph, address and ⓘ centred 24 pt down), no line under it; rows on the full bar's 50 pt
+  pitch, the highlight 46 tall and inset 10, from 51 pt down; 10.5 pt under the last row (five rows: 307.5 pt);
+  ~10 pt corners. Rows show titles only, 13 pt semibold ("The Browser Company", not "— youtube.com/…"); tab
+  rows keep "Switch to Tab" and its arrow.
+- Cra (#663): CraCore `SidebarAddressPanel` holds the numbers; `CommandBarController.compact` lays the bar out
+  that way and MainWindowController hangs it from `SidebarView.addressFrameOnScreen`. #344's "Edit the address
+  in the sidebar" still edits in place, and ⌘L keeps Cra's centred bar (Arc's top-of-page bar is not built).
+  Pinned by `SidebarAddressPanelTests` and the `sidebar-address-panel` scenario. Not measured: whether Arc's
+  panel grows while typing (Cra keeps the width it opened with).
+
 ## Sidebar toggle and the command bar's leading glyph (Arc 1.171, 1 Nov 2026, issue #50, live captures at 2x)
 
 Victor's Arc (toolbar shown, full URLs on), window captures by id; Little Arc with keys posted to its pid for
@@ -3754,6 +3774,31 @@ properties {URL:…}`) on a local server that answers after 40 s; window capture
   Both preview every change without writing it (SidebarStore.previewTheme). Edit Theme Color… writes it when it
   closes (Escape, a click elsewhere, the app deactivating), as Arc does; the sheet writes it on Save and puts the
   stored theme back on Cancel.
+
+## The theme editor's two wheels (Arc 1.174, 20 Nov 2026, issue #632, offline Arc)
+- [O strings] The saved theme's `wheel` is `analogous` or `complimentary` (Arc's spelling), next to `baseColors`
+  and `overlayColors`; the editor state keeps `primaryColor`, `numberOfColors` and `wheel`.
+- [O live] Offline Arc on a fake home (network denied), Spaces ▸ Edit Theme… over AX: page arrows pressed to
+  the page, a swatch pressed, Add / Remove pressed, then another app activated (that closes the editor and
+  commits; Escape posted to the pid did not), StorableSidebar.json read from `sidebar.containers[1].spaces`
+  (the `sidebarSyncState` copy lags). 41 runs over all five pages.
+- [O] Pages 1, 3, 4 and 5 give one colour; the next + saves `complimentary`. Page 2 gives three colours,
+  `analogous` (`baseColors` = colour, second; `overlayColors` = clear, third). + on one colour always turns
+  `complimentary`, from page 2 too (page 2, − −, + → the complementary pair); + on two keeps the wheel
+  (page 2, −, + → the same three).
+- [O fit] Every colour is the first one turned round the wheel in Display P3 HSB at the first one's P3
+  saturation and brightness: analogous +40°, −40°; complimentary two at +180°, three at +150° and +210° (the
+  second moves when the third comes and back when it goes). All 32 sets within 1/255 of Arc's (Arc writes
+  extended sRGB, so a few saturated ones run past sRGB and are clipped here). In sRGB HSB the same turns read
+  29–46°, which is why #170 kept Arc's page-2 seconds as a table.
+- Cra (#632): `SpaceColorWheel` (CraCore) works in P3 (`padHSB` / `padHex`, which the pad also draws its knobs
+  by), `offsets(_:count:)`, `adding(to:wheel:)`, `removing(from:wheel:)` and `placed(…, wheel:)`; the page sets the
+  wheel (`SpaceColorPresets.Page.wheel`), page 2 is Arc's three colours (`brandThirds`), and the theme saves
+  `wheel` beside `key` for two or three colours (a theme saved before has none: its preset's, else analogous,
+  Cra's old ±40°). Before, every + went ±40° in sRGB HSB and page 2 gave two colours. Pinned by
+  `eachPageAddsColoursOnArcsWheel`, `removeAndAddFollowArcsWheel`, `dragKeepsTheWheel`, `wheelIsSaved` and the
+  `theme-editor-wheel` scenario. Not measured: what an empty pad's first tap starts on (it can't matter: + on
+  one colour is always complimentary).
 
 ## The space's primary palette (Arc 1.172.2, 17 Nov 2026, issue #490, offline Arc)
 - [O live] Offline Arc on a fake home (network denied), Spaces ▸ Edit Theme… over AX, one swatch pressed, Escape,
@@ -4412,6 +4457,24 @@ instead of the AppKit `FindInPageView`. Tags as above; [B?] read off disassembly
   window under a press key first (installChildClickMonitor), but a Peek's page is a grandchild of the browser window, and a
   Little Window has no such monitor. LittleWindow.sendEvent now does the same for its children. A press while the browser
   window itself was key always worked (its monitor made the Peek key), which is why it looked intermittent.
+
+## Boost colours leave images alone; incognito follows the space's profile (Arc 1.174, 20 Nov 2026)
+
+- [O live] Boost colour wheel (#602): Victor's Arc, Wikipedia's Cat article, command bar "New Boost", the pad's
+  handle dragged to a strong blue-purple. The article's white turned 216/218/242, text, links and table headers
+  purple; every photo kept its pixels (the white cat 202/194/188 before and after). The Boost was deleted after.
+  Arc's binary registers a native per-host colour filter (`registerColorFilter:forHostPattern:`,
+  `applyColorFilter:`, `BoostColorScheme`, `BoostColorWheelScheme`): a filter in the engine that tints what the
+  page draws but its images, not a page stylesheet. Cra's tint is `html { filter: sepia … }`, which takes the
+  pictures with it; a CSS counter-filter can't give them back (sepia isn't invertible within 0–1), and inline
+  colours from a script would freeze hover and focus colours. Arc's result needs an engine-side filter that skips
+  image draws.
+- [O live] Incognito (#620): an offline Arc on a fake home, every space on "Profile 2", each profile's Chromium
+  `download.default_directory` its own folder. File ▸ New Incognito Window from that space, then a file:// zip:
+  it landed in Profile 2's folder. Arc's incognito window is the incognito side of the opening space's profile.
+- [U] Swiping between spaces (#613): synthesized two-finger scroll events (phases and momentum, posted to the app
+  or through the HID tap with the pointer over the sidebar) don't switch Arc's space, nor did ⌘⌥→ posted to it;
+  Arc's swipe needs a real trackpad. Not measured.
 
 ## Editor gradients over a backdrop (Arc 1.174, 20 Nov 2026, #596 #643, offline Arc on a fake home)
 
