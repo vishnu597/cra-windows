@@ -1,4 +1,5 @@
 import CraCEFWin
+import CraCore
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
