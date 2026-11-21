@@ -1193,6 +1193,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             // httpsOnly=1|0: Settings ▸ Privacy's HTTPS-only switch, flipped while pages are open: Chromium takes the
             // change at once (#36: it crashed doing so once onboarding ended).
+            // chromePref=<name>: the Default profile's Chrome pref as Chromium holds it now, as JSON (#625).
+            if let name = dict["chromePref"] {
+                CraLog.note("chrome pref \(name): " + (CraCEFRuntime.preference(name, forProfile: nil) ?? "none"))
+                return
+            }
             if let v = dict["httpsOnly"] {
                 store.settings.httpsOnly = v == "1"
                 CraLog.note("https only: \(store.settings.httpsOnly ? "on" : "off")")
@@ -1519,6 +1524,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if dict["easelDraw"] != nil, let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
                 canvas.sheetView.debugDraw(); return
             }
+            // easelCanvas=<x>,<y>|-: the open easel scrolled to a canvas point; cra.log says its zoom, view and extent (#580).
+            if let target = dict["easelCanvas"], let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
+                canvas.debugCanvas(target); return
+            }
             // easelPick=<n>: the open easel's n-th item (from 0) picked; cra.log says what shows over it and its menu.
             if let n = dict["easelPick"].flatMap(Int.init), let canvas = (main.currentBrowser as? EaselBrowser)?.canvasView {
                 canvas.debugPick(n); return
@@ -1746,6 +1755,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // littleKey=<n>: the nth Little Window (oldest first) picked as Mission Control picks one (#581);
             // littleOrder=<label>: Cra's browser and Little Windows, front to back, as the window server has them.
             if let n = dict["littleKey"].flatMap(Int.init), littleWindows.indices.contains(n) { littleWindows[n].debugPick(); return }
+            // littleFocus=<label> (#646, #641): whether Cra is the active app, which Little Window (oldest first) has
+            // the keys, and how many other apps' windows are over the newest one.
+            if let label = dict["littleFocus"] {
+                var key = NSApp.keyWindow
+                while let parent = key?.parent { key = parent }
+                let lw = littleWindows.filter { !$0.isPeek }
+                let i = lw.firstIndex { $0.window === key }
+                let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+                let over = lw.last?.window.map { String(LittleWindowRaise.othersOver($0.windowNumber, in: info)) } ?? "-"
+                CraLog.note("little focus \(label): active=\(NSApp.isActive ? 1 : 0) key=\(i.map { "little\($0)" } ?? "none") over=\(over) windows=\(lw.count)")
+                return
+            }
             if let label = dict["littleOrder"] {
                 var names: [Int: String] = [:]
                 for (i, m) in mainWindows.enumerated() { if let w = m.window { names[w.windowNumber] = "main\(i)" } }
@@ -1955,10 +1976,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     let space = m.focusedSpace
                     let drawn = m.window?.contentView.flatMap(sidebar(in:)).map { side($0.palette.isDark) } ?? "-"
                     // material: the one-colour sidebar's material, Arc's light or dark one (#455); "-" for other themes.
-                    let material = m.shell.solidBackdrop ? side(!m.shell.solidLightMaterial) : "-"
-                    NSLog("Cra theme shown %@: space=%@ follows=%d theme=%@ shell=%@ sidebar=%@ library=%@ material=%@", label, space.title, space.theme.followsSystem ? 1 : 0,
-                          side(space.theme.shown.isDark), side(m.shell.isDarkTheme), drawn, m.sidebarUI.libraryPage.map { "\($0)" } ?? "-", material)
+                    let material = m.shell.solidBackdrop ? (m.shell.solidDarkGradient && !m.shell.solidLightMaterial ? "dark-gradient" : side(!m.shell.solidLightMaterial)) : "-"
+                    // seeThrough: the window shows the blurred desktop under the sidebar, through the material
+                    // (dark vibrant) or the backdrop layer (light vibrant, one colour), not an opaque fill (#643).
+                    NSLog("Cra theme shown %@: space=%@ follows=%d theme=%@ shell=%@ sidebar=%@ library=%@ material=%@ seeThrough=%d vibrant=%d intensity=%.2f",
+                          label, space.title, space.theme.followsSystem ? 1 : 0,
+                          side(space.theme.shown.isDark), side(m.shell.isDarkTheme), drawn, m.sidebarUI.libraryPage.map { "\($0)" } ?? "-", material,
+                          m.window?.isOpaque == false && !(m.shell.vibrancy.isHidden && m.shell.backdropHost.isHidden) ? 1 : 0,
+                          space.theme.shown.vibrant ? 1 : 0, space.theme.shown.intensity)
                 }
+                return
+            }
+            // commandBarPick=<text>: the browser window's open bar commits its first row whose address holds
+            // <text>, as ↩ on that row does (#645); logs the row's kind.
+            if let text = dict["commandBarPick"] {
+                guard let row = main.commandBar.result.items.first(where: { $0.url?.contains(text) == true }) else {
+                    CraLog.note("command bar pick \(text): none in \(main.commandBar.result.items.count) rows"); return
+                }
+                if case .switchToTab = row.kind { CraLog.note("command bar pick \(text): tab") } else { CraLog.note("command bar pick \(text): other") }
+                main.commandBar.commit(row)
+                return
+            }
+            // libraryMore=<label> (#649): the Library's first download row hovered, its ••• and menu.
+            if let label = dict["libraryMore"] {
+                CraLog.note("library more \(label): " + ((main.shell.sidebarHost as? SidebarView)?.debugLibraryDownloadMore ?? "no sidebar"))
+                return
+            }
+            // libraryShown=<label> (#649): the Library's page on screen, or "closed".
+            if let label = dict["libraryShown"] {
+                CraLog.note("library shown \(label): \(main.sidebarUI.libraryPage?.rawValue ?? "closed")")
                 return
             }
             // commandBarRows=<label>: the open command bar's rows, top to bottom, each as kind:address
@@ -2540,6 +2586,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let name = dict["urlFieldPress"] { main.debugURLFieldPress(name); return }
             // The URL field edited in place (#344): a click on it, then typing and Return or Escape.
             if let step = dict["urlFieldEdit"] { main.debugURLFieldEdit(step); return }
+            // The sidebar header's address row (#648): "sidebar address <label>: url=… back=… forward=…",
+            // and a press on its back, forward or reload.
+            if let label = dict["sidebarAddress"] {
+                CraLog.note("sidebar address \(label): " + ((main.shell.sidebarHost as? SidebarView)?.debugAddressRow ?? "none"))
+                return
+            }
+            if let key = dict["sidebarAddressPress"] {
+                let pressed = (main.shell.sidebarHost as? SidebarView)?.debugPressAddressRow(key) == true
+                CraLog.note("sidebar address press \(key): \(pressed ? "pressed" : "not pressed")")
+                return
+            }
             if let step = dict["commandBarNotice"] { main.debugCommandBarNotice(step); return }
             if let step = dict["commandBarScope"] { main.debugCommandBarScope(step); return }
             // Arc's translate UI (#310): what shows, and a press on its parts.
@@ -2589,6 +2646,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // floatingSidebar=1 out, =0 away, =hold out and kept there whatever the pointer does (#424).
             // =release lets the pointer decide again without sending it away; =state:<step> logs it (#531).
             if let f = dict["floatingSidebar"], f.hasPrefix("state") { main.debugFloatingSidebarState(String(f.dropFirst(6))); return }
+            // floatingSidebar=still<label> (#635): whether the edge strip waits for the pointer to move.
+            if dict["floatingSidebar"] == "stillreset" { main.floatingSidebar?.debugPointerMoved(); return }
+            if let f = dict["floatingSidebar"], f.hasPrefix("still") {
+                CraLog.note("floating sidebar \(f): waits=\(main.floatingSidebar?.stillPointer == nil ? 0 : 1)")
+                return
+            }
             if dict["floatingSidebar"] == "release" { main.floatingSidebar?.heldOut = false; return }
             // extensionPopup=<step>: whether an extension's popup is up and where it hangs (#531).
             if let step = dict["extensionPopup"] { main.debugExtensionPopup(step); return }
@@ -2837,6 +2900,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // holds the text (#419).
             if let url = dict["dropLink"] {
                 main.testDropLink(url, name: dict["name"], row: dict["before"] ?? dict["onto"], onto: dict["onto"] != nil)
+                return
+            }
+            // dropFile=<path>: that file let go in the middle of the shown page, as from the Finder (#593).
+            if let path = dict["dropFile"], let container = main.currentBrowser?.containerView {
+                DebugFileDrop.drop(path, on: container)
                 return
             }
             // dropSplit=<text>[&link=1][&name=<link text>]&x=<0…1>&y=<0…1>: the tab whose URL holds the
@@ -3440,10 +3508,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let normal = useNormalWindow()
             _ = store.createTab(url: HistoryPage.url, select: true)
             normal.showWindow(nil)
-        case "viewDownloads": main.showLibrary(.downloads)
-        case "viewMedia": main.showLibrary(.media)
-        case "viewEasels": main.showLibrary(.easels)
-        case "viewBoosts": main.showLibrary(.boosts)
+        // Arc's page shortcuts are show/hide toggles too (LibraryShortcut, #649).
+        case "viewDownloads": main.toggleLibrary(.downloads)
+        case "viewMedia": main.toggleLibrary(.media)
+        case "viewEasels": main.toggleLibrary(.easels)
+        case "viewBoosts": main.toggleLibrary(.boosts)
         case "goBack": main.goBack()
         case "goForward": main.currentBrowser?.goForward()
         case "pinTab": if let c = current, !main.isBlank { store.togglePinned(c) }
