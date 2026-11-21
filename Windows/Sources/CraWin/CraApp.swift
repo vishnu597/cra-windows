@@ -71,6 +71,13 @@ public final class CraApp: SwiftApplication {
             startContentBlocking(store: store, clock: clock)
             let windows = WindowList(store: store, dispatcher: dispatcher)
             self.windows = windows
+            // A copy in Extensions/ removed in chrome://extensions goes (ExtensionCopyRemovals): each
+            // profile's extensions are read once they are up, then on every change.
+            ExtensionList.shared.profilePaths = { [weak store] in
+                guard let store else { return [nil] }
+                return [nil] + store.profiles.map { store.profilePath(profile: $0.id) }
+            }
+            periodic.append(clock.after(10) { ExtensionList.shared.dropRemovedCopies() })
             let firstRun = Onboarding.isNeeded(hasSeenImportPrompt: store.settings.hasSeenImportPrompt, tabCount: store.allTabs().count)
             // Arc's "When opening Arc, restore windows from previous session", off: one window
             // comes back (AppDelegate on the Mac).
