@@ -48,6 +48,9 @@ public enum KeyBindingDefaults {
             KeyAction(id: "copyURLMarkdown", name: "Copy URL as Markdown", section: .edit, shortcuts: [KeyChord("c", cmdOptShift)], triggers: ["markdown"]),
             // Arc: Edit ▸ Copy URL as Quote ⌃⇧⌘C, the selection with a link to it.
             KeyAction(id: "copyURLQuote", name: "Copy URL as Quote", section: .edit, shortcuts: [KeyChord("c", [.command, .shift, .control] as KeyChord.Modifiers)], triggers: ["quote", "highlight"]),
+            // Arc 2023's "paste clipboard as new tab" ⌥⌘V, which Arc dropped in March 2024; kept here (#610).
+            KeyAction(id: "pasteAndGo", name: "Paste and Go", section: .edit, shortcuts: [KeyChord("v", cmdOpt)],
+                      triggers: ["paste and go", "paste clipboard", "open clipboard"]),
             KeyAction(id: "find", name: "Find…", section: .edit, shortcuts: [KeyChord("f", cmd)], triggers: ["find", "search page"]),
             KeyAction(id: "findNext", name: "Find Next", section: .edit, shortcuts: [KeyChord("g", cmd)], inCommandBar: false),
             KeyAction(id: "findPrevious", name: "Find Previous", section: .edit, shortcuts: [KeyChord("g", cmdShift)], inCommandBar: false),
@@ -447,6 +450,7 @@ public enum ShortcutDescriptions {
         "print": "Print the page.",
         "copyURL": "Copy the page’s URL.",
         "copyURLMarkdown": "Copy the page’s title and URL as a Markdown link.",
+        "pasteAndGo": "Open the copied link as a new tab, or search the copied text. In a text field it just pastes.",
         "find": "Search for text on the page.",
         "findNext": "Jump to the next match.",
         "findPrevious": "Jump to the previous match.",
