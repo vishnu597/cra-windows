@@ -22,7 +22,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 <!-- summary: parity.py summary --write -->
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
-| Window, pages and toolbar | 9 | 8 | 0 | 10 | 1 |
+| Window, pages and toolbar | 10 | 8 | 0 | 9 | 1 |
 | Sidebar | 7 | 10 | 0 | 12 | 0 |
 | Command bar and shortcuts | 1 | 6 | 0 | 3 | 0 |
 | Split view | 2 | 3 | 0 | 0 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 4 | 3 | 0 | 10 | 9 |
-| **All** | 37 | 54 | 1 | 57 | 18 |
+| **All** | 38 | 54 | 1 | 56 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -64,8 +64,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Sidebar blur, Reduce transparency, active/inactive look | ❌ | `ActiveAppearanceProbe.swift` | `SidebarBackdrop` | Windows counterpart: Mica or Acrylic, and Windows' transparency setting. Since f6b9fb6 a full-screen window keeps its active look while its Space slides away (AppKit's own answer, `windowActive(activeAppearance:)`). |
 | Only one Cra running (an older copy quits) | ➖ | `NewestCopy.swift` | | Windows: a single-instance mutex when the installer lands. |
 | Arc's dialog sheet for every confirmation: one card, its buttons, keys and hover | ❌ | `AppDialog.swift`, `DialogComponents.swift`, `Colors.swift`, `DialogClick.swift` | `DialogActions` | Upstream bc47470 (#224). Windows asks with WinUI flyouts and dialogs; `DialogActions` (which button Return and Escape press) is shared for the Windows card. `Colors.swift` is SwiftUI's hex colours. Sync #23: updater warning buttons reach their own window; Windows confirmations remain separate. |
-| Stay On Top (`stayOnTop`), Save Page As (`savePageAs`), Copy URL as Quote (`copyURLQuote`), Copy URL without trackers | 🟡 [#52] | `MainWindowController.swift`, `AppDelegate.swift` | `CleanURL` | Upstream d110dc6. Windows: Copy URL and Copy URL as Markdown leave trackers out (`CleanURL`), Copy URL as Quote copies the selection with a text-fragment link, Stay On Top keeps the window (or a Little Window) above other apps' (`HWND_TOPMOST`); both from the command bar, no keys (the Mac's ⌃⇧⌘C has no free Windows counterpart). Left: Save Page As, and upstream cd8f3f5's copy of every selected sidebar tab's URL, which needs multi-selection. |
-| Find ▸ Use Selection to Find (`useSelectionForFind`), Jump to Selection (`jumpToSelection`) | ❌ | `MainWindowController.swift` | `FindInPage` | Upstream 894f1f6. Windows' find bar would take the page's selection. |
+| Stay On Top (`stayOnTop`), Save Page As (`savePageAs`), Copy URL as Quote (`copyURLQuote`), Copy URL without trackers | 🟡 [#52] [#83] | `MainWindowController.swift`, `AppDelegate.swift` | `CleanURL`, `SavePage` | Upstream d110dc6. Windows: Copy URL and Copy URL as Markdown leave trackers out (`CleanURL`), Copy URL as Quote copies the selection with a text-fragment link, Stay On Top keeps the window (or a Little Window) above other apps' (`HWND_TOPMOST`); both from the command bar, no keys (the Mac's ⌃⇧⌘C has no free Windows counterpart). Save Page As (Ctrl+Shift+S, the Mac's ⇧⌘S; Ctrl+S stays free for Hide Sidebar as in Arc for Windows) offers Chrome's Web Page, Single File (MHTML) and HTML Only in Windows' Save dialog, in Downloads; a typed `.html` or `.mhtml` decides the format (`SavePage`). Browser windows, Little Windows and the Peek. Left: upstream cd8f3f5's copy of every selected sidebar tab's URL, which needs multi-selection. |
+| Find ▸ Use Selection to Find (`useSelectionForFind`), Jump to Selection (`jumpToSelection`) | ✅ [#83] | `MainWindowController.swift` | `FindInPage`, `FindSelection` | Upstream 894f1f6. Windows has no menu bar, so both are in the command bar (`KeyBindingDefaults.windowsCommandBarAdds`) with no default keys: the Mac's ⌘E and ⌘J are Open Extensions and Downloads (Ctrl+E, Ctrl+J) here; Settings ▸ Shortcuts can give them one. Use Selection puts the page's selection in the find bar and searches it; Jump to Selection scrolls it to the middle (also in a Little Window, which has no find bar). |
 | What websites see: View ▸ Appearance (`appearanceAutomatic`, `appearanceLight`, `appearanceDark`), sound effects, "Allow websites to get your theme data" | 🟡 [#62] | `AppDelegate.swift`, `BrowserManager.swift`, `AdvancedPane.swift`, `CraCEF.mm` | `SidebarModel` (`WebsiteAppearance`), `ArcThemeData`, `ThemeTones`, `SidebarStore` (`themeDataCSS`) | Upstream 35bc84a, bfd9962. Windows has View ▸ Appearance as commands: every profile's CEF colour scheme follows it, and Light or Dark turn Settings and the Site Control Center too. Left: sound effects and the theme data `:root` style injection. |
 | "When opening Cra, restore windows from previous session" and "start on a new tab" | ✅ [#59] | `AppDelegate.swift`, `AdvancedPane.swift` | `SidebarModel` (`restoreWindows`), `SidebarStore`, `LaunchStart` | Upstream 337d5f8 and 7c98d46. Windows: Settings ▸ Advanced ▸ Opening and quitting has both switches. Off, only the window in use last comes back (`keepOnlyActiveWindow`); on a new tab, the window opens with no tab selected and the command bar making one, unless another app started Cra for a link. A link arriving later closes that bar. |
 | Slow first response: after 10 seconds, a waiting-page toast with Stop Loading | ✅ [#57] | `BrowserManager.swift`, `ShinyToast.swift` | `SlowResponseNotice`, `SlowResponseNotices` | Upstream 001afb2. Browser windows and Little Windows; the bridge reports commits and navigation starts, the toast stays with a ✕. PC fixes [#77](https://github.com/vishnu597/cra-windows/pull/77): every visible split pane can show its own due notice, with the toast anchored to that pane and Stop Loading targeting it; five clock tests cover selection/deadlines. The 19 Nov native check showed a notice on an unfocused split pane; Stop removed it without changing the loaded pane. The exact 10-second threshold was not timed. |
@@ -820,4 +820,5 @@ page's tab or the Little Window's profile.
 [#70]: https://github.com/vishnu597/cra-windows/pull/70
 [#72]: https://github.com/vishnu597/cra-windows/pull/72
 [#82]: https://github.com/vishnu597/cra-windows/pull/82
+[#83]: https://github.com/vishnu597/cra-windows/pull/83
 [#86]: https://github.com/vishnu597/cra-windows/pull/86

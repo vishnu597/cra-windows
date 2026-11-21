@@ -162,6 +162,10 @@ int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_nam
 /// ("html", without the dot).
 int cra_save_file_dialog(uintptr_t owner, const char *title, const char *file_name, const char *type_name,
                          const char *extension, char *out, size_t capacity);
+/// The same dialog offering `count` kinds of file (`type_names[i]`, `extensions[i]`), the first
+/// selected; `chosen_type` gets the index of the one selected when the person saved.
+int cra_save_file_dialog_types(uintptr_t owner, const char *title, const char *file_name, const char *const *type_names,
+                               const char *const *extensions, size_t count, char *out, size_t capacity, int *chosen_type);
 
 // MARK: - Overlays
 

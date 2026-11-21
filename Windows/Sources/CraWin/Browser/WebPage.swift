@@ -276,6 +276,28 @@ final class WebPage: @unchecked Sendable {
         method.withCString { m in params.withCString { p in cra_browser_send_dev_tools_method(handle, m, p, box, done) } }
     }
 
+    /// File ▸ Save Page As (the Mac's PageCommands.savePageAs): Windows' Save dialog with
+    /// Chrome's two kinds, then the file from DevTools (SavePage). `report` gets the toast.
+    @MainActor func savePageAs(owner: UInt, title: String, report: @escaping @MainActor (String) -> Void) {
+        let formats = SavePage.Format.allCases
+        guard !isClosed,
+              let chosen = WinShell.save(owner: owner, title: "Save Page As", fileName: SavePage.suggestedFileName(title: title),
+                                         types: formats.map { (name: $0.typeName, fileExtension: $0.fileExtension) }) else { return }
+        let format = SavePage.format(forPath: chosen.path, chosenType: formats[max(0, min(chosen.type, formats.count - 1))])
+        let request = format.request
+        sendDevToolsMethod(request.method, params: request.params) { reply, error in
+            guard let text = format.contents(fromReply: reply),
+                  (try? Data(text.utf8).write(to: URL(fileURLWithPath: chosen.path), options: .atomic)) != nil else {
+                print("Cra: saving the page failed: \(error ?? "no data")")
+                return report("Couldn’t Save the Page")
+            }
+            report("Page Saved")
+        }
+    }
+
+    /// Edit ▸ Find ▸ Jump to Selection: the page scrolls its selection into view.
+    func jumpToSelection() { executeJavaScript(FindSelection.jumpScript) }
+
     /// The connection of the page on screen (the Mac's sslStatus); nil before anything committed.
     var sslStatus: (status: ConnectionSecurity.Status, hasCertificate: Bool)? {
         guard let handle else { return nil }

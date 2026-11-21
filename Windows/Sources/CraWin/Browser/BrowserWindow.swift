@@ -787,6 +787,12 @@ final class BrowserWindow {
         case "find": showFindBar()
         case "findNext": findNext(forward: true)
         case "findPrevious": findNext(forward: false)
+        case "useSelectionForFind": useSelectionForFind()
+        case "jumpToSelection": shownPage?.jumpToSelection()
+        case "savePageAs":
+            if let page = shownPage {
+                page.savePageAs(owner: hwnd, title: store.selectedTab(window: windowID)?.displayTitle ?? "") { [weak self] in self?.showToast($0) }
+            }
         case "settings": openSettings()
         // Arc's Open Extensions (⌘E on the Mac): the Site Control Center, its extension tiles.
         case "openExtensions": toggleSiteControlCenter()
@@ -1196,6 +1202,20 @@ final class BrowserWindow {
     private func findNext(forward: Bool) {
         guard findVisible else { return showFindBar() }
         find(findBar.query, forward: forward)
+    }
+
+    /// Edit ▸ Find ▸ Use Selection to Find (MainWindowController.useSelectionForFind): the
+    /// page's selection becomes the search, and the bar shows it found.
+    private func useSelectionForFind() {
+        guard let page = shownPage else { return }
+        page.sendDevToolsMethod("Runtime.evaluate", params: FindSelection.evaluateParams) { [weak self, weak page] reply, _ in
+            guard let self, let page, page === self.shownPage, !self.closing,
+                  let query = FindSelection.query(fromReply: reply) else { return }
+            let needsSearch = FindSelection.needsSearch(selection: query, barQuery: self.findBar.query)
+            self.findBar.setQuery(query)  // a changed field searches as typing does
+            self.showFindBar()
+            if needsSearch { self.find(query, forward: true) }
+        }
     }
 
     /// Always a follow-up find: CEF restarts the search when the text changes, and unlike a first
