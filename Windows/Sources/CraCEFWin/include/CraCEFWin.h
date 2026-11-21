@@ -234,6 +234,18 @@ void cra_loading_bar_draw(uintptr_t bar, int x, int y, int width, int height, do
 void cra_loading_bar_hide(uintptr_t bar);
 void cra_loading_bar_destroy(uintptr_t bar);
 
+// MARK: - Resize strip
+
+/// The docked sidebar's edge (CraResizeStrip.cpp): an unseen window owned by `owner` (an HWND)
+/// with the left-right pointer. A press on it calls `dragged` with `phase` 0, each move while
+/// held 1, and the end (let go, or the mouse taken away) 2, with the pointer's screen x and the
+/// message time in seconds.
+typedef void (*CraStripDragged)(void *context, int phase, int screen_x, double seconds);
+uintptr_t cra_resize_strip_create(uintptr_t owner, void *context, CraStripDragged dragged);
+/// Screen pixels; a width or height of 0 hides it.
+void cra_resize_strip_place(uintptr_t strip, int x, int y, int width, int height);
+void cra_resize_strip_destroy(uintptr_t strip);
+
 // MARK: - Arc tips
 
 /// Arc's hover tip (CraTooltip.cpp): one topmost window the mouse goes through, in the space's
