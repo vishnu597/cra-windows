@@ -231,7 +231,7 @@ final class SidebarView {
             tile.horizontalAlignment = .stretch
             tile.verticalAlignment = .stretch
             tile.contextFlyout = tabMenu(item)
-            try? ToolTipService.setToolTip(tile, item.displayTitle)
+            ArcTip.set(tile, item.displayTitle, placement: .cursor)
             favorites.children.append(tile)
             try? Grid.setRow(tile, Int32(i / perRow))
             try? Grid.setColumn(tile, Int32(i % perRow))
@@ -503,7 +503,7 @@ final class SidebarView {
             }
             button.verticalAlignment = .center
             try? AutomationProperties.setName(button, speaker.help)
-            try? ToolTipService.setToolTip(button, speaker.help)
+            ArcTip.set(button, speaker.help)
             label.children.append(button)
         }
         let name = UI.text(title.isEmpty ? "New Tab" : title, color: palette.text)
@@ -845,13 +845,13 @@ final class SidebarView {
                 self?.store.focusSpace(space.id, window: self?.windowID)
             }
             spaceCells.append((dot, space.id))
-            try? ToolTipService.setToolTip(dot, space.title)
+            ArcTip.set(dot, space.title, placement: .above)
             dot.contextFlyout = spaceMenu(space)
             spacesBar.children.append(dot)
         }
         guard !store.isIncognito(space: focused.id) else { return }
         let add = UI.button("+", color: palette.secondaryText) { [weak self] in self?.newSpace() }
-        try? ToolTipService.setToolTip(add, "New Space")
+        ArcTip.set(add, "New Space")
         spacesBar.children.append(add)
     }
 

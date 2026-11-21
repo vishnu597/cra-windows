@@ -212,6 +212,25 @@ void cra_loading_bar_draw(uintptr_t bar, int x, int y, int width, int height, do
 void cra_loading_bar_hide(uintptr_t bar);
 void cra_loading_bar_destroy(uintptr_t bar);
 
+// MARK: - Arc tips
+
+/// Arc's hover tip (CraTooltip.cpp): one topmost window the mouse goes through, in the space's
+/// tones (0xRRGGBB each).
+typedef struct CraArcTipColors {
+    uint32_t fill, title, cap, cap_glyph, cap_edge, ring;
+} CraArcTipColors;
+
+/// The tip's text in DIPs: its one-line width (past `max_width` the caller wraps it) and its
+/// height wrapped at `max_width`; each of `count` keys' glyph width into `key_widths`.
+void cra_arc_tip_measure(const char *text, double max_width, const char *const *keys, size_t count, double *text_width,
+                         double *text_height, double *key_widths);
+/// Shows the tip at `x, y` (screen pixels), `width` × `height` DIPs at `scale` pixels a DIP,
+/// `corner` its radius: the text 10 DIPs in, `text_width` wide, then the caps `cap_widths` wide.
+void cra_arc_tip_show(int x, int y, double width, double height, double scale, double corner, const char *text,
+                      double text_width, const char *const *keys, const double *cap_widths, size_t count,
+                      const CraArcTipColors *colors);
+void cra_arc_tip_hide(void);
+
 // MARK: - Images
 
 /// A decoded image: premultiplied BGRA, top-down, `width * 4` bytes a row (a XAML

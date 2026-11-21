@@ -195,7 +195,7 @@ final class ToastView {
         closeButton.margin = Thickness(left: Double(ToastStyle.closeGap), top: 0, right: 0, bottom: 0)
         closeButton.verticalAlignment = .center
         closeButton.visibility = .collapsed
-        try? ToolTipService.setToolTip(closeButton, "Close")
+        ArcTip.set(closeButton, "Close")
         try? AutomationProperties.setName(closeButton, "Close")
         row.children.append(closeButton)
         root.child = row

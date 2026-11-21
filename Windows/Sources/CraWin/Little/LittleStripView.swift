@@ -46,7 +46,7 @@ final class LittleStripView {
     /// chip: Arc shows it only once there is a profile besides Default).
     func show(url: String, space: Space, profile: String?) {
         urlLabel.text = url.isEmpty ? "" : SuggestionEngine.humanURL(url)
-        try? ToolTipService.setToolTip(pillButton, url.isEmpty ? "Search or Enter URL…" : url)
+        ArcTip.set(pillButton, url.isEmpty ? "Search or Enter URL…" : url)
         profileChip.visibility = profile == nil ? .collapsed : .visible
         profileLabel.text = profile ?? ""
         try? AutomationProperties.setName(profileChip, "Profile: \(profile ?? "Default")")
@@ -56,7 +56,7 @@ final class LittleStripView {
         badgeLabel.text = key ?? ""
         badgeLabel.visibility = key == nil ? .collapsed : .visible
         let tip = "Open this page in \(space.title) as a tab" + (key.map { " (\($0))" } ?? "")
-        try? ToolTipService.setToolTip(openButton, tip)
+        ArcTip.set(openButton, tip)
         try? AutomationProperties.setName(openButton, "Open in \(space.title)")
     }
 
@@ -174,7 +174,7 @@ final class LittleStripView {
         round(link, 6)
         hover(link, fill: L.Palette.iconHover, ink: L.Palette.iconHot)
         let copyKey = WinKeyBindings.shared.action("copyURL")?.primary.map { " (\($0.windowsDisplay))" } ?? ""
-        try? ToolTipService.setToolTip(link, "Copy URL" + copyKey)
+        ArcTip.set(link, "Copy URL" + copyKey)
         try? AutomationProperties.setName(link, "Copy URL")
         end.children.append(link)
 
@@ -243,7 +243,7 @@ final class LittleStripView {
         chevron.verticalAlignment = .stretch
         chevron.cornerRadius = CornerRadius(topLeft: 0, topRight: r - 1, bottomRight: r - 1, bottomLeft: 0)
         hover(chevron, fill: L.Palette.buttonHover, ink: L.Palette.label)
-        try? ToolTipService.setToolTip(chevron, "More Spaces")
+        ArcTip.set(chevron, "More Spaces")
         try? AutomationProperties.setName(chevron, "More Spaces")
         parts.children.append(chevron)
         try? Grid.setColumn(chevron, 2)

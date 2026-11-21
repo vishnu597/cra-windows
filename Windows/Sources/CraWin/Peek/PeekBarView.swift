@@ -61,7 +61,7 @@ final class PeekBarView {
         backGlyph.opacity = canGoBack ? 1 : 0.4
         forwardGlyph.opacity = canGoForward ? 1 : 0.4
         reloadGlyph.glyph = WinGlyph.code(isLoading ? "xmark" : "arrow.clockwise")
-        try? ToolTipService.setToolTip(reload, isLoading ? "Stop" : "Refresh" + keyHint("reload"))
+        ArcTip.set(reload, isLoading ? "Stop" : "Refresh" + keyHint("reload"))
         try? AutomationProperties.setName(reload, isLoading ? "Stop" : "Refresh")
         let human = SuggestionEngine.humanURL(url)
         let site = AppSettings.siteKey(for: url) ?? human
@@ -72,7 +72,7 @@ final class PeekBarView {
         path.foreground = dim
         address.visibility = url.isEmpty ? .collapsed : .visible
         paintStates(address, hover: colors.light ? UI.brush(0, 0, 0, alpha: 14) : UI.brush(255, 255, 255, alpha: 20), ink: ink)
-        try? ToolTipService.setToolTip(address, url)
+        ArcTip.set(address, url)
     }
 
     // MARK: Layout
@@ -116,7 +116,7 @@ final class PeekBarView {
         copy = UI.button(copyGlyph, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in self?.onCopy() }
         copy.width = 26
         copy.height = 26
-        try? ToolTipService.setToolTip(copy, "Copy URL" + keyHint("copyURL"))
+        ArcTip.set(copy, "Copy URL" + keyHint("copyURL"))
         try? AutomationProperties.setName(copy, "Copy URL")
 
         let centre = StackPanel()
@@ -151,7 +151,7 @@ final class PeekBarView {
         let b = UI.button(glyph, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0), action)
         b.width = 37
         b.height = 26
-        try? ToolTipService.setToolTip(b, tip)
+        ArcTip.set(b, tip)
         try? AutomationProperties.setName(b, name)
         return b
     }

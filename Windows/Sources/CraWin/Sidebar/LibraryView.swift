@@ -212,7 +212,7 @@ final class LibraryView {
         }
         back.horizontalAlignment = .left
         back.margin = Thickness(left: 8, top: 0, right: 0, bottom: 8)
-        try? ToolTipService.setToolTip(back, "Exit the Library (Esc)")
+        ArcTip.set(back, "Exit the Library (Esc)")
         try? AutomationProperties.setName(back, "Exit the Library")
         column.children.append(back)
         try? Grid.setRow(back, 3)
@@ -391,7 +391,7 @@ final class LibraryView {
                          detail: SuggestionEngine.humanURL(url), menu: menu) { [weak self] in
             self?.actions?.restoreArchived(id)
         }
-        if !url.isEmpty { try? ToolTipService.setToolTip(row, url) }
+        if !url.isEmpty { ArcTip.set(row, url, placement: .cursor) }
     }
 
     private func addDownload(_ entry: DownloadHistory.Entry) {
