@@ -21,7 +21,10 @@ final class NotificationAreaIcon {
         self.perform = perform
         self.quit = quit
         window = Self.makeWindow()
-        guard let window else { return print("Cra: the notification-area icon has no window (\(GetLastError()))") }
+        guard let window else {
+            print("Cra: the notification-area icon has no window (\(GetLastError()))")
+            return
+        }
         Self.icons[UInt(bitPattern: window)] = self
         add()
     }
