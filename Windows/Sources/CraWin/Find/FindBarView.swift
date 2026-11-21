@@ -40,6 +40,12 @@ final class FindBarView {
         try? field.selectAll()
     }
 
+    /// Use Selection to Find: `text` in the field. A change searches, as typing does.
+    func setQuery(_ text: String) {
+        guard field.text != text else { return }
+        field.text = text
+    }
+
     /// Chromium's answer; -1 leaves a value as it was (CEF reports them separately).
     func report(matches count: Int, active activeMatch: Int) {
         if count >= 0 { matches = count }

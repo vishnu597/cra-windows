@@ -260,16 +260,32 @@ extern "C" int cra_save_png_dialog(uintptr_t owner, const char *title, const cha
 
 extern "C" int cra_save_file_dialog(uintptr_t owner, const char *title, const char *file_name, const char *type_name,
                                     const char *extension, char *out, size_t capacity) {
-    if (!out || capacity == 0 || !type_name || !extension) return 0;
+    return cra_save_file_dialog_types(owner, title, file_name, &type_name, &extension, 1, out, capacity, nullptr);
+}
+
+extern "C" int cra_save_file_dialog_types(uintptr_t owner, const char *title, const char *file_name,
+                                          const char *const *type_names, const char *const *extensions, size_t count,
+                                          char *out, size_t capacity, int *chosen_type) {
+    if (!out || capacity == 0 || !type_names || !extensions || count == 0) return 0;
     out[0] = '\0';
+    if (chosen_type) *chosen_type = 0;
+    for (size_t i = 0; i < count; ++i)
+        if (!type_names[i] || !extensions[i]) return 0;
     ComPtr<IFileSaveDialog> dialog;
     if (FAILED(CoCreateInstance(kFileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return 0;
     if (title) dialog->SetTitle(Wide(title).c_str());
     if (file_name) dialog->SetFileName(Wide(file_name).c_str());
-    const std::wstring name = Wide(type_name), ext = Wide(extension), pattern = L"*." + ext;
-    COMDLG_FILTERSPEC types[] = {{name.c_str(), pattern.c_str()}};
-    dialog->SetFileTypes(1, types);
-    dialog->SetDefaultExtension(ext.c_str());
+    std::vector<std::wstring> names, patterns;
+    for (size_t i = 0; i < count; ++i) {
+        names.push_back(Wide(type_names[i]));
+        patterns.push_back(L"*." + Wide(extensions[i]));
+    }
+    std::vector<COMDLG_FILTERSPEC> types;
+    for (size_t i = 0; i < count; ++i) types.push_back({names[i].c_str(), patterns[i].c_str()});
+    dialog->SetFileTypes(static_cast<UINT>(count), types.data());
+    dialog->SetFileTypeIndex(1);
+    // The selected type's extension goes on a name typed without one.
+    dialog->SetDefaultExtension(Wide(extensions[0]).c_str());
     std::wstring downloads = DownloadsFolder();
     ComPtr<IShellItem> folder;
     if (!downloads.empty() && SUCCEEDED(SHCreateItemFromParsingName(downloads.c_str(), nullptr, IID_PPV_ARGS(&folder))))
@@ -279,6 +295,9 @@ extern "C" int cra_save_file_dialog(uintptr_t owner, const char *title, const ch
     if (FAILED(dialog->Show(reinterpret_cast<HWND>(owner))) || FAILED(dialog->GetResult(&result)) ||
         FAILED(result->GetDisplayName(SIGDN_FILESYSPATH, &path)) || !path)
         return 0;
+    UINT index = 1;
+    if (chosen_type && SUCCEEDED(dialog->GetFileTypeIndex(&index)) && index >= 1 && index <= count)
+        *chosen_type = static_cast<int>(index - 1);
     int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, out, static_cast<int>(capacity), nullptr, nullptr);
     CoTaskMemFree(path);
     return n > 0 ? 1 : 0;
