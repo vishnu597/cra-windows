@@ -95,7 +95,7 @@ enum UI {
 }
 
 /// The sidebar's colours for a space, from its theme as the app shows it (an Auto theme's light or
-/// dark half by Windows' app mode or View ▸ Appearance): CraCore's SidebarColors, the Mac's
+/// dark half by Windows' app mode or View ▸ Appearance): CraCore's SidebarSurface, the Mac's
 /// SpacePalette. Windows has no live material behind the sidebar, so a see-through theme is drawn
 /// as it reads over Arc's, active or not (`flatStops(over:)` with SidebarMaterialFill's grey).
 @MainActor
@@ -118,7 +118,7 @@ struct SidebarPalette {
     /// material goes to the material's flat inactive grey under its colours (SidebarMaterialFill).
     init(_ theme: SpaceTheme, active: Bool = true) {
         let dark = WinAppearance.isDark
-        let colors = SidebarColors.shown(theme, systemDark: dark)
+        let colors = SidebarSurface.shown(theme, systemDark: dark)
         let grey = SidebarMaterialFill.grey(theme: theme, active: active, systemDark: dark,
                                             reduceTransparency: WinAppearance.reduceTransparency)
         let stops = colors.flatStops(over: grey)

@@ -5,7 +5,7 @@ import Foundation
 /// light themes' ink and the toolbar band. The Mac paints the stops at their opacity over a live
 /// material (SpacePalette, ShellView); a window with no live material (Windows) paints
 /// `flatStops(over:)` with the material's grey (SidebarMaterialFill).
-public struct SidebarColors: Equatable, Sendable {
+public struct SidebarSurface: Equatable, Sendable {
     /// The theme reads dark: white text over it.
     public var dark: Bool
     /// The gradient's colours, top to bottom (one colour gets a second a shade further on).
@@ -24,8 +24,8 @@ public struct SidebarColors: Equatable, Sendable {
 
     /// The theme as the app shows it now: an Auto theme's light or dark half, over the material its
     /// appearance picks.
-    public static func shown(_ theme: SpaceTheme, systemDark: Bool) -> SidebarColors {
-        SidebarColors(resolved: theme.resolved(systemDark: systemDark),
+    public static func shown(_ theme: SpaceTheme, systemDark: Bool) -> SidebarSurface {
+        SidebarSurface(resolved: theme.resolved(systemDark: systemDark),
                       lightMaterial: theme.usesLightMaterial(systemDark: systemDark))
     }
 

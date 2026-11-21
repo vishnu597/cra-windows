@@ -1798,7 +1798,7 @@ final class BrowserWindow {
 
     /// The page area's own colour (between panes, in an empty pane) is the sidebar's.
     private func applyPaneColors(_ theme: SpaceTheme) {
-        // The sidebar's top colour, as its palette draws it (SidebarColors over SidebarMaterialFill's grey).
+        // The sidebar's top colour, as its palette draws it (SidebarSurface over SidebarMaterialFill's grey).
         let c = sidebar.palette.top
         func byte(_ v: Double) -> UInt8 { UInt8((min(max(v, 0), 1) * 255).rounded()) }
         let fill = HostColor(r: byte(c.r), g: byte(c.g), b: byte(c.b))

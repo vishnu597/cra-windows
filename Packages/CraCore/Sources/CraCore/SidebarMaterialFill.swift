@@ -20,7 +20,7 @@ public enum SidebarMaterialFill {
     /// The grey (0...1) a space's sidebar reads over, active or not: Arc's material for the theme as
     /// shown (its light one by the space's appearance, its darker one under a dark editor gradient),
     /// over Windows' window ground. A theme Arc draws over a blur instead (an imported vibrant one)
-    /// takes the same material; an opaque theme shows none of it (SidebarColors.flatStops).
+    /// takes the same material; an opaque theme shows none of it (SidebarSurface.flatStops).
     public static func grey(theme: SpaceTheme, active: Bool, systemDark: Bool, reduceTransparency: Bool) -> Double {
         let shown = theme.resolved(systemDark: systemDark)
         let material = SidebarBackdrop.resolve(

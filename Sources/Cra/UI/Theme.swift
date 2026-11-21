@@ -65,10 +65,10 @@ extension SpaceTheme {
         return Color(.sRGB, red: x.r + (y.r - x.r) * k, green: x.g + (y.g - x.g) * k, blue: x.b + (y.b - x.b) * k, opacity: 1)
     }
 
-    /// Arc's light-theme ink and toolbar band (SidebarColors, where the measurements are).
-    static func inkColor(_ hex: String) -> Color { Color(SidebarColors.ink(hex)) }
+    /// Arc's light-theme ink and toolbar band (SidebarSurface, where the measurements are).
+    static func inkColor(_ hex: String) -> Color { Color(SidebarSurface.ink(hex)) }
 
-    static func toolbarColor(_ hex: String, dark: Bool) -> Color { Color(SidebarColors.toolbar(hex, dark: dark)) }
+    static func toolbarColor(_ hex: String, dark: Bool) -> Color { Color(SidebarSurface.toolbar(hex, dark: dark)) }
 
     /// The theme as macOS shows it now: an Auto theme's light or dark half. Read under
     /// observation tracking, a switch of macOS' appearance redraws whatever showed the old half.
@@ -84,8 +84,8 @@ extension SpaceTheme {
 
     /// The palette of a resolved theme (its appearance is light or dark, or judged by colour).
     private func fixedPalette(lightMaterial: Bool) -> SpacePalette {
-        // The stops and their opacity are shared with Windows (SidebarColors, where the rules are).
-        let shared = SidebarColors(resolved: self, lightMaterial: lightMaterial)
+        // The stops and their opacity are shared with Windows (SidebarSurface, where the rules are).
+        let shared = SidebarSurface(resolved: self, lightMaterial: lightMaterial)
         let dark = shared.dark
         let base = colors.isEmpty ? ["#DDDDDD"] : colors
         let overMaterial = shared.overMaterial
