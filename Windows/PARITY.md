@@ -23,7 +23,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
 | Window, pages and toolbar | 11 | 8 | 0 | 8 | 1 |
-| Sidebar | 7 | 14 | 0 | 8 | 0 |
+| Sidebar | 8 | 14 | 0 | 7 | 0 |
 | Command bar and shortcuts | 1 | 6 | 0 | 3 | 0 |
 | Split view | 2 | 3 | 0 | 0 | 0 |
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 4 | 3 | 0 | 10 | 9 |
-| **All** | 39 | 58 | 1 | 51 | 18 |
+| **All** | 40 | 58 | 1 | 50 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -97,8 +97,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Tab row on hover: the name runs to 13 pt before the close button (#243) | ❌ | `SidebarRowViews.swift` | `TabRowTrailing` | Upstream 12ab4cf. Windows' row keeps a fixed gap; use `TabRowTrailing`'s insets. |
 | Mouse back and forward buttons over the sidebar switch spaces (#233) | ✅ [#47] | `SidebarView.swift` | `MouseButtonSpaceSwitch` | Upstream 2b95100. Windows: WinUI's XButton1/XButton2 release over the sidebar (`buttonNumber(windowsXButton:)`); over a page they stay Chromium's. Logi Options+'s Alt+arrow and swipe paths are Mac only. |
 | Favorite previews on hover: a Gmail favorite's unread mail, a Google Calendar favorite's Live Calendar, Join Meeting (`joinNextMeeting`, ⌃⌘J) | ❌ | `FavoritePreviewCard.swift`, `LiveCalendarClient.swift` | `GmailPreview`, `CalendarPreview`, `FavoritePreviewMetrics` | Upstream 06366ad, 874e1ca, 32caaf8. Windows needs the hover card over the favorites row and the same signed-in page reads. |
-| Download location per profile: a folder, or ask where to save each file (Settings ▸ Profiles) | ❌ | `DownloadDestinations.swift`, `ProfilesPane.swift` | `DownloadLocation` | Upstream ef42649. `DownloadLocation`'s decoder keeps only folders starting with "/": Windows needs drive paths (`C:\…`) to count as absolute first. |
-| Downloads list in the footer, thumbnails, no Chrome download arrow | 🟡 [#10] [#12] | `DownloadsTray.swift`, `DownloadThumbnails.swift`, `ChromeDownloadAnimation.swift`, `DownloadProgressBadge.swift`, `DownloadRowMenu.swift`, `DownloadHistory.swift` | `DownloadHistory`, `DownloadRow`, `DownloadMenu`, `RelativeTime`, `DownloadsTrayHover` | `viewDownloads` is Ctrl+J (Chrome's Downloads key): the Library's Downloads page (#27), with Open, Show in Folder and Open Downloads Folder. Missing: the flight into the bin (`DownloadFlight.swift`), upstream e44ba8f's pause/resume/cancel callbacks and row menu, the progress ring on the bin and confirmation before quitting with downloads running. Sync #23: transient/Web Store CRX downloads stay out of Mac engine guards/history (#491, #496, #519). The fork keeps `DownloadHistory` in CraCore; Windows callback/guard integration still needs testing. Sync #24: the list stays open on the way up from the Library button (#575). |
+| Download location per profile: a folder, or ask where to save each file (Settings ▸ Profiles) | ✅ [#84] | `DownloadDestinations.swift`, `ProfilesPane.swift` | `DownloadLocation` | Upstream ef42649. `DownloadLocation`'s decoder keeps Windows drive and share folders (`C:\…`, `\\server\share`) as well as "/" paths (`isAbsolute`). Windows: each profile's row in Settings ▸ Profiles has the Mac's pop-up (the folder, Other… with Windows' folder picker, Ask Where to Save Each File); the bridge saves each profile's downloads there (`DownloadLocation.bridgeLines`, `cra_cef_set_download_locations`), falling back to Downloads when the folder is gone, and asking opens Windows' Save dialog there. Private windows follow Default; the Library's Open Downloads Folder opens the focused space's profile's folder. |
+| Downloads list in the footer, thumbnails, no Chrome download arrow | 🟡 [#10] [#12] | `DownloadsTray.swift`, `DownloadThumbnails.swift`, `ChromeDownloadAnimation.swift`, `DownloadProgressBadge.swift`, `DownloadRowMenu.swift`, `DownloadHistory.swift` | `DownloadHistory`, `DownloadRow`, `DownloadMenu`, `RelativeTime`, `DownloadsTrayHover` | `viewDownloads` is Ctrl+J (Chrome's Downloads key): the Library's Downloads page (#27), with Open, Show in Folder and Open Downloads Folder. Windows [#94]: Arc's row menu in the list and on Library ▸ Downloads (`DownloadMenu`, in Windows' words with `DownloadMenu.windowsTitle` and kinds from the extension, `DownloadMenu.Kind.of(fileName:)`): Pause, Resume and Cancel while a download runs (CEF's download callbacks, `cra_cef_control_download`, the paused state reported back), Open, Copy (the file, CF_HDROP), Show in Folder, Hide from Cra and Move to Recycle Bin once done. Missing: the flight into the bin (`DownloadFlight.swift`), the progress ring on the bin and confirmation before quitting with downloads running. Sync #23: transient/Web Store CRX downloads stay out of Mac engine guards/history (#491, #496, #519). The fork keeps `DownloadHistory` in CraCore; Windows callback/guard integration still needs testing. Sync #24: the list stays open on the way up from the Library button (#575). |
 | Download flight into the Library button | ❌ | `DownloadFlight.swift` | | |
 | Favicons in rows, tiles and the command bar | 🟡 [#12] | `FaviconCache.swift` | `FaviconKey` | Since upstream 061a0ef (#211) and f6c91a3 (#291), each tab's icon, including a data: icon, persists across relaunch (`FaviconKey`, `SidebarStore.setFaviconKey`). Windows still keeps one icon a site. |
 | Live folder plugins: built-in GitHub, GitLab and Jira, installed JavaScript providers | ❌ | `LiveFolderManager.swift`, `LiveFolderPluginStore.swift`, `LiveFolderViews.swift`, `PluginsPane.swift` | `LiveFolderModel`, `GitLabLiveClient` (legacy model), `LiveFolderPlugin`, `LiveFolderPluginArchive`, `LiveFolderPluginConfiguration`, `LiveFolderPluginOutput`, `LiveFolderPluginPackage`, `LiveFolderPluginProcess` | Upstream 664cc6a replaces the native GitHub/GitLab clients with bundled JavaScript providers and a package/permission flow (Settings ▸ `plugins`); b08beb3 fixes bundled paths under /private. `GitHubLiveClient.swift` was deleted upstream. Windows needs the runtime, exact-origin session reads, package settings and native live rows. Pure manifest/ZIP/output validation is portable; operational ZIP extraction and plugin process invocation explicitly report unsupported on Windows until its installer/runtime is implemented. Preserve old folder data. |
@@ -820,5 +820,7 @@ page's tab or the Little Window's profile.
 [#72]: https://github.com/vishnu597/cra-windows/pull/72
 [#82]: https://github.com/vishnu597/cra-windows/pull/82
 [#83]: https://github.com/vishnu597/cra-windows/pull/83
+[#84]: https://github.com/vishnu597/cra-windows/pull/84
 [#86]: https://github.com/vishnu597/cra-windows/pull/86
 [#91]: https://github.com/vishnu597/cra-windows/pull/91
+[#94]: https://github.com/vishnu597/cra-windows/pull/94
