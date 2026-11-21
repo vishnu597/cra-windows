@@ -78,6 +78,11 @@ final class SidebarView {
     var dockCells: [SidebarDockCell] = []
     var dockHovered: UUID?
     var wheel = WheelSpaceSwitch()
+    /// Arc's "+" past the last space, the sideways wheel's pull that brings it out, and the timer
+    /// that looks for the pull's end (NewSpacePlus.swift).
+    let newSpacePlus = NewSpacePlusView()
+    var newSpacePull = NewSpaceWheelPull()
+    var newSpaceLiftTimer: WinAppSDK.DispatcherQueueTimer?
     /// The space header's name button, where Change Space Icon… points its picker, and the open picker.
     var headerTitle: FrameworkElement?
     var iconPicker: SpaceIconPickerView?
@@ -173,6 +178,9 @@ final class SidebarView {
         }
         creationHost.visibility = .collapsed
         root.children.append(creationHost)
+        root.children.append(newSpacePlus.root)
+        try? Grid.setRowSpan(newSpacePlus.root, 4)
+        try? Canvas.setZIndex(newSpacePlus.root, 90)
         try? Grid.setRowSpan(creationHost, 3)
         makeDragChrome()
         makeLinkDropTarget()

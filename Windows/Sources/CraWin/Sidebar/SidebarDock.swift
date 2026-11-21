@@ -208,8 +208,11 @@ extension SidebarView {
         let shift = GetKeyState(0x10) < 0
         guard horizontal || shift else { return false }
         let dx = WheelSpaceSwitch.lines(windowsDelta: delta, horizontal: horizontal)
-        let step = wheel.step(dx: dx, inverted: false, at: Double(GetTickCount64()) / 1000)
         let paged = store.pagedSpaces(window: windowID).filter { !store.hidesSpaceHeader($0.id) }
+        // A touchpad's sideways swipe on the last space pulls Arc's "+" out instead (#564).
+        let onLast = paged.last?.id == store.focusedSpaceID(window: windowID)
+        if horizontal, pullNewSpace(lines: dx, onLastSpace: onLast) { return true }
+        let step = wheel.step(dx: dx, inverted: false, at: Double(GetTickCount64()) / 1000)
         guard step != 0, let index = paged.firstIndex(where: { $0.id == store.focusedSpaceID(window: windowID) }),
               case .space(let next)? = WheelSpaceSwitch.target(step: step, index: index, count: paged.count,
                                                                inLibrary: false, libraryAllowed: false)
