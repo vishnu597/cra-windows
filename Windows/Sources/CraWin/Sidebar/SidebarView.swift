@@ -147,7 +147,7 @@ final class SidebarView {
         footer.children.append(spacesBar)
         plusButton.horizontalAlignment = .right
         plusButton.verticalAlignment = .center
-        plusButton.click.addHandler { [weak self] _, _ in self?.newSpace() }
+        plusButton.click.addHandler { [weak self] _, _ in _ = self?.newSpace() }
         try? ToolTipService.setToolTip(plusButton, "New Space")
         footer.children.append(plusButton)
         // A narrower or wider sidebar can squeeze the dock into dots or give them room again.
@@ -440,6 +440,29 @@ final class SidebarView {
                 self.beginRename(item: inner.id)
             })
             menu.items.append(folderIconColorMenu(folder))
+        }
+        // Arc's Move to ▸ (upstream #662): every space, the folder's own ticked, then New Space….
+        // The folder goes to the end of that space's Pinned with all it holds.
+        if !store.isIncognito(item: id) {
+            let move = MenuFlyoutSubItem()
+            move.text = "Move to"
+            let own = store.spaceID(ofItem: id)
+            for space in store.orderedSpaces where !store.isIncognito(space: space.id) {
+                let entry = ToggleMenuFlyoutItem()
+                entry.text = "\(space.emoji) \(space.title)"
+                entry.isChecked = space.id == own
+                entry.click.addHandler { [weak self] _, _ in
+                    guard let self, space.id != own else { return }
+                    self.store.moveTab(id, toSpace: space.id, window: self.windowID)
+                }
+                move.items.append(entry)
+            }
+            move.items.append(MenuFlyoutSeparator())
+            move.items.append(UI.menuItem("New Space…") { [weak self] in
+                guard let self, let space = self.newSpace() else { return }
+                self.store.moveTab(id, toSpace: space.id, window: self.windowID)
+            })
+            menu.items.append(move)
         }
         menu.items.append(MenuFlyoutSeparator())
         menu.items.append(UI.menuItem("Delete Folder (archives tabs)") { [weak self] in self?.store.deleteFolder(id) })
@@ -1052,7 +1075,7 @@ final class SidebarView {
         }
         menu.items.append(UI.menuItem("New Folder") { [weak self] in self?.newFolder(in: space, atTop: false) })
         if !store.isIncognito(space: space.id) {
-            menu.items.append(UI.menuItem("New Space") { [weak self] in self?.newSpace() })
+            menu.items.append(UI.menuItem("New Space") { [weak self] in _ = self?.newSpace() })
         }
         menu.items.append(UI.menuItem("Clear Today") { [weak self] in self?.store.clearToday(space.id, playing: []) })
         if !store.isIncognito(space: space.id) { menu.items.append(profileMenu(space)) }
@@ -1098,11 +1121,13 @@ final class SidebarView {
         beginRename(item: store.createFolder(named: "New Folder", in: space.pinnedContainerID, index: atTop ? 0 : nil).id)
     }
 
-    func newSpace() {
+    @discardableResult
+    func newSpace() -> Space? {
         let n = store.spaceOrder.count
         // Arc's New Space starts on the profile of the space it was opened from.
         let profile = SpaceProfiles.forNewSpace(from: store.focusedSpace(window: windowID), profiles: store.profiles)
         let space = store.createSpace(title: "Space \(n + 1)", emoji: Self.spaceEmoji[n % Self.spaceEmoji.count])
         if profile != nil { store.setProfile(profile, forSpace: space.id) }
+        return store.space(space.id)
     }
 }
