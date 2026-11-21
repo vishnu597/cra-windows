@@ -404,6 +404,7 @@
 #242   Tests/Scenarios/peek-per-tab.scenario  8f4c23cdb33b
 #243   Packages/CraCore/Tests/CraCoreTests/TabRowTrailingTests.swift::hoveredNameRunsToTheCloseButton  0a8658ede567
 #243   Packages/CraCore/Tests/CraCoreTests/TabRowTrailingTests.swift::restingTailIsUnchanged  f479053f4258
+#243   Packages/CraCore/Tests/CraCoreTests/TabRowTrailingTests.swift::tailBeforeTheControls  a155a451fd51
 #245   Packages/CraCore/Tests/CraCoreTests/DownloadListTests.swift::libraryListsRunningDownloads  fec003db07c1
 #246   Packages/CraCore/Tests/CraCoreTests/PictureInPictureLayoutTests.swift::sizeStaysInTheLimits  5f329cd4f0d0
 #246   Packages/CraCore/Tests/CraCoreTests/PictureInPictureLayoutTests.swift::topBarIsArcs  10b6eff069fc

@@ -57,4 +57,12 @@ public enum TabRowTrailing {
         let textEnd = xs.first.map { $0 - nameGap } ?? rowWidth - restingTail
         return Layout(controlX: xs, textWidth: max(0, textEnd - textX))
     }
+
+    /// From the end of the name's box to the row's end with these controls shown, whatever the
+    /// row's width: what a toolkit that lays the name out itself (Windows' row button) keeps clear
+    /// on the right. 21 at rest, 45 with the close button.
+    public static func tail(controls: [Control]) -> CGFloat {
+        let width: CGFloat = 10_000
+        return width - layout(rowWidth: width, textX: 0, controls: controls).textWidth
+    }
 }
