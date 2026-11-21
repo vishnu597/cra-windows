@@ -413,9 +413,9 @@ final class LibraryView {
             box.background = palette.tile
             tile = box
         }
+        // Arc's download menu (DownloadMenu): Open, Copy, Show in Folder, Hide, Move to Recycle Bin.
         let menu = MenuFlyout()
-        menu.items.append(UI.menuItem("Open") { Shell.open(path) })
-        menu.items.append(UI.menuItem("Show in Folder") { Shell.showInFolder(path) })
+        DownloadRowMenu.fill(menu, for: .finished(entry), history: history)
         addRow(tile: tile, tileInset: 5, title: LibraryList.fileName(path),
                detail: DownloadHistory.Listed.finished(entry).subtitle(now: Date()), menu: menu) {
             Shell.open(path)
