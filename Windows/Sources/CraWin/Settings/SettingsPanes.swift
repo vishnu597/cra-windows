@@ -314,9 +314,9 @@ enum SettingsPanes {
     // MARK: Tabs
 
     /// Dia's two-column form (TabsPane on the Mac): a label per group, checkboxes beside it.
-    /// `airTrafficControl` opens the routes sheet from its button.
-    static func tabs(store: SidebarStore, palette: SettingsPalette, keepActiveSites: @escaping @MainActor (Button) -> Void,
-                     airTrafficControl: @escaping @MainActor (Button) -> Void) -> SettingsPaneContent {
+    /// `keepActiveSites` opens the Always Keep Sites Active sheet from its button. Little Window,
+    /// Peek and Air Traffic Control moved to Links.
+    static func tabs(store: SidebarStore, palette: SettingsPalette, keepActiveSites: @escaping @MainActor (Button) -> Void) -> SettingsPaneContent {
         var syncs: [() -> Void] = []
         func checkbox(_ title: String, get: @escaping @MainActor () -> Bool, set: @escaping @MainActor (Bool) -> Void) -> CheckBox {
             let box = CheckBox()
@@ -454,13 +454,72 @@ enum SettingsPanes {
             keptCount.text = keptSummary()
         }
         form.group("Memory:", [memory, sleepNote, keepRow])
-        // Arc's Links pane: where links from other apps open, "Open Little Arc when I press ⌥⌘N"
-        // (#195), New Little Window's key from any app, Peek's, and "Air Traffic Control…" with
-        // how many routes there are.
+        return SettingsPaneContent(element: form.grid) { for sync in syncs { sync() } }
+    }
+
+    // MARK: Links
+
+    /// Arc's Links pane (LinksPane on the Mac, upstream b4c20de): Little Window, then Peek, each
+    /// under its blurb, then "Choose where links open" with Air Traffic Control…, then Cra's New
+    /// tabs card. Rows whose feature Windows doesn't have yet (the Little Window's ⌥⌘-click and
+    /// archive time, Peek's ⌘-click Expand, hiding either toolbar, background tabs below the
+    /// current one, Split View's) wait for it.
+    static func links(store: SidebarStore, palette: SettingsPalette,
+                      airTrafficControl: @escaping @MainActor (Button) -> Void) -> SettingsPaneContent {
+        var syncs: [() -> Void] = []
+        func checkbox(_ title: String, get: @escaping @MainActor () -> Bool, set: @escaping @MainActor (Bool) -> Void) -> CheckBox {
+            let box = CheckBox()
+            let label = UI.text(title, trimmed: false)
+            label.textWrapping = .wrap
+            box.content = label
+            box.isChecked = get()
+            box.click.addHandler { [weak box] _, _ in
+                guard let box else { return }
+                let on = box.isChecked == true
+                if get() != on { set(on) }
+            }
+            syncs.append {
+                let on = get()
+                if box.isChecked != on { box.isChecked = on }
+            }
+            return box
+        }
+        func checkbox(_ title: String, _ key: WritableKeyPath<AppSettings, Bool>) -> CheckBox {
+            checkbox(title, get: { store.settings[keyPath: key] }, set: { store.settings[keyPath: key] = $0 })
+        }
+
+        // Arc's line over each card, in the text colour and flush with the switches.
+        func blurb(_ text: String) -> TextBlock {
+            let t = UI.text(text, size: 12, color: palette.text, trimmed: false)
+            t.textWrapping = .wrap
+            t.margin = Thickness(left: 0, top: 0, right: 0, bottom: 4)
+            return t
+        }
+        let form = Form(palette: palette)
+        let littleKey = WinKeyBindings.shared.action("newLittleWindow")?.primary?.windowsDisplay ?? "Ctrl+Alt+N"
+        form.group("Little Window:", [
+            blurb("Little Window is a smaller, simpler window. It’s perfect for quick lookups and reading funny tweets your friends send you."),
+            // Arc: "Open Little Arc when I press ⌥⌘N in any app" (#195).
+            checkbox("Open Little Window when I press \(littleKey) in any app", \.littleWindowShortcutEverywhere),
+            checkbox("Links from other apps open in Little Window", \.openExternalLinksInLittleWindow),
+        ])
+        let otherSitesNote = note("Note: This only affects Favorites and Pinned tabs", palette: palette)
+        // Cra's addition (#12), under the switch it widens.
+        let everyTab = checkbox("Peek at links to other sites in every tab", \.peekInEveryTab)
+        everyTab.isEnabled = store.settings.peekLinksToOtherSites
+        syncs.append { everyTab.isEnabled = store.settings.peekLinksToOtherSites }
+        form.group("Peek:", [
+            blurb("Peek is a way to preview a link without opening a new tab. It’s perfect for quickly looking at a link from an email, news article, or tweet."),
+            checkbox("Open a Peek window when clicking on links with Shift held", \.peekOnShiftClick),
+            checkbox("Open a Peek window when clicking on links to other sites", \.peekLinksToOtherSites),
+            otherSitesNote,
+            everyTab,
+        ])
+
         let routesRow = StackPanel()
         routesRow.orientation = .horizontal
         routesRow.spacing = 8
-        routesRow.margin = Thickness(left: 0, top: 6, right: 0, bottom: 2)
+        routesRow.margin = Thickness(left: 0, top: 2, right: 0, bottom: 2)
         let routesButton = Button()
         routesButton.content = UI.text("Air Traffic Control…", trimmed: false)
         routesButton.click.addHandler { [weak routesButton] _, _ in
@@ -475,23 +534,15 @@ enum SettingsPanes {
             _ = routesButton
             summary.text = AirTrafficControl.summary(routes: store.settings.linkRoutes.count)
         }
-        let routesNote = UI.text(AirTrafficControl.settingsNote, size: 11, color: palette.secondaryText, trimmed: false)
-        routesNote.textWrapping = .wrap
-        let littleKey = WinKeyBindings.shared.action("newLittleWindow")?.primary?.windowsDisplay ?? "Ctrl+Alt+N"
-        let everyTab = checkbox("In every tab, not only Favorites and Pinned tabs", \.peekInEveryTab)
-        everyTab.margin = Thickness(left: 20, top: 0, right: 0, bottom: 0)
-        everyTab.isEnabled = store.settings.peekLinksToOtherSites
-        syncs.append { everyTab.isEnabled = store.settings.peekLinksToOtherSites }
-        form.group("Links:", [
-            checkbox("Links from other apps open in a Little Window", \.openExternalLinksInLittleWindow),
-            checkbox("Open a Little Window when I press \(littleKey) in any app", \.littleWindowShortcutEverywhere),
-            checkbox("Open a Peek window when clicking on links to other sites", \.peekLinksToOtherSites),
-            everyTab,
-            checkbox("Open a Peek window when clicking on links with Shift held", \.peekOnShiftClick),
-            // Not in Arc's tab: what the page menu's "Open Link in New Tab" does (#276).
-            checkbox("Switch to links opened in new tabs from the page menu", \.openLinksInForeground),
+        form.group("Air Traffic Control:", [
+            blurb("Choose where links open inside Cra."),
             routesRow,
-            routesNote,
+            note(AirTrafficControl.settingsNote, palette: palette),
+        ])
+        // Not in Arc's tab: what the page menu's "Open Link in New Tab" does (#276).
+        form.group("New tabs:", [
+            checkbox("Switch to links opened in new tabs", \.openLinksInForeground),
+            note("“Open Link in New Tab” brings the new tab to the front. Off, the page you’re reading stays in front, as in Arc. Ctrl-click opens a link behind the page and Ctrl+Shift-click switches to it either way.", palette: palette),
         ])
 
         return SettingsPaneContent(element: form.grid) { for sync in syncs { sync() } }

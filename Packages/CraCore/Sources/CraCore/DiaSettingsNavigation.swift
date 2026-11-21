@@ -29,7 +29,8 @@ public enum DiaSettingsPane: String, CaseIterable, Identifiable, Sendable {
     /// What the Windows app's Settings window lists: the panes whose features it has, in the
     /// Mac's order. More join as the port gets them (docs/windows.md). Advanced holds the launch
     /// switches (#59) and page-top window dragging (#64), so it has to be listed to be reached.
-    public static let windowsPanes: [DiaSettingsPane] = [.general, .tabs, .privacy, .profiles, .extensions, .shortcuts, .advanced]
+    /// Links holds Little Window, Peek, Air Traffic Control and New tabs, as on the Mac (b4c20de).
+    public static let windowsPanes: [DiaSettingsPane] = [.general, .tabs, .links, .privacy, .profiles, .extensions, .shortcuts, .advanced]
 }
 
 /// Selected pane plus the back/forward history behind the toolbar pill.

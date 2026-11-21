@@ -48,7 +48,7 @@ struct DiaSettingsNavigationTests {
         #expect(DiaSettingsPane.windowsPanes.allSatisfy { DiaSettingsPane.allCases.contains($0) })
         let order = DiaSettingsPane.windowsPanes.compactMap { DiaSettingsPane.allCases.firstIndex(of: $0) }
         #expect(order == order.sorted(), "in the Mac's order")
-        #expect(DiaSettingsPane.windowsPanes == [.general, .tabs, .privacy, .profiles, .extensions, .shortcuts, .advanced])
+        #expect(DiaSettingsPane.windowsPanes == [.general, .tabs, .links, .privacy, .profiles, .extensions, .shortcuts, .advanced])
     }
 
     /// The Windows app builds an Advanced pane (Opening and quitting, page-top dragging), but its
@@ -56,6 +56,15 @@ struct DiaSettingsNavigationTests {
     @Test func windowsListsTheAdvancedPaneItBuilds() {
         #expect(DiaSettingsPane.windowsPanes.contains(.advanced))
         #expect(DiaSettingsPane.windowsPanes.last == .advanced)
+    }
+
+    /// Upstream b4c20de moved Little Window, Peek, Air Traffic Control and the new-tab switch out
+    /// of Tabs into a Links pane after Tabs; Windows lists it there so its rows can be reached.
+    @Test func windowsListsLinksAfterTabs() {
+        let panes = DiaSettingsPane.windowsPanes
+        let tabs = panes.firstIndex(of: .tabs), links = panes.firstIndex(of: .links)
+        #expect(tabs != nil && links == tabs.map { $0 + 1 })
+        #expect(DiaSettingsPane.links.title == "Links")
     }
 
     /// Dia's measurements: the content column fits beside the sidebar, the form's controls start
