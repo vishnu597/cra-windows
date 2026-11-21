@@ -168,6 +168,8 @@ final class SidebarView {
         spacesBar.spacing = 0
         spacesBar.horizontalAlignment = .center
         footer.margin = Thickness(left: 0, top: 8, right: 0, bottom: 0)
+        // A clear fill so a right-click past the dock's icons reaches its Spaces menu.
+        footer.background = UI.clear
         footer.children.append(spacesBar)
         plusButton.horizontalAlignment = .right
         plusButton.verticalAlignment = .center
