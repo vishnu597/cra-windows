@@ -120,6 +120,12 @@ Privacy and Extensions follow Advanced. Tabs, Plugins and Performance have no ta
 - Command bar (⌘T / File ▸ New Tab…), 7 Nov 2026, 57 fps region recordings of both apps: Arc's bar is
   there complete from one frame to the next, no fade or scale; Cra's too. Matches.
 
+- Command bar tone in dark mode (#502, Jelena Jansson's research, 18 Nov 2026): Arc's bar is see-through,
+  (26,26,26) over a black page, ≈ 30 over a mid-dark photo, 45–48 over a white page. Cra's stayed at 45–50
+  over anything ((46,45,45) at 0.97 over `.hudWindow`). Since 20 Nov the tint is a neutral 26 grey at 0.85
+  (CraCore `CommandBarTones.panel`): 26 over black, 36 over 128 grey, 47 over white, measured on macOS 26.
+  Arc's mid-tones come out a few levels darker than Cra's; the ends match.
+
 - Boost editor, 7 Nov 2026, 60 fps recordings of both apps (BoostEditorMotion): Arc draws the panel at
   85 % on its first frame and grows it to full size in 0.28 s about the middle of its right edge, no fade;
   it closes from one frame to the next. Code widens it 183 → 480 pt in 0.35 s with the 480 pt layout
@@ -234,6 +240,7 @@ How it was read: Arc's own model from its binary (Swift field metadata of `Easel
 | A click with the rectangle or ellipse tool places a 200 × 200 pt shape centred on it; a drag draws one | done (`Easel.shape`) |
 | Object menu: Bring to Front, Send to Back, Delete, —, Cut, Copy, Paste, —, Duplicate (same for shapes and link cards) | done; the strings' other rows follow for their kinds: Add/Edit Alt Text… (pictures), Set as Easel Thumbnail / Reset to Default Thumbnail (pictures, captures; the Easels page then shows that picture), and for a capture Show Live Website / Show Screenshot and Copy Capture URL |
 | One item picked at a time (the canvas holds a single `selectedObjectFrame`) | Cra's own, not in Arc (GitHub #580, Victor 20 Nov 2026): picking works as on the rest of the Mac. ⌘- or ⇧-click adds or removes an item, a drag from empty canvas draws a selection box that picks what it touches (⌘/⇧ flips them in the picks), ⌘A picks all. The group moves and snaps as one box, and the object menu, Cut/Copy/Paste, Duplicate, Delete and the colour picker (when every pick is a shape) act on all of it. Corner handles, the text pill and live-card clicks stay with a single pick (`EaselSelection`) |
+| A fixed-width canvas that grows down with its items, and zooms (`CenteringScrollView`, `ZoomInteraction`; its web export sizes the page from the lowest item) | Cra's own, not in Arc (GitHub #580, Victor 20 Nov 2026): the canvas is endless in every direction. It always reaches a whole view past the home sheet (the window's width × 2436 pt, where older easels sit), the items and what is in view, so scrolling or dragging toward any edge finds more room, left and up too; it fits back round what is there when a scroll or edit ends. A pinch or View ▸ Zoom In/Out/Actual Size (⌘+ ⌘− ⌘0) zooms it from 0.1× to 4×. A drag past the view's edge scrolls on (`EaselCanvas`) |
 | Undo and Redo (EaselEditManager's undo labels) | done (`EaselHistory`: a move, a resize, a typing session, a colour… is one step each; Edit ▸ Undo ⌘Z, Redo ⇧⌘Z) |
 | Cut, Copy and Paste of objects (Arc's `company.thebrowser.Browser.easelObject` pasteboard type) | done (`dk.kildahl.cra.easel-items`, with a picture, address or text for other apps; pictures come along to another easel) |
 | A pasted web address becomes a link card: the page's og:image across the top, then a 59 pt black bar with the site's icon (26 pt), the title (#D8D8D8) and a 36 pt ↗; 459 × 324 pt; no resize handles; the selection follows its rounded edge; a tooltip with the whole title and address | done (`EaselLinkMetadata` reads og:title/og:description/og:image and the icon as Arc's MetaTagParser does, once, without cookies); ↗ or a double click opens the page in a tab |
@@ -537,6 +544,13 @@ intensity slider dragged end to end (CraCore `SpaceStyleControls`; the app's `Wa
   cursors on a picked item's corners; rectangles and ellipses resize freely (⇧ keeps proportions).
 - An easel picked on the Easels page opens in Peek (no toolbar, the canvas on #0B0B0B, only ✕ and ⤢;
   ⤢ makes it a tab with the veiled backdrop).
+- A Peek with the address in the sidebar (Arc 1.174, checked live by the reporter of GitHub #648, 20 Nov
+  2026): the card has no bar; the sidebar's address field shows the Peek's page while it is in front, and
+  its ← → ↻, the field (command bar or edit in place) and Copy Link act on the Peek. Closing the Peek or
+  showing another tab gives the field back to the tab. With the toolbar shown the card keeps its 32 pt bar
+  (Arc 1.171). Cra: CraCore `PeekAddress`; scenarios peek-sidebar-address and peek-card-bar-with-toolbar.
+  Cra's own: #493's "Hide the Peek toolbar until you need it" keeps a bar that slides in either way, and
+  while the field shows a Peek it offers only Copy Link (pins and the Site Control Center are the tab's).
 - Media grid: in a 305 pt column the tiles are 132 pt, 12 pt from the left, 16 pt apart, rows 8 pt
   apart; a video has a white ▶ over its picture.
 - Downloads and Archived Tabs: a "Filter" pill (73 × 36 pt) beside the search opens a panel in its

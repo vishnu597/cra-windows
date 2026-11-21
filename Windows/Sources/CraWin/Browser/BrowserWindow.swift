@@ -2389,7 +2389,7 @@ extension BrowserWindow: WebPageDelegate {
     func page(_ page: WebPage, didFinishLoadingURL url: String, statusCode: Int) {
         guard let id = tabID(of: page), !store.isIncognito(item: id) else { return }
         if url.hasPrefix("chrome://settings") { watchClearBrowsingData(page) }
-        store.recordVisit(url: url, title: page.currentTitle)
+        store.recordVisit(url: url, title: page.currentTitle, profile: store.profileID(item: id))
     }
 
     /// Chrome's Delete browsing data dialog runs in the page; the command bar's history is Cra's.
