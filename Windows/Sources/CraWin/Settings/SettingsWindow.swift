@@ -276,10 +276,9 @@ final class SettingsWindow {
         let built: SettingsPaneContent
         switch pane {
         case .tabs:
-            built = SettingsPanes.tabs(store: store, palette: palette,
-                                       keepActiveSites: { [weak self] button in self?.keepActiveSites.show(from: button) }) { [weak self] button in
-                self?.airTrafficControl.show(from: button)
-            }
+            built = SettingsPanes.tabs(store: store, palette: palette) { [weak self] button in self?.keepActiveSites.show(from: button) }
+        case .links:
+            built = SettingsPanes.links(store: store, palette: palette) { [weak self] button in self?.airTrafficControl.show(from: button) }
         case .privacy: built = SettingsPanes.privacy(store: store, palette: palette) { [weak self] url in self?.onOpenURL(url) }
         case .profiles:
             built = SettingsPanes.profiles(store: store, palette: palette, owner: { [weak self] in
