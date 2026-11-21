@@ -26,7 +26,7 @@ final class SpaceCreationView: NSView, NSTextFieldDelegate, NSPopoverDelegate {
     private let enginePill = SpaceCreationPill()
     private let searchInfo = NSImageView()
     /// What the sheet said under each choice, in Arc's own tip on the row's (i).
-    static let profileNote = "Profiles make your Spaces truly separate with their own logins, cookies and site data. Spaces with the same Profile share them."
+    static let profileNote = SpaceCreationDraft.profileNote
     static let searchNote = "Searches from the command bar in this space go here. Default follows Settings."
     private let create = SpaceCreationButton()
     private let cancel = NSButton(title: "Cancel", target: nil, action: nil)

@@ -92,6 +92,8 @@ final class SidebarDockCell {
 
 extension SidebarView {
     static let dockCellHeight = 32.0
+    /// The dock's cell for the space Create a Space is making, after the last space.
+    static let pendingSpaceID = UUID()
 
     /// The space icons between the Library and + buttons (the Mac's SpaceDockView): every space
     /// an even share of the room up to 34 DIPs, squeezed into dots below 22 with the open space,
@@ -118,6 +120,14 @@ extension SidebarView {
             spaceCells.append((cell.button, id))
             spacesBar.children.append(cell.button)
         }
+        // The space being made: Arc's lit dot after the last space, its icon once a theme is
+        // chosen (SpaceCreationDraft.dockMark). A click takes the keys back to its name.
+        if creationPage != nil {
+            let cell = SidebarDockCell(id: Self.pendingSpaceID, icon: .none) { [weak self] in self?.creationPage?.focusName() }
+            try? AutomationProperties.setName(cell.button, "New space")
+            dockCells.append(cell)
+            spacesBar.children.append(cell.button)
+        }
         if dockHovered.map({ id in !dockCells.contains { $0.id == id } }) ?? false { dockHovered = nil }
         plusButton.visibility = store.isIncognito(space: focused.id) ? .collapsed : .visible
         plusButton.foreground = palette.secondaryText
@@ -136,7 +146,9 @@ extension SidebarView {
     /// here they change at once.
     func refreshDock() {
         let ids = dockCells.map(\.id)
-        let focused = store.focusedSpaceID(window: windowID)
+        // While a space is being made its pending cell is the open one.
+        let pending = creationPage?.draft
+        let focused = pending == nil ? store.focusedSpaceID(window: windowID) : Self.pendingSpaceID
         // While a space is dragged the open space keeps the wide cell, as on the Mac.
         let hovered = drag.dragging ? nil : dockHovered
         let room = SpaceDock.room(dockWidth: CGFloat(dockWidth))
@@ -146,8 +158,9 @@ extension SidebarView {
         for (i, cell) in dockCells.enumerated() {
             let isOpen = cell.id == focused, isHovered = cell.id == hovered, isWide = cell.id == wide
             let lit = SpaceDock.isLit(isOpen: isOpen, hovered: isHovered, pressed: false, isWide: isWide, squeezed: squeezed)
-            cell.apply(width: Double(widths[i]), mark: SpaceDock.mark(for: cell.icon, isOpen: isWide, squeezed: squeezed),
-                       lit: lit, filled: isHovered && !squeezed, palette: palette)
+            let mark = cell.id == Self.pendingSpaceID ? (pending?.dockMark ?? .dot(diameter: SpaceDock.dotDiameter))
+                : SpaceDock.mark(for: cell.icon, isOpen: isWide, squeezed: squeezed)
+            cell.apply(width: Double(widths[i]), mark: mark, lit: lit, filled: isHovered && !squeezed, palette: palette)
         }
     }
 

@@ -2165,7 +2165,8 @@ extension BrowserWindow: SpacesManagerActions {
     /// The new space's card joins the page, which stays open (the Mac opens the space editor).
     func newSpaceFromLibrary() {
         guard !isIncognito else { return }
-        sidebar.newSpace()
+        // The Library covers the sidebar, where Create a Space would open.
+        sidebar.newSpaceAtOnce()
     }
 
     func runCommand(_ id: String) { _ = perform(id) }
