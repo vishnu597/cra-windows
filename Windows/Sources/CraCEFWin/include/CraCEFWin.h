@@ -86,6 +86,10 @@ void cra_cef_set_content_blocking(int enabled);
 void cra_cef_load_blocked_domains(const char *path);
 /// The domains on the list read so far (0 until it's in).
 int cra_cef_blocked_domain_count(void);
+/// The whole list at once, a domain or hosts-file line each (Settings ▸ Privacy ▸ Block lists:
+/// Cra's own and every added list, CraCore's BlocklistStore). Parsed on the calling thread, then
+/// it replaces the set pages are checked against.
+void cra_cef_set_blocked_domains(const char *text);
 
 /// Chrome's "Always use secure connections" (HTTPS-only mode) on every profile, private windows
 /// included; profiles that load later get it too.
@@ -165,6 +169,8 @@ int cra_popup_menu(uintptr_t owner, const char *const *titles, size_t count);
 /// Windows' folder picker titled `title`, over `owner` (an HWND). The chosen folder's path goes
 /// to `out` (UTF-8, `capacity` bytes). 1 when a folder was chosen. Modal.
 int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *out, size_t capacity);
+/// The same for one existing file (Settings ▸ Privacy ▸ Block lists ▸ Choose File…).
+int cra_pick_file_dialog(uintptr_t owner, const char *title, char *out, size_t capacity);
 /// The file itself on the clipboard, as Explorer's Copy puts it (CF_HDROP): it pastes into
 /// Explorer, Mail or a chat. 1 when it's there.
 int cra_clipboard_set_file(const char *path);

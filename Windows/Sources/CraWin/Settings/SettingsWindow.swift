@@ -279,7 +279,10 @@ final class SettingsWindow {
             built = SettingsPanes.tabs(store: store, palette: palette) { [weak self] button in self?.keepActiveSites.show(from: button) }
         case .links:
             built = SettingsPanes.links(store: store, palette: palette) { [weak self] button in self?.airTrafficControl.show(from: button) }
-        case .privacy: built = SettingsPanes.privacy(store: store, palette: palette) { [weak self] url in self?.onOpenURL(url) }
+        case .privacy:
+            built = SettingsPanes.privacy(store: store, palette: palette, owner: { [weak self] in
+                self.map { UInt($0.appWindow.id.value) } ?? 0
+            }) { [weak self] url in self?.onOpenURL(url) }
         case .profiles:
             built = SettingsPanes.profiles(store: store, palette: palette, owner: { [weak self] in
                 self.map { UInt($0.appWindow.id.value) } ?? 0

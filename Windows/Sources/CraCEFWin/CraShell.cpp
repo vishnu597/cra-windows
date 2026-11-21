@@ -314,6 +314,25 @@ extern "C" int cra_pick_folder_dialog(uintptr_t owner, const char *title, char *
     return n > 0 ? 1 : 0;
 }
 
+extern "C" int cra_pick_file_dialog(uintptr_t owner, const char *title, char *out, size_t capacity) {
+    if (!out || capacity == 0) return 0;
+    out[0] = '\0';
+    ComPtr<IFileOpenDialog> dialog;
+    if (FAILED(CoCreateInstance(kFileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return 0;
+    FILEOPENDIALOGOPTIONS options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
+    if (title) dialog->SetTitle(Wide(title).c_str());
+    ComPtr<IShellItem> result;
+    PWSTR path = nullptr;
+    if (FAILED(dialog->Show(reinterpret_cast<HWND>(owner))) || FAILED(dialog->GetResult(&result)) ||
+        FAILED(result->GetDisplayName(SIGDN_FILESYSPATH, &path)) || !path)
+        return 0;
+    int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, out, static_cast<int>(capacity), nullptr, nullptr);
+    CoTaskMemFree(path);
+    return n > 0 ? 1 : 0;
+}
+
 extern "C" int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity) {
     return cra_save_file_dialog(owner, title, file_name, "PNG image", "png", out, capacity);
 }
