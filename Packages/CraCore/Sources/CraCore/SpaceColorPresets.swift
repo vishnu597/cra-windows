@@ -231,4 +231,21 @@ public enum SpaceColorWheel {
         func byte(_ v: Double) -> Int { Int((max(0, min(1, v)) * 255).rounded()) }
         return String(format: "#%02X%02X%02X", byte(r), byte(g), byte(b))
     }
+
+    /// How far from the pad's centre a fully saturated colour sits: 153 pt on Arc's 340 pt pad.
+    public static let reach = 153.0
+
+    /// Where colour `hex` sits on the pad, from its centre: angle its hue (clockwise from three
+    /// o'clock, y down), distance its saturation times `reach`.
+    public static func padOffset(of hex: String, reach: Double = reach) -> (dx: Double, dy: Double) {
+        let w = hsb(hex)
+        let a = w.hue * .pi / 180, r = w.saturation * reach
+        return (r * cos(a), r * sin(a))
+    }
+
+    /// The hue and saturation of a press `dx`, `dy` from the pad's centre (y down): what `placed`
+    /// takes. Past `reach` the colour stays fully saturated.
+    public static func padPick(dx: Double, dy: Double, reach: Double = reach) -> (hue: Double, saturation: Double) {
+        (atan2(dy, dx) * 180 / .pi, min(1, (dx * dx + dy * dy).squareRoot() / reach))
+    }
 }

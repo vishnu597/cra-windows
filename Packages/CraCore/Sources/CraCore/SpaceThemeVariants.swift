@@ -3,6 +3,12 @@ import Foundation
 /// The light and dark halves of an Auto theme (Arc: SpaceStyleEditorState+WindowTheme, which builds
 /// `background.appearanceBased` from the editor's key colour).
 public enum SpaceThemeVariants {
+    /// The editor pad's colours for a stored theme: its pad key, else a one-colour theme's colour
+    /// once (a flat fill stores it twice, so it is one handle), else its colours.
+    public static func padKey(of theme: SpaceTheme) -> [String] {
+        theme.key ?? (theme.solid || Set(theme.colors).count == 1 ? Array(theme.colors.prefix(1)) : theme.colors)
+    }
+
     /// What the theme editor makes of its pad: both halves for Auto, one for Light or Dark.
     /// Auto always gets both halves, one colour too (#155): Arc saves a swatch picked on Auto as one
     /// `single` theme that never changes with macOS, and copying that (0.1.30–0.1.32) left a space set

@@ -92,6 +92,13 @@ final class FloatingWindow {
         try? appWindow.hide()
     }
 
+    /// Hides it and lets the window and its XAML go (a dialog's card, made for one question).
+    func destroy() {
+        hide()
+        try? xaml.close()
+        try? appWindow.destroy()
+    }
+
     /// Windows has no event for another window taking the front from this one that reaches us
     /// here (WM_ACTIVATE goes to the window procedure AppWindow owns), so the window looks every
     /// tenth of a second while it is open, which costs nothing measurable.

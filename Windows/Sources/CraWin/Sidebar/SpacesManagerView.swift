@@ -14,6 +14,8 @@ protocol SpacesManagerActions: AnyObject {
     func openFromLibrary(space id: UUID)
     /// Arc's New Space (the page's +).
     func newSpaceFromLibrary()
+    /// Delete Space: Arc asks first.
+    func confirmDeleteSpace(_ id: UUID)
 }
 
 /// The Library's Spaces page, which Manage Spaces… opens (the Mac's SpacesManagerView, Arc
@@ -261,7 +263,7 @@ final class SpacesManagerView {
         menu.items.append(UI.menuItem("Clear Today") { [weak self] in self?.store.clearToday(id, playing: []) })
         if store.spaceOrder.count > 1 {
             menu.items.append(MenuFlyoutSeparator())
-            menu.items.append(UI.menuItem("Delete Space") { [weak self] in self?.store.deleteSpace(id) })
+            menu.items.append(UI.menuItem("Delete Space…") { [weak self] in self?.actions?.confirmDeleteSpace(id) })
         }
         return menu
     }
