@@ -4078,15 +4078,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         guard !isStandalone, window != nil else { return showSpaceEditor(space: nil, created: created) }
         if sidebarUI.libraryPage != nil { closeLibrary() }
         commandBar.close()
-        let origin = focusedSpaceID
-        // Arc starts the page on the profile of the space it was opened from.
-        let draft = SpaceCreationDraft(theme: SpaceColorPresets.newSpaceTheme(),
-                                       profile: SpaceProfiles.forNewSpace(from: store.focusedSpace, profiles: store.profiles))
+        // Arc starts the page on the profile of the space it was opened from, and the page area
+        // shows the new space's empty page (SidebarStore.beginSpaceCreation, shared with Windows).
+        let (draft, origin) = store.beginSpaceCreation(window: windowID)
         creationOrigin = origin
         creationDone = created
-        store.previewTheme(draft.theme, forSpace: origin)
-        // The page area shows the new space's empty page, as Arc's does.
-        store.windowsMakingSpace.insert(windowID)
         sidebarUI.spaceCreation = draft
         // With the sidebar hidden it comes out over the page and stays while the page is up.
         if !sidebarVisible, !shell.contentFullscreen { floatingSidebar?.show() }
@@ -4174,10 +4170,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     func cancelSpaceCreation() {
         guard sidebarUI.spaceCreation != nil else { return }
         closeCreationPanels()
-        if let origin = creationOrigin { store.endThemePreview(forSpace: origin, keep: false) }
+        if let origin = creationOrigin { store.cancelSpaceCreation(origin: origin, window: windowID) }
         creationOrigin = nil
         creationDone = nil
-        store.windowsMakingSpace.remove(windowID)
         sidebarUI.spaceCreation = nil
         currentBrowser?.setFocused(true)
         CraLog.note("space creation cancelled")
@@ -4195,16 +4190,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private func finishSpaceCreation() {
         guard let draft = sidebarUI.spaceCreation, let origin = creationOrigin else { return }
         let done = creationDone
-        store.endThemePreview(forSpace: origin, keep: false)
+        // Made and shown in this window, whichever one is active.
+        guard let id = store.finishSpaceCreation(draft, origin: origin, window: windowID) else { return }
         creationOrigin = nil
         creationDone = nil
-        let id = store.createSpace(title: draft.createdTitle, emoji: draft.icon.emoji, symbol: draft.icon.symbol,
-                                   iconImage: draft.icon.image, theme: draft.theme, focus: false).id
-        if let profile = draft.profile { store.setProfile(profile, forSpace: id) }
-        store.setSearchEngine(draft.searchEngine, forSpace: id)
-        // In this window, whichever one is active.
-        store.focusSpace(id, window: windowID)
-        store.windowsMakingSpace.remove(windowID)
         sidebarUI.spaceCreation = nil
         CraLog.note("space creation made \"\(draft.createdTitle)\" on \(draft.profile == nil ? "Default" : "a profile"), theme \(draft.themeChosen ? "chosen" : "as opened"), search \(store.space(id)?.searchEngine ?? "default")")
         done?(id)
@@ -5225,15 +5214,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     private func handleCommit(_ s: Suggestion?, typed: String, mode: CommandBarMode) {
         let query = commandBar.query
-        func open(_ url: String) {
-            var url = url
+        // address: what opens is an address entered, not a search; counted for the completion (#667).
+        func open(_ url: String, address: Bool = false) {
+            var url = url, entered = address
             // Another app's address opens that app, with no tab (#604).
             switch AppLinkPrompt.openTyped(url) {
             case .load: break
             case .openApp, .refuse: return
-            case .search: url = commandBar.engine.searchURL(typed)
+            case .search: url = commandBar.engine.searchURL(typed); entered = false
             }
             store.recordQuerySelection(query: query, url: url)
+            if entered { store.recordTyped(url: url, profile: store.profileID(space: focusedSpaceID)) }
             let fillsEmptyPane = selectedTab?.isEmptyTab == true
             // A pinned tab keeps to its host: another host's address opens a Today tab (Arc).
             let leavesPinned = !fillsEmptyPane && selectedTabID.map(store.isPinned) == true
@@ -5251,7 +5242,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         }
         guard let s else {
             if typed.isEmpty { return }
-            open(SuggestionEngine.looksLikeURL(typed) ? SuggestionEngine.urlFromInput(typed) : commandBar.engine.searchURL(typed))
+            let address = SuggestionEngine.looksLikeURL(typed)
+            open(address ? SuggestionEngine.urlFromInput(typed) : commandBar.engine.searchURL(typed), address: address)
             return
         }
         switch s.kind {
@@ -5272,11 +5264,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         case .archived(let id):
             store.restoreArchived(id)
         case .navigate:
-            open(TypedURL.navigation(typed: typed, rowURL: s.url, rowIsForTyped: typed == commandBar.query) ?? commandBar.engine.searchURL(typed))
+            let address = TypedURL.navigation(typed: typed, rowURL: s.url, rowIsForTyped: typed == commandBar.query)
+            open(address ?? commandBar.engine.searchURL(typed), address: address != nil)
         case .search:
             open(s.url ?? commandBar.engine.searchURL(typed))
         case .history, .topDomain:
-            open(s.url ?? "")
+            open(s.url ?? "", address: true)
         case .command(let id):
             app.perform(id)
         case .switchSpace(let id):

@@ -104,7 +104,7 @@ final class SiteControlCenterView {
             b.borderBrush = colors.actionOutline
             b.borderThickness = Thickness(left: 1, top: 1, right: 1, bottom: 1)
             Self.keepFill(b, colors.action, hover: colors.actionHover)
-            try? ToolTipService.setToolTip(b, action.help)
+            ArcTip.set(b, action.help)
             try? AutomationProperties.setName(b, action.help)
             if firstTile == nil { firstTile = b }
             row.children.append(b)
@@ -140,7 +140,7 @@ final class SiteControlCenterView {
             let b = UI.button(content, fill: UI.clear, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in
                 self?.actions.runExtension(id)
             }
-            try? ToolTipService.setToolTip(b, tile.name)
+            ArcTip.set(b, tile.name)
             try? AutomationProperties.setName(b, tile.name)
             cells.append(b)
         }
@@ -151,7 +151,7 @@ final class SiteControlCenterView {
         let add = UI.button(plus, fill: UI.clear, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in
             self?.actions.addExtension()
         }
-        try? ToolTipService.setToolTip(add, "Add Extension")
+        ArcTip.set(add, "Add Extension")
         try? AutomationProperties.setName(add, "Add Extension")
         cells.append(add)
         for (i, b) in cells.enumerated() {
@@ -243,7 +243,7 @@ final class SiteControlCenterView {
         pill.cornerRadius = CornerRadius(topLeft: 8, topRight: 8, bottomRight: 8, bottomLeft: 8)
         pill.isHitTestVisible = certificate != nil
         Self.keepFill(pill, colors.footerFill, hover: certificate != nil ? colors.footerHover : colors.footerFill)
-        try? ToolTipService.setToolTip(pill, label.help)
+        ArcTip.set(pill, label.help)
         try? AutomationProperties.setName(pill, label.title)
         footer.children.append(pill)
         try? Grid.setColumn(pill, 0)
@@ -259,7 +259,7 @@ final class SiteControlCenterView {
         more.height = Double(M.footer)
         more.cornerRadius = CornerRadius(topLeft: 16, topRight: 16, bottomRight: 16, bottomLeft: 16)
         Self.keepFill(more, colors.moreFill, hover: colors.moreHover)
-        try? ToolTipService.setToolTip(more, "More")
+        ArcTip.set(more, "More")
         try? AutomationProperties.setName(more, "More")
         footer.children.append(more)
         try? Grid.setColumn(more, 1)

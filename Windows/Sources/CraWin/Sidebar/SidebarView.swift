@@ -38,6 +38,10 @@ protocol SidebarActions: AnyObject {
     func separatePinnedTab(_ id: UUID)
     /// Manage Spaces…: the Library's Spaces page.
     func showLibrary(_ page: LibraryPage)
+    /// Delete Space…: Arc asks first.
+    func confirmDeleteSpace(_ id: UUID)
+    /// A command by its id (KeyBindingDefaults), as the command bar runs it.
+    func runCommand(_ id: String)
     /// A sidebar tab dragged off the sidebar, over the page: whether the panes offer a split at
     /// the pointer (the window shows it). `before`: the tab open before the press.
     func splitDragMoved(tab id: UUID, before: UUID?) -> Bool
@@ -74,6 +78,15 @@ final class SidebarView {
     var dockCells: [SidebarDockCell] = []
     var dockHovered: UUID?
     var wheel = WheelSpaceSwitch()
+    /// The space header's name button, where Change Space Icon… points its picker, and the open picker.
+    var headerTitle: FrameworkElement?
+    var iconPicker: SpaceIconPickerView?
+    var styleEditor: SpaceStyleEditorView?
+    var creationMenu: MenuFlyout?
+    /// Arc's Create a Space page while it is up (SpaceCreationPage.swift), over the space's part.
+    var creationPage: SpaceCreationPageView?
+    /// Where the page goes: over the favorites, the header and the list, empty while it is down.
+    private let creationHost = Border()
     let store: SidebarStore
     /// The window it draws: its space, its selected tab (SidebarStore.WindowSession).
     let windowID: UUID
@@ -118,8 +131,8 @@ final class SidebarView {
 
     /// Emoji a new space picks from, in turn.
     private static let spaceEmoji = ["🌱", "💼", "🎮", "📚", "🎨", "🏠", "✈️", "🧪"]
-    /// The sidebar's content width before its first layout (BrowserWindow's 280 less 10 each side).
-    private static let restingWidth = 260.0
+    /// The sidebar's content width before its first layout (the default 328 DIPs, WindowPrefs, less 10 each side).
+    private static let restingWidth = 308.0
     /// The close button's square and the unread dot centred where it shows (Arc 1.171, #139).
     private static let closeSize = 24.0, unreadDotSize = 6.0
     /// Each folder's row as drawn, for Change Icon…'s picker to hang under.
@@ -150,8 +163,9 @@ final class SidebarView {
         footer.children.append(spacesBar)
         plusButton.horizontalAlignment = .right
         plusButton.verticalAlignment = .center
-        plusButton.click.addHandler { [weak self] _, _ in _ = self?.newSpace() }
-        try? ToolTipService.setToolTip(plusButton, "New Space")
+        // Arc 1.172.1: + opens the creation menu, with no tooltip.
+        plusButton.click.addHandler { [weak self] _, _ in self?.showCreationMenu() }
+        try? AutomationProperties.setName(plusButton, "New")
         footer.children.append(plusButton)
         // A narrower or wider sidebar can squeeze the dock into dots or give them room again.
         footer.sizeChanged.addHandler { [weak self] _, _ in self?.refreshDock() }
@@ -166,6 +180,9 @@ final class SidebarView {
         jumpPill.onClick = { [weak self] in self?.jumpToSelectedRow() }
         scroll.viewChanged.addHandler { [weak self] _, _ in self?.updateJumpPill() }
         scroll.sizeChanged.addHandler { [weak self] _, _ in self?.updateJumpPill() }
+        creationHost.visibility = .collapsed
+        root.children.append(creationHost)
+        try? Grid.setRowSpan(creationHost, 3)
         makeDragChrome()
         makeLinkDropTarget()
         root.sizeChanged.addHandler { [weak self] _, _ in self?.favoritesWidthChanged() }
@@ -210,8 +227,61 @@ final class SidebarView {
         if newTabAtTop { addNewTabRow(space) }
         for item in store.children(of: space.todayContainerID) { addRow(item, depth: 0) }
         if !newTabAtTop { addNewTabRow(space) }
+        showCreationPage(space)
         buildSpacesBar(space)
         watchJumpPillRow()
+    }
+
+    // MARK: Create a Space
+
+    /// New Space: Arc's Create a Space page takes the space's place in the sidebar, and the
+    /// window shows no tab until it is left. Asked again while it is up, its name field takes the
+    /// keys. A window with no spaces of its own makes the space at once.
+    /// `created` runs with the space once it is made (Move to ▸ New Space…).
+    func beginSpaceCreation(created: (@MainActor (UUID) -> Void)? = nil) {
+        if let page = creationPage { return page.focusName() }
+        guard !store.isStandalone(window: windowID) else {
+            if let made = newSpaceAtOnce() { created?(made.id) }
+            return
+        }
+        let page = SpaceCreationPageView(store: store, window: windowID, anchor: root) { [weak self] field in
+            self?.actions?.focusRenameField(field)
+        } onDraft: { [weak self] in
+            self?.refreshDock()
+        } onEnd: { [weak self] in
+            self?.endCreationPage()
+        }
+        page.created = created
+        creationPage = page
+        creationHost.child = page.root
+        creationHost.visibility = .visible
+        build()
+    }
+
+    /// The page was left (Create Space or Cancel): the space's part comes back.
+    private func endCreationPage() {
+        guard creationPage != nil else { return }
+        creationPage = nil
+        creationHost.child = nil
+        creationHost.visibility = .collapsed
+        build()
+        actions?.renameEnded()
+    }
+
+    /// While the page is up the space's favorites, header and list make way for it. Another space
+    /// picked (the dock, a key, the wheel) cancels it, as on the Mac.
+    private func showCreationPage(_ space: Space) {
+        let page = creationPage
+        let shown: Visibility = page == nil ? .visible : .collapsed
+        header.visibility = page == nil && !store.hidesSpaceHeader(space.id) ? .visible : .collapsed
+        scroll.visibility = shown
+        if page != nil { favorites.visibility = .collapsed }
+        guard let page else { return }
+        page.apply(palette: palette, width: favoritesWidth)
+        if space.id != page.origin {
+            // Not while the store is being read for this drawing.
+            _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { [weak page] in page?.cancelCreation() }
+        }
     }
 
     /// The downloads button goes in the footer, its list over the bottom of the tab list.
@@ -269,7 +339,7 @@ final class SidebarView {
             tile.horizontalAlignment = .stretch
             tile.verticalAlignment = .stretch
             tile.contextFlyout = tabMenu(item)
-            try? ToolTipService.setToolTip(tile, item.displayTitle)
+            ArcTip.set(tile, item.displayTitle, placement: .cursor)
             favorites.children.append(tile)
             try? Grid.setRow(tile, Int32(i / perRow))
             try? Grid.setColumn(tile, Int32(i % perRow))
@@ -311,6 +381,7 @@ final class SidebarView {
 
     private func buildHeader(_ space: Space) {
         header.children.clear()
+        headerTitle = nil
         // Arc's single-space mode (Settings ▸ Tabs ▸ Spaces, or the space's menu).
         header.visibility = store.hidesSpaceHeader(space.id) ? .collapsed : .visible
         if renaming.spaceID == space.id {
@@ -336,6 +407,7 @@ final class SidebarView {
         title.horizontalAlignment = .stretch
         title.horizontalContentAlignment = .left
         title.contextFlyout = spaceMenu(space)
+        headerTitle = title
         header.children.append(title)
     }
 
@@ -469,8 +541,11 @@ final class SidebarView {
             }
             move.items.append(MenuFlyoutSeparator())
             move.items.append(UI.menuItem("New Space…") { [weak self] in
-                guard let self, let space = self.newSpace() else { return }
-                self.store.moveTab(id, toSpace: space.id, window: self.windowID)
+                // Arc's Create a Space page; the tab moves once the space is made, as on the Mac.
+                self?.beginSpaceCreation { [weak self] made in
+                    guard let self else { return }
+                    self.store.moveTab(id, toSpace: made, window: self.windowID)
+                }
             })
             menu.items.append(move)
         }
@@ -538,7 +613,7 @@ final class SidebarView {
                 try? flyout?.hide()
             }
             try? AutomationProperties.setName(remove, "Remove Icon")
-            try? ToolTipService.setToolTip(remove, "Remove Icon")
+            ArcTip.set(remove, "Remove Icon")
             header.children.append(remove)
         }
         panel.children.append(header)
@@ -555,7 +630,7 @@ final class SidebarView {
             cell.width = 29
             cell.height = 29
             try? AutomationProperties.setName(cell, symbol.title)
-            try? ToolTipService.setToolTip(cell, symbol.title)
+            ArcTip.set(cell, symbol.title)
             grid.children.append(cell)
             try? Grid.setRow(cell, Int32(i / 8))
             try? Grid.setColumn(cell, Int32(i % 8))
@@ -721,7 +796,7 @@ final class SidebarView {
             }
             button.verticalAlignment = .center
             try? AutomationProperties.setName(button, speaker.help)
-            try? ToolTipService.setToolTip(button, speaker.help)
+            ArcTip.set(button, speaker.help)
             label.children.append(button)
         }
         let name = UI.text(title.isEmpty ? "New Tab" : title, color: palette.text)
@@ -810,7 +885,7 @@ final class SidebarView {
             close.visibility = .collapsed
             let help = kind.help.replacingOccurrences(of: "⌘W", with: "Ctrl+W")
             try? AutomationProperties.setName(close, help)
-            try? ToolTipService.setToolTip(close, help)
+            ArcTip.set(close, help)
             row.children.append(close)
             try? Grid.setColumn(close, 0)
             var dot: WinUI.Ellipse?
@@ -1082,10 +1157,12 @@ final class SidebarView {
         let menu = MenuFlyout()
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("Rename Space…") { [weak self] in self?.beginRename(space: space.id) })
+            menu.items.append(UI.menuItem("Change Space Icon…") { [weak self] in self?.showIconPicker(space: space.id) })
+            menu.items.append(UI.menuItem("Edit Theme Color…") { [weak self] in self?.showStyleEditor(space: space.id) })
         }
         menu.items.append(UI.menuItem("New Folder", action: "newFolder") { [weak self] in self?.newFolder(in: space, atTop: false) })
         if !store.isIncognito(space: space.id) {
-            menu.items.append(UI.menuItem("New Space") { [weak self] in _ = self?.newSpace() })
+            menu.items.append(UI.menuItem("New Space") { [weak self] in self?.newSpace() })
         }
         menu.items.append(UI.menuItem("Clear Today", action: "clearToday") { [weak self] in self?.store.clearToday(space.id, playing: []) })
         if !store.isIncognito(space: space.id) { menu.items.append(profileMenu(space)) }
@@ -1100,7 +1177,7 @@ final class SidebarView {
         }
         if store.spaceOrder.count > 1 {
             menu.items.append(MenuFlyoutSeparator())
-            menu.items.append(UI.menuItem("Delete Space", action: "deleteSpace") { [weak self] in self?.store.deleteSpace(space.id) })
+            menu.items.append(UI.menuItem("Delete Space…", action: "deleteSpace") { [weak self] in self?.actions?.confirmDeleteSpace(space.id) })
         }
         return menu
     }
@@ -1146,6 +1223,31 @@ final class SidebarView {
 
     // MARK: Spaces
 
+    /// Change Space Icon…: Arc's picker at the space's name in the header, or at its dock icon
+    /// when the header is hidden or shows another space.
+    func showIconPicker(space id: UUID) {
+        guard let space = store.space(id) else { return }
+        let anchor = id == store.focusedSpaceID(window: windowID) && header.visibility == .visible ? headerTitle : nil
+        guard let target = anchor ?? spaceCells.first(where: { $0.id == id })?.element ?? headerTitle else { return }
+        let picker = SpaceIconPickerView(current: space.icon, dark: space.theme.isDark) { [weak self] icon in
+            guard let self, var s = self.store.space(id) else { return }
+            s.icon = icon
+            self.store.updateSpace(s)
+        }
+        iconPicker = picker
+        picker.show(at: target)
+    }
+
+    /// Edit Theme Color… (and Edit Space…): Arc's theme editor against the sidebar's edge. The
+    /// sidebar redraws under it as the theme changes, so it hangs off the sidebar itself.
+    func showStyleEditor(space id: UUID) {
+        guard let space = store.space(id) else { return }
+        try? styleEditor?.flyout.hide()
+        let editor = SpaceStyleEditorView(store: store, space: space)
+        styleEditor = editor
+        editor.show(beside: root)
+    }
+
     /// New Folder in the pinned section of `space` (the one in front by default), named at once
     /// as in Arc: at the top for the command (the Mac's), after the rest from the space's menu.
     func newFolder(in space: Space? = nil, atTop: Bool = true) {
@@ -1153,8 +1255,12 @@ final class SidebarView {
         beginRename(item: store.createFolder(named: "New Folder", in: space.pinnedContainerID, index: atTop ? 0 : nil).id)
     }
 
+    func newSpace() { beginSpaceCreation() }
+
+    /// A space made at once, named after its place (the Library's +, and a window with no spaces of
+    /// its own, where the page has nowhere to go).
     @discardableResult
-    func newSpace() -> Space? {
+    func newSpaceAtOnce() -> Space? {
         let n = store.spaceOrder.count
         // Arc's New Space starts on the profile of the space it was opened from.
         let profile = SpaceProfiles.forNewSpace(from: store.focusedSpace(window: windowID), profiles: store.profiles)

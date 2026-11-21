@@ -51,6 +51,10 @@ final class BrowserWindow {
     private let dispatcher: WinAppSDK.DispatcherQueue
     /// The window's HWND: every page is a child window of it.
     private var hwnd: UInt = 0
+    /// The window's HWND, for the hover tips' tones (ArcTip).
+    var nativeHandle: UInt { hwnd }
+    /// Arc paints a browser window's tips from its space's palette.
+    var tooltipTones: TooltipTones { TooltipTones(theme: store.focusedSpace(window: windowID).theme) }
 
     /// Pages by tab id.
     private var pages: [UUID: WebPage] = [:]
@@ -108,6 +112,14 @@ final class BrowserWindow {
     private var closeTimer: WinAppSDK.DispatcherQueueTimer?
     /// Arc's loading bar at the window's top middle, for the page in front.
     private var loadingBar: LoadingBar?
+    /// The docked sidebar's edge, which a drag resizes (`SidebarResize`).
+    private var sidebarEdge: SidebarEdge?
+    private var sidebarResize: SidebarResize?
+    /// The drag under way hid the sidebar; dragged back, it shows again.
+    private var hiddenByResize = false
+    /// The tab sidebar's width in DIPs: the one saved (`WindowPrefs.sidebarWidth`, shared by
+    /// every window), or the drag's while one is on.
+    private var tabSidebarWidth = WindowPrefs().sidebarWidth
     /// Tries the sidebar's keyboard focus again while the XAML is still loading (focusSidebar).
     private var sidebarFocusRetry: WinAppSDK.DispatcherQueueTimer?
     /// Ctrl+,: one for the app, made the first time any window opens it, then hidden and shown
@@ -164,7 +176,6 @@ final class BrowserWindow {
     /// it back when nothing was archived after it.
     var closedPeek: (url: String, tabID: UUID?, at: Date)?
 
-    private static let sidebarWidth = 280.0
     /// What a new window opens when the sidebar has nothing to show.
     static let startPage = "https://crabrowser.app"
 
@@ -206,12 +217,15 @@ final class BrowserWindow {
             guard let self, let host = HWND(bitPattern: self.hwnd) else { return }
             _ = SetCapture(host)
         }
-        window = try HostWindow(content: makeLayout(), topBar: developerBar.root, sidebarWidth: Self.sidebarWidth, frame: frame)
+        tabSidebarWidth = SidebarResizeHandle.restored(store.prefs.sidebarWidth)
+        window = try HostWindow(content: makeLayout(), topBar: developerBar.root, sidebarWidth: tabSidebarWidth, frame: frame)
         window.title = Self.title(nil, incognito: isIncognito)
         hwnd = window.hwnd
         loadingBar = LoadingBar(owner: hwnd, dispatcher: dispatcher)
+        sidebarEdge = SidebarEdge(owner: hwnd)
         window.onLayout = { [weak self] _ in
             self?.placeLoadingBar()
+            self?.placeSidebarEdge()
             self?.syncLibraryWidth()
             self?.repositionPeeks()
             self?.layoutPanes()
@@ -222,6 +236,7 @@ final class BrowserWindow {
         }
         window.onMove = { [weak self] in
             self?.placeLoadingBar()
+            self?.placeSidebarEdge()
             self?.repositionPeeks()
             self?.placeFindBar()
             self?.placePermissionPrompt()
@@ -250,6 +265,7 @@ final class BrowserWindow {
             self.focusContent()
         }
         makeFloatingSidebar()
+        wireSidebarEdge()
         makeCommandBar()
         makeFindBar()
         makeDeveloperBar()
@@ -363,6 +379,9 @@ final class BrowserWindow {
                 syncLibraryWidth()
             }
             syncSidebarMode()
+            syncSidebarWidth()
+            syncSidebarSide()
+            placeSidebarEdge()
             syncPages()
             syncSlowResponse()
             syncDeveloperBar()
@@ -454,6 +473,8 @@ final class BrowserWindow {
         hideSiteControlCenter()
         loadingBar?.close()
         loadingBar = nil
+        sidebarEdge?.close()
+        sidebarEdge = nil
         extensionPopup?.close()
         toast.hide()
         permissionWindow?.hide()
@@ -512,7 +533,7 @@ final class BrowserWindow {
         sidebarGlyph.glyph = WinGlyph.code("sidebar.left")
         sidebarGlyph.fontSize = 13
         let sidebarButton = UI.button(sidebarGlyph) { [weak self] in self?.toggleSidebar() }
-        try? ToolTipService.setToolTip(sidebarButton, "Toggle Sidebar")
+        ArcTip.set(sidebarButton, "Toggle Sidebar")
         try? AutomationProperties.setName(sidebarButton, "Toggle Sidebar")
         toolbar.children.append(sidebarButton)
         let back = UI.button("\u{2190}") { [weak self] in self?.shownPage?.goBack() }
@@ -536,7 +557,7 @@ final class BrowserWindow {
         slidersGlyph.glyph = WinGlyph.code("slider.horizontal.3")
         slidersGlyph.fontSize = 13
         sliders = UI.button(slidersGlyph) { [weak self] in self?.toggleSiteControlCenter() }
-        try? ToolTipService.setToolTip(sliders, "Site Controls")
+        ArcTip.set(sliders, "Site Controls")
         try? AutomationProperties.setName(sliders, "Site Controls")
         let pill = Grid()
         pill.columnDefinitions.append(UI.column(UI.star))
@@ -573,7 +594,7 @@ final class BrowserWindow {
 
     /// The page area in physical pixels, relative to the window's client area.
     private func contentFrame() -> PixelRect {
-        window?.contentFrame ?? PixelRect(x: Int32(Self.sidebarWidth), y: 0, width: 800, height: 600)
+        window?.contentFrame ?? PixelRect(x: Int32(tabSidebarWidth), y: 0, width: 800, height: 600)
     }
 
     // MARK: Address and command bar
@@ -853,6 +874,9 @@ final class BrowserWindow {
         case "viewArchive": showLibrary(.archive)
         case "viewDownloads": showLibrary(.downloads)
         case "manageSpaces": if !isIncognito { showLibrary(.spaces) }
+        // Edit Space…: Arc's theme editor beside the sidebar (Windows has no Edit Space sheet yet).
+        case "editSpace": if !isIncognito { sidebar.showStyleEditor(space: store.focusedSpaceID(window: windowID)) }
+        case "deleteSpace": if !isIncognito { confirmDeleteSpace(store.focusedSpaceID(window: windowID)) }
         case "closeTab": closeCurrentTab()
         case "reload": reload(ignoringCache: false)
         case "hardReload": reload(ignoringCache: true)
@@ -1097,7 +1121,7 @@ final class BrowserWindow {
     /// space added or removed size it again.
     private func syncLibraryWidth() {
         guard !closing, let window else { return }
-        var width = Self.sidebarWidth + (libraryPage != nil ? LibraryLayout.extraWidth : 0)
+        var width = tabSidebarWidth + (libraryPage != nil ? LibraryLayout.extraWidth : 0)
         if libraryPage != nil, let cards = library.spacesWidth {
             let windowWidth = Double(window.appWindow.clientSize.width) / window.scale
             width = max(width, LibraryWidth.sidebar(spacesCards: cards, window: windowWidth))
@@ -1105,6 +1129,94 @@ final class BrowserWindow {
         floatingSidebar?.width = width
         let column = sidebarDocked ? width : 0
         if window.sidebarWidth != column { window.sidebarWidth = column }
+        placeSidebarEdge()
+    }
+
+    // MARK: Sidebar width
+
+    /// Arc's drag of the sidebar's edge (#287, SidebarResize), as the Mac's MainWindowController
+    /// runs it: the edge stays under the pointer, a slow drag snaps to 228 DIPs, and the sidebar
+    /// hides under 82 and comes back at 164 if the drag returns before letting go. The width is
+    /// saved for every window when the drag ends.
+    private func wireSidebarEdge() {
+        guard let sidebarEdge else { return }
+        sidebarEdge.onBegin = { [weak self] in
+            guard let self else { return }
+            sidebarResize = SidebarResize(startWidth: tabSidebarWidth)
+            hiddenByResize = false
+        }
+        sidebarEdge.onResize = { [weak self] translation, speed in
+            guard let self, var resize = sidebarResize, !closing else { return }
+            let outcome = resize.update(translation: translation, speed: speed)
+            sidebarResize = resize
+            switch outcome {
+            case .hidden:
+                // Hidden this way, it keeps the width the drag started from (Arc: Ctrl+S brings
+                // back a 200 DIP sidebar dragged shut from 200).
+                tabSidebarWidth = resize.startWidth
+                if store.window(windowID).sidebarVisible {
+                    store.chooseSidebar(visible: false, window: windowID)
+                    hiddenByResize = true
+                    syncSidebarMode()
+                }
+            case .width(let w):
+                tabSidebarWidth = w
+                if hiddenByResize {
+                    hiddenByResize = false
+                    store.chooseSidebar(visible: true, window: windowID)
+                    syncSidebarMode()
+                }
+                syncLibraryWidth()
+            }
+        }
+        sidebarEdge.onEnd = { [weak self] in
+            guard let self, sidebarResize != nil else { return }
+            sidebarResize = nil
+            hiddenByResize = false
+            if store.prefs.sidebarWidth != tabSidebarWidth { store.prefs.sidebarWidth = tabSidebarWidth }
+            placeSidebarEdge()
+            if store.window(windowID).sidebarVisible, shownPage != nil, !commandBar.isOpen { focusContent() }
+        }
+    }
+
+    /// Settings ▸ Tabs ▸ Sidebar on the right (#464): the window in a mirror, the sidebar docked,
+    /// floating and dragged from the right, the pages on the left.
+    private func syncSidebarSide() {
+        let side = store.settings.sidebarSide
+        guard window.sidebarSide != side else { return }
+        window.sidebarSide = side
+        floatingSidebar?.side = side
+        sidebarEdge?.side = side
+        placeSidebarEdge()
+    }
+
+    /// Another window's drag changed the saved width: this one follows.
+    private func syncSidebarWidth() {
+        guard sidebarResize == nil else { return }
+        let saved = SidebarResizeHandle.restored(store.prefs.sidebarWidth)
+        guard saved != tabSidebarWidth else { return }
+        tabSidebarWidth = saved
+        syncLibraryWidth()
+    }
+
+    /// The strip over the docked sidebar's edge, the window's height; none while the sidebar is
+    /// hidden, shows the Library, is under a Peek or the window is minimized (the Mac's
+    /// `sidebarResizable`).
+    private func placeSidebarEdge() {
+        guard let sidebarEdge, !closing, let window, let host = HWND(bitPattern: hwnd) else { return }
+        let scale = window.scale
+        sidebarEdge.scale = scale
+        // A Peek's veil and click catcher cover the sidebar: no resizing under them.
+        let resizable = sidebarDocked && libraryPage == nil && !IsIconic(host) && window.sidebarWidth > 0
+            && self.host?.hasPeek(over: self) != true
+        guard resizable else { return sidebarEdge.place(x: 0, y: 0, width: 0, height: 0) }
+        let strip = SidebarResizeHandle.strip(sidebarWidth: window.sidebarWidth)
+        let clientWidth = Double(window.appWindow.clientSize.width) / scale
+        let left = window.sidebarSide == .right ? clientWidth - strip.x - strip.width : strip.x
+        var origin = POINT(x: Int32((left * scale).rounded()), y: 0)
+        _ = ClientToScreen(host, &origin)
+        sidebarEdge.place(x: origin.x, y: origin.y, width: Int32((strip.width * scale).rounded()),
+                          height: window.appWindow.clientSize.height)
     }
 
     // MARK: Hidden sidebar
@@ -1183,7 +1295,7 @@ final class BrowserWindow {
         _ = ClientToScreen(host, &origin)
         let size = window.appWindow.clientSize
         return PeekPlacement(client: PixelRect(x: origin.x, y: origin.y, width: size.width, height: size.height),
-                             sidebar: window.sidebarWidth, scale: window.scale)
+                             sidebar: window.sidebarWidth, side: window.sidebarSide, scale: window.scale)
     }
 
     /// Arc badges the tab a Peek came from with the peeked page's favicon.
@@ -2230,7 +2342,19 @@ extension BrowserWindow: SpacesManagerActions {
     /// The new space's card joins the page, which stays open (the Mac opens the space editor).
     func newSpaceFromLibrary() {
         guard !isIncognito else { return }
-        sidebar.newSpace()
+        // The Library covers the sidebar, where Create a Space would open.
+        sidebar.newSpaceAtOnce()
+    }
+
+    func runCommand(_ id: String) { _ = perform(id) }
+
+    /// Delete Space…: Arc's question first, since the space's tabs and folders are archived; the
+    /// last space only says it has to stay (SpaceDeleteConfirmation).
+    func confirmDeleteSpace(_ id: UUID) {
+        guard let space = store.space(id) else { return }
+        let prompt = SpaceDeleteConfirmation.prompt(title: space.title, spaceCount: store.spaceOrder.count)
+        guard prompt.canDelete else { return WinDialog.notice(owner: hwnd, title: prompt.title) }
+        if WinDialog.confirm(owner: hwnd, title: prompt.title, message: prompt.message ?? "") { store.deleteSpace(id) }
     }
 }
 
@@ -2821,7 +2945,7 @@ extension BrowserWindow {
         let region = splitDropTarget?.insert.flatMap { splitDropFrames(inserting: $0)[Self.splitDropRegion] }
         guard let proposal = SplitDropProposal.propose(at: point, ids: paneIDs, frames: splitDropFrames(inserting: nil), orientation: paneOrientation,
                                                        area: CGRect(origin: .zero, size: size), region: region, current: splitDropTarget,
-                                                       sidebarSide: true) else {
+                                                       sidebarSide: true, sidebarOn: window.sidebarSide) else {
             clearSplitDrop()
             return false
         }

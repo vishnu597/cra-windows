@@ -20,6 +20,12 @@ public struct SpaceCreationDraft: Equatable {
     /// own (#306): Arc's page has no such row.
     public var searchEngine: String?
 
+    /// What the sheet said under the profile choice, in Arc's tip on the Profile row's (i).
+    public static let profileNote = "Profiles make your Spaces truly separate with their own logins, cookies and site data. Spaces with the same Profile share them."
+
+    /// What the sheet says under the search engine choice, in the Search Engine row's (i).
+    public static let searchNote = "Searches from the command bar in this space go here. Default follows Settings."
+
     public init(theme: SpaceTheme, profile: UUID?) {
         self.theme = theme
         self.profile = profile

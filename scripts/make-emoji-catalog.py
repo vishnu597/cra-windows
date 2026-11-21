@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes Sources/Cra/UI/Sidebar/EmojiCatalog+Data.swift from Unicode's emoji-test.txt.
+"""Writes Packages/CraCore/Sources/CraCore/EmojiCatalog+Data.swift from Unicode's emoji-test.txt.
 
     scripts/make-emoji-catalog.py <path to emoji-test.txt>
 
@@ -56,5 +56,5 @@ for key, names in GROUPS:
     body = "\n".join(rows)
     out.append(f'        ("{key}", """\n{body}\n"""),')
 out += ["    ]", "}", ""]
-open("Sources/Cra/UI/Sidebar/EmojiCatalog+Data.swift", "w", encoding="utf-8").write("\n".join(out))
+open("Packages/CraCore/Sources/CraCore/EmojiCatalog+Data.swift", "w", encoding="utf-8").write("\n".join(out))
 print({k: sum(len(by_group.get(g, [])) for g in v) for k, v in GROUPS})
