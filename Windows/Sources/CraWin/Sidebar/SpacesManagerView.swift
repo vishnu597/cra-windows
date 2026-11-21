@@ -228,7 +228,7 @@ final class SpacesManagerView {
         more.tapped.addHandler { _, args in args?.handled = true }
         more.verticalAlignment = .center
         more.flyout = cardMenu(id)
-        try? ToolTipService.setToolTip(more, "More")
+        ArcTip.set(more, "More")
         try? AutomationProperties.setName(more, "\(space.title) options")
         footer.children.append(more)
         kept.append(more)
@@ -346,7 +346,7 @@ final class SpacesManagerView {
         handle.height = 26
         handle.verticalAlignment = .center
         handle.background = UI.clear  // takes the press over its whole square
-        try? ToolTipService.setToolTip(handle, "Drag to Move")
+        ArcTip.set(handle, "Drag to Move")
         try? AutomationProperties.setName(handle, "Move Space")
         // Weakly: `kept` holds the handle while it is on screen, and a strong capture in its own
         // handler would keep it forever.
@@ -421,7 +421,7 @@ final class SpacesManagerView {
         plus.cornerRadius = CornerRadius(topLeft: r, topRight: r, bottomRight: r, bottomLeft: r)
         plus.verticalAlignment = .center
         plus.margin = Thickness(left: SpacesManagerLayout.plusGap - SpacesManagerLayout.gap, top: 0, right: 0, bottom: 0)
-        try? ToolTipService.setToolTip(plus, "New Space")
+        ArcTip.set(plus, "New Space")
         try? AutomationProperties.setName(plus, "New Space")
         return plus
     }

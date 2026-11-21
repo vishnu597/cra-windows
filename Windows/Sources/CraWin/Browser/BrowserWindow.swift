@@ -51,6 +51,10 @@ final class BrowserWindow {
     private let dispatcher: WinAppSDK.DispatcherQueue
     /// The window's HWND: every page is a child window of it.
     private var hwnd: UInt = 0
+    /// The window's HWND, for the hover tips' tones (ArcTip).
+    var nativeHandle: UInt { hwnd }
+    /// Arc paints a browser window's tips from its space's palette.
+    var tooltipTones: TooltipTones { TooltipTones(theme: store.focusedSpace(window: windowID).theme) }
 
     /// Pages by tab id.
     private var pages: [UUID: WebPage] = [:]
@@ -512,7 +516,7 @@ final class BrowserWindow {
         sidebarGlyph.glyph = WinGlyph.code("sidebar.left")
         sidebarGlyph.fontSize = 13
         let sidebarButton = UI.button(sidebarGlyph) { [weak self] in self?.toggleSidebar() }
-        try? ToolTipService.setToolTip(sidebarButton, "Toggle Sidebar")
+        ArcTip.set(sidebarButton, "Toggle Sidebar")
         try? AutomationProperties.setName(sidebarButton, "Toggle Sidebar")
         toolbar.children.append(sidebarButton)
         let back = UI.button("\u{2190}") { [weak self] in self?.shownPage?.goBack() }
@@ -536,7 +540,7 @@ final class BrowserWindow {
         slidersGlyph.glyph = WinGlyph.code("slider.horizontal.3")
         slidersGlyph.fontSize = 13
         sliders = UI.button(slidersGlyph) { [weak self] in self?.toggleSiteControlCenter() }
-        try? ToolTipService.setToolTip(sliders, "Site Controls")
+        ArcTip.set(sliders, "Site Controls")
         try? AutomationProperties.setName(sliders, "Site Controls")
         let pill = Grid()
         pill.columnDefinitions.append(UI.column(UI.star))

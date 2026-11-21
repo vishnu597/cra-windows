@@ -269,7 +269,7 @@ final class SidebarView {
             tile.horizontalAlignment = .stretch
             tile.verticalAlignment = .stretch
             tile.contextFlyout = tabMenu(item)
-            try? ToolTipService.setToolTip(tile, item.displayTitle)
+            ArcTip.set(tile, item.displayTitle, placement: .cursor)
             favorites.children.append(tile)
             try? Grid.setRow(tile, Int32(i / perRow))
             try? Grid.setColumn(tile, Int32(i % perRow))
@@ -540,7 +540,7 @@ final class SidebarView {
                 try? flyout?.hide()
             }
             try? AutomationProperties.setName(remove, "Remove Icon")
-            try? ToolTipService.setToolTip(remove, "Remove Icon")
+            ArcTip.set(remove, "Remove Icon")
             header.children.append(remove)
         }
         panel.children.append(header)
@@ -557,7 +557,7 @@ final class SidebarView {
             cell.width = 29
             cell.height = 29
             try? AutomationProperties.setName(cell, symbol.title)
-            try? ToolTipService.setToolTip(cell, symbol.title)
+            ArcTip.set(cell, symbol.title)
             grid.children.append(cell)
             try? Grid.setRow(cell, Int32(i / 8))
             try? Grid.setColumn(cell, Int32(i % 8))
@@ -723,7 +723,7 @@ final class SidebarView {
             }
             button.verticalAlignment = .center
             try? AutomationProperties.setName(button, speaker.help)
-            try? ToolTipService.setToolTip(button, speaker.help)
+            ArcTip.set(button, speaker.help)
             label.children.append(button)
         }
         let name = UI.text(title.isEmpty ? "New Tab" : title, color: palette.text)
@@ -812,7 +812,7 @@ final class SidebarView {
             close.visibility = .collapsed
             let help = kind.help.replacingOccurrences(of: "⌘W", with: "Ctrl+W")
             try? AutomationProperties.setName(close, help)
-            try? ToolTipService.setToolTip(close, help)
+            ArcTip.set(close, help)
             row.children.append(close)
             try? Grid.setColumn(close, 0)
             var dot: WinUI.Ellipse?

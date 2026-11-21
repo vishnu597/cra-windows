@@ -56,7 +56,7 @@ final class DeveloperBarView {
             self.url = url
         }
         lock.glyph = WinGlyph.code(url.hasPrefix("https://") ? "lock.fill" : "globe")
-        try? ToolTipService.setToolTip(field, url)
+        ArcTip.set(field, url)
         guard theme != self.theme else { return }
         self.theme = theme
         apply(theme)
@@ -182,7 +182,7 @@ final class DeveloperBarView {
         _ = b.resources.insert("ButtonBackgroundPointerOver", UI.brush(255, 255, 255, alpha: 20))
         _ = b.resources.insert("ButtonBackgroundPressed", UI.brush(255, 255, 255, alpha: 31))
         let keys = WinKeyBindings.shared.action(action)?.primary.map { " (\($0.windowsDisplay))" } ?? ""
-        try? ToolTipService.setToolTip(b, tip + keys)
+        ArcTip.set(b, tip + keys)
         try? AutomationProperties.setName(b, tip)
         buttons[action] = b
         return b

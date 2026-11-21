@@ -22,7 +22,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 <!-- summary: parity.py summary --write -->
 | Area | ✅ | 🟡 | 🔜 | ❌ | ➖ |
 |---|--:|--:|--:|--:|--:|
-| Window, pages and toolbar | 11 | 9 | 0 | 7 | 1 |
+| Window, pages and toolbar | 11 | 10 | 0 | 6 | 1 |
 | Sidebar | 9 | 14 | 0 | 6 | 0 |
 | Command bar and shortcuts | 4 | 5 | 0 | 1 | 0 |
 | Split view | 3 | 2 | 0 | 0 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 3 | 1 | 1 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 5 | 6 | 0 | 6 | 9 |
-| **All** | 46 | 61 | 1 | 41 | 18 |
+| **All** | 46 | 62 | 1 | 40 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -59,7 +59,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Site Control Center, lock badge and certificate viewer | 🟡 [#17] | `SiteControlCenter.swift`, `CertificateWindow.swift` | `SiteControlCenter`, `ConnectionSecurity`, `PageCapture` | Windows shows the sliders in the sidebar's address pill. Its Settings section has the Developer Mode and Block Ads & Trackers switches [#45]. Missing: the protected-media card (Mac only, see Media) and upstream cbb5753's per-site Automatic Picture-In-Picture switch. |
 | Zoom (`zoomIn`, `zoomOut`, `resetZoom`), `print`, `viewSource` | ✅ [#58] | `AppDelegate.swift` | `KeyBindingDefaults` | Windows takes Chrome's keys for them (Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+P, Ctrl+U) in its key table, the command bar and Settings ▸ Shortcuts, and zooms in the Mac's half-level steps. Ctrl+Shift+= stays Add Split View. |
 | Page context menu: Open Link in New Tab and Open Link in Split View; Alt-click split | 🟡 | `BrowserManager.swift` | `LinkMenu`, `PageMenuLabels`, `LinkSplitClick` | Chromium's menu shows on Windows. Upstream 9630b47, 249adb7 and 8a6c6bf add a split action, one localized Open Link in New Tab item following the foreground setting, and Option-click split (Alt on Windows). Windows: Chrome's Open Link in New Tab, under its own localized label, follows the setting [#48]. Under Open Link in New Window, Arc's Open Link in Split View (a browser window's page; a pane beside its tab, "Cannot Add New Pane" when full) and Open Link in Little Window (not from a private window) [#81], as CraCore's `LinkMenuExtra` orders them; Chrome's own split item is removed. Left: Alt-click split. |
-| Arc-style tooltips in the space's tones | ❌ | `ArcTooltip.swift` | `ThemeTones` (`TooltipTones`) | Windows uses plain WinUI tooltips. |
+| Arc-style tooltips in the space's tones | 🟡 [#92] | `ArcTooltip.swift` | `ThemeTones` (`TooltipTones`), `ArcTooltipRules` | Windows' browser windows, Little Windows and Peeks show Arc's tip (`ArcTip`, drawn by `CraTooltip.cpp`): it waits 1.6 s with the pointer at rest, or none when moving on from another tip; a click hides it. It is a 28 DIP capsule in the space's `TooltipTones` (Little Arc's navy outside a browser window), with the shortcut in key caps (`ArcTooltipRules.split` reads Windows' "Ctrl+Shift+C"). It hangs off the control's corner, by the pointer for rows and tiles, and above for space icons. Left: the subtitle line, the space dock's tips (a WinUI tip with the profile pill, `SidebarDock.dockTip`), Alt's option text, the 60 ms fade-out and hiding on a key press. Settings keeps WinUI tips, as the Mac's Settings keeps AppKit's. |
 | Theme, metrics and the brand mark | 🟡 | `Theme.swift`, `ThemeNoise.swift`, `Tuning.swift`, `BrandMark.swift` | `SpaceTheme`, `ThemeTones`, `ArcMenuTones`, `SidebarTones`, `CardFill`, `CardVeil` | Sidebar palette from `SpaceTheme` is shared; Windows has its own metrics. Upstream's Arc menu, sidebar hover and card-fill policies are available but not all used by the Windows controls. Brand mark from `brand/`. Sync #23: Arc's muted palette, Light material and no-tab/empty-pane white veil are shared decisions; Windows has not adopted those refinements (#455, #490). |
 | Sidebar blur, Reduce transparency, active/inactive look | ❌ | `ActiveAppearanceProbe.swift` | `SidebarBackdrop` | Windows counterpart: Mica or Acrylic, and Windows' transparency setting. Since f6b9fb6 a full-screen window keeps its active look while its Space slides away (AppKit's own answer, `windowActive(activeAppearance:)`). |
 | Only one Cra running (an older copy quits) | ➖ | `NewestCopy.swift` | | Windows: a single-instance mutex when the installer lands. |
@@ -874,6 +874,7 @@ the fork keeps in CraCore (`LibraryList.swift`), so it gained upstream's `railIc
 [#87]: https://github.com/vishnu597/cra-windows/pull/87
 [#90]: https://github.com/vishnu597/cra-windows/pull/90
 [#91]: https://github.com/vishnu597/cra-windows/pull/91
+[#92]: https://github.com/vishnu597/cra-windows/pull/92
 [#94]: https://github.com/vishnu597/cra-windows/pull/94
 [#95]: https://github.com/vishnu597/cra-windows/pull/95
 [#97]: https://github.com/vishnu597/cra-windows/pull/97
