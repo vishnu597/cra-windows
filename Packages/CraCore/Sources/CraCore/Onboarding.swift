@@ -52,6 +52,13 @@ public enum Onboarding {
         public func previous(before step: Step) -> Step? { steps.last { $0 < step } }
     }
 
+    /// The Windows app's run: the default browser step while Cra doesn't open links, the privacy
+    /// step for its ad blocker (Windows sends no usage stats, so it has no sharing row), and
+    /// pinned tabs until the favorites grid has a full row.
+    public static func windowsFlow(isDefaultBrowser: Bool, favoriteCount: Int) -> Flow {
+        Flow(offersDefaultBrowser: !isDefaultBrowser, offersPrivacy: true, offersPinnedTabs: offersPinnedTabs(favoriteCount: favoriteCount))
+    }
+
     /// The pinned tabs step shows unless the favorites grid already has a full row.
     public static func offersPinnedTabs(favoriteCount: Int) -> Bool { favoriteCount < 4 }
 

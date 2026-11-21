@@ -33,10 +33,10 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 3 | 0 | 2 | 0 |
 | Settings | 2 | 7 | 0 | 2 | 0 |
-| Import and onboarding | 0 | 4 | 1 | 0 | 1 |
+| Import and onboarding | 0 | 5 | 0 | 0 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 6 | 6 | 0 | 5 | 9 |
-| **All** | 48 | 71 | 1 | 29 | 18 |
+| **All** | 48 | 72 | 0 | 29 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -232,7 +232,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Passwords and sign-ins | 🟡 [#36](https://github.com/vishnu597/cra-windows/pull/36) | `CredentialImport.swift` | `ImportedCredentials` (`ImportedLogin`, `ImportedCookie`), `PendingCredentials`, `CredentialImportReport`, `ChromiumOSCrypt`, `ChromiumCredentialRows`, `AESGCM`, `SHA256Hash` | Windows: the import card's "Passwords and sign-ins" box reads each profile's Login Data and Cookies with the browser's Local State key (DPAPI, then AES-GCM in CraCore), seals them with Cra's key and stages them in the Mac's `pending-credentials.json`; they go into Cra's profile at the next launch (`CraData.cpp`: DPAPI and winsqlite3). Chrome 127+ seals cookies to itself (app-bound "v20"): those stay, and the card says so. A running browser holds its Cookies shut: the card asks to quit it. Left: a Restart button, Firefox. The Mac still keeps its own copy of the staging code. |
 | Firefox and Zen | 🟡 [#119] | `FirefoxImporter.swift`, `ZenImporter.swift`, `ImportTree.swift` | `FirefoxImport`, `ZenImport`, `ImportFolderTree` (`ImportTree`) | Windows [#119]: Firefox (%APPDATA%\Mozilla\Firefox) and Zen (%APPDATA%\zen) are offered in Import from Another Browser… and onboarding when profiles.ini names a profile with places.sqlite. Firefox brings its bookmarks (toolbar, then Bookmarks Menu and Other Bookmarks as folders) pinned and its open tabs in Today, in one 🦊 space; Zen brings its spaces with their gradients, Essentials as favorites, pinned tabs in their folders and the rest in Today, plus a Bookmarks folder. The readers moved to CraCore (a portable mozLz4 decoder in place of Apple's Compression) and the Mac's importers call them; each app reads places.sqlite with its own SQLite. Left: Zen's favicons on Windows (favicons.sqlite), and logins, which on the Mac also come only from Firefox's exported CSV. Zen's Windows folder needs a PC check. |
 | Safari | ➖ | `SafariImporter.swift` | | No Safari on Windows. |
-| Onboarding: import, theme colour, address bar placement | 🔜 | `ImportFlow.swift`, `ImportFlowArt.swift`, `ImportFlowViews.swift`, `OnboardingSteps.swift` | `Onboarding` (`isNeeded`, `Flow`, `presetPins`, `pinCandidates`), `TopSite` (`historyQuery`, `ranked`, `faviconQuery`), `ImportSourceList` | Windows: on a fresh install a card over the first window runs the cover, default browser (with open at sign-in), the import list, pinned tabs (the imported browser's most visited sites and Dia's presets, with their icons), the space's colour and the outro (`OnboardingView`, `OnboardingSites`). Not yet: the privacy step (no ad blocker or usage stats on Windows), the address bar layout (no toolbar), Dia's artwork and slide transitions. The Mac reads the shared step rules and pin suggestions. Sync #23: Mac onboarding lists every supported browser and dims those without readable data; Windows still uses its available-source list. |
+| Onboarding: import, theme colour, address bar placement | 🟡 [#121] | `ImportFlow.swift`, `ImportFlowArt.swift`, `ImportFlowViews.swift`, `OnboardingSteps.swift` | `Onboarding` (`isNeeded`, `Flow`, `presetPins`, `pinCandidates`), `TopSite` (`historyQuery`, `ranked`, `faviconQuery`), `ImportSourceList` | Windows: on a fresh install a card over the first window runs the cover, default browser (with open at sign-in), the import list, pinned tabs (the imported browser's most visited sites and Dia's presets, with their icons), the space's colour and the outro (`OnboardingView`, `OnboardingSites`). Windows [#121]: the privacy step (Dia's DisclosureView) with "Block third-party ads and trackers" (Settings ▸ Privacy's switch), between the default browser and the import (`Onboarding.windowsFlow`), and Make it yours' "Choose where the address bar goes:" with Sidebar and Toolbar (`AddressBarPlacement`, Settings ▸ Tabs ▸ Address bar). Not yet: the privacy step's usage-stats row (no Windows sender), Dia's artwork (the layout pictures) and slide transitions. The Mac reads the shared step rules and pin suggestions. Sync #23: Mac onboarding lists every supported browser and dims those without readable data; Windows still uses its available-source list. |
 
 ## Arc Max (on-device AI)
 
@@ -893,4 +893,5 @@ the fork keeps in CraCore (`LibraryList.swift`), so it gained upstream's `railIc
 [#118]: https://github.com/vishnu597/cra-windows/pull/118
 [#119]: https://github.com/vishnu597/cra-windows/pull/119
 [#120]: https://github.com/vishnu597/cra-windows/pull/120
+[#121]: https://github.com/vishnu597/cra-windows/pull/121
 [#111]: https://github.com/vishnu597/cra-windows/pull/111

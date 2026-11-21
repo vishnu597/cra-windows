@@ -2084,6 +2084,10 @@ final class BrowserWindow {
             space.theme = SpaceTheme.presets[i]
             self.store.updateSpace(space)
         }
+        view.blocksAds = { [weak self] in self?.store.settings.blockAdsAndTrackers ?? true }
+        view.setBlocksAds = { [weak self] on in self?.store.settings.blockAdsAndTrackers = on }
+        view.addressBar = { [weak self] in self?.store.settings.addressBarPlacement ?? .sidebar }
+        view.setAddressBar = { [weak self] placement in self?.store.settings.addressBarPlacement = placement }
         view.applySystemOptions = { makeDefault, launch in
             if makeDefault && !DefaultBrowser.isDefault && !DefaultBrowser.makeDefault() {
                 return "Cra couldn’t register itself with Windows as a browser."
@@ -2102,8 +2106,7 @@ final class BrowserWindow {
             return
         }
         onboarding = view
-        let flow = Onboarding.Flow(offersDefaultBrowser: !DefaultBrowser.isDefault, offersPrivacy: false,
-                                   offersPinnedTabs: Onboarding.offersPinnedTabs(favoriteCount: favoriteHosts.count))
+        let flow = Onboarding.windowsFlow(isDefaultBrowser: DefaultBrowser.isDefault, favoriteCount: favoriteHosts.count)
         view.start(flow: flow, sources: sources, launchesAtLogin: LaunchAtLogin.isEnabled)
         _ = try? dispatcher.tryEnqueue { [weak self] in
             guard let self, let window = self.onboardingWindow, !self.closing else { return }
