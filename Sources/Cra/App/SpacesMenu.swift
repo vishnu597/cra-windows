@@ -17,12 +17,10 @@ final class SpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        menu.addItem(boundItem("newSpace"))
-        for id in ["editSpace", "changeProfile", "deleteSpace"] { menu.addItem(boundItem(id)) }
-        menu.addItem(.separator())
-        menu.addItem(boundItem("nextSpace"))
-        menu.addItem(boundItem("previousSpace"))
-        menu.addItem(.separator())
+        for group in SpacesMenuComposition.commandsBefore {
+            for id in group { menu.addItem(boundItem(id)) }
+            menu.addItem(.separator())
+        }
 
         let spaces = app.store.orderedSpaces
         let composition = SpacesMenuComposition(spaceIDs: spaces.map(\.id))
@@ -30,7 +28,7 @@ final class SpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
             menu.addItem(spaceItem(row, space: space))
         }
         menu.addItem(.separator())
-        menu.addItem(boundItem("manageSpaces"))
+        for id in SpacesMenuComposition.commandsAfter { menu.addItem(boundItem(id)) }
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {

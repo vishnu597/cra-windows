@@ -129,6 +129,8 @@ extension SidebarView {
             spacesBar.children.append(cell.button)
         }
         if dockHovered.map({ id in !dockCells.contains { $0.id == id } }) ?? false { dockHovered = nil }
+        // Right-clicking the dock past its icons is Windows' Spaces menu (the Mac's menu bar has one).
+        footer.contextFlyout = store.isIncognito(space: focused.id) ? nil : spacesMenu(focused)
         plusButton.visibility = store.isIncognito(space: focused.id) ? .collapsed : .visible
         plusButton.foreground = palette.secondaryText
         refreshDock()
@@ -244,5 +246,47 @@ extension SidebarView {
         }
         creationMenu = menu
         try? menu.showAt(plusButton)
+    }
+
+    /// The Mac's Spaces menu (SpacesMenu, in its menu bar), which Windows shows from the dock: its
+    /// commands with their keys, every space by name and icon with Go to Space N's keys for the
+    /// first nine and the open one checked, then Manage Spaces… (SpacesMenuComposition).
+    func spacesMenu(_ focused: Space) -> MenuFlyout {
+        let menu = MenuFlyout()
+        menu.shouldConstrainToRootBounds = false
+        func command(_ id: String) {
+            guard let action = WinKeyBindings.shared.action(id) else { return }
+            menu.items.append(UI.menuItem(action.name, action: id) { [weak self] in self?.actions?.runCommand(id) })
+        }
+        for group in SpacesMenuComposition.commandsBefore {
+            group.forEach(command)
+            menu.items.append(MenuFlyoutSeparator())
+        }
+        let spaces = store.orderedSpaces
+        for (row, space) in zip(SpacesMenuComposition(spaceIDs: spaces.map(\.id)).navigation, spaces) {
+            let item = ToggleMenuFlyoutItem()
+            let name = SpacesMenuComposition.displayedName(space.title)
+            let emoji = space.icon.emoji
+            item.text = emoji.isEmpty ? name : "\(emoji)  \(name)"
+            if name != space.title { try? ToolTipService.setToolTip(item, space.title) }
+            if let symbol = space.icon.symbol, let glyph = WinGlyph.known(symbol) {
+                let icon = FontIcon()
+                icon.glyph = glyph
+                item.icon = icon
+            }
+            item.isChecked = row.spaceID == focused.id
+            if let id = row.shortcutID, let keys = WinKeyBindings.shared.action(id)?.primary?.windowsDisplay {
+                item.keyboardAcceleratorTextOverride = keys
+            }
+            let spaceID = row.spaceID
+            item.click.addHandler { [weak self] _, _ in
+                guard let self, self.store.space(spaceID) != nil else { return }
+                self.store.focusSpace(spaceID, window: self.windowID)
+            }
+            menu.items.append(item)
+        }
+        menu.items.append(MenuFlyoutSeparator())
+        SpacesMenuComposition.commandsAfter.forEach(command)
+        return menu
     }
 }

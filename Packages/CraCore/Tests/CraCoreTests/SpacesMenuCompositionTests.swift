@@ -42,4 +42,18 @@ struct SpacesMenuCompositionTests {
         spaces.removeFirst()
         #expect(SpacesMenuComposition(spaceIDs: spaces).navigation.map(\.spaceID) == [all[0], all[1]])
     }
+
+    @Test func commandsAroundTheRowsAreTheMacMenusGroups() {
+        #expect(SpacesMenuComposition.commandsBefore == [
+            ["newSpace", "editSpace", "changeProfile", "deleteSpace"], ["nextSpace", "previousSpace"],
+        ])
+        #expect(SpacesMenuComposition.commandsAfter == ["manageSpaces"])
+    }
+
+    @Test func aLongNameKeepsArcsTwentyFourCharacters() {
+        #expect(SpacesMenuComposition.displayedName("Work") == "Work")
+        let exact = String(repeating: "a", count: 24)
+        #expect(SpacesMenuComposition.displayedName(exact) == exact)
+        #expect(SpacesMenuComposition.displayedName(String(repeating: "Home", count: 7)) == "HomeHomeHomeHomeHomeHome…")
+    }
 }
