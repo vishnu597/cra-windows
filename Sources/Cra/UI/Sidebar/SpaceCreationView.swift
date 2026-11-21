@@ -27,7 +27,7 @@ final class SpaceCreationView: NSView, NSTextFieldDelegate, NSPopoverDelegate {
     private let searchInfo = NSImageView()
     /// What the sheet said under each choice, in Arc's own tip on the row's (i).
     static let profileNote = SpaceCreationDraft.profileNote
-    static let searchNote = "Searches from the command bar in this space go here. Default follows Settings."
+    static let searchNote = SpaceCreationDraft.searchNote
     private let create = SpaceCreationButton()
     private let cancel = NSButton(title: "Cancel", target: nil, action: nil)
     private let card = NSView()

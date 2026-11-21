@@ -45,6 +45,11 @@ final class SpaceCreationPageView {
     private var rowGlyphs: [FontIcon] = []
     private var rowLabels: [TextBlock] = []
     private let info = FontIcon()
+    private let searchRow = Button()
+    private let enginePill = Border()
+    private let engineName = TextBlock()
+    private let searchInfo = FontIcon()
+    private var engineMenu: MenuFlyout?
     private let buttons = StackPanel()
     private let create = Button()
     private let createLabel = TextBlock()
@@ -161,27 +166,10 @@ final class SpaceCreationPageView {
         name.loaded.addHandler { [weak self] _, _ in self?.focusName() }
         column.children.append(field)
 
-        // The rows: Profile with its pill and (i), then Choose a Theme.
+        // The rows: Profile with its pill and (i), Choose a Theme, then Cra's own Search Engine
+        // row (#306), as on the Mac.
         let profileGrid = rowContent(symbol: "face.smiling", label: "Profile")
-        let pillRow = StackPanel()
-        pillRow.orientation = .horizontal
-        pillRow.spacing = 8
-        pillRow.verticalAlignment = .center
-        profilePill.height = L.pillHeight
-        profilePill.cornerRadius = CornerRadius(topLeft: 5, topRight: 5, bottomRight: 5, bottomLeft: 5)
-        profilePill.padding = Thickness(left: 7, top: 0, right: 7, bottom: 0)
-        profileName.fontSize = 12
-        profileName.verticalAlignment = .center
-        profilePill.child = profileName
-        pillRow.children.append(profilePill)
-        info.glyph = WinGlyph.code("info.circle")
-        info.fontSize = L.infoSide
-        info.verticalAlignment = .center
-        info.margin = Thickness(left: 0, top: 0, right: L.infoInset - 8, bottom: 0)
-        try? ToolTipService.setToolTip(info, SpaceCreationDraft.profileNote)
-        pillRow.children.append(info)
-        try? Grid.setColumn(pillRow, 2)
-        profileGrid.children.append(pillRow)
+        pillRow(in: profileGrid, pill: profilePill, text: profileName, info: info, note: SpaceCreationDraft.profileNote)
         setUpRow(profileRow, content: profileGrid, top: L.fieldGap) { [weak self] in self?.showProfileMenu() }
         try? AutomationProperties.setName(profileRow, "Profile")
         column.children.append(profileRow)
@@ -190,6 +178,11 @@ final class SpaceCreationPageView {
         }
         try? AutomationProperties.setName(themeRow, "Choose a Theme")
         column.children.append(themeRow)
+        let searchGrid = rowContent(symbol: "magnifyingglass", label: "Search Engine")
+        pillRow(in: searchGrid, pill: enginePill, text: engineName, info: searchInfo, note: SpaceCreationDraft.searchNote)
+        setUpRow(searchRow, content: searchGrid, top: L.rowGap) { [weak self] in self?.showEngineMenu() }
+        try? AutomationProperties.setName(searchRow, "Search Engine")
+        column.children.append(searchRow)
 
         // Create Space, and Cancel under it.
         buttons.orientation = .vertical
@@ -239,18 +232,20 @@ final class SpaceCreationPageView {
             label.margin = Thickness(left: Double(density.rowLabelInset) - (density.showsRowGlyphs ? 32 : 0), top: 0, right: 0, bottom: 0)
         }
         let ink = palette.text, faint = palette.secondaryText
-        for t in [title, profileName, cancelLabel] { t.foreground = ink }
+        for t in [title, profileName, engineName, cancelLabel] { t.foreground = ink }
         subtitle.foreground = faint
         for label in rowLabels { label.foreground = ink }
         for glyph in rowGlyphs { glyph.foreground = ink }
         info.foreground = faint
+        searchInfo.foreground = faint
         iconGlyph.foreground = ink
         name.foreground = ink
         picture.borderBrush = faint
         picture.background = palette.tile
         field.background = palette.tile
         profilePill.background = palette.selected
-        for row in [profileRow, themeRow] { row.background = palette.tile }
+        enginePill.background = palette.selected
+        for row in [profileRow, themeRow, searchRow] { row.background = palette.tile }
         refreshButtons()
     }
 
@@ -277,6 +272,8 @@ final class SpaceCreationPageView {
             iconGlyph.visibility = .visible
         }
         profileName.text = draft.profile.flatMap { id in store.profiles.first { $0.id == id }?.name } ?? "Default"
+        let engines = engineRows
+        engineName.text = engines.choices.first { $0.isOn }?.title ?? engines.defaultRow.title
         refreshButtons()
     }
 
@@ -306,6 +303,29 @@ final class SpaceCreationPageView {
         try? Grid.setColumn(text, 1)
         grid.children.append(text)
         return grid
+    }
+
+    /// A row's pill and its (i), at the row's end; the (i)'s tip is the sheet's note.
+    private func pillRow(in grid: Grid, pill: Border, text: TextBlock, info: FontIcon, note: String) {
+        let row = StackPanel()
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.verticalAlignment = .center
+        pill.height = L.pillHeight
+        pill.cornerRadius = CornerRadius(topLeft: 5, topRight: 5, bottomRight: 5, bottomLeft: 5)
+        pill.padding = Thickness(left: 7, top: 0, right: 7, bottom: 0)
+        text.fontSize = 12
+        text.verticalAlignment = .center
+        pill.child = text
+        row.children.append(pill)
+        info.glyph = WinGlyph.code("info.circle")
+        info.fontSize = L.infoSide
+        info.verticalAlignment = .center
+        info.margin = Thickness(left: 0, top: 0, right: L.infoInset - 8, bottom: 0)
+        try? ToolTipService.setToolTip(info, note)
+        row.children.append(info)
+        try? Grid.setColumn(row, 2)
+        grid.children.append(row)
     }
 
     private func setUpRow(_ row: Button, content: Grid, top: Double, _ action: @escaping @MainActor () -> Void) {
@@ -362,6 +382,36 @@ final class SpaceCreationPageView {
         try? menu.showAt(profilePill)
     }
 
+    /// The command bar's engines for the draft (SpaceSearchEngineMenu): Default (the one Settings
+    /// uses), then the others.
+    private var engineRows: SpaceSearchEngineMenu {
+        SpaceSearchEngineMenu(defaultEngine: ChromiumSearchEngine(store.settings.searchEngine), engines: [],
+                              spaceKeyword: draft.searchEngine)
+    }
+
+    /// The Search Engine row: Default, a line, the engines, the draft's ticked.
+    private func showEngineMenu() {
+        closePanels()
+        let rows = engineRows
+        let menu = MenuFlyout()
+        func entry(_ row: SpaceSearchEngineMenu.Row) -> ToggleMenuFlyoutItem {
+            let item = ToggleMenuFlyoutItem()
+            item.text = row.title
+            item.isChecked = row.isOn
+            item.click.addHandler { [weak self] _, _ in
+                guard let self, !self.ended else { return }
+                self.draft.searchEngine = row.keyword
+                self.showDraft()
+            }
+            return item
+        }
+        menu.items.append(entry(rows.defaultRow))
+        menu.items.append(MenuFlyoutSeparator())
+        for row in rows.choices { menu.items.append(entry(row)) }
+        engineMenu = menu
+        try? menu.showAt(enginePill)
+    }
+
     /// Choose a Theme: Arc's editor against the sidebar's edge, on the draft. Each change shows
     /// on the space at once (SidebarStore.previewSpaceCreation); closing it keeps the theme.
     private func showThemeEditor() {
@@ -381,6 +431,7 @@ final class SpaceCreationPageView {
         try? iconPicker?.flyout.hide()
         try? editor?.flyout.hide()
         try? profileMenu?.hide()
+        try? engineMenu?.hide()
     }
 
     // MARK: Leaving
