@@ -2810,12 +2810,15 @@ extension BrowserWindow: WebPageDelegate {
         }
     }
 
-    /// Kept under the page's host, as the Mac's BrowserManager does; the tab takes that key.
+    /// Kept under the page's host and the tab's own key, as the Mac's BrowserManager does: the tab
+    /// takes its own, so tabs on one host keep their icons, across a relaunch too (#211, #291).
     func page(_ page: WebPage, didLoadFavicon png: Data, forURL iconURL: String) {
         guard let id = tabID(of: page), let tab = store.item(id)?.tab,
-              let key = FaviconKey.key(for: tab.url) ?? tab.faviconKey else { return }
-        Favicons.shared.store(png: png, forKey: key, persist: !store.isIncognito(item: id))
-        if tab.faviconKey != key { store.updateTab(id, url: tab.url) }
+              let (site, key) = FaviconKey.tabIcon(pageURL: tab.url, current: tab.faviconKey, tabID: id) else { return }
+        let persist = !store.isIncognito(item: id)
+        Favicons.shared.store(png: png, forKey: site, persist: persist)
+        Favicons.shared.store(png: png, forKey: key, persist: persist)
+        store.setFaviconKey(id, key)
     }
 
     func page(_ page: WebPage, didReportThemeColor hex: String) {

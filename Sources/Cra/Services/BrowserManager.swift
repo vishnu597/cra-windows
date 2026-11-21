@@ -1685,8 +1685,7 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate, WebKit
 
     func browser(_ browser: CraBrowser, didLoadFavicon image: NSImage, forURL iconURL: String) {
         guard let id = tabID(of: browser), let tab = store.item(id)?.tab else { return }
-        guard let site = FaviconKey.key(for: tab.url) ?? tab.faviconKey.map(FaviconKey.siteKey(of:)) else { return }
-        let key = FaviconKey.key(site: site, tabID: id)
+        guard let (site, key) = FaviconKey.tabIcon(pageURL: tab.url, current: tab.faviconKey, tabID: id) else { return }
         let persist = !browser.isIncognito
         favicons.store(image, forKey: site, persist: persist)
         favicons.store(image, forKey: key, persist: persist)

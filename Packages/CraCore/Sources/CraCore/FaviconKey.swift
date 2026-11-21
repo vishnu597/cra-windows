@@ -30,6 +30,14 @@ public enum FaviconKey {
         return site + "#" + String(hash, radix: 16)
     }
 
+    /// Where a tab's newly loaded icon is kept: under its site, which suggestions and tabs not yet
+    /// loaded borrow, and under the tab's own key, which it takes and keeps across relaunch (#211,
+    /// #291). A page with no host (a data: or file: page) keeps the site its key already names.
+    public static func tabIcon(pageURL: String, current: String?, tabID: UUID) -> (site: String, tab: String)? {
+        guard let site = key(for: pageURL) ?? current.map(siteKey(of:)) else { return nil }
+        return (site, key(site: site, tabID: tabID))
+    }
+
     /// The site key an icon key falls back to.
     public static func siteKey(of key: String) -> String {
         key.firstIndex(of: "#").map { String(key[..<$0]) } ?? key
