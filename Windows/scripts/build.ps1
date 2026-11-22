@@ -127,6 +127,8 @@ Copy-Item (Join-Path $cef 'Release\*') $out -Recurse -Exclude '*.lib'
 Copy-Item (Join-Path $cef 'Resources\*') $out -Recurse
 # The Mac's ad and tracker list and its notice (resources/blocklist), read at launch (CraApp).
 Copy-Item (Join-Path (Split-Path -Parent $root) 'resources\blocklist') (Join-Path $out 'blocklist') -Recurse
+# The Mac's alternate app icons (resources/app-icons), for Settings ▸ General ▸ App icon (WindowIcon).
+Copy-Item (Join-Path (Split-Path -Parent $root) 'resources\app-icons') (Join-Path $out 'app-icons') -Recurse
 # Everything shipped is x64: an ARM64 DLL (the Windows App SDK bootstrap once was) fails to
 # load and crashes Cra.exe before it opens a window.
 foreach ($file in Get-ChildItem $out -Recurse -Include *.exe, *.dll) {

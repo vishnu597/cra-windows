@@ -304,6 +304,11 @@ int cra_image_decode(const uint8_t *bytes, size_t length, int side, CraImage *ou
 /// its file type. 1 on success. Any thread, and slow for a big file: not the UI thread.
 int cra_shell_file_image(const char *path, int side, CraImage *out);
 void cra_image_free(CraImage *image);
+/// A window icon (HICON) of premultiplied BGRA pixels, top-down, `width * 4` bytes a row (a
+/// CraImage's): for WM_SETICON, the app icon picked in Settings ▸ General. 0 on failure. Free
+/// with cra_icon_destroy once no window shows it.
+uintptr_t cra_icon_from_pixels(const uint8_t *bgra, int width, int height);
+void cra_icon_destroy(uintptr_t icon);
 
 // MARK: - Stored data
 

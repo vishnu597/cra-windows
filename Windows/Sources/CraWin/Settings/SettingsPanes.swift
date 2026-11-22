@@ -122,6 +122,16 @@ enum SettingsPanes {
                     detail: "Save every space’s favorites, pinned tabs and folders as a bookmarks file that Chrome, Edge, Firefox and other browsers can import.",
                     trailing: UI.button("Export…") { exportSpaces() }, palette: palette),
         ], palette: palette))
+
+        // Arc's Icon tab (the Mac's IconPane, #372): Cra's four icons, the picked one ringed.
+        let iconHeader = header("App icon", palette: palette)
+        iconHeader.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
+        stack.children.append(iconHeader)
+        stack.children.append(appIconCard(palette: palette, syncs: &syncs))
+        let iconNote = note("Cra’s windows, their taskbar buttons and Alt+Tab show it at once. A taskbar pin and the Start menu keep Segments.",
+                            palette: palette)
+        iconNote.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 6, right: 0, bottom: 0)
+        stack.children.append(iconNote)
         // Task Manager can turn it off while the window is open, Windows' Settings change the
         // default browser.
         return SettingsPaneContent(element: stack) {
@@ -130,6 +140,54 @@ enum SettingsPanes {
             _ = syncBrowser()
             syncs.forEach { $0() }
         }
+    }
+
+    /// A tile for each of `AppIconChoice.presets`: its 64 DIP picture in a ring (the accent once
+    /// picked), its name under it; a click picks it (`WindowIcon.select`).
+    private static func appIconCard(palette: SettingsPalette, syncs: inout [() -> Void]) -> UIElement {
+        let row = StackPanel()
+        row.orientation = .horizontal
+        row.spacing = 18
+        row.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 14, right: 14, bottom: 12)
+        func paint(_ ring: Border, _ label: TextBlock, picked: Bool) {
+            if picked { ring.borderBrush = palette.accent } else { ring.borderBrush = UI.clear }
+            label.fontWeight = UWP.FontWeight(weight: picked ? 600 : 400)
+        }
+        var rings: [(String, Border, TextBlock)] = []
+        for option in AppIconChoice.presets {
+            let tile = StackPanel()
+            tile.orientation = .vertical
+            tile.spacing = 6
+            tile.background = UI.clear
+            let ring = Border()
+            ring.width = 76
+            ring.height = 76
+            ring.cornerRadius = CornerRadius(topLeft: 18, topRight: 18, bottomRight: 18, bottomLeft: 18)
+            ring.borderThickness = Thickness(left: 2, top: 2, right: 2, bottom: 2)
+            ring.padding = Thickness(left: 4, top: 4, right: 4, bottom: 4)
+            if let file = WindowIcon.pictureFile(option.id), let data = try? Data(contentsOf: file),
+               let bitmap = Pixels.decode(data, side: 128)?.bitmap() {
+                ring.child = UI.image(bitmap, size: 64)
+            }
+            tile.children.append(ring)
+            let name = UI.text(option.name, size: 12, color: palette.text)
+            name.horizontalAlignment = .center
+            tile.children.append(name)
+            try? AutomationProperties.setName(tile, "\(option.name) app icon")
+            let id = option.id
+            tile.tapped.addHandler { _, _ in
+                guard WindowIcon.selectedID != id else { return }
+                WindowIcon.select(id)
+                for (other, ring, label) in rings { paint(ring, label, picked: other == id) }
+            }
+            row.children.append(tile)
+            rings.append((id, ring, name))
+        }
+        let shown = rings
+        let sync = { for (id, ring, label) in shown { paint(ring, label, picked: id == WindowIcon.selectedID) } }
+        sync()
+        syncs.append(sync)
+        return card([row], palette: palette)
     }
 
     // MARK: Privacy
