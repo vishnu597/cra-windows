@@ -29,14 +29,14 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 2 | 3 | 0 | 3 | 0 |
 | Media and capture | 0 | 4 | 0 | 1 | 1 |
-| Profiles, privacy and site data | 7 | 2 | 0 | 5 | 0 |
+| Profiles, privacy and site data | 7 | 3 | 0 | 4 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 3 | 0 | 2 | 0 |
 | Settings | 2 | 7 | 0 | 2 | 0 |
 | Import and onboarding | 0 | 5 | 0 | 0 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 6 | 6 | 0 | 5 | 9 |
-| **All** | 48 | 72 | 0 | 29 | 18 |
+| **All** | 48 | 73 | 0 | 28 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -177,7 +177,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Permission prompts | 🟡 [#17] | `CraCEF.mm`, `BrowserManager.swift` | `PermissionPrompt`, `PermissionAsk` | Windows prompts work. Upstream f8a9d1f queues a hidden tab's camera/microphone request until the tab is shown and logs outcomes; Windows does not yet use `PermissionAsk` for that waiting policy. |
 | Profiles: per-space cookie folders, Set Profile, Change Profile, New Profile, Settings ▸ Profiles | ✅ [#19] | `ProfilesPane.swift`, `ProfileDialogs.swift`, `NewProfileDialog.swift` | `SpaceProfiles`, `DeletedProfiles` | |
 | Website languages per profile in Settings ▸ Profiles, Language Settings (`languageSettings`) opens Chromium's page (#209) | ✅ [#63] [#111] | `ProfilesPane.swift` | `BrowserLanguages` | Upstream b528590. Windows has the command ([#63], Chromium's page in a tab of the window's space). [#111]: each profile's row in Settings ▸ Profiles reads "Website languages: …" (Chromium's live `intl.accept_languages` once the profile has loaded, else its Preferences file, `BrowserLanguages.codes(livePref:preferencesFile:)`) and its Languages… button opens Chromium's page in the window's focused space when it's on that profile, else the profile's first space (`BrowserLanguages.space`); off, with the Mac's tip, for a profile no space uses. |
-| Rebuild profiles from Arc (`rebuildArcProfiles`) | ❌ | `ArcProfileRebuilder.swift` | `ArcProfileRebuild` | Waits for Arc import. |
+| Rebuild profiles from Arc (`rebuildArcProfiles`) | 🟡 [#123] | `ArcProfileRebuilder.swift` | `ArcProfileRebuild` | Windows [#123]: Settings ▸ Profiles ▸ Rebuild from Arc… (beside Create Profile, while Arc's sidebar is on the PC) and the command bar's Rebuild Profiles from Arc… (`KeyBindingDefaults.windowsText`, no keys) find the spaces on Default that Arc has on a profile of its own (`SidebarStore.arcProfileMoves`), ask on Arc's sheet, move them (`applyArcProfileMoves`) and stage those Arc profiles' passwords and sign-ins for the next start (`CredentialImport`), then say what moved. The sheets' words are CraCore's `ArcProfileRebuild` (`confirmation(_:on:)`, `unreadable`, `nothingToMove`, `withoutSignIns`, `signInsNotSaved`, `moved`), which the Mac now uses too. Unlike the Mac, Windows doesn't restart (the sign-ins come in at the next start) and leaves extensions and their pins as they are, since its extensions load in every profile (stock CEF has no `extension-profiles.patch`). |
 | Clear Cache, Clear Cookies | ✅ [#17] | `SiteData.swift` | `SiteDataClearing` | |
 | Clear Browsing Data (`clearBrowsingData`) | ✅ [#55] | `AppDelegate.swift` | `BrowsingDataClear` | Windows: Ctrl+Shift+Delete (Chrome for Windows' key; `KeyChord.forwardDelete`), the command bar and Settings ▸ Privacy ▸ Data ▸ Clear… open Chrome's dialog in a tab; what it deletes from history leaves the command bar too (`BrowsingDataClear.watchScript`, the Mac's script). Not from a private window. |
 | Added block lists in Settings | 🟡 [#120] | `BlockLists.swift`, `PrivacyPane.swift` | `CustomBlocklists`, `CustomBlocklist`, `FilterList`, `BlocklistRules`, `BlocklistStore`, `BlocklistRow` | Sync #23, #507: URL validation, kept copies and domain parsing are shared. Sync #24: added lists apply their path and hiding rules (#570) on the iPhone. Windows [#120]: Settings ▸ Privacy ▸ Content blocking ▸ Block lists, as on the Mac: Add List… takes an address or Choose File…, each list shows its name, how many domains it blocks and when it was fetched (or why it couldn't be, with Try Again) and Remove. Copies are kept in %LOCALAPPDATA%\Cra\Blocklists and fetched again once a day at launch or a week while Cra runs. The Mac's BlockLists service moved to CraCore (`BlocklistStore`), so both apps fetch, keep and merge the same way; Windows hands the engine the merged list with `cra_cef_set_blocked_domains`. Left: as on the Mac, only a list's domain rules apply. |
@@ -895,4 +895,5 @@ the fork keeps in CraCore (`LibraryList.swift`), so it gained upstream's `railIc
 [#120]: https://github.com/vishnu597/cra-windows/pull/120
 [#121]: https://github.com/vishnu597/cra-windows/pull/121
 [#122]: https://github.com/vishnu597/cra-windows/pull/122
+[#123]: https://github.com/vishnu597/cra-windows/pull/123
 [#111]: https://github.com/vishnu597/cra-windows/pull/111

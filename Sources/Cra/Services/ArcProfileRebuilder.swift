@@ -13,19 +13,15 @@ enum ArcProfileRebuilder {
     /// Asks, moves the spaces and restarts; says so when there is nothing to do or Arc can't be read.
     static func run(store: SidebarStore, relaunch: @escaping () -> Void) {
         guard let plan = try? ArcImporter.plan() else {
-            alert("Cra couldn't read Arc's spaces.", "Arc's sidebar file is missing or in a format this version doesn't know.")
+            AppDialog(ArcProfileRebuild.unreadable).runModal()
             return
         }
         let moves = store.arcProfileMoves(plan)
         guard !moves.isEmpty else {
-            alert("No spaces to move", "Every space named like one of your Arc spaces is already on the right profile, or Arc has it on its Default profile.")
+            AppDialog(ArcProfileRebuild.nothingToMove).runModal()
             return
         }
-        let message = moves.map { "\($0.spaceTitle) → \($0.profileName)" }.joined(separator: "\n") + "\n\n"
-            + "Cra brings over the sign-ins, passwords and extensions these Arc profiles have, so the spaces work as they did in Arc. "
-            + "Sign-ins and passwords you added in Cra since the import stay with Default. macOS asks for your password to unlock Arc's data, then Cra restarts."
-        let a = AppDialog(title: "Move \(moves.count == 1 ? "this space" : "these spaces") to \(moves.count == 1 ? "its" : "their") Arc profile\(moves.count == 1 ? "" : "s")?",
-                          message: message, actions: [DialogAction("Move and Restart"), .cancel])
+        let a = AppDialog(ArcProfileRebuild.confirmation(moves, on: .mac))
         guard a.runModal() == .alertFirstButtonReturn else { return }
 
         let folders = Set(moves.map(\.folder))
@@ -41,16 +37,14 @@ enum ArcProfileRebuilder {
                 case .success(let c): credentials = c
                 case .failure(let error):
                     CraLog.note("rebuild from Arc: sign-ins not read: \(error.localizedDescription)")
-                    let b = AppDialog(title: "Move the spaces without their sign-ins?",
-                                      message: "\(error.localizedDescription) The spaces would start signed out of every site. Cancel changes nothing.",
-                                      actions: [DialogAction("Move Without Sign-ins"), .cancel])
+                    let b = AppDialog(ArcProfileRebuild.withoutSignIns(error.localizedDescription))
                     guard b.runModal() == .alertFirstButtonReturn else { return }
                 }
             }
             let map = store.applyArcProfileMoves(moves)
             CraLog.note("rebuild from Arc: moved \(moves.count) space(s), \(credentials.cookies.count) cookies, \(credentials.logins.count) passwords")
             if !credentials.isEmpty, !(await Task.detached(priority: .userInitiated) { CredentialImport.stage(credentials, profiles: map) }.value) {
-                alert("Cra couldn't save Arc's sign-ins.", "The spaces moved, but they start signed out.")
+                AppDialog(ArcProfileRebuild.signInsNotSaved).runModal()
             }
             scopeExtensions(map, store: store)
             seedPins(map)
@@ -75,10 +69,5 @@ enum ArcProfileRebuilder {
             guard let ids = ExtensionImporter.pinnedIDs(inProfile: ArcImporter.userData.appendingPathComponent(folder, isDirectory: true)) else { continue }
             ExtensionStore.shared.seedPinned(ids, inProfile: target)
         }
-    }
-
-    private static func alert(_ title: String, _ text: String) {
-        let a = AppDialog(title: title, message: text)
-        a.runModal()
     }
 }
