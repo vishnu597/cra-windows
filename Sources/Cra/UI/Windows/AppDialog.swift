@@ -46,6 +46,14 @@ final class AppDialog {
         self.suppressionTitle = suppressionTitle
     }
 
+    /// A sheet from CraCore's words (`DialogPrompt`), shared with the Windows app.
+    convenience init(_ prompt: DialogPrompt, icon: Icon = .mark, width: CGFloat = 450, buttonSpacing: CGFloat = 38,
+                     buttonOutset: CGFloat = 10.5) {
+        self.init(title: prompt.title, message: prompt.message, actions: prompt.actions, input: prompt.input,
+                  placeholder: prompt.placeholder, requiresInput: prompt.requiresInput, suppressionTitle: prompt.suppressionTitle,
+                  icon: icon, width: width, buttonSpacing: buttonSpacing, buttonOutset: buttonOutset)
+    }
+
     convenience init(error: Error) {
         let error = error as NSError
         self.init(title: error.localizedDescription, message: error.localizedRecoverySuggestion ?? error.localizedFailureReason ?? "")

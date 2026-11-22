@@ -286,7 +286,11 @@ final class SettingsWindow {
         case .profiles:
             built = SettingsPanes.profiles(store: store, palette: palette, owner: { [weak self] in
                 self.map { UInt($0.appWindow.id.value) } ?? 0
-            }, openProfilePage: { [weak self] url, profile in self?.onOpenProfilePage(url, profile) }) { [weak self] in self?.onNewProfile() }
+            }, openProfilePage: { [weak self] url, profile in self?.onOpenProfilePage(url, profile) },
+            presentDialog: { [weak self] dialog, done in
+                guard let self else { return done(nil) }
+                dialog.present(over: self.appWindow, completion: done)
+            }) { [weak self] in self?.onNewProfile() }
         case .extensions:
             built = SettingsPanes.extensions(store: store, palette: palette, owner: { [weak self] in
                 self.map { UInt($0.appWindow.id.value) } ?? 0

@@ -270,10 +270,7 @@ struct ProfilesPane: View {
 
     private func rename(_ id: UUID?) {
         guard let window = AppDialog.parentWindow else { return }
-        let dialog = AppDialog(title: "Rename your Profile",
-                               message: "This won’t affect the names of any of the Spaces associated with this Profile.",
-                               actions: [DialogAction("Save"), .cancel], input: store.profileName(id), placeholder: "Profile name", requiresInput: true,
-                               icon: .none, width: 496, buttonSpacing: 30, buttonOutset: 0)
+        let dialog = AppDialog(ProfilePrompts.rename(current: store.profileName(id)), icon: .none, width: 496, buttonSpacing: 30, buttonOutset: 0)
         dialog.present(over: window) { response in
             guard response == .alertFirstButtonReturn, let name = dialog.input else { return }
             store.renameProfile(id, to: name)
@@ -282,9 +279,7 @@ struct ProfilesPane: View {
 
     private func delete(_ profile: BrowserProfile) {
         guard let window = AppDialog.parentWindow else { return }
-        let dialog = AppDialog(title: "Delete “\(profile.name)”?",
-                               message: "Deleting this Profile will permanently remove any cookies, history, preferences, and logins that belong to it.",
-                               actions: [DialogAction("Delete Profile", role: .destructive), .cancel])
+        let dialog = AppDialog(ProfilePrompts.delete(name: profile.name))
         dialog.present(over: window) { response in
             if response == .alertFirstButtonReturn { store.deleteProfile(profile.id) }
         }

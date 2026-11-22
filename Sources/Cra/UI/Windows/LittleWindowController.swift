@@ -1672,16 +1672,14 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: view.bounds.maxY + 4), in: view)
     }
 
-    static let bypassProfileDialogKey = "shouldBypassConfirmLittleWindowProfileDialog"
+    static let bypassProfileDialogKey = ProfilePrompts.littleWindowBypassKey
 
     /// Arc asks first (ProfileDialogUtils.MoveKind.changeProfileInLittleWindow), with a
     /// "Don't ask again" that sets shouldBypassConfirmLittleBrowserProfileDialog.
     func changeProfile(to id: UUID?) {
         guard id != state.profileID, let window else { return }
         if UserDefaults.standard.bool(forKey: Self.bypassProfileDialogKey) { reload(inProfile: id); return }
-        let alert = AppDialog(title: "Open this page in \(store.profileName(id))?",
-                              message: "Each Profile has different browser data, so this webpage might look a little different.",
-                              actions: [DialogAction("Change Profile"), .cancel], suppressionTitle: "Don’t ask again")
+        let alert = AppDialog(ProfilePrompts.changeLittleWindowProfile(to: store.profileName(id)))
         alert.present(over: window) { [weak self, weak alert] resp in
             guard let self, resp == .alertFirstButtonReturn else { return }
             if alert?.isSuppressed == true { UserDefaults.standard.set(true, forKey: Self.bypassProfileDialogKey) }

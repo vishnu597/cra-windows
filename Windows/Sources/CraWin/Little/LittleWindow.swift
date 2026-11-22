@@ -699,14 +699,28 @@ final class LittleWindow {
         }
     }
 
-    /// Arc asks first (ProfileDialogUtils, changeProfileInLittleWindow); a page can't move between
-    /// profiles, so a new one in the other profile loads its address.
+    /// Arc asks first (ProfileDialogUtils, changeProfileInLittleWindow), on its sheet with "Don’t
+    /// ask again", which Windows keeps under HKCU\Software\Cra as the Mac keeps it in its
+    /// defaults (`ProfilePrompts.littleWindowBypassKey`). A page can't move between profiles, so a
+    /// new one in the other profile loads its address.
     private func changeProfile(to id: UUID?) {
         guard id != profileID, !closing else { return }
-        let name = store.profile(id)?.name ?? "Default"
-        let ok = Self.confirm(owner: window.hwnd, title: "Open this page in \(name)?",
-                              message: "Each Profile has different browser data, so this webpage might look a little different.")
-        guard ok, !closing else { return }
+        if Self.bypassesProfileDialog { return reload(inProfile: id) }
+        let dialog = AppDialog(ProfilePrompts.changeLittleWindowProfile(to: store.profileName(id)))
+        dialog.present(over: window) { [weak self, dialog] picked in
+            guard let self, picked == 0, !self.closing else { return }
+            if dialog.isSuppressed { Self.bypassesProfileDialog = true }
+            self.reload(inProfile: id)
+        }
+    }
+
+    private static let preferencesKey = #"Software\Cra"#
+    private static var bypassesProfileDialog: Bool {
+        get { WinRegistry.string(preferencesKey, ProfilePrompts.littleWindowBypassKey) == "1" }
+        set { _ = WinRegistry.setString(preferencesKey, ProfilePrompts.littleWindowBypassKey, newValue ? "1" : "0") }
+    }
+
+    private func reload(inProfile id: UUID?) {
         profileID = id
         replacePage(at: hasPage ? currentURL : "about:blank")
         drawStrip()
@@ -720,17 +734,6 @@ final class LittleWindow {
         page = made
         old?.close()
         focusPage()
-    }
-
-    /// Windows' OK/Cancel box over the window; true for OK.
-    private static func confirm(owner: UInt, title: String, message: String) -> Bool {
-        let okCancel: UINT = 0x1, question: UINT = 0x20  // MB_OKCANCEL, MB_ICONQUESTION
-        let answer = message.withCString(encodedAs: UTF16.self) { text in
-            title.withCString(encodedAs: UTF16.self) { caption in
-                MessageBoxW(HWND(bitPattern: owner), text, caption, okCancel | question)
-            }
-        }
-        return answer == 1  // IDOK
     }
 
     // MARK: Permissions

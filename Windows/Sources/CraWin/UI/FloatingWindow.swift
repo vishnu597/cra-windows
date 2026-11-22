@@ -24,14 +24,19 @@ final class FloatingWindow {
     /// Alt+F4 when there's no `onDeactivate`.
     var onClose: (() -> Void)?
 
-    init(owner: HostWindow, content: UIElement) throws {
+    convenience init(owner: HostWindow, content: UIElement) throws {
+        try self.init(owner: owner.appWindow, content: content)
+    }
+
+    /// Owned by any of Cra's windows (Settings is an AppWindow of its own).
+    init(owner: AppWindow, content: UIElement) throws {
         guard let presenter = try OverlappedPresenter.create() else { throw FloatingWindowError.noPresenter }
         presenter.isResizable = false
         presenter.isMaximizable = false
         presenter.isMinimizable = false
         // A border without a title bar: Windows 11 rounds it and gives it a shadow.
         try presenter.setBorderAndTitleBar(true, false)
-        guard let window = try AppWindow.create(presenter, owner.appWindow.id) else { throw FloatingWindowError.noWindow }
+        guard let window = try AppWindow.create(presenter, owner.id) else { throw FloatingWindowError.noWindow }
         appWindow = window
         hwnd = UInt(window.id.value)
         appWindow.isShownInSwitchers = false
