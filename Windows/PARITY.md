@@ -4,8 +4,8 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 624c19f1 -->
-Upstream reviewed through **624c19f1** (VictorKildahl/cra main, 21 Nov 2026), every commit triaged
+<!-- upstream-reviewed: 402111fc -->
+Upstream reviewed through **402111fc** (VictorKildahl/cra main, 22 Nov 2026), every commit triaged
 under Waiting in upstream (sync #26: 16 commits after 15ae9afc). The Windows gaps below remain explicit rather
 than inheriting the Mac's status.
 
@@ -35,8 +35,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Settings | 2 | 7 | 0 | 2 | 0 |
 | Import and onboarding | 0 | 5 | 0 | 0 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
-| System integration and release | 6 | 6 | 0 | 5 | 9 |
-| **All** | 48 | 73 | 0 | 28 | 18 |
+| System integration and release | 6 | 7 | 0 | 4 | 9 |
+| **All** | 48 | 74 | 0 | 27 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -258,7 +258,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Auto-update (`checkForUpdates`), update banner | ❌ | `SoftwareUpdater.swift`, `UpdateBanner.swift`, `UpdaterWindow.swift`, `UpdatePrewarmer.swift` | `UpdateNotice`, `UpdatePrewarm`, `UpdateChannel` | WinSparkle reads the same appcast. Upstream 110b3c6/ad2ed55 keep the news/sponsor card and show an update-news toast with the sidebar hidden. Windows needs its updater and this notice flow. Phase 3. Sync #23: Mac Stable/New feeds, promotion/rollback and preserved release download counts; Windows has no updater/channel selector. |
 | Daily installation count | ➖ | `SharingService.swift` | `Sharing`, `InstallCheckIn` | Sync #23: the released Mac sends a daily random install id, version and chip independently of usage-sharing consent. Windows has no reporting service/startup call; this sync adds no Windows check-in. |
 | Signed installer | 🟡 [#87] | | | Windows [#87]: `Windows/installer/Cra.iss` (Inno Setup 6, `Windows/scripts/installer.ps1`, CI artifact `Cra-windows-x64-setup`): a per-user install into %LOCALAPPDATA%\Programs\Cra with no administrator, a Start menu entry, the Windows App Runtime 1.7 installed when missing, Restart Manager closing a running Cra, and an uninstaller in Settings ▸ Apps that removes Cra's own registry entries and keeps the data folder. Left: Authenticode signing (needs a certificate), and the updater feeding it. |
-| Custom app icon | ❌ | `AppIconManager.swift` | | |
+| Custom app icon | 🟡 [#124](https://github.com/vishnu597/cra-windows/pull/124) | `AppIconManager.swift` | `AppIconChoice` | Windows [#124]: Settings ▸ General picks the app icon. Not yet checked on the PC (batched test plan). |
 | Bluetooth device cache for Chromium | ➖ | `ChromiumBluetoothCache.swift` | | Mac only (CoreBluetooth). |
 | Chromium follows the system language | ✅ [#67] | `AppDelegate.swift` | `ChromiumLocale`, `ChromiumLocale+Paks` | Windows picks from CEF's `locales/*.pak` and the user's display languages (`ChromiumLocale.pick(localePaks:)`, where the folder's en-US is plain English). |
 | Window switchers and window managers see one window per Cra window (#391, #401) | ➖ | `DockedWindowAccessibility.swift`, `SwitcherWindows+AppKit.swift`, `WindowManagers+AppKit.swift` | `SwitcherWindows`, `WindowManagers` | Upstream ac12d60, 192b41e: macOS lists docked Chromium windows through accessibility. On Windows CEF's pages are child windows of Cra's top-level window, so Alt+Tab and snapping already see one window. Check on the PC that a Little Window's or Peek's page doesn't show as a window of its own. Sync #23: the Mac Little Window exposes standard movable/resizable accessibility attributes; Windows uses top-level windows and needs no macOS AX adapter. |
@@ -270,7 +270,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Chromium engine: Cra's own build of Chrome's framework in place of CEF, its version in Settings and About | ➖ | `EngineFramework.swift`, `EmbeddedDevTools.swift`, `PageDialogs.swift` | `EngineVersion`, `PageDialogPlacement` | Upstream 5bb7467 onward (Chrome 158.0.8127.37, `fetch-engine.sh`). The Mac leaves CEF; Windows stays on stock CEF (`fetch-deps.ps1` still reads `fetch-cef.sh`). A Windows engine build would be its own project. `EngineVersion.label` is portable for a Windows About line. Sync #23: engine -15 through -27 correct page creation, dialog/print placement (#574), bars, DevTools and extension hosts; Windows retains stock CEF and its existing window ownership. |
 | Chrome's bars over a page ("<extension> started debugging this browser", #241) drawn by Cra | ➖ | `InfoBarStrip.swift` | `PageInfoBar` | Upstream: only the Mac engine reports infobars; on CEF, Windows included, Chrome draws its own. |
 | Launch migrations run when no other process holds the data folder, not when no other Cra runs (#299) | ✅ [#87] | `AppDelegate.swift` | `DataFolderOwner` | Upstream 2f5e3b0. Windows [#87]: crash recovery, deleted profiles and staged sign-ins run before Chromium starts only when no other process holds the data folder's `lockfile` (Chromium's Windows process singleton; `cra_cef_data_folder_lock_state`, `DataFolderOwner.isFree(windowsLockFile:)`). A second launch handed to the running Cra changes nothing. Extension copies and `extensions-welcomed.json` run after Chromium has the folder. |
-| The iPhone app (Arc Search's design) and its Mac sync | ➖ | `iOS/Cra` | `MobileAI`, `MobileArchive`, `MobileBlockerNotices`, `MobileBlocklist`, `MobileBrowseForMe`, `MobileBrowseToggle`, `MobileChrome`, `MobileCoachMark`, `MobileDownloads`, `MobileFidget`, `MobileMotion`, `MobileOnboarding`, `MobilePageMenu`, `MobileSearchEngine`, `MobileSettings`, `MobileShareInbox`, `MobileSpaces`, `MobileSuggestions`, `MobileSummary`, `MobileSwipe`, `MobileSyncIntro`, `MobileTabCarousel`, `MobileTabs`, `MobileTranslate`, `MobileBlockerReadiness`, `MobileFavicons`, `MobileKeyboard`, `MobileSpacesSheet`, `MobileExternalLinks`, `MobileLinkMenu`, `MobileLoadFailure`, `MobileRecentTabs`, `MobileStatusBand` | Upstream's iPhone app (iOS/, after Arc Search 1.49). Its decisions live in CraCore's Mobile folder and build on Linux and Windows too, but they serve the phone. Windows has nothing to port. Sync #23: iOS passkeys, collapsing bar/keyboard, previous-tab flicks, newer Mac sidebar loading and cached Spaces sheets serve the phone, not a Windows UI. |
+| The iPhone app (Arc Search's design) and its Mac sync | ➖ | `iOS/Cra` | `MobileAI`, `MobileArchive`, `MobileBlockerNotices`, `MobileBlocklist`, `MobilePressHaptics`, `MobileBrowseForMe`, `MobileBrowseToggle`, `MobileChrome`, `MobileCoachMark`, `MobileDownloads`, `MobileFidget`, `MobileMotion`, `MobileOnboarding`, `MobilePageMenu`, `MobileSearchEngine`, `MobileSettings`, `MobileShareInbox`, `MobileSpaces`, `MobileSuggestions`, `MobileSummary`, `MobileSwipe`, `MobileSyncIntro`, `MobileTabCarousel`, `MobileTabs`, `MobileTranslate`, `MobileBlockerReadiness`, `MobileFavicons`, `MobileKeyboard`, `MobileSpacesSheet`, `MobileExternalLinks`, `MobileLinkMenu`, `MobileLoadFailure`, `MobileRecentTabs`, `MobileStatusBand` | Upstream's iPhone app (iOS/, after Arc Search 1.49). Its decisions live in CraCore's Mobile folder and build on Linux and Windows too, but they serve the phone. Windows has nothing to port. Sync #23: iOS passkeys, collapsing bar/keyboard, previous-tab flicks, newer Mac sidebar loading and cached Spaces sheets serve the phone, not a Windows UI. |
 | Sync sidebar, settings and shortcuts through iCloud or a folder | ❌ | `SettingsSyncService.swift`, `SyncSection.swift` | `SettingsSync`, `SidebarMerge` | Upstream cae2918. Folder manifests, merge and conflict decisions are portable; Windows needs the folder chooser, file coordination/watching and settings UI. iCloud integration is Mac-specific. Sharing consent and MCP permissions do not sync. Sync #23: bundle merge keeps closed tabs closed and a live page's address (#474, #479); Windows still has no sync transport/UI. |
 | Agents in Cra: permissioned local MCP server and bridge | ❌ | `MCPServer.swift`, `MCPListener.swift`, `MCPConnection.swift`, `MCPPeer.swift`, `MCPInput.swift`, `MCPPage.swift`, `MCPTransfers.swift`, `AgentFace.swift`, `AgentPill.swift` | `MCPAgents`, `MCPAgentAids`, `MCPInputPlan`, `MCPProtocol`, `JSONNumber`, `MCPReferences`, `MCPSession`, `MCPUploadTarget`, `MCPAgentPresence` | Upstream 31187f8. Protocol/session/reference/input policies are shared. Windows needs transport/client identity, approval UI and native page/input/capture integration; this sync does not start an MCP listener on Windows. JavaScript and history access remain separate opt-ins in the model. Sync #23: face/cursor and Take Over pill show actions on the watched tab and follow smooth scrolling; Windows starts no MCP listener/presence UI. |
 | Feature flags | ❌ | `FeatureFlags.swift` | | |
@@ -801,6 +801,28 @@ the fork keeps in CraCore (`LibraryList.swift`), so it gained upstream's `railIc
 | 624c19f1 | Library rail tiles and two-colour icons that play when picked (#668) | Library row (`LibraryRailTile`, `LibraryRailIcons`, `LibraryRailIconView.swift`). Windows' rail keeps its glyphs. ❌ |
 | fd89321f | Space swipes settle on Arc's spring (#613) | Swipe row (`LibrarySwipe`). Check that Windows' pager uses the same settle. ❌ |
 | e73dc456 | Permission card sits 12 pt below a page that starts under the menu bar | Mac menu bar placement (`PermissionPopover.swift`). ➖ |
+
+Upstream sync #30 merged 27 commits after 624c19f1, to 402111fc. Conflicts:
+- The Arc importer's own icon per tab (#673). The fork's `apply` lives in CraCore (`SidebarStore+Import.swift`), so the fix went there and `Importers.swift` keeps its call.
+- `PeekLayoutTests`: both sides' tests were kept.
+- `LibrarySwipeTests`' imports: the fork's guard was kept.
+- The Mac's ⌘Z guard: upstream's was taken.
+
+| Commits | What | Windows |
+|---|---|---|
+| 789e5a88 | An Auto space keeps its colour in dark mode (#677) | Space theme row (`SpaceThemeVariants`, used by Windows, and the store's load upgrade). Shared code, so Windows has it. Check on the PC. ✅ |
+| 6c42774c | The space gradient runs at 45° from the top left and blends in Oklab (#669) | Space theme row (`SpaceGradient`). Windows doesn't draw with it yet. ❌ |
+| 29551ff5 | An empty card follows Arc's appearance (#669) | Card row (`CardVeil`). ❌ |
+| c6032295 | Peek closes back into a link the page re-rendered (#682) | Peek row (`PeekLayout.closeTarget`, `sourceAgainScript`). Windows uses `PeekLayout` but not the new close. ❌ |
+| c8ff1d93, f8c8bff5, dc153070 | Easels: ⌘Z undo and resizing shapes and text boxes (#680) | Easels row (`EaselResize`). ❌ |
+| 4d279394, 34099198 | A Little Window closes back to the app that opened it (#659) | Little Windows row (`LittleWindowReturn`). ❌ |
+| 0a58c04c | Incognito windows run only the extensions allowed in incognito (#620) | Extensions row (`ExtensionIncognito`). ❌ |
+| c8b1381e | Space swipes settle from where the fingers left (#613) | Swipe row (`LibrarySwipe`). ❌ |
+| 2d6a15e8 | Each imported Arc tab keeps its own icon (#673) | Import row (CraCore `apply`). Shared code, so Windows has it. ✅ |
+| 7d380c29, 2db4774c | Engine 159: PresentationRequest opens Arc's Cast dialog | Mac engine patch (`cra-cast-dialog.patch`). Windows is on CEF 156. ➖ |
+| 5d350d1e | Menus stay on their control after a drag to another display (#672) | Mac window placement. ➖ |
+| 4caddfe2, 43971615, 9993f5fd, e834c9a5, 60c6deec, c04f18a7 | iPhone and iPad (#675, #674, #670) | iPhone only (`Mobile*`). ➖ |
+| 402111fc, 8d335868, 5a5e832b | Snapshots, docs and a Library swipe test (#663, #679) | Nothing for Windows. |
 
 ## Keeping this current
 

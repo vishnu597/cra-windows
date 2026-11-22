@@ -46,7 +46,7 @@ public struct ImportedSpace {
     /// The source browser's profile the space was on, when it is not Default (Arc, GitHub #131).
     public var profile: ImportedProfile?
 
-    public init(title: String, emoji: String, symbol: String? = nil, theme: SpaceTheme?, favorites: [ImportedItem] = [], pinned: [ImportedItem] = [],
+    public init(title: String, emoji: String, symbol: String? = nil, theme: SpaceTheme? = nil, favorites: [ImportedItem] = [], pinned: [ImportedItem] = [],
                 today: [ImportedItem] = [], profile: ImportedProfile? = nil) {
         self.title = title
         self.emoji = emoji
