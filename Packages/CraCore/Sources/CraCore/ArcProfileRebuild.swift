@@ -37,6 +37,13 @@ public enum ArcProfileRebuild {
         public var spaceTitle: String
         public var folder: String
         public var profileName: String
+
+        public init(spaceID: UUID, spaceTitle: String, folder: String, profileName: String) {
+            self.spaceID = spaceID
+            self.spaceTitle = spaceTitle
+            self.folder = folder
+            self.profileName = profileName
+        }
     }
 
     /// The Cra spaces to put on an Arc profile: a movable space whose name (any case) is one Arc
