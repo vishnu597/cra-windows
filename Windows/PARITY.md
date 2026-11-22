@@ -35,8 +35,8 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Settings | 2 | 7 | 0 | 2 | 0 |
 | Import and onboarding | 0 | 5 | 0 | 0 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
-| System integration and release | 6 | 6 | 0 | 5 | 9 |
-| **All** | 48 | 73 | 0 | 28 | 18 |
+| System integration and release | 6 | 7 | 0 | 4 | 9 |
+| **All** | 48 | 74 | 0 | 27 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -258,7 +258,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Auto-update (`checkForUpdates`), update banner | ❌ | `SoftwareUpdater.swift`, `UpdateBanner.swift`, `UpdaterWindow.swift`, `UpdatePrewarmer.swift` | `UpdateNotice`, `UpdatePrewarm`, `UpdateChannel` | WinSparkle reads the same appcast. Upstream 110b3c6/ad2ed55 keep the news/sponsor card and show an update-news toast with the sidebar hidden. Windows needs its updater and this notice flow. Phase 3. Sync #23: Mac Stable/New feeds, promotion/rollback and preserved release download counts; Windows has no updater/channel selector. |
 | Daily installation count | ➖ | `SharingService.swift` | `Sharing`, `InstallCheckIn` | Sync #23: the released Mac sends a daily random install id, version and chip independently of usage-sharing consent. Windows has no reporting service/startup call; this sync adds no Windows check-in. |
 | Signed installer | 🟡 [#87] | | | Windows [#87]: `Windows/installer/Cra.iss` (Inno Setup 6, `Windows/scripts/installer.ps1`, CI artifact `Cra-windows-x64-setup`): a per-user install into %LOCALAPPDATA%\Programs\Cra with no administrator, a Start menu entry, the Windows App Runtime 1.7 installed when missing, Restart Manager closing a running Cra, and an uninstaller in Settings ▸ Apps that removes Cra's own registry entries and keeps the data folder. Left: Authenticode signing (needs a certificate), and the updater feeding it. |
-| Custom app icon | ❌ | `AppIconManager.swift` | | |
+| Custom app icon | 🟡 [#124](https://github.com/vishnu597/cra-windows/pull/124) | `AppIconManager.swift` | `AppIconChoice` | Windows [#124]: Settings ▸ General picks the app icon. Not yet checked on the PC (batched test plan). |
 | Bluetooth device cache for Chromium | ➖ | `ChromiumBluetoothCache.swift` | | Mac only (CoreBluetooth). |
 | Chromium follows the system language | ✅ [#67] | `AppDelegate.swift` | `ChromiumLocale`, `ChromiumLocale+Paks` | Windows picks from CEF's `locales/*.pak` and the user's display languages (`ChromiumLocale.pick(localePaks:)`, where the folder's en-US is plain English). |
 | Window switchers and window managers see one window per Cra window (#391, #401) | ➖ | `DockedWindowAccessibility.swift`, `SwitcherWindows+AppKit.swift`, `WindowManagers+AppKit.swift` | `SwitcherWindows`, `WindowManagers` | Upstream ac12d60, 192b41e: macOS lists docked Chromium windows through accessibility. On Windows CEF's pages are child windows of Cra's top-level window, so Alt+Tab and snapping already see one window. Check on the PC that a Little Window's or Peek's page doesn't show as a window of its own. Sync #23: the Mac Little Window exposes standard movable/resizable accessibility attributes; Windows uses top-level windows and needs no macOS AX adapter. |
