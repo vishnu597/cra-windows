@@ -261,8 +261,11 @@ enum SettingsPanes {
         error.textWrapping = .wrap
         error.maxWidth = 300
         error.visibility = .collapsed
-        // Weak: the flyout holds the buttons whose handlers close it.
-        weak var shown = flyout
+        // Strong, as `field` below: a WinRT control built from Swift is only a wrapper, gone
+        // once nothing in Swift holds it, so a weak capture was nil by the time Add or Return
+        // ran and the typed address was dropped (PC test, 22 Nov 2026). The cycle through the
+        // handlers keeps one flyout and field per Privacy pane alive, which is the point.
+        let shown: Flyout? = flyout
         func apply(_ addition: CustomBlocklist.Addition) {
             switch addition {
             case .invalid:
@@ -276,8 +279,7 @@ enum SettingsPanes {
             }
             try? shown?.hide()
         }
-        let addTyped = { [weak field] in
-            guard let field else { return }
+        let addTyped = {
             apply(CustomBlocklist.adding(field.text, to: store.settings.customBlocklists, httpsOnly: false))
         }
         field.keyDown.addHandler { _, args in
@@ -309,8 +311,8 @@ enum SettingsPanes {
         panel.children.append(error)
         panel.children.append(buttons)
         flyout.content = panel
-        flyout.opened.addHandler { [weak field] _, _ in
-            field?.text = ""
+        flyout.opened.addHandler { _, _ in
+            field.text = ""
             error.visibility = .collapsed
         }
         add.flyout = flyout

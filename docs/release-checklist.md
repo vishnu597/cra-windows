@@ -378,6 +378,10 @@ built release app with a test profile. Note anything that fails in the release's
   the row shows the new name at once, and so do a space's Set Profile menu, Create a Space's
   Profile pill and menu, the Change Profile sheet's picker and a Little Window's profile chip and
   menu (PC test, 22 Nov 2026: `defaultProfileName` was saved but every label still read "Default").
+- **Windows typed block list:** Settings ▸ Privacy ▸ Add List…, type `not a url` and press Return:
+  the invalid-address line shows. Type a list's https address and press Return (and again with
+  the Add button): the flyout closes and the list's row shows "Fetching…" then its domain count
+  (PC test, 22 Nov 2026: typed addresses were dropped silently; Choose File… worked).
   Use a real mouse for the double-clicks, including a tab that was not selected before the first
   click and a closed folder. Dragging a row first must not make its next single click rename it.
 - **Windows drag targets and Manage Spaces:** in a test space with no favorites, start dragging
