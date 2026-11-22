@@ -22,6 +22,25 @@ struct FirefoxImportTests {
         return Data(out + bytes)
     }
 
+    /// A profiles.ini saved as UTF-16 with a byte order mark (a Windows PC's, 22 Nov 2026) is
+    /// read like Firefox's own UTF-8 one, so Firefox is offered for import.
+    @Test func readsProfilesIniInUTF16AndUTF8() throws {
+        let ini = "[Install308046B0AF4A39CB]\r\nDefault=Profiles/abc.default-release\r\n\r\n[Profile0]\r\nIsRelative=1\r\nPath=Profiles/abc.default-release\r\n"
+        let le = Data([0xFF, 0xFE]) + ini.data(using: .utf16LittleEndian)!
+        let be = Data([0xFE, 0xFF]) + ini.data(using: .utf16BigEndian)!
+        let bom8 = Data([0xEF, 0xBB, 0xBF]) + Data(ini.utf8)
+        for data in [le, be, bom8, Data(ini.utf8)] {
+            #expect(FirefoxImport.iniText(data) == ini)
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ff-ini-\(UUID().uuidString)", isDirectory: true)
+        let profile = root.appendingPathComponent("Profiles/abc.default-release", isDirectory: true)
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data().write(to: profile.appendingPathComponent("places.sqlite"))
+        try le.write(to: root.appendingPathComponent("profiles.ini"))
+        #expect(FirefoxImport.defaultProfile(root: root)?.standardizedFileURL.path == profile.standardizedFileURL.path)
+    }
+
     @Test func decodesLZ4Blocks() {
         // "abc", then a 9-byte match 3 back (a run over what it writes), then "XYZ".
         let block: [UInt8] = [0x35, 0x61, 0x62, 0x63, 0x03, 0x00, 0x30, 0x58, 0x59, 0x5A]
