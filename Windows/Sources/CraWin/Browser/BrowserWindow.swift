@@ -934,6 +934,7 @@ final class BrowserWindow {
         case "closeWindow": requestClose()
         case "changeProfile": if !isIncognito { showChangeProfile(forSpace: store.focusedSpaceID(window: windowID)) }
         case "newProfile": if !isIncognito { showNewProfile(ticked: []) }
+        case "rebuildArcProfiles": if !isIncognito { rebuildArcProfiles() }
         case "share":
             if let tab = store.selectedTab(window: windowID), let url = tab.tab?.url, !url.isEmpty {
                 share(url: url, title: tab.displayTitle)
@@ -2509,6 +2510,18 @@ extension BrowserWindow: SpacesManagerActions {
     }
 
     func runCommand(_ id: String) { _ = perform(id) }
+
+    /// Rebuild Profiles from Arc… (ArcProfileRebuilder): its sheets over this window, after the
+    /// command bar's key or click that asked.
+    func rebuildArcProfiles() {
+        _ = try? dispatcher.tryEnqueue { [weak self] in
+            guard let self, !self.closing else { return }
+            ArcProfileRebuilder.run(store: self.store) { [weak self] dialog, done in
+                guard let self, !self.closing else { return done(nil) }
+                dialog.present(over: self.window, completion: done)
+            }
+        }
+    }
 
     /// Delete Space…: Arc's question first, since the space's tabs and folders are archived; the
     /// last space only says it has to stay (SpaceDeleteConfirmation).

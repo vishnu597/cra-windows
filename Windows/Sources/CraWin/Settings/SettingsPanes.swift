@@ -703,7 +703,23 @@ enum SettingsPanes {
         create.content = UI.text("Create Profile…", trimmed: false)
         create.margin = Thickness(left: 0, top: 10, right: 0, bottom: 0)
         create.click.addHandler { _, _ in newProfile() }
-        stack.children.append(create)
+        if ArcProfileRebuilder.isAvailable {
+            // Spaces an Arc import left on Default, back on their Arc profiles (#131), as the Mac's
+            // Default profile offers.
+            let row = StackPanel()
+            row.orientation = .horizontal
+            row.spacing = 8
+            row.children.append(create)
+            let rebuild = Button()
+            rebuild.content = UI.text("Rebuild from Arc…", trimmed: false)
+            rebuild.margin = create.margin
+            try? ToolTipService.setToolTip(rebuild, "Put spaces imported from Arc back on the profiles they use in Arc, with their sign-ins.")
+            rebuild.click.addHandler { _, _ in ArcProfileRebuilder.run(store: store, present: presentDialog) }
+            row.children.append(rebuild)
+            stack.children.append(row)
+        } else {
+            stack.children.append(create)
+        }
         let footnote = UI.text("Profiles help keep your data separate across Spaces, like logins, cookies and site data. You can use any Profile across one or more Spaces: choose Change Profile in the command bar, or Set Profile on a Space’s menu. Spaces on the same Profile share their logins. Only Profiles not assigned to any Spaces can be deleted.",
                                size: 11, color: palette.secondaryText, trimmed: false)
         footnote.textWrapping = .wrap

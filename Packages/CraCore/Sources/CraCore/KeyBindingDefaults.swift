@@ -241,6 +241,10 @@ public enum KeyBindingDefaults {
         // the Library's Archived Tabs.
         "viewArchive": ("View History", "Open the archive of closed tabs.", ["archive", "history", "closed tabs"]),
         // The Mac names it Show or Hide Toolbar as the View menu opens; Windows' command bar has one name.
+        // Windows stages the sign-ins for the next start instead of restarting, and leaves extensions
+        // loading in every profile (stock CEF).
+        "rebuildArcProfiles": ("Rebuild Profiles from Arc…", "Put spaces imported from Arc back on their Arc profiles, with their sign-ins.",
+                               ["profiles", "arc profiles"]),
         "toggleToolbar": ("Toggle Toolbar", "Show or hide the toolbar above the page.", ["toolbar", "address bar"]),
     ]
 
@@ -305,6 +309,7 @@ public enum KeyBindingDefaults {
             "stop": [],
             "changeProfile": [],
             "newProfile": [],
+            "rebuildArcProfiles": [],
             "share": [],
             "pinTab": [KeyChord("d", ctrl)],
             // The sidebar's row commands; the Mac gives them no keys either.

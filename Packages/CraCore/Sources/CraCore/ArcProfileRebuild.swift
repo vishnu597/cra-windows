@@ -52,4 +52,53 @@ public enum ArcProfileRebuild {
             return Move(spaceID: space.id, spaceTitle: space.title, folder: folder, profileName: match.name)
         }
     }
+
+    // MARK: What it asks and says (the Mac's ArcProfileRebuilder, shared with Windows)
+
+    public enum Platform: Sendable { case mac, windows }
+
+    public static let unreadable = DialogPrompt(title: "Cra couldn't read Arc's spaces.",
+                                                message: "Arc's sidebar file is missing or in a format this version doesn't know.")
+
+    public static let nothingToMove = DialogPrompt(title: "No spaces to move",
+                                                   message: "Every space named like one of your Arc spaces is already on the right profile, or Arc has it on its Default profile.")
+
+    /// The question before anything moves: each space and its Arc profile, then what comes with
+    /// them. The Mac brings the profiles' extensions too and restarts at once; on Windows
+    /// extensions load in every profile, and the sign-ins arrive at the next start.
+    public static func confirmation(_ moves: [Move], on platform: Platform) -> DialogPrompt {
+        let one = moves.count == 1
+        let list = moves.map { "\($0.spaceTitle) → \($0.profileName)" }.joined(separator: "\n") + "\n\n"
+        let kept = "Sign-ins and passwords you added in Cra since the import stay with Default."
+        let message: String, button: String
+        switch platform {
+        case .mac:
+            message = list + "Cra brings over the sign-ins, passwords and extensions these Arc profiles have, so the spaces work as they did in Arc. "
+                + kept + " macOS asks for your password to unlock Arc's data, then Cra restarts."
+            button = "Move and Restart"
+        case .windows:
+            message = list + "Cra brings over the sign-ins and passwords these Arc profiles have, so the spaces work as they did in Arc. "
+                + kept + " They come in the next time Cra opens."
+            button = "Move Spaces"
+        }
+        return DialogPrompt(title: "Move \(one ? "this space" : "these spaces") to \(one ? "its" : "their") Arc profile\(one ? "" : "s")?",
+                            message: message, actions: [DialogAction(button), .cancel])
+    }
+
+    /// Arc's sign-ins couldn't be read (`reason` says why): move anyway?
+    public static func withoutSignIns(_ reason: String) -> DialogPrompt {
+        DialogPrompt(title: "Move the spaces without their sign-ins?",
+                     message: "\(reason) The spaces would start signed out of every site. Cancel changes nothing.",
+                     actions: [DialogAction("Move Without Sign-ins"), .cancel])
+    }
+
+    public static let signInsNotSaved = DialogPrompt(title: "Cra couldn't save Arc's sign-ins.",
+                                                     message: "The spaces moved, but they start signed out.")
+
+    /// Windows' word once the spaces moved (the Mac restarts instead): how many, and what the
+    /// sign-in import says (`CredentialImportReport.summary`).
+    public static func moved(_ count: Int, credentials: String?) -> DialogPrompt {
+        DialogPrompt(title: count == 1 ? "1 space moved" : "\(count) spaces moved",
+                     message: credentials ?? "They’re on their Arc profiles now.")
+    }
 }
