@@ -19,12 +19,22 @@ struct OnboardingTests {
     }
 
     @Test func stepsWithNothingToOfferAreLeftOut() {
-        // Windows: Cra already opens links, no ad blocker or usage stats yet, four favorites.
+        // Cra already opens links, nothing to switch on for privacy, four favorites.
         let flow = Onboarding.Flow(offersDefaultBrowser: false, offersPrivacy: false, offersPinnedTabs: false)
         #expect(flow.steps == [.cover, .importData, .personalization, .outro])
         #expect(flow.next(after: .cover) == .importData)
         #expect(flow.next(after: .importData) == .personalization)
         #expect(flow.previous(before: .personalization) == .importData)
+    }
+
+    /// Windows has the ad blocker (Settings ▸ Privacy) to offer, so its run shows Dia's privacy
+    /// step between the default browser and the import, as the Mac's does.
+    @Test func windowsOffersThePrivacyStep() {
+        let fresh = Onboarding.windowsFlow(isDefaultBrowser: false, favoriteCount: 0)
+        #expect(fresh.steps == Onboarding.Step.allCases)
+        #expect(fresh.next(after: .defaultBrowser) == .privacy && fresh.previous(before: .importData) == .privacy)
+        let set = Onboarding.windowsFlow(isDefaultBrowser: true, favoriteCount: 4)
+        #expect(set.steps == [.cover, .privacy, .importData, .personalization, .outro])
     }
 
     @Test func pinnedTabsWaitForAFullRow() {

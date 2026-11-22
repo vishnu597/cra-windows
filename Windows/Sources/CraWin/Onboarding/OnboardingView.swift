@@ -37,6 +37,12 @@ final class OnboardingView {
     }
     var pin: ([Onboarding.PinCandidate]) -> Void = { _ in }
     var chooseTheme: (Int) -> Void = { _ in }
+    /// The privacy step's box: Settings ▸ Privacy's "Block ads and trackers".
+    var blocksAds: () -> Bool = { true }
+    var setBlocksAds: (Bool) -> Void = { _ in }
+    /// Make it yours' layout choice: Settings ▸ Tabs ▸ Address bar.
+    var addressBar: () -> AddressBarPlacement = { .sidebar }
+    var setAddressBar: (AddressBarPlacement) -> Void = { _ in }
     /// The default browser step's choices: make Cra the default (Windows' own page opens), and
     /// open it at sign-in. An error to show, or nil.
     var applySystemOptions: (Bool, Bool) -> String? = { _, _ in nil }
@@ -113,8 +119,6 @@ final class OnboardingView {
 
     private func show(_ next: Onboarding.Step) {
         step = next
-        // No ad blocker or usage stats on Windows yet: the flow never offers it.
-        if next == .privacy { return advance() }
         body.children.clear()
         footer.children.clear()
         controls = []
@@ -123,7 +127,8 @@ final class OnboardingView {
         switch next {
         case .cover: showCover()
         case .defaultBrowser: showDefaultBrowser()
-        case .privacy, .importData: showImport()
+        case .privacy: showPrivacy()
+        case .importData: showImport()
         case .pinnedTabs: showPinnedTabs()
         case .personalization: showPersonalization()
         case .outro: showOutro()
@@ -163,6 +168,23 @@ final class OnboardingView {
             }
             self.advance()
         }
+    }
+
+    /// Dia's DisclosureView, as the Mac's PrivacyStep: the ad blocker. The Mac's second row,
+    /// sharing usage stats, waits for a Windows sender (Cra sends nothing from Windows).
+    private func showPrivacy() {
+        body.children.append(title("Privacy in Cra,\nyou’re in control"))
+        body.children.append(paragraph("Cra works fully signed out. Your spaces, tabs and archive are plain files on your PC."))
+        let list = StackPanel()
+        list.orientation = .vertical
+        list.spacing = 4
+        list.margin = Thickness(left: 0, top: 26, right: 0, bottom: 0)
+        list.children.append(checkbox("Block third-party ads and trackers", on: blocksAds()) { [weak self] in self?.setBlocksAds($0) })
+        let caption = UI.text("You won’t see them. And they won’t see you.", size: 12, color: Self.muted, trimmed: false)
+        caption.margin = Thickness(left: 28, top: 0, right: 0, bottom: 0)
+        list.children.append(caption)
+        body.children.append(list)
+        setButtons(primary: "Continue", back: true) { [weak self] in self?.advance() }
     }
 
     private func showImport() {
@@ -303,7 +325,54 @@ final class OnboardingView {
             controls.append(swatch)
         }
         body.children.append(row)
+        // Dia's tab layouts are Cra's two address bar places (Settings ▸ Tabs ▸ Address bar, #305).
+        let ask = paragraph("Choose where the address bar goes:")
+        ask.margin = Thickness(left: 0, top: 26, right: 0, bottom: 0)
+        body.children.append(ask)
+        let layouts = StackPanel()
+        layouts.orientation = .horizontal
+        layouts.spacing = 12
+        layouts.margin = Thickness(left: 0, top: 10, right: 0, bottom: 0)
+        for placement in AddressBarPlacement.allCases {
+            let tile = layoutTile(placement)
+            layouts.children.append(tile)
+            controls.append(tile)
+        }
+        body.children.append(layouts)
         setButtons(primary: "Continue", back: true) { [weak self] in self?.advance() }
+    }
+
+    /// One of the two layouts: its name and where it puts the address bar, ringed when picked.
+    private func layoutTile(_ placement: AddressBarPlacement) -> Button {
+        let on = addressBar() == placement
+        let words = StackPanel()
+        words.orientation = .vertical
+        words.spacing = 2
+        words.children.append(UI.text(placement.title, size: 14, color: Self.white, trimmed: false))
+        words.children.append(UI.text(placement.detail, size: 12, color: Self.muted, trimmed: false))
+        let ring = Border()
+        ring.child = words
+        ring.width = 200
+        ring.padding = Thickness(left: 14, top: 10, right: 14, bottom: 10)
+        ring.background = on ? Self.rowOn : Self.row
+        ring.borderBrush = on ? Self.ring : UI.clear
+        ring.borderThickness = Thickness(left: 2, top: 2, right: 2, bottom: 2)
+        ring.cornerRadius = CornerRadius(topLeft: 10, topRight: 10, bottomRight: 10, bottomLeft: 10)
+        let button = Button()
+        button.content = ring
+        button.padding = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        button.background = UI.clear
+        button.borderThickness = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        button.clickMode = .release
+        try? AutomationProperties.setName(button, "\(placement.title): the address bar \(placement.detail.lowercased())\(on ? ", chosen" : "")")
+        button.click.addHandler { [weak self] _, _ in
+            guard let self else { return }
+            self.setAddressBar(placement)
+            self.show(.personalization)
+            let i = SpaceTheme.presets.count + (AddressBarPlacement.allCases.firstIndex(of: placement) ?? 0)
+            if i < self.controls.count { _ = try? self.controls[i].focus(.programmatic) }
+        }
+        return button
     }
 
     private func swatch(_ theme: SpaceTheme, index: Int) -> Button {
