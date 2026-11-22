@@ -20,10 +20,22 @@ public enum FirefoxImport {
     /// The default profile from `root`'s profiles.ini: the [Install…] section's Default, else the
     /// [Profile…] marked Default=1, else the first, among those with a places.sqlite.
     public static func defaultProfile(root: URL) -> URL? {
-        guard let ini = try? String(contentsOf: root.appendingPathComponent("profiles.ini"), encoding: .utf8) else { return nil }
+        guard let data = try? Data(contentsOf: root.appendingPathComponent("profiles.ini")),
+              let ini = iniText(data) else { return nil }
         return defaultProfile(ini: ini, root: root) {
             FileManager.default.fileExists(atPath: $0.appendingPathComponent("places.sqlite").path)
         }
+    }
+
+    /// profiles.ini's text. Firefox writes UTF-8, but a file saved again by another tool (PowerShell's
+    /// Out-File, Notepad's "Unicode") is UTF-16 with a byte order mark, which Firefox's INI parser
+    /// still reads; reading it as UTF-8 failed and Firefox wasn't offered (PC test, 22 Nov 2026).
+    public static func iniText(_ data: Data) -> String? {
+        let bytes = [UInt8](data.prefix(3))
+        if bytes.starts(with: [0xFF, 0xFE]) { return String(data: data.dropFirst(2), encoding: .utf16LittleEndian) }
+        if bytes.starts(with: [0xFE, 0xFF]) { return String(data: data.dropFirst(2), encoding: .utf16BigEndian) }
+        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { return String(data: data.dropFirst(3), encoding: .utf8) }
+        return String(data: data, encoding: .utf8)
     }
 
     /// `hasPlaces` says whether a profile folder holds a places.sqlite.
