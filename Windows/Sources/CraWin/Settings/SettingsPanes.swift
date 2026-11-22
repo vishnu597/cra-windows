@@ -689,6 +689,7 @@ enum SettingsPanes {
     /// browser window in use.
     static func profiles(store: SidebarStore, palette: SettingsPalette, owner: @escaping @MainActor () -> UInt,
                          openProfilePage: @escaping @MainActor (String, UUID?) -> Void = { _, _ in },
+                         presentDialog: @escaping @MainActor (AppDialog, @escaping (Int?) -> Void) -> Void,
                          newProfile: @escaping @MainActor () -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
@@ -728,7 +729,7 @@ enum SettingsPanes {
             var parts: [AnyObject] = []
             holder.child = card(rows.map { name, profile, spaces in
                 profileRow(name: name, profile: profile, spaces: spaces, store: store, palette: palette, owner: owner,
-                           openProfilePage: openProfilePage) { parts.append($0) }
+                           openProfilePage: openProfilePage, presentDialog: presentDialog) { parts.append($0) }
             }, palette: palette)
             kept = parts
         }
@@ -761,7 +762,9 @@ enum SettingsPanes {
 
     private static func profileRow(name: String, profile: BrowserProfile?, spaces: [Space], store: SidebarStore,
                                    palette: SettingsPalette, owner: @escaping @MainActor () -> UInt,
-                                   openProfilePage: @escaping @MainActor (String, UUID?) -> Void, keep: (AnyObject) -> Void) -> Grid {
+                                   openProfilePage: @escaping @MainActor (String, UUID?) -> Void,
+                                   presentDialog: @escaping @MainActor (AppDialog, @escaping (Int?) -> Void) -> Void,
+                                   keep: (AnyObject) -> Void) -> Grid {
         let row = Grid()
         row.minHeight = Double(DiaSettingsMetrics.cardRowHeight) + 8
         row.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 6, right: Double(DiaSettingsMetrics.cardRowInset), bottom: 6)
@@ -798,70 +801,34 @@ enum SettingsPanes {
         let profileID = profile?.id
         languagesButton.click.addHandler { _, _ in openProfilePage(BrowserLanguages.settingsPage, profileID) }
         buttons.children.append(languagesButton)
-        guard let profile else { return row }
-
-        // Rename…: the name in a field under the button, Return or Rename to keep it.
+        // Rename…: Arc's sheet with the name in a field, Save waiting for one (the Mac's
+        // ProfilesPane.rename, Default too).
         let rename = Button()
         rename.content = UI.text("Rename…", trimmed: false)
-        let renameFlyout = Flyout()
-        let field = TextBox()
-        field.text = profile.name
-        field.minWidth = 220
-        try? AutomationProperties.setName(field, "Profile name")
-        let apply = Button()
-        apply.content = UI.text("Rename", trimmed: false)
-        let commit = { [weak renameFlyout, weak field] in
-            guard let field else { return }
-            let name = field.text.trimmingCharacters(in: .whitespaces)
-            if !name.isEmpty { store.renameProfile(profile.id, to: name) }
-            try? renameFlyout?.hide()
+        try? AutomationProperties.setName(rename, "Rename “\(name)”…")
+        let renamedID = profile?.id
+        rename.click.addHandler { _, _ in
+            let prompt = ProfilePrompts.rename(current: store.profileName(renamedID))
+            let dialog = AppDialog(prompt, width: 496, buttonSpacing: 30, buttonOutset: 0)
+            presentDialog(dialog) { [dialog] picked in
+                guard picked == 0, let typed = prompt.accepted(dialog.input) else { return }
+                store.renameProfile(renamedID, to: typed)
+            }
         }
-        apply.click.addHandler { _, _ in commit() }
-        field.keyDown.addHandler { _, args in
-            guard let args, Int32(truncatingIfNeeded: args.key.rawValue) == 0x0D else { return }
-            args.handled = true
-            commit()
-        }
-        let renamePanel = StackPanel()
-        renamePanel.orientation = .vertical
-        renamePanel.spacing = 8
-        renamePanel.children.append(UI.text("Rename Profile", color: palette.text))
-        renamePanel.children.append(field)
-        apply.horizontalAlignment = .right
-        renamePanel.children.append(apply)
-        renameFlyout.content = renamePanel
-        rename.flyout = renameFlyout
-        keep(renameFlyout)
-        keep(field)
         buttons.children.append(rename)
+        guard let profile else { return row }
 
-        // Delete…: only a profile no space uses, after Arc's warning.
+        // Delete…: only a profile no space uses, after Arc's warning sheet.
         let delete = Button()
         delete.content = UI.text("Delete…", trimmed: false)
         delete.isEnabled = spaces.isEmpty
-        let deleteFlyout = Flyout()
-        let warning = StackPanel()
-        warning.orientation = .vertical
-        warning.spacing = 8
-        warning.maxWidth = 300
-        let question = UI.text("Delete “\(profile.name)”?", color: palette.text, trimmed: false)
-        question.fontWeight = UWP.FontWeight(weight: 600)
-        warning.children.append(question)
-        let detail = UI.text("Deleting this Profile will permanently remove any cookies, history, preferences, and logins that belong to it.",
-                             size: 12, color: palette.secondaryText, trimmed: false)
-        detail.textWrapping = .wrap
-        warning.children.append(detail)
-        let confirm = Button()
-        confirm.content = UI.text("Delete", trimmed: false)
-        confirm.horizontalAlignment = .right
-        confirm.click.addHandler { [weak deleteFlyout] _, _ in
-            try? deleteFlyout?.hide()
-            store.deleteProfile(profile.id)
+        try? AutomationProperties.setName(delete, "Delete “\(profile.name)”…")
+        delete.click.addHandler { _, _ in
+            let dialog = AppDialog(ProfilePrompts.delete(name: profile.name))
+            presentDialog(dialog) { picked in
+                if picked == 0 { store.deleteProfile(profile.id) }
+            }
         }
-        warning.children.append(confirm)
-        deleteFlyout.content = warning
-        delete.flyout = deleteFlyout
-        keep(deleteFlyout)
         buttons.children.append(delete)
         return row
     }
