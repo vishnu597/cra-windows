@@ -13,23 +13,15 @@ import UniformTypeIdentifiers
 final class AppIconManager {
     static let shared = AppIconManager()
 
-    struct Option: Identifiable, Equatable {
-        let id: String
-        let name: String
-    }
+    typealias Option = AppIconChoice.Option
 
-    static let defaultID = "segments"
-    static let customID = "custom"
-    static let presets = [
-        Option(id: defaultID, name: "Segments"),
-        Option(id: "midnight", name: "Midnight"),
-        Option(id: "mono", name: "Mono"),
-        Option(id: "violet", name: "Violet"),
-    ]
+    static let defaultID = AppIconChoice.defaultID
+    static let customID = AppIconChoice.customID
+    static let presets = AppIconChoice.presets
 
     // Shared with Sources/CraDockTile.
     private enum Keys {
-        static let selected = "appIcon"
+        static let selected = AppIconChoice.storageKey
         static let customPath = "appIconCustomPath"
     }
     private static var changedNotification: Notification.Name {
@@ -43,10 +35,8 @@ final class AppIconManager {
     private static var customURL: URL { AppPaths.file("AppIcon.png") }
 
     private init() {
-        let stored = UserDefaults.standard.string(forKey: Keys.selected) ?? Self.defaultID
         let custom = NSImage(contentsOf: Self.customURL)
-        let known = Self.presets.contains { $0.id == stored } || (stored == Self.customID && custom != nil)
-        selectedID = known ? stored : Self.defaultID
+        selectedID = AppIconChoice.resolved(stored: UserDefaults.standard.string(forKey: Keys.selected), hasCustom: custom != nil)
         customImage = custom
     }
 

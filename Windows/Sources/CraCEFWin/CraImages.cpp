@@ -211,3 +211,45 @@ extern "C" void cra_image_free(CraImage *image) {
     free(image->pixels);
     *image = CraImage{};
 }
+
+extern "C" uintptr_t cra_icon_from_pixels(const uint8_t *bgra, int width, int height) {
+    if (!bgra || width <= 0 || height <= 0 || width > 1024 || height > 1024) return 0;
+    BITMAPINFO info = {};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;  // top-down, as CraImage is
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void *bits = nullptr;
+    HDC screen = GetDC(nullptr);
+    HBITMAP color = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    ReleaseDC(nullptr, screen);
+    if (!color || !bits) return 0;
+    // An icon's colour bitmap holds straight alpha (Chromium's IconUtil does the same).
+    uint8_t *out = static_cast<uint8_t *>(bits);
+    const size_t count = size_t(width) * size_t(height) * 4;
+    for (size_t i = 0; i < count; i += 4) {
+        const uint8_t a = bgra[i + 3];
+        for (int c = 0; c < 3; ++c) {
+            const int v = a == 0 ? 0 : (bgra[i + c] * 255 + a / 2) / a;
+            out[i + c] = uint8_t(v > 255 ? 255 : v);
+        }
+        out[i + 3] = a;
+    }
+    // The mask is unused with an alpha channel, but CreateIconIndirect needs one.
+    std::string zeros(size_t((width + 15) / 16 * 2) * size_t(height), '\0');
+    HBITMAP mask = CreateBitmap(width, height, 1, 1, zeros.data());
+    ICONINFO icon = {};
+    icon.fIcon = TRUE;
+    icon.hbmColor = color;
+    icon.hbmMask = mask;
+    HICON made = mask ? CreateIconIndirect(&icon) : nullptr;
+    DeleteObject(color);
+    if (mask) DeleteObject(mask);
+    return reinterpret_cast<uintptr_t>(made);
+}
+
+extern "C" void cra_icon_destroy(uintptr_t icon) {
+    if (icon) DestroyIcon(reinterpret_cast<HICON>(icon));
+}
