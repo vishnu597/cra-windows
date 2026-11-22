@@ -374,6 +374,10 @@ built release app with a test profile. Note anything that fails in the release's
   after a restart. Escape leaves the old name. Double-click a tab, a folder and the space's name:
   each turns into a field. Rename Space… on the space's menu and New Folder (which starts named)
   work the same, and the keys go back to the page afterwards.
+- **Windows Default profile name:** Settings ▸ Profiles ▸ Rename… on Default, type a name, Return:
+  the row shows the new name at once, and so do a space's Set Profile menu, Create a Space's
+  Profile pill and menu, the Change Profile sheet's picker and a Little Window's profile chip and
+  menu (PC test, 22 Nov 2026: `defaultProfileName` was saved but every label still read "Default").
   Use a real mouse for the double-clicks, including a tab that was not selected before the first
   click and a closed folder. Dragging a row first must not make its next single click rename it.
 - **Windows drag targets and Manage Spaces:** in a test space with no favorites, start dragging

@@ -1230,7 +1230,7 @@ final class SidebarView {
             item.click.addHandler { [weak self] _, _ in self?.store.setProfile(id, forSpace: space.id) }
             return item
         }
-        sub.items.append(choice("Default", nil))
+        sub.items.append(choice(store.profileName(nil), nil))
         for p in store.profiles { sub.items.append(choice(p.name, p.id)) }
         sub.items.append(MenuFlyoutSeparator())
         sub.items.append(UI.menuItem("New Profile…") { [weak self] in self?.actions?.newProfile(forSpace: space.id) })

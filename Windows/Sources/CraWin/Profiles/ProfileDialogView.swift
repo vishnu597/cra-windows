@@ -32,6 +32,8 @@ final class ProfileDialogView {
     private var step = Step.name
     private var spaces: [Space] = []
     private var profiles: [BrowserProfile] = []
+    /// What the Default profile is called (Settings ▸ Profiles ▸ Rename… on Default).
+    private var defaultName = "Default"
     private var ticked: Set<UUID> = []
     /// The spaces step's checkboxes, held so their click handlers' weak captures stay alive (a
     /// WinRT control built from Swift is only a wrapper, gone once nothing in Swift holds it).
@@ -79,7 +81,8 @@ final class ProfileDialogView {
     }
 
     /// Change `space`'s Profile. Returns the height.
-    func showChange(space: Space, profiles: [BrowserProfile], spaces: [Space]) -> Double {
+    func showChange(space: Space, profiles: [BrowserProfile], defaultName: String, spaces: [Space]) -> Double {
+        self.defaultName = defaultName
         self.spaces = spaces
         self.profiles = profiles
         changing = space
@@ -165,7 +168,7 @@ final class ProfileDialogView {
         label.margin = Thickness(left: 0, top: 20, right: 0, bottom: 8)
         content.children.append(label)
         picker.items.clear()
-        picker.items.append("Default")
+        picker.items.append(defaultName)
         for p in profiles { picker.items.append(p.name) }
         picker.items.append("New Profile")
         let current = space.profileID.flatMap { id in profiles.firstIndex { $0.id == id } }.map { $0 + 1 } ?? 0

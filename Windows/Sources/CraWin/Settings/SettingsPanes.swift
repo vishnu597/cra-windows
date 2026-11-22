@@ -792,7 +792,7 @@ enum SettingsPanes {
         // keeps the control.
         var kept: [AnyObject] = []
         func rebuild() {
-            let rows: [(String, BrowserProfile?, [Space])] = [("Default", nil, store.spaces(usingProfile: nil))]
+            let rows: [(String, BrowserProfile?, [Space])] = [(store.profileName(nil), nil, store.spaces(usingProfile: nil))]
                 + store.profiles.map { ($0.name, $0, store.spaces(usingProfile: $0.id)) }
             let signature = rows.map { "\($0.1?.id.uuidString ?? "-")|\($0.0)|" + $0.2.map { "\($0.emoji)\($0.title)" }.joined(separator: ",") }
                 .joined(separator: "\n") + "\n" + DownloadLocation.bridgeLines(store.settings.downloadLocations, profiles: store.profiles)
