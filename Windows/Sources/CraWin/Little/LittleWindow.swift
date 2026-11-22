@@ -301,7 +301,7 @@ final class LittleWindow {
         }
         let space = store.space(targetSpaceID) ?? store.focusedSpace(window: store.lastNormalWindowID)
         // Arc's shouldShowProfileIndicators: only once there is a profile besides Default.
-        let profile: String? = store.profiles.isEmpty ? nil : store.profile(profileID)?.name ?? "Default"
+        let profile: String? = store.profiles.isEmpty ? nil : store.profileName(profileID)
         strip.show(url: hasPage ? currentURL : "", space: space, profile: profile)
         // An empty window's about:blank is no title.
         window.title = title.isEmpty || !hasPage ? "Little Window" : "\(title) - Little Window"
@@ -692,7 +692,7 @@ final class LittleWindow {
     private func showProfileMenu() {
         _ = try? dispatcher.tryEnqueue { [weak self] in
             guard let self, !self.closing else { return }
-            let options: [(id: UUID?, name: String)] = [(nil, "Default")] + self.store.profiles.map { ($0.id, $0.name) }
+            let options: [(id: UUID?, name: String)] = [(nil, self.store.profileName(nil))] + self.store.profiles.map { ($0.id, $0.name) }
             let items: [String?] = options.map { ($0.id == self.profileID ? "\u{2713}  " : "      ") + $0.name }
             guard let chosen = WinShell.popupMenu(owner: self.window.hwnd, items) else { return }
             self.changeProfile(to: options[chosen].id)

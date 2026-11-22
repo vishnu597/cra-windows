@@ -1890,7 +1890,7 @@ final class BrowserWindow {
     /// Spaces ▸ Change Profile for the space.
     func showChangeProfile(forSpace id: UUID) {
         guard !closing, let space = store.space(id), !store.isIncognito(space: id) else { return }
-        profileDialogHeight = profileDialog.showChange(space: space, profiles: store.profiles, spaces: store.profileSpaces)
+        profileDialogHeight = profileDialog.showChange(space: space, profiles: store.profiles, defaultName: store.profileName(nil), spaces: store.profileSpaces)
         presentProfileDialog()
     }
 

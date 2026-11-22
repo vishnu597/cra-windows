@@ -271,7 +271,7 @@ final class SpaceCreationPageView {
             iconGlyph.opacity = 0.5
             iconGlyph.visibility = .visible
         }
-        profileName.text = draft.profile.flatMap { id in store.profiles.first { $0.id == id }?.name } ?? "Default"
+        profileName.text = store.profileName(draft.profile)
         let engines = engineRows
         engineName.text = engines.choices.first { $0.isOn }?.title ?? engines.defaultRow.title
         refreshButtons()
@@ -376,7 +376,7 @@ final class SpaceCreationPageView {
             }
             return item
         }
-        menu.items.append(entry("Default", nil))
+        menu.items.append(entry(store.profileName(nil), nil))
         for p in store.profiles { menu.items.append(entry(p.name, p.id)) }
         profileMenu = menu
         try? menu.showAt(profilePill)
