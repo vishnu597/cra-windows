@@ -369,6 +369,11 @@ struct MobileTabsTests {
 }
 
 struct MobileSettingsTests {
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/674")) func appSettingsUsesFullHeightOnIPadAndKeepsMediumOnIPhone() {
+        #expect(MobileSettingsSheet.appSettingsHeights(onPad: true) == [.large])
+        #expect(MobileSettingsSheet.appSettingsHeights(onPad: false) == [.medium, .large])
+    }
+
     @Test func aMissingOrOlderFileIsTheDefaults() throws {
         let loaded = try JSONDecoder().decode(MobileSettings.self, from: Data(#"{"searchEngine":"duckduckgo","archiveAfter":"someday"}"#.utf8))
         #expect(loaded.searchEngine == .duckduckgo)
@@ -1718,5 +1723,23 @@ struct MobileRecentTabsTests {
         folder.children = [folder.id, inFolder.id]
         let document = Self.sidebar(today: [folder, inFolder])
         #expect(MobileRecentTabs.rows(phone: [], selected: nil, mac: document, limit: 10).map(\.title) == ["In the loop"])
+    }
+}
+
+/// The bottom bar's buttons tick under the finger as Arc Search's do (#675).
+struct MobilePressHapticsTests {
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/675"))
+    func aButtonTicksAsTheFingerComesDownAndAgainAsItLetsGo() {
+        #expect(MobilePressHaptics.tick(from: false, to: true) == .press)
+        #expect(MobilePressHaptics.tick(from: true, to: false) == .release)
+        // A finger moving on the button sets the highlight again: no tick for that.
+        #expect(MobilePressHaptics.tick(from: true, to: true) == nil)
+        #expect(MobilePressHaptics.tick(from: false, to: false) == nil)
+    }
+
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/675"))
+    func everyBarButtonTicksTheNewTabPillToo() {
+        #expect(MobilePressHaptics.barButtons == ["bar-tabs", "bar-search", "bar-menu", "bar-spaces", "bar-settings"])
+        #expect(MobilePressHaptics.barButtons.contains("bar-search"))
     }
 }

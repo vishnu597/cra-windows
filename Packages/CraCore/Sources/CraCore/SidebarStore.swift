@@ -125,7 +125,9 @@ public final class SidebarStore {
         self.chromiumCache = chromiumCache
         self.onProfileDeleted = onProfileDeleted
         let doc = sidebarFile.load(or: SidebarDocument.fresh)
-        for s in doc.spaces {
+        for var s in doc.spaces {
+            // An Auto theme saved before #677 gets today's dark half: its colours as Arc keeps them, not darkened.
+            if let theme = SpaceThemeVariants.upgradedDarkHalf(s.theme) { s.theme = theme }
             spaces[s.id] = s
             if s.standaloneWindowID != nil { blankSpaceIDs.insert(s.id) }
         }
