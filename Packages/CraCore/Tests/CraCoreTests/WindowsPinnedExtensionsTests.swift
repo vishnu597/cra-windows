@@ -15,6 +15,16 @@ struct WindowsPinnedExtensionsTests {
         #expect(pins.toolbarIDs(inProfile: "Default", enabled: ["ublock", "dark"]) == ["ublock"], "another profile keeps its own")
     }
 
+    /// The sidebar's address pill while the toolbar is hidden (BrowserWindow.syncPillPins): the
+    /// pins go before the sliders while they leave the address 120 DIPs, else none show there.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/226"))
+    func theAddressPillShowsThePinsWhileTheAddressKeepsItsRoom() {
+        let three = ToolbarComposition.urlFieldAccessories(pinnedExtensions: ["a", "b", "c"], fieldWidth: 224)
+        #expect(three.filter { if case .pinnedExtension = $0 { true } else { false } }.count == 3)
+        let four = ToolbarComposition.urlFieldAccessories(pinnedExtensions: ["a", "b", "c", "d"], fieldWidth: 224)
+        #expect(!four.contains(.pinnedExtension("a")), "224 − 4 × 28 leaves the address less than 120")
+    }
+
     @Test func aPinSavedTwiceShowsOneButton() {
         let pins = PinnedExtensions(shared: ["a", "b", "a"])
         #expect(pins.toolbarIDs(inProfile: "Default", enabled: ["a", "b"]) == ["a", "b"])
