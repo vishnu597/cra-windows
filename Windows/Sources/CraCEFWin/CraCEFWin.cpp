@@ -171,9 +171,22 @@ void ApplyWebsiteAppearance(CefRefPtr<CefRequestContext> context) {
     if (context->GetChromeColorSchemeMode() != mode) context->SetChromeColorScheme(mode, 0);
 }
 
+/// A page's second download (and its third…) goes ahead. Chrome holds downloads after the first
+/// one from a page until the user answers "download multiple files?", but a Cra page has no
+/// Chrome permission manager to ask with, so Chromium's DownloadRequestLimiter cancelled every
+/// later one silently: after one download, a page's other download links did nothing (PC test,
+/// 22 Nov 2026). Allowing them by default is what Chrome does once that question is answered.
+void AllowMultipleDownloads(CefRefPtr<CefRequestContext> context) {
+    if (!context) return;
+    // Both URLs empty: the profile's default, which a site's own setting still overrides.
+    context->SetContentSetting(CefString(), CefString(), CEF_CONTENT_SETTING_TYPE_AUTOMATIC_DOWNLOADS,
+                               CEF_CONTENT_SETTING_VALUE_ALLOW);
+}
+
 /// What every profile gets once it loads (ApplyProfilePreferences in CraCEF.mm).
 void ApplyProfilePreferences(CefRefPtr<CefRequestContext> context) {
     HideDownloadBubble(context);
+    AllowMultipleDownloads(context);
     ApplyHttpsOnly(context);
     ApplyWebsiteAppearance(context);
 }

@@ -81,7 +81,8 @@ public final class DownloadHistory {
         }
         l.updated = now
         if received != l.received || (paused && !failed && !cancelled) != l.paused { l.moved = now }
-        l.name = name
+        // Chromium drops the name once a download is cancelled: the row keeps the one it had.
+        if !name.isEmpty { l.name = name }
         if !path.isEmpty { l.path = path }
         l.received = received
         l.total = total

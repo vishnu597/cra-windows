@@ -100,6 +100,13 @@ public enum LibraryList {
         return grouped(shown, date: { $0.date }, now: now, calendar: calendar, locale: locale)
     }
 
+    /// Library ▸ Downloads with the running, failed and cancelled ones too (#245):
+    /// `DownloadHistory.library`'s rows, newest first, by the day each started.
+    public static func downloads(_ listed: [DownloadList.Listed], now: Date = Date(), calendar: Calendar = .current,
+                                 locale: Locale = .current) -> [Section<DownloadList.Listed>] {
+        grouped(listed, date: { $0.date }, now: now, calendar: calendar, locale: locale)
+    }
+
     /// The easels whose title holds the search, by the day each was last edited (in the order
     /// given: the Mac's EaselFiles lists them newest first).
     public static func easels<Easel>(_ easels: [Easel], title: (Easel) -> String, edited: (Easel) -> Date, matching query: String,
