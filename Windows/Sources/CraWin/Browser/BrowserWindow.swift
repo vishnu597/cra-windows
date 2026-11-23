@@ -115,6 +115,11 @@ final class BrowserWindow {
     private let pageToolbar = ToolbarView()
     /// What the strip shows now.
     private var topBar: WindowTopBar = .none
+    /// Automatically Hide Toolbar: the toolbar floats over the page's top (ToolbarAutoHide.floats),
+    /// out while the tracker says so, from a 30 ms pointer poll (Windows sends no hover over pages).
+    private var toolbarFloats = false
+    private var toolbarTracker = ToolbarAutoHideTracker()
+    private var toolbarPoll: WinAppSDK.DispatcherQueueTimer?
     /// The sidebar's ← → ↻ and its address pill, which the toolbar takes over while it shows.
     private var sidebarNavigation: [FrameworkElement] = []
     private var findWindow: FloatingWindow?
@@ -557,6 +562,7 @@ final class BrowserWindow {
     private func finishClosing() {
         guard !readyToClose else { return }
         readyToClose = true
+        stopToolbarPoll()
         try? closeTimer?.stop()
         closeTimer = nil
         window.close()
@@ -1570,11 +1576,61 @@ final class BrowserWindow {
         let sidebarNav: Visibility = store.settings.showToolbar && paneIDs.count <= 1 ? .collapsed : .visible
         for part in sidebarNavigation { part.visibility = sidebarNav }
         syncHeaderLayout()
+        let floats = ToolbarAutoHide.floats(enabled: store.settings.autoHideToolbar, toolbarShown: bar == .toolbar, panes: max(1, paneIDs.count),
+                                            developerBar: false, devToolsOpen: false, pageFullscreen: false)
+        if floats != toolbarFloats {
+            toolbarFloats = floats
+            toolbarTracker.reset()
+            if floats { startToolbarPoll() } else { stopToolbarPoll() }
+        }
+        window.topBarFloats = floats
         window.topBarHeight = switch bar {
         case .developer: DeveloperBarView.height
-        case .toolbar: ToolbarView.height
+        case .toolbar: floats && !toolbarTracker.shown ? 0 : ToolbarView.height
         case .none: 0
         }
+    }
+
+    private func startToolbarPoll() {
+        guard toolbarPoll == nil, let timer = try? dispatcher.createTimer() else { return }
+        timer.interval = TimeSpan(duration: 30 * 10_000)
+        timer.isRepeating = true
+        timer.tick.addHandler { [weak self] _, _ in self?.pollToolbar() }
+        toolbarPoll = timer
+        try? timer.start()
+    }
+
+    private func stopToolbarPoll() {
+        try? toolbarPoll?.stop()
+        toolbarPoll = nil
+    }
+
+    /// One pointer sample for the floating toolbar, in DIPs with y growing upward as CraCore's
+    /// ToolbarAutoHide reads them: the card is the page area, the container the client area.
+    private func pollToolbar() {
+        guard toolbarFloats, !closing, let window, let host = HWND(bitPattern: hwnd) else { return }
+        let scale = window.scale
+        let size = window.appWindow.clientSize
+        let frame = window.contentFrame
+        var p = POINT()
+        _ = GetCursorPos(&p)
+        _ = ScreenToClient(host, &p)
+        let height = Double(size.height) / scale
+        let point = CGPoint(x: Double(p.x) / scale, y: height - Double(p.y) / scale)
+        let card = CGRect(x: Double(frame.x) / scale, y: 0, width: Double(frame.width) / scale, height: height)
+        let container = CGRect(x: 0, y: 0, width: Double(size.width) / scale, height: height)
+        // Another app in front: the pointer is nowhere near this toolbar.
+        let front = GetForegroundWindow().map { GetAncestor($0, UINT(GA_ROOTOWNER)) == host } ?? false
+        let pointer: ToolbarAutoHide.Pointer = front && !IsIconic(host)
+            ? ToolbarAutoHide.classify(point, card: card, container: container, barHeight: ToolbarView.height, shown: toolbarTracker.shown)
+            : .away
+        // A press (a drag or a menu pulled from the bar) or the Site Control Center under it keeps it out.
+        let held = Self.isDown(0x01) || siteControlShown || commandBar.isOpen
+        let was = toolbarTracker.shown
+        toolbarTracker.sample(pointer, held: held, at: Date().timeIntervalSinceReferenceDate)
+        guard toolbarTracker.shown != was else { return }
+        window.topBarHeight = toolbarTracker.shown ? ToolbarView.height : 0
+        placeLoadingBar()
     }
 
     /// Arc's sidebar header by width (SidebarHeaderLayout, #287): from 212 DIPs the toggle then ← → ↻
@@ -1617,6 +1673,7 @@ final class BrowserWindow {
         state.sidebarVisible = sidebarDocked
         state.sidebarSide = store.settings.sidebarSide
         state.showFullURL = store.settings.toolbarShowsFullURL
+        state.autoHide = store.settings.autoHideToolbar
         pageToolbar.show(state)
     }
 
@@ -1628,6 +1685,7 @@ final class BrowserWindow {
             switch id {
             case "siteControls": self.toggleSiteControlCenter()
             case "toggleFullURL": self.store.settings.toolbarShowsFullURL.toggle()
+            case "toggleAutoHideToolbar": self.store.settings.autoHideToolbar.toggle()
             case "stop": self.shownPage?.stopLoading()
             default: _ = self.perform(id)
             }

@@ -34,6 +34,7 @@ final class ToolbarView {
         var sidebarVisible = true
         var sidebarSide: SidebarSide = .left
         var showFullURL = false
+        var autoHide = false
     }
 
     let root = Grid()
@@ -83,7 +84,7 @@ final class ToolbarView {
         address.visibility = state.url.isEmpty ? .collapsed : .visible
         paint(address, hover: colors.light ? UI.brush(0, 0, 0, alpha: 14) : UI.brush(255, 255, 255, alpha: 20), ink: ink)
         ArcTip.set(address, state.url)
-        let menu = addressMenu(showFullURL: state.showFullURL)
+        let menu = addressMenu(showFullURL: state.showFullURL, autoHide: state.autoHide)
         self.menu = menu
         address.contextFlyout = menu
     }
@@ -181,7 +182,7 @@ final class ToolbarView {
     }
 
     /// Arc's address menu: Copy URL, Show Full URL or Hide Full URL, Hide Toolbar.
-    private func addressMenu(showFullURL: Bool) -> MenuFlyout {
+    private func addressMenu(showFullURL: Bool, autoHide: Bool) -> MenuFlyout {
         let menu = MenuFlyout()
         func item(_ title: String, _ action: String) {
             let entry = MenuFlyoutItem()
@@ -192,6 +193,11 @@ final class ToolbarView {
         item("Copy URL", "copyURL")
         menu.items.append(MenuFlyoutSeparator())
         item(showFullURL ? "Hide Full URL" : "Show Full URL", "toggleFullURL")
+        let hides = ToggleMenuFlyoutItem()
+        hides.text = "Automatically Hide Toolbar"
+        hides.isChecked = autoHide
+        hides.click.addHandler { [weak self] _, _ in self?.onAction("toggleAutoHideToolbar") }
+        menu.items.append(hides)
         item("Hide Toolbar", "toggleToolbar")
         return menu
     }
