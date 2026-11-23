@@ -36,6 +36,14 @@ struct WindowGradientSliceTests {
         #expect(abs(mid.g - straight.g) > 0.01)
     }
 
+    /// A part with no window around it runs 45° across itself, as the Mac's gradient layer does.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/669"))
+    func aStandAlonePartRunsAcrossItself() {
+        let e = WindowGradientSlice.unitEnd(width: 200, height: 400)
+        let m = SpaceGradient.unitEnd(width: 200, height: 400)
+        #expect(e.x == m.x && e.y == m.y)
+    }
+
     /// One flat colour stays one colour (a solid brush, no gradient).
     @Test
     func aFlatThemeIsOneColour() {
