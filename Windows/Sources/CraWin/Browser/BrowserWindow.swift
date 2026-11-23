@@ -981,6 +981,8 @@ final class BrowserWindow {
         case "favoriteTab": if let t = store.selectedTabID(window: windowID), !store.isFavorite(t) { store.addToFavorites(t) }
         case "recentTab": cycleRecentTabs(1)
         case "recentTabBackward": cycleRecentTabs(-1)
+        case "recentTabAllSpaces": cycleRecentTabs(1, allSpaces: true)
+        case "recentTabAllSpacesBackward": cycleRecentTabs(-1, allSpaces: true)
         case "nextTab": cycleTab(1)
         case "previousTab": cycleTab(-1)
         case "nextSpace": store.focusSpace(offset: 1, window: windowID)
@@ -1131,16 +1133,21 @@ final class BrowserWindow {
 
     /// Ctrl+Tab / Ctrl+Shift+Tab: Arc's switcher over the space's recent tabs
     /// (MainWindowController.cycleRecentTabs).
-    private func cycleRecentTabs(_ delta: Int) {
+    /// `allSpaces`: the Mac's ⌃⌥Tab (#467), every space's recent tabs, each card naming its space
+    /// (MainWindowController.tabSwitcherItems). Picking one goes to its space.
+    private func cycleRecentTabs(_ delta: Int, allSpaces: Bool = false) {
         let space = store.focusedSpace(window: windowID)
         let selected = store.selectedTabID(window: windowID)
         tabSwitcher.cycle(delta, theme: space.theme, dark: WinAppearance.isDark) {
             // A split is one card (#554): open when any pane is (MainWindowController.openRecentCards).
-            let recent = TabSwitcherCycle.cards(store.recentCards(in: space.id, limit: .max, window: windowID), selected: selected,
+            let recent = TabSwitcherCycle.cards(allSpaces ? store.recentCardsInAllSpaces(limit: .max, window: windowID)
+                                                              : store.recentCards(in: space.id, limit: .max, window: windowID),
+                                                selected: selected,
                                                 isPinned: { self.store.isPinned($0) }, isLoaded: { self.pages[$0] != nil })
             return recent.compactMap { card in
                 guard let item = store.item(card.opens), let tab = item.tab else { return nil }
                 var c = TabSwitcherWindow.Card(id: card.opens, title: item.displayTitle, iconKey: tab.iconKey)
+                if allSpaces { c.spaceTitle = store.spaceID(ofItem: card.opens, window: windowID).flatMap(store.space)?.title }
                 if card.isSplit {
                     let factors = SplitPaneLayout.normalizedFactors(ids: card.panes, stored: store.item(card.id)?.split?.widthFactors ?? [:])
                     c.panes = card.panes.map { (iconKey: store.item($0)?.tab?.iconKey, width: Double(factors[$0] ?? 1)) }
@@ -1154,8 +1161,8 @@ final class BrowserWindow {
     private func switcherKey(_ key: KeyPress) -> Bool {
         let chord = KeyChord(windowsVirtualKey: key.keyCode, control: key.control, shift: key.shift, alt: key.alt)
         let direction: Int? = switch chord.flatMap({ WinKeyBindings.shared.action(matching: $0) })?.id ?? "" {
-        case "recentTab": 1
-        case "recentTabBackward": -1
+        case "recentTab", "recentTabAllSpaces": 1
+        case "recentTabBackward", "recentTabAllSpacesBackward": -1
         default: nil
         }
         tabSwitcher.handle(key, direction: direction)
