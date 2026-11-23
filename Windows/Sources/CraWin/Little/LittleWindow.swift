@@ -418,7 +418,14 @@ final class LittleWindow {
         switch id {
         case "closeTab", "closeWindow": isPeek ? attemptPeekClose(.closeShortcut) : requestClose()
         case "newTab", "editURL": openCommandBar()
-        case "goBack": page?.goBack()
+        // A Little Window is a link's page: Back with nothing behind closes it (#495); a Peek
+        // keeps to its page's history.
+        case "goBack":
+            switch LittleWindowBack.step(pageCanGoBack: page?.canGoBack ?? false, hasPage: hasPage, peek: isPeek) {
+            case .history: page?.goBack()
+            case .close: requestClose()
+            case .none: break
+            }
         case "goForward": page?.goForward()
         case "reload": page?.reload()
         case "hardReload": page?.reloadIgnoringCache()
