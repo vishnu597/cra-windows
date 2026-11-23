@@ -708,6 +708,11 @@ enum SettingsPanes {
             otherSitesNote,
             everyTab,
         ])
+        // The Mac's Previews… sheet; only the previews Windows has so far.
+        form.group("Show Previews:", [
+            blurb("Save a click! Hover your mouse over a Folder to quickly preview the tabs in it."),
+            checkbox("Folders", \.folderPreviews),
+        ])
 
         let routesRow = StackPanel()
         routesRow.orientation = .horizontal

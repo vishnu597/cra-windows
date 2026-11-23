@@ -229,6 +229,7 @@ final class BrowserWindow {
         }
         downloads.pointer = pointer
         sidebar.pointer = pointer
+        sidebar.folderPreview.host = { [weak self] in self?.window }
         // A sidebar drag holds the mouse in the window itself, so no page sees it go by.
         sidebar.captureMouse = { [weak self] in
             guard let self, let host = HWND(bitPattern: self.hwnd) else { return }
