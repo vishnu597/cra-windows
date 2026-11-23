@@ -21,6 +21,9 @@ final class ToolbarView {
     var onAction: (String) -> Void = { _ in }
     /// A key the bar doesn't use itself (it has the keyboard after a click): Cra's shortcuts.
     var onKey: (KeyPress) -> Bool = { _ in false }
+    /// The window's history menus (right-click ← or →, BackForwardMenu) and reload menu (right-click
+    /// ↻, ReloadMenuItems), shared with the sidebar header's buttons.
+    var menus: (back: MenuFlyout, forward: MenuFlyout, reload: MenuFlyout)?
 
     struct State: Equatable {
         var kind: ToolbarComposition.Kind = .noTab
@@ -168,6 +171,12 @@ final class ToolbarView {
         ArcTip.set(b, name + keys)
         try? AutomationProperties.setName(b, name)
         if action == "siteControls" { sliders = b }
+        switch item {
+        case .back: b.contextFlyout = menus?.back
+        case .forward: b.contextFlyout = menus?.forward
+        case .reload(_, true): b.contextFlyout = menus?.reload
+        default: break
+        }
         return b
     }
 
