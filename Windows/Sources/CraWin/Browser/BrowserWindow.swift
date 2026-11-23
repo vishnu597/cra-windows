@@ -588,7 +588,7 @@ final class BrowserWindow {
         ArcTip.set(sidebarButton, "Toggle Sidebar")
         try? AutomationProperties.setName(sidebarButton, "Toggle Sidebar")
         toolbar.children.append(sidebarButton)
-        let back = UI.button("\u{2190}") { [weak self] in self?.shownPage?.goBack() }
+        let back = UI.button("\u{2190}") { [weak self] in self?.goBack() }
         let forward = UI.button("\u{2192}") { [weak self] in self?.shownPage?.goForward() }
         back.contextFlyout = backMenu
         forward.contextFlyout = forwardMenu
@@ -1013,7 +1013,7 @@ final class BrowserWindow {
         case "inspectElement": shownPage?.runDevTools(.inspect)
         case "networkPanel": shownPage?.runDevTools(.network)
         case "toggleDeveloperMode": toggleDeveloperMode()
-        case "goBack": shownPage?.goBack()
+        case "goBack": goBack()
         case "goForward": shownPage?.goForward()
         // The Mac's steps (MainWindowController.zoom(by:)): half a Chromium zoom level, which
         // Chromium keeps for the site.
@@ -1666,7 +1666,7 @@ final class BrowserWindow {
             state.themeColor = ToolbarColor.hex(reported: nil, remembered: t.themeColor)
         }
         if let page = shownPage {
-            state.canGoBack = page.canGoBack
+            state.canGoBack = tabID(of: page).map { store.backStep($0, canGoBack: page.canGoBack) != .none } ?? page.canGoBack
             state.canGoForward = page.canGoForward
             state.isLoading = page.isLoading
         }
@@ -2916,6 +2916,21 @@ extension BrowserWindow: WebPageDelegate {
         store.openLinkTab(url, from: tabID(of: page), inBackground: background, window: windowID)
     }
 
+    /// Back (Alt+Left, the header's ←, the toolbar's): the page's own history, else a tab a link
+    /// opened, with no page behind, closes and the tab it came from shows again (Arc's
+    /// navigateBackToReferrer, #273; MainWindowController.goBack on the Mac).
+    private func goBack() {
+        guard let page = shownPage else { return }
+        guard let id = tabID(of: page) else { return page.goBack() }
+        switch store.backStep(id, canGoBack: page.canGoBack) {
+        case .history: page.goBack()
+        case .close(let referrer):
+            print("Cra: back closes tab \(id) to the tab it came from")
+            store.closeToReferrer(id, referrer: referrer, window: windowID)
+        case .none: break
+        }
+    }
+
     /// The link menu's Open Link in Split View and, outside a private window, in Little Window.
     func linkMenuExtras(for page: WebPage) -> [LinkMenuExtra] {
         guard let id = tabID(of: page), pages[id] === page else { return [] }
@@ -2960,8 +2975,10 @@ extension BrowserWindow: WebPageDelegate {
 
     func page(_ page: WebPage, popupHostForURL url: String, inBackground background: Bool) -> WebPage? {
         // The popup gets a tab of its own; its page is the host Chromium opens it in.
-        let space = tabID(of: page).flatMap { store.spaceID(ofItem: $0) }
-        let tab = store.createTab(url: url, in: space, select: false, window: windowID)
+        // Its tab keeps the one it came from, for Back (#273).
+        let source = tabID(of: page)
+        let space = source.flatMap { store.spaceID(ofItem: $0) }
+        let tab = store.createTab(url: url, in: space, select: false, window: windowID, referrer: source)
         let host = WebPage(popupHostIn: hwnd, frame: contentFrame(), incognito: page.isIncognito, profilePath: page.profilePath,
                            delegate: self)
         livePages.insert(ObjectIdentifier(host))
