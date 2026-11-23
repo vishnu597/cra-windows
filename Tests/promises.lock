@@ -166,6 +166,7 @@
 #107   Packages/CraCore/Tests/CraCoreTests/PinnedExtensionsTests.swift::profileListsRoundTrip  7a57b17d2767
 #107   Packages/CraCore/Tests/CraCoreTests/PinnedExtensionsTests.swift::removedExtensionsLeaveEveryList  db169d3fdc84
 #107   Packages/CraCore/Tests/CraCoreTests/PinnedExtensionsTests.swift::unreadableFileMeansNoPins  8a2abe27ded2
+#107   Packages/CraCore/Tests/CraCoreTests/WindowsPinnedExtensionsTests.swift::theToolbarShowsTheProfilesPinsThatCanRun  989baf7dad3c
 #110   Packages/CraCore/Tests/CraCoreTests/SecureDNSTests.swift::aTemplateWithoutAHostIsNamedButNotShown  756f41421548
 #110   Packages/CraCore/Tests/CraCoreTests/SecureDNSTests.swift::customTemplatesKeepOnlyTheirHost  fd28b95e0a33
 #110   Packages/CraCore/Tests/CraCoreTests/SecureDNSTests.swift::line  fe1dcfb4701b

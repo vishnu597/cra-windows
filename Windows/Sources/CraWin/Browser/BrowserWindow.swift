@@ -1674,6 +1674,7 @@ final class BrowserWindow {
         state.sidebarSide = store.settings.sidebarSide
         state.showFullURL = store.settings.toolbarShowsFullURL
         state.autoHide = store.settings.autoHideToolbar
+        state.pins = toolbarPins(scale: window?.scale ?? 1)
         pageToolbar.show(state)
     }
 
@@ -1684,6 +1685,7 @@ final class BrowserWindow {
             guard let self else { return }
             switch id {
             case "siteControls": self.toggleSiteControlCenter()
+            case let id where id.hasPrefix(ToolbarView.pinAction): self.runExtension(String(id.dropFirst(ToolbarView.pinAction.count)))
             case "toggleFullURL": self.store.settings.toolbarShowsFullURL.toggle()
             case "toggleAutoHideToolbar": self.store.settings.autoHideToolbar.toggle()
             case "stop": self.shownPage?.stopLoading()
@@ -2240,8 +2242,15 @@ final class BrowserWindow {
     private func makeSiteControlCenter() {
         siteControl.ownerWindow = { [weak self] in self?.siteControlWindow?.hwnd ?? 0 }
         siteControl.onEscape = { [weak self] in self?.hideSiteControlCenter(refocus: true) }
-        // An install or a switch in chrome://extensions while it shows: its tiles follow.
+        // An install or a switch in chrome://extensions while it shows: its tiles follow. So
+        // does a pin or an unpin, here or in another window, and the toolbar's buttons with it.
         ExtensionList.shared.onChange.append { [weak self] in
+            self?.syncToolbar()
+            guard let self, self.siteControlShown else { return }
+            self.showSiteControlCenter()
+        }
+        ExtensionPins.shared.onChange.append { [weak self] in
+            self?.syncToolbar()
             guard let self, self.siteControlShown else { return }
             self.showSiteControlCenter()
         }
@@ -2287,6 +2296,10 @@ final class BrowserWindow {
             self.siteControl.focus()
         }
         actions.runExtension = { [weak self] id in self?.runExtension(id) }
+        actions.togglePin = { [weak self] id in
+            guard let self else { return }
+            ExtensionPins.shared.togglePin(id, profilePath: self.shownProfilePath)
+        }
         actions.addExtension = { [weak self] in self?.siteControlMore(.addExtension, url: url) }
         if ssl?.hasCertificate == true {
             actions.showCertificate = { [weak self] in
@@ -2333,13 +2346,30 @@ final class BrowserWindow {
         store.selectedTabID(window: windowID).flatMap { store.profilePath(item: $0) }
     }
 
-    /// The Site Control Center's extension tiles: the page's profile's turned-on extensions, by
-    /// name. None in a private window, whose off-the-record profile runs none here.
+    /// The Site Control Center's extension tiles: the page's profile's turned-on extensions, the
+    /// pinned ones first in toolbar order, then the rest by name (Arc, PinnedExtensions.menuOrder).
+    /// None in a private window, whose off-the-record profile runs none here.
     private func extensionTiles(scale: Double) -> [SiteControlCenterView.ExtensionTile]? {
         guard !isIncognito else { return nil }
+        let list = ExtensionList.shared, pins = ExtensionPins.shared
+        let path = shownProfilePath
+        let ordered = pins.pins.menuOrder(list.enabled(profilePath: path, chromiumCache: store.chromiumCache),
+                                          inProfile: ExtensionPins.profile(path), id: \.id, name: \.name)
+        return ordered.map {
+            SiteControlCenterView.ExtensionTile(id: $0.id, name: $0.name, icon: list.icon($0, points: 16, scale: scale),
+                                                pinned: pins.isPinned($0.id, profilePath: path))
+        }
+    }
+
+    /// The toolbar's pinned extensions (ToolbarView.Pin): none in a private window, as its
+    /// Site Control Center has no extensions.
+    private func toolbarPins(scale: Double) -> [ToolbarView.Pin] {
+        guard !isIncognito else { return [] }
         let list = ExtensionList.shared
-        return list.enabled(profilePath: shownProfilePath, chromiumCache: store.chromiumCache).map {
-            SiteControlCenterView.ExtensionTile(id: $0.id, name: $0.name, icon: list.icon($0, points: 16, scale: scale))
+        let path = shownProfilePath
+        let enabled = list.enabled(profilePath: path, chromiumCache: store.chromiumCache)
+        return ExtensionPins.shared.toolbarIDs(profilePath: path, enabled: enabled).compactMap { id in
+            enabled.first { $0.id == id }.map { ToolbarView.Pin(id: id, name: $0.name, icon: list.icon($0, points: 16, scale: scale)) }
         }
     }
 
