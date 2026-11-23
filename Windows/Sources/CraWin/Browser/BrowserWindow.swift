@@ -181,6 +181,8 @@ final class BrowserWindow {
     private var pillPinsShown: [ToolbarView.Pin]?
     /// The profile's pins as last read, for a sidebar resize to fit again without reading them.
     private var pillPinsAll: [ToolbarView.Pin] = []
+    /// The pill's pin buttons by extension id, kept for their popups to hang from.
+    private var pillPinButtons: [String: Button] = [:]
     private let siteControl = SiteControlCenterView()
     private var siteControlWindow: FloatingWindow?
     /// When the Site Control Center last closed because another window took the front: a press
@@ -710,6 +712,7 @@ final class BrowserWindow {
         guard shown != pillPinsShown else { return }
         pillPinsShown = shown
         pillPins.children.clear()
+        pillPinButtons = [:]
         for pin in shown {
             let content: UIElement
             if let icon = pin.icon {
@@ -722,7 +725,12 @@ final class BrowserWindow {
                 content = piece
             }
             let id = pin.id
-            let b = UI.button(content, padding: Thickness(left: 6, top: 5, right: 6, bottom: 5)) { [weak self] in self?.runExtension(id) }
+            // The popup hangs from the pin.
+            let b = UI.button(content, padding: Thickness(left: 6, top: 5, right: 6, bottom: 5)) { [weak self] in
+                guard let self else { return }
+                self.runExtension(id, anchor: self.pillPinButtons[id].map { ($0, false) })
+            }
+            pillPinButtons[id] = b
             ArcTip.set(b, pin.name)
             try? AutomationProperties.setName(b, pin.name)
             pillPins.children.append(b)
@@ -1730,7 +1738,9 @@ final class BrowserWindow {
             guard let self else { return }
             switch id {
             case "siteControls": self.toggleSiteControlCenter()
-            case let id where id.hasPrefix(ToolbarView.pinAction): self.runExtension(String(id.dropFirst(ToolbarView.pinAction.count)))
+            case let id where id.hasPrefix(ToolbarView.pinAction):
+                let ext = String(id.dropFirst(ToolbarView.pinAction.count))
+                self.runExtension(ext, anchor: self.pageToolbar.pinButtons[ext].map { ($0, true) })
             case "toggleFullURL": self.store.settings.toolbarShowsFullURL.toggle()
             case "toggleAutoHideToolbar": self.store.settings.autoHideToolbar.toggle()
             case "stop": self.shownPage?.stopLoading()
@@ -2383,15 +2393,20 @@ final class BrowserWindow {
     /// Under the sliders, on screen: their right edge, 4 DIPs below them (where the Site Control
     /// Center and an extension's popup hang).
     private func slidersCorner(host: HWND, scale: Double) -> POINT {
-        var corner = POINT(x: 0, y: 0)
-        // The toolbar's sliders while it shows (its strip starts at the page area's left edge).
+        // The toolbar's sliders while it shows.
         let onToolbar = topBar == .toolbar ? pageToolbar.sliders : nil
-        let sliders: Button = onToolbar ?? self.sliders
-        if let transform = try? sliders.transformToVisual(nil),
+        return corner(under: onToolbar ?? sliders, onToolbar: onToolbar != nil, host: host, scale: scale)
+    }
+
+    /// Under `button`, on screen: its right edge, 4 DIPs below it. `onToolbar`: it is in the
+    /// toolbar's strip, which starts at the page area's left edge, else in the sidebar column.
+    private func corner(under button: Button, onToolbar: Bool, host: HWND, scale: Double) -> POINT {
+        var corner = POINT(x: 0, y: 0)
+        if let transform = try? button.transformToVisual(nil),
            let origin = try? transform.transformPoint(WindowsFoundation.Point(x: 0, y: 0)) {
-            let right = (Double(origin.x) + sliders.actualWidth) * scale
-            let bottom = (Double(origin.y) + sliders.actualHeight + 4) * scale
-            let origin = onToolbar != nil ? (x: window.contentFrame.x, y: Int32(0)) : window.columnOrigin
+            let right = (Double(origin.x) + button.actualWidth) * scale
+            let bottom = (Double(origin.y) + button.actualHeight + 4) * scale
+            let origin = onToolbar ? (x: window.contentFrame.x, y: Int32(0)) : window.columnOrigin
             corner = POINT(x: Int32(right.rounded()) + origin.x, y: Int32(bottom.rounded()) + origin.y)
         }
         _ = ClientToScreen(host, &corner)
@@ -2434,24 +2449,27 @@ final class BrowserWindow {
 
     /// A click on an extension's tile. Windows has no toolbar for Chrome's popup to hang from,
     /// so the popup page opens in a card of its own, else its options page (ExtensionLaunch).
-    private func runExtension(_ id: String) {
+    /// `anchor`: the pin that was clicked (in the toolbar or not), which the popup hangs from;
+    /// else it hangs from the sliders.
+    private func runExtension(_ id: String, anchor: (button: Button, onToolbar: Bool)? = nil) {
         hideSiteControlCenter()
         guard !isIncognito else { return }
         let profile = shownProfilePath
         let available = ExtensionList.shared.entries(profilePath: profile, chromiumCache: store.chromiumCache).map(\.launch)
         switch ExtensionLaunch.decide(id, available: available, hasPage: false) {
-        case .popupWindow(let url): openExtensionPopup(url, profilePath: profile)
+        case .popupWindow(let url): openExtensionPopup(url, profilePath: profile, anchor: anchor)
         case .openTab(let url): store.createTab(url: url, window: windowID)
         case .nothing, .runAction: break
         }
     }
 
-    private func openExtensionPopup(_ url: String, profilePath: String?) {
+    private func openExtensionPopup(_ url: String, profilePath: String?, anchor: (button: Button, onToolbar: Bool)? = nil) {
         extensionPopup?.close()
         guard !closing, let window, let host = HWND(bitPattern: hwnd) else { return }
         do {
             let popup = try ExtensionPopup(url: url, profilePath: profilePath, owner: window,
-                                           corner: slidersCorner(host: host, scale: window.scale))
+                                           corner: anchor.map { corner(under: $0.button, onToolbar: $0.onToolbar, host: host, scale: window.scale) }
+                                               ?? slidersCorner(host: host, scale: window.scale))
             popup.onClose = { [weak self, weak popup] in
                 if self?.extensionPopup === popup { self?.extensionPopup = nil }
             }

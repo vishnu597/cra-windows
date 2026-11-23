@@ -54,6 +54,8 @@ final class ToolbarView {
     let root = Grid()
     /// The Site Control Center's sliders, which it and an extension's popup hang from.
     private(set) var sliders: Button?
+    /// The pinned extensions' buttons by extension id, which their popups hang from.
+    private(set) var pinButtons: [String: Button] = [:]
     private let left = StackPanel()
     private let right = StackPanel()
     private var address: Button!
@@ -87,6 +89,7 @@ final class ToolbarView {
         left.children.clear()
         right.children.clear()
         sliders = nil
+        pinButtons = [:]
         for item in bar.left { if let b = button(item, dim: dim, hot: hot) { left.children.append(b) } }
         for item in bar.right { if let b = button(item, dim: dim, hot: hot) { right.children.append(b) } }
         // The address stays centred, clear of the longer side (four buttons at least, as on the
@@ -221,6 +224,7 @@ final class ToolbarView {
         paint(b, hover: hot, ink: dim)
         ArcTip.set(b, pin.name)
         try? AutomationProperties.setName(b, pin.name)
+        pinButtons[pin.id] = b
         return b
     }
 
