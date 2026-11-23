@@ -103,6 +103,8 @@ final class BrowserWindow {
     /// a MenuFlyout made from Swift is only a wrapper, freed with its last Swift reference.
     private let backMenu = MenuFlyout()
     private let forwardMenu = MenuFlyout()
+    /// Right-click ↻ (the toolbar's or the sidebar's): ReloadMenuItems, as the Mac's ReloadMenu.
+    private let reloadMenu = MenuFlyout()
     /// The shown page's history rows, as last read, and which page they are from.
     private var historyRows: [BackForwardMenu.Direction: [BackForwardMenu.Row]] = [:]
     private var historyPage: ObjectIdentifier?
@@ -589,6 +591,14 @@ final class BrowserWindow {
         toolbar.children.append(back)
         toolbar.children.append(forward)
         let reload = UI.button("\u{27F3}") { [weak self] in self?.shownPage?.reload() }
+        for (i, group) in ReloadMenuItems.groups.enumerated() {
+            if i > 0 { reloadMenu.items.append(MenuFlyoutSeparator()) }
+            for id in group {
+                let title = WinKeyBindings.shared.action(id)?.name ?? id
+                reloadMenu.items.append(UI.menuItem(title, action: id) { [weak self] in _ = self?.perform(id) })
+            }
+        }
+        reload.contextFlyout = reloadMenu
         toolbar.children.append(reload)
         // Arc's narrow header (under 212): ← → and •••, whose menu has Reload and Toggle Sidebar.
         let more = UI.button("\u{2022}\u{2022}\u{2022}") { [weak self] in
@@ -959,7 +969,7 @@ final class BrowserWindow {
         case "renameTab": renameSelectedTab()
         case "duplicateTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { _ = store.duplicateTab(t) }
         case "muteTab": if let t = store.selectedTabID(window: windowID), store.item(t)?.isTab == true { toggleMute(t) }
-        case "pictureInPicture": shownPage?.requestPictureInPicture(automatic: false)
+        case "pictureInPicture": shownPage?.togglePictureInPicture()
         case "pauseAllMedia": host?.pauseAllMedia { [weak self] text, action in self?.showToast(text, action: action) }
         case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
         case "newFolder": sidebar.newFolder()
@@ -1618,6 +1628,7 @@ final class BrowserWindow {
     }
 
     private func makeToolbar() {
+        pageToolbar.menus = (backMenu, forwardMenu, reloadMenu)
         pageToolbar.onKey = { [weak self] key in self?.handleShortcut(key) ?? false }
         pageToolbar.onAction = { [weak self] id in
             guard let self else { return }
