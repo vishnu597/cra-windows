@@ -25,3 +25,9 @@ public enum WindowTopBar: Equatable, Sendable {
         return showToolbar ? .toolbar : .none
     }
 }
+
+/// The menu a right-click on ↻ shows (PR #517, the Mac's ReloadMenu): its commands by id, in
+/// groups split by separators. The toolbar's ↻ and the sidebar header's carry it.
+public enum ReloadMenuItems {
+    public static let groups: [[String]] = [["reload", "hardReload"], ["clearCookies", "clearCache"], ["viewSource", "devTools"]]
+}
