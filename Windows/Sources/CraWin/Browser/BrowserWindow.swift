@@ -141,7 +141,7 @@ final class BrowserWindow {
     private var hiddenByResize = false
     /// The tab sidebar's width in DIPs: the one saved (`WindowPrefs.sidebarWidth`, shared by
     /// every window), or the drag's while one is on.
-    private var tabSidebarWidth = WindowPrefs().sidebarWidth { didSet { syncHeaderLayout() } }
+    private var tabSidebarWidth = WindowPrefs().sidebarWidth { didSet { syncHeaderLayout(); syncPillPins(reload: false) } }
     /// The sidebar header's row (Arc's regular or narrow layout, SidebarHeaderLayout) and its parts.
     private var headerRow: StackPanel?
     private var headerButtons: (back: Button, forward: Button, reload: Button, more: Button)?
@@ -176,6 +176,11 @@ final class BrowserWindow {
     /// The sliders button at the end of the address pill, and the Site Control Center it opens.
     private var sliders: Button!
     private let slidersGlyph = FontIcon()
+    /// The pill's pinned extensions, before the sliders (syncPillPins), and what they show.
+    private let pillPins = StackPanel()
+    private var pillPinsShown: [ToolbarView.Pin]?
+    /// The profile's pins as last read, for a sidebar resize to fit again without reading them.
+    private var pillPinsAll: [ToolbarView.Pin] = []
     private let siteControl = SiteControlCenterView()
     private var siteControlWindow: FloatingWindow?
     /// When the Site Control Center last closed because another window took the front: a press
@@ -644,11 +649,15 @@ final class BrowserWindow {
         let pill = Grid()
         pill.columnDefinitions.append(UI.column(UI.star))
         pill.columnDefinitions.append(UI.column(UI.auto))
+        pill.columnDefinitions.append(UI.column(UI.auto))
         pill.margin = Thickness(left: 0, top: 8, right: 0, bottom: 8)
         pill.children.append(addressButton)
         try? Grid.setColumn(addressButton, 0)
+        pillPins.orientation = .horizontal
+        pill.children.append(pillPins)
+        try? Grid.setColumn(pillPins, 1)
         pill.children.append(sliders)
-        try? Grid.setColumn(sliders, 1)
+        try? Grid.setColumn(sliders, 2)
 
         sidebarNavigation = [back, forward, reload, more, pill]
         let parts: [FrameworkElement] = [toolbar, pill, sidebar.root]
@@ -686,6 +695,38 @@ final class BrowserWindow {
         address.text = url.isEmpty ? "Search or enter address" : SuggestionEngine.humanURL(url)
         address.foreground = url.isEmpty ? sidebar.secondaryTextColor : sidebar.textColor
         slidersGlyph.foreground = sidebar.secondaryTextColor
+        syncPillPins()
+    }
+
+    /// The pill's pinned extensions while the toolbar is hidden (Arc 1.171, GitHub #226): the
+    /// page's profile's pins before the sliders, while they leave the address its room
+    /// (ToolbarComposition.urlFieldAccessories); more than fit show none there.
+    private func syncPillPins(reload: Bool = true) {
+        if reload { pillPinsAll = toolbarPins(scale: window?.scale ?? 1) }
+        let pins = pillPinsAll
+        let fitting = ToolbarComposition.urlFieldAccessories(pinnedExtensions: pins.map(\.id),
+                                                             fieldWidth: CGFloat(tabSidebarWidth - 20))
+        let shown = pins.filter { fitting.contains(.pinnedExtension($0.id)) }
+        guard shown != pillPinsShown else { return }
+        pillPinsShown = shown
+        pillPins.children.clear()
+        for pin in shown {
+            let content: UIElement
+            if let icon = pin.icon {
+                content = UI.image(icon, size: 16)
+            } else {
+                let piece = FontIcon()
+                piece.glyph = WinGlyph.code("puzzlepiece.extension")
+                piece.fontSize = 13
+                piece.foreground = sidebar.secondaryTextColor
+                content = piece
+            }
+            let id = pin.id
+            let b = UI.button(content, padding: Thickness(left: 6, top: 5, right: 6, bottom: 5)) { [weak self] in self?.runExtension(id) }
+            ArcTip.set(b, pin.name)
+            try? AutomationProperties.setName(b, pin.name)
+            pillPins.children.append(b)
+        }
     }
 
     /// Keys to the page shown, else the sidebar.
@@ -2262,11 +2303,13 @@ final class BrowserWindow {
         // does a pin or an unpin, here or in another window, and the toolbar's buttons with it.
         ExtensionList.shared.onChange.append { [weak self] in
             self?.syncToolbar()
+            self?.syncPillPins()
             guard let self, self.siteControlShown else { return }
             self.showSiteControlCenter()
         }
         ExtensionPins.shared.onChange.append { [weak self] in
             self?.syncToolbar()
+            self?.syncPillPins()
             guard let self, self.siteControlShown else { return }
             self.showSiteControlCenter()
         }
