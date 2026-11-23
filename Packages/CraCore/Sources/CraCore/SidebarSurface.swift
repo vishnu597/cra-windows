@@ -30,16 +30,17 @@ public struct SidebarSurface: Equatable, Sendable {
     }
 
     /// The colours of a resolved theme (its appearance is light or dark, or judged by colour).
-    public init(resolved theme: SpaceTheme, lightMaterial: Bool) {
+    /// `glass`: Settings ▸ Tabs ▸ "Translucent sidebar" (Ideas #366), every theme thin over SidebarGlass.
+    public init(resolved theme: SpaceTheme, lightMaterial: Bool, glass: Bool = false) {
         let dark = theme.isDark
         let base = theme.colors.isEmpty ? ["#DDDDDD"] : theme.colors
         let source = theme.accent ?? base[0]
         // Over Arc's material (one colour, or a gradient made in the editor, #643): the colours at
         // Arc's one-colour opacity. Vibrant (an imported Arc theme): its stops at `intensity` over the
         // blur. Opaque: intensity 1 = the raw colours; lower pulls toward white (light) or black (dark).
-        let overMaterial = theme.drawnOverMaterial
+        let overMaterial = theme.drawnOverMaterial || glass
         let intensity = theme.intensity
-        let pull = theme.vibrant || theme.solid ? 0 : (1 - intensity) * (dark ? 0.35 : 0.6)
+        let pull = theme.vibrant || theme.solid || glass ? 0 : (1 - intensity) * (dark ? 0.35 : 0.6)
         let toward = dark ? RGB.black : RGB.white
         func mixed(_ hex: String, _ amount: Double) -> RGB {
             Self.rgb(hex).mixed(with: toward, max(0, min(1, amount)))
@@ -47,7 +48,10 @@ public struct SidebarSurface: Equatable, Sendable {
         var stops = base.map { mixed($0, pull) }
         if stops.count == 1 { stops.append(mixed(base[0], pull + 0.15)) }
         let top: Double, bottom: Double
-        if overMaterial {
+        if glass {
+            top = SidebarGlass.alpha(intensity: intensity)
+            bottom = top
+        } else if overMaterial {
             top = SpaceTheme.solidAlpha(intensity: intensity)
             bottom = top
         } else if theme.vibrant {

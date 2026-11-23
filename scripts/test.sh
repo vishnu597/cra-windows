@@ -29,6 +29,7 @@ if [ "${1:-}" != core ]; then
   suite "Ask on Page lifecycle" scripts/test-ask-on-page-lifecycle.sh
   suite "iOS popup ownership" scripts/test-mobile-popup.sh
   suite "Floating sidebar" scripts/test-floating-sidebar.sh
+  suite "Space pages mask" scripts/test-pager-mask.sh
   suite "Extension popup candidate" scripts/test-extension-popup-candidate.sh
   suite "Extension popup window" scripts/test-extension-popup-window.sh
   suite "Peek dismiss panel" scripts/test-peek-dim-panel.sh
@@ -55,6 +56,8 @@ if [ "${1:-}" != core ]; then
   suite "WebKit stores" scripts/test-webkit-stores.sh
   suite "Update channels" scripts/test-update-channels.sh
   suite "Feed counts kept on promote" scripts/test-feed-counts.sh
+  suite "Command bar glyph" scripts/test-command-bar-glyph.sh
+  suite "Command bar address selection" scripts/test-field-editor-selection.sh
   suite "Folder glyph" scripts/test-folder-glyph.sh
   suite "Tidy title layout" scripts/test-tidy-title-layout.sh
   suite "Tidy title requests" scripts/test-tidy-titles.sh

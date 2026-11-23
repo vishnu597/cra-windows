@@ -40,6 +40,8 @@ struct SpacePalette {
     var lightMaterial = false
     /// A gradient whose colours read dark, over Arc's darker material for those (#643).
     var darkGradient = false
+    /// Settings ▸ Tabs ▸ "Translucent sidebar" (Ideas #366): the colours over SidebarGlass's material.
+    var glass = false
 
     /// Arc's one-colour opacity (SpaceTheme.solidAlpha, where the measurements are).
     static func solidAlpha(intensity: Double) -> Double { SpaceTheme.solidAlpha(intensity: intensity) }
@@ -72,16 +74,23 @@ extension SpaceTheme {
 
     var palette: SpacePalette {
         let systemDark = SystemAppearance.shared.isDark
-        var p = resolved(systemDark: systemDark).fixedPalette(lightMaterial: usesLightMaterial(systemDark: systemDark))
-        p.lightMaterial = usesLightMaterial(systemDark: systemDark)
-        p.darkGradient = resolved(systemDark: systemDark).drawnOverDarkGradientMaterial
+        let forcedDark = SystemAppearance.shared.forcedDark
+        let glass = SidebarGlassSetting.shared.isOn
+        let theme = resolved(systemDark: systemDark)
+        let lightMaterial = usesLightMaterial(systemDark: systemDark, forcedDark: forcedDark)
+        var p = theme.fixedPalette(lightMaterial: lightMaterial, glass: glass)
+        // The glass's own material follows the theme's colours (SidebarGlass), not Arc's light/dark pick.
+        p.lightMaterial = glass ? !theme.isDark : lightMaterial
+        p.darkGradient = !glass && theme.drawnOverDarkGradientMaterial
+        p.glass = glass
         return p
     }
 
     /// The palette of a resolved theme (its appearance is light or dark, or judged by colour).
-    private func fixedPalette(lightMaterial: Bool) -> SpacePalette {
+    /// `glass`: Settings ▸ Tabs ▸ "Translucent sidebar" (Ideas #366), every theme thin over SidebarGlass.
+    private func fixedPalette(lightMaterial: Bool, glass: Bool = false) -> SpacePalette {
         // The stops and their opacity are shared with Windows (SidebarSurface, where the rules are).
-        let shared = SidebarSurface(resolved: self, lightMaterial: lightMaterial)
+        let shared = SidebarSurface(resolved: self, lightMaterial: lightMaterial, glass: glass)
         let dark = shared.dark
         let base = colors.isEmpty ? ["#DDDDDD"] : colors
         let overMaterial = shared.overMaterial
@@ -95,7 +104,7 @@ extension SpaceTheme {
         // opaque. Under a translucent theme the sidebar is the top colour over the dark material
         // (underWindowBackground with ShellView's lift), about 20 % white; a solid one on Light is over
         // Arc's light material instead, about 75 % white over a typical desktop (#455).
-        let material = overMaterial && lightMaterial ? 0.75 : 0.2
+        let material = glass ? SidebarGlass.ground(dark: dark) : overMaterial && lightMaterial ? 0.75 : 0.2
         let ground = alphaTop < 1 ? Color(white: material).blendedToward(stops[0], alphaTop) : stops[0]
         let darkFill = ground.blendedToward(.white, 0.14)
         return SpacePalette(
@@ -129,10 +138,19 @@ extension SpaceTheme {
             // opacity 0.43 top / 0.59 bottom then matches Arc within ±5 over white and black.
             gradientAlpha: alphaTop,
             gradientAlphaBottom: alphaBottom,
-            vibrant: vibrant || solid,
+            vibrant: vibrant || solid || glass,
             solid: overMaterial
         )
     }
+}
+
+/// Settings ▸ Tabs ▸ "Translucent sidebar" (Ideas #366), which every palette reads: the windows'
+/// refresh copies it from the store, and views drawn from a palette redraw when it changes.
+@Observable
+final class SidebarGlassSetting: @unchecked Sendable {
+    static let shared = SidebarGlassSetting()
+    /// Written on the main thread only.
+    var isOn = false
 }
 
 /// The app's light or dark appearance, which an Auto space theme follows (Arc: appearanceBased):
@@ -142,6 +160,12 @@ final class SystemAppearance: @unchecked Sendable {
     static let shared = SystemAppearance()
     /// Written on the main thread only.
     private(set) var isDark = false
+    /// View ▸ Appearance set to Dark (true) or Light (false), nil on Automatic: every space's sidebar
+    /// takes it, as Arc's one appearance setting does (#700).
+    private(set) var forcedDark: Bool?
+
+    /// View ▸ Appearance changed (WebsiteAppearance.forcesDark).
+    @MainActor func setForced(_ dark: Bool?) { if dark != forcedDark { forcedDark = dark } }
     @ObservationIgnored private var observation: NSKeyValueObservation?
 
     @MainActor func start() {
@@ -364,6 +388,7 @@ final class PagedGradientView: NSView {
             _ = store.pagedSpaces(window: ui.windowID).map(\.theme)
             _ = store.focusedSpaceID(window: ui.windowID)
             _ = CraTuning.shared.gradientAlphaScale
+            _ = SidebarGlassSetting.shared.isOn
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.placed = nil

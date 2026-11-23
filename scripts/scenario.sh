@@ -9,13 +9,15 @@
 #   scripts/scenario.sh fifty-tabs        one scenario
 #   scripts/scenario.sh all               every scenario, one after another
 #   scripts/scenario.sh web-features      the web features' scenarios (Tests/web-features.tsv), a release's gate
+#   scripts/scenario.sh snapshots         every scenario that takes a snapshot, compared strictly on a 2x screen, a release's gate
 #
 # CRA_APP (default build/Cra.app) picks the build; CRA_FLAGS (FeatureFlags) is passed on, so
 # CRA_FLAGS=backdrop=material runs the NSVisualEffectView path. Scenarios marked
 # "requires screen" (they take over a Space) run only with CRA_SCENARIO_SCREEN=1, as in CI.
 # CRA_BUDGETS=report (the nightly on GitHub's runners) prints budgets and snapshot differences
 # without failing on them: they were set on a Mac, and a runner VM's numbers differ. What the app
-# does (expect-log, faults, crashes, helpers, quitting) fails everywhere.
+# does (expect-log, faults, crashes, helpers, quitting) fails everywhere. CRA_SNAPSHOTS=strict fails
+# on a snapshot that differs or couldn't be compared (a 1x display) even then: the snapshots gate.
 # Logs land in build/scenarios/<name>/.
 #
 # Scenario lines: a cra:// command (sent through CRA_COMMAND_FILE, then `pace` seconds),
@@ -29,8 +31,8 @@
 #   helpers baseline | helpers settle [slack]
 #   renderers <max>             at most that many renderer processes (within 5 s)
 #   relaunch                    cra://debug?relaunch=1, then follow the new process
-#   expect-log <regex>          a line Cra logged (cra.log or stdout), ${WS}'s "ws open" / "ws closed", or a
-#                               request the fixture server answered ("GET /page.html?n=1 HTTP/1.1")
+#   expect-log <regex>          a line Cra logged (cra.log, the engine's chromium.log or stdout), ${WS}'s "ws open" /
+#                               "ws closed", or a request the fixture server answered ("GET /page.html?n=1 HTTP/1.1")
 #   reject-log <regex>          no such line logged so far
 #   snapshot <View[,n]> <name>  the nth visible view of that class drawn to PNG and compared with
 #                               Tests/Snapshots/<name>.png (CRA_SNAPSHOT_RECORD=1 records it)
@@ -53,6 +55,8 @@
 #   click little-close          a real click (through the window server, scripts/hid-click/click.m) on the newest
 #                               Little Window's close button, only if that window is in front there; needs a screen
 #                               (requires screen), as Cra comes forward for it as for a mouse (#659)
+#   click toolbar-empty double  a real double click the same way on the focused page's toolbar where no button is (#685)
+#   click page-top double       the same 5 pt into the focused page's top (#685)
 #   bare-helper <suffix>        runs the engine's "Cra Helper (<suffix>)" with no arguments, as macOS launches the
 #                               Alerts helper for a notification click after it quit; fails unless it exits 0 in 10 s
 #   requires screen
@@ -69,7 +73,8 @@
 # ${SIDE_PANEL_EXTENSION_ID} (Tests/Fixtures/SidePanelExtension) and ${DOWNLOAD_EXTENSION_ID}
 # (Tests/Fixtures/DownloadExtension) and ${WEB_STORE_COPY_ID} (Tests/Fixtures/WebStoreCopy) and
 # ${TABS_CREATE_EXTENSION_ID} (Tests/Fixtures/TabsCreateExtension) and ${TABS_QUERY_EXTENSION_ID}
-# (Tests/Fixtures/TabsQueryExtension) expand,
+# (Tests/Fixtures/TabsQueryExtension) and ${CAPTURE_EXTENSION_ID} (Tests/Fixtures/CaptureExtension) and
+# ${POPUP_CONTEXT_EXTENSION_ID} (Tests/Fixtures/PopupContextExtension) expand,
 # and ${STALL}, an address on 127.0.0.1 that takes connections and never answers (a download
 # that never ends), and ${TRICKLE}, one that answers with a 10 MB file to save, sends the first
 # 64 KB and holds the rest back (a download that stays in progress).
@@ -86,6 +91,8 @@ WEB_STORE_COPY_ID="$(cat "$FIXTURES/WebStoreCopy/ID")"
 STORE_COPY_EXTENSION_ID="$(cat "$FIXTURES/StoreCopyExtension/ID")"
 TABS_CREATE_EXTENSION_ID="$(cat "$FIXTURES/TabsCreateExtension/ID")"
 TABS_QUERY_EXTENSION_ID="$(cat "$FIXTURES/TabsQueryExtension/ID")"
+CAPTURE_EXTENSION_ID="$(cat "$FIXTURES/CaptureExtension/ID")"
+POPUP_CONTEXT_EXTENSION_ID="$(cat "$FIXTURES/PopupContextExtension/ID")"
 
 if [ "${1:-}" = "all" ]; then
   # CRA_SCENARIO_SHARD=k/n runs every n-th scenario from the k-th (1-based), so n jobs share the list: one job
@@ -143,7 +150,54 @@ if [ "${1:-}" = "web-features" ]; then
   exit
 fi
 
-NAME="${1:?usage: scripts/scenario.sh <name>|all|web-features}"
+# snapshots: every scenario with a snapshot line, one at a time (some serve their pages on a fixed port), with
+# CRA_SNAPSHOTS=strict and CRA_BUDGETS=report: a snapshot that differs from Tests/Snapshots, or couldn't be compared,
+# fails; budgets are only noted. References are 2x, so the copies open on a 2x display: CRA_TEST_SCREEN when it
+# names one, else the first one connected, else the virtual 2x "Cra Test Display" (scripts/test-display.sh), taken
+# away afterwards. What scripts/release.sh runs after the web features: component-snapshots broke on main when
+# PR #678 gave the Arc fixture its icons (22 Nov 2026), and nothing ran it. build/scenarios/snapshots.txt says how it went.
+if [ "${1:-}" = "snapshots" ]; then
+  mkdir -p build/scenarios
+  REPORT=build/scenarios/snapshots.txt
+  xcrun swiftc -O scripts/retina-screen.swift -o build/scenarios/retina-screen 2>/dev/null || { echo "snapshots: can't build scripts/retina-screen.swift"; exit 2; }
+  screens="$(build/scenarios/retina-screen)"
+  VDISPLAY=""
+  if [ -n "${CRA_TEST_SCREEN:-}" ] && grep -qiF -- "$CRA_TEST_SCREEN" <<< "$screens"; then SCREEN="$CRA_TEST_SCREEN"
+  elif [ -n "$screens" ]; then SCREEN="$(head -1 <<< "$screens")"
+  else
+    scripts/test-display.sh >/dev/null || { echo "snapshots: no 2x display, and macOS wouldn't make the virtual one"; exit 2; }
+    VDISPLAY="$(cat build/vdisplay.pid)"; SCREEN="Cra Test Display"
+    trap 'kill "$VDISPLAY" 2>/dev/null' EXIT
+  fi
+  # A failure runs once more: sidebar-parity's dark tiles drew a pixel apart once in about ten runs (22 Nov 2026),
+  # where a real change (a fixture's new icons) fails every time. One that passed only the second time is listed.
+  failed=() passed=() flaky=()
+  one() { CRA_TEST_SCREEN="$SCREEN" CRA_SNAPSHOTS=strict CRA_BUDGETS=report "$0" "$1" > "build/scenarios/$1.out" 2>&1; }
+  for f in $(grep -l '^snapshot ' Tests/Scenarios/*.scenario); do
+    n="$(basename "$f" .scenario)"
+    if one "$n"; then passed+=("$n")
+    else
+      cp "build/scenarios/$n.out" "build/scenarios/$n.first.out"
+      if one "$n"; then passed+=("$n"); flaky+=("$n"); else failed+=("$n"); fi
+    fi
+  done
+  APP_FOR_REPORT="${CRA_APP:-$ROOT/build/Cra.app}"
+  {
+    echo "snapshots on $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_FOR_REPORT/Contents/Info.plist" 2>/dev/null || echo '?')" \
+         "($(uname -m), on \"$SCREEN\"$([ -n "$VDISPLAY" ] && echo ', virtual'))"
+    echo "passed ${#passed[@]}, failed ${#failed[@]}"
+    [ ${#failed[@]} -eq 0 ] || echo "failed: ${failed[*]}"
+    [ ${#flaky[@]} -eq 0 ] || echo "passed only the second time: ${flaky[*]}"
+    [ ${#failed[@]} -eq 0 ] && echo "result: passed" || echo "result: failed"
+  } > "$REPORT"
+  cat "$REPORT"
+  for n in ${failed[@]+"${failed[@]}"}; do echo "--- $n"; grep -E '✗' "build/scenarios/$n.out"; done
+  for n in ${flaky[@]+"${flaky[@]}"}; do echo "--- $n, the first time"; grep -E '✗' "build/scenarios/$n.first.out"; done
+  [ ${#failed[@]} -eq 0 ]
+  exit
+fi
+
+NAME="${1:?usage: scripts/scenario.sh <name>|all|web-features|snapshots}"
 FILE="Tests/Scenarios/$NAME.scenario"
 [ -f "$FILE" ] || { echo "No scenario $FILE"; exit 2; }
 # The app's executable: Cra, or CraEngine for a build on Chrome's own framework (CRA_ENGINE=chromium).
@@ -345,7 +399,7 @@ WS_SERVER=$!
 disown "$WS_SERVER"
 for _ in $(seq 1 50); do WS_PORT=$(head -1 "$OUT/ws.log"); [ -n "$WS_PORT" ] && break; sleep 0.1; done
 WS="ws://127.0.0.1:${WS_PORT:?WebSocket server did not start}"
-expand() { local s="$1"; s="${s//\$\{FIXTURES\}/$FIXTURES}"; s="${s//\$\{ORIGIN\}/$ORIGIN}"; s="${s//\$\{PAGE\}/$PAGE}"; s="${s//\$\{WEBKIT\}/$WEBKIT}"; s="${s//\$\{MUSIC\}/$MUSIC}"; s="${s//\$\{LOCALNET\}/$LOCALNET}"; s="${s//\$\{STALL\}/$STALL}"; s="${s//\$\{TRICKLE\}/$TRICKLE}"; s="${s//\$\{WS\}/$WS}"; s="${s//\$\{COVER\}/${COVER:-}}"; s="${s//\$\{EXTENSION_ID\}/$EXTENSION_ID}"; s="${s//\$\{SIDE_PANEL_EXTENSION_ID\}/$SIDE_PANEL_EXTENSION_ID}"; s="${s//\$\{DOWNLOAD_EXTENSION_ID\}/$DOWNLOAD_EXTENSION_ID}"; s="${s//\$\{WEB_STORE_COPY_ID\}/$WEB_STORE_COPY_ID}"; s="${s//\$\{STORE_COPY_EXTENSION_ID\}/$STORE_COPY_EXTENSION_ID}"; s="${s//\$\{TABS_CREATE_EXTENSION_ID\}/$TABS_CREATE_EXTENSION_ID}"; s="${s//\$\{TABS_QUERY_EXTENSION_ID\}/$TABS_QUERY_EXTENSION_ID}"; printf '%s' "$s"; }
+expand() { local s="$1"; s="${s//\$\{FIXTURES\}/$FIXTURES}"; s="${s//\$\{ORIGIN\}/$ORIGIN}"; s="${s//\$\{PAGE\}/$PAGE}"; s="${s//\$\{WEBKIT\}/$WEBKIT}"; s="${s//\$\{MUSIC\}/$MUSIC}"; s="${s//\$\{LOCALNET\}/$LOCALNET}"; s="${s//\$\{STALL\}/$STALL}"; s="${s//\$\{TRICKLE\}/$TRICKLE}"; s="${s//\$\{WS\}/$WS}"; s="${s//\$\{COVER\}/${COVER:-}}"; s="${s//\$\{EXTENSION_ID\}/$EXTENSION_ID}"; s="${s//\$\{SIDE_PANEL_EXTENSION_ID\}/$SIDE_PANEL_EXTENSION_ID}"; s="${s//\$\{DOWNLOAD_EXTENSION_ID\}/$DOWNLOAD_EXTENSION_ID}"; s="${s//\$\{WEB_STORE_COPY_ID\}/$WEB_STORE_COPY_ID}"; s="${s//\$\{STORE_COPY_EXTENSION_ID\}/$STORE_COPY_EXTENSION_ID}"; s="${s//\$\{TABS_CREATE_EXTENSION_ID\}/$TABS_CREATE_EXTENSION_ID}"; s="${s//\$\{TABS_QUERY_EXTENSION_ID\}/$TABS_QUERY_EXTENSION_ID}"; s="${s//\$\{CAPTURE_EXTENSION_ID\}/$CAPTURE_EXTENSION_ID}"; s="${s//\$\{POPUP_CONTEXT_EXTENSION_ID\}/$POPUP_CONTEXT_EXTENSION_ID}"; printf '%s' "$s"; }
 # AppKit asks "reopen windows?" after a test copy was killed, and that modal blocks every command;
 # Cra restores its own windows from windows.json, so AppKit's restoration is off.
 app_args=(-ApplePersistenceIgnoreState YES)
@@ -449,7 +503,8 @@ while IFS= read -r raw || [ -n "$raw" ]; do
       sleep 2 ;;
     expect-log)
       shift; re="$*"; found=""
-      for _ in $(seq 1 150); do grep -Eq "$re" "$DATA"/cra*.log "$OUT/stdout.log" "$OUT/ws.log" "$OUT/server.log" 2>/dev/null && { found=1; break; }; sleep 0.2; done
+      # chromium.log has the engine's own LOG lines (bridge hooks and patches; the app's go to stdout.log).
+      for _ in $(seq 1 150); do grep -Eq "$re" "$DATA"/cra*.log "$DATA/chromium.log" "$OUT/stdout.log" "$OUT/ws.log" "$OUT/server.log" 2>/dev/null && { found=1; break; }; sleep 0.2; done
       [ -n "$found" ] || problem "no log line matching: $re" ;;
     reject-log)
       shift; re="$*"
@@ -464,13 +519,16 @@ while IFS= read -r raw || [ -n "$raw" ]; do
       # are only scaled up, so every one would differ; say that instead, and never record it.
       if [ -s "$shot1x" ]; then
         if [ "${CRA_SNAPSHOT_RECORD:-}" = "1" ]; then problem "snapshot $3: the window is on a 1x display; record on a Retina one"
+        elif [ "${CRA_SNAPSHOTS:-}" = "strict" ]; then problem "snapshot $3: not compared, the window is on a 1x display (references are 2x; use a Retina screen)"
         else budget_problem "snapshot $3: not compared, the window is on a 1x display (references are 2x; use a Retina screen)"; fi
       elif [ ! -s "$shot" ]; then problem "no snapshot of $2"
       elif [ "${CRA_SNAPSHOT_RECORD:-}" = "1" ]; then mkdir -p "$ROOT/Tests/Snapshots"; cp "$shot" "$ref"; echo "  recorded $3"
       elif [ ! -f "$ref" ]; then problem "no reference Tests/Snapshots/$3.png (CRA_SNAPSHOT_RECORD=1 records one)"
       else
         [ -x "$OUT/compare-png" ] || xcrun swiftc -O "$ROOT/scripts/compare-png.swift" -o "$OUT/compare-png" 2>"$OUT/compare-png.log"
-        verdict=$("$OUT/compare-png" "$ref" "$shot" "$OUT/snapshots/$3.diff.png" 2>&1) || budget_problem "snapshot $3: $verdict"
+        if ! verdict=$("$OUT/compare-png" "$ref" "$shot" "$OUT/snapshots/$3.diff.png" 2>&1); then
+          if [ "${CRA_SNAPSHOTS:-}" = "strict" ]; then problem "snapshot $3: $verdict"; else budget_problem "snapshot $3: $verdict"; fi
+        fi
       fi ;;
     cover)
       if [ "${2:-}" = "link" ]; then
@@ -485,20 +543,26 @@ while IFS= read -r raw || [ -n "$raw" ]; do
         grep -q '^covering' "$OUT/cover.log" && echo "  $(head -1 "$OUT/cover.log")" || problem "no cover window: $(cat "$OUT/cover.log")"
       fi ;;
     click)
-      [ "${2:-}" = "little-close" ] || { problem "click: unknown target ${2:-}"; continue; }
+      case "${2:-}" in
+        little-close) ask="littleClose=point"; mark="little close point:" ;;
+        toolbar-empty) ask="toolbarDoubleClick=point"; mark="toolbar empty point:" ;;
+        page-top) ask="pageTop=point"; mark="page top point:" ;;
+        *) problem "click: unknown target ${2:-}"; continue ;;
+      esac
+      count=1; [ "${3:-}" = "double" ] && count=2
       [ -x "$OUT/click" ] || clang -fobjc-arc -framework AppKit "$ROOT/scripts/hid-click/click.m" -o "$OUT/click" 2>"$OUT/click-build.log"
       [ -x "$OUT/click" ] || { problem "the click helper did not build (click-build.log)"; continue; }
-      seen=$(cat "$DATA"/cra*.log 2>/dev/null | grep -c "little close point:")
-      send "cra://debug?littleClose=point"
+      seen=$(cat "$DATA"/cra*.log 2>/dev/null | grep -c "$mark")
+      send "cra://debug?$ask"
       xy=""
       for _ in $(seq 1 50); do
-        [ "$(cat "$DATA"/cra*.log 2>/dev/null | grep -c "little close point:")" -gt "$seen" ] && \
-          { xy=$(cat "$DATA"/cra*.log | grep "little close point:" | tail -1 | sed 's/.*little close point: //'); break; }
+        [ "$(cat "$DATA"/cra*.log 2>/dev/null | grep -c "$mark")" -gt "$seen" ] && \
+          { xy=$(cat "$DATA"/cra*.log | grep "$mark" | tail -1 | sed "s/.*$mark //"); break; }
         sleep 0.2
       done
       case "$xy" in
-        [0-9]*" "[0-9]*) out=$("$OUT/click" "$PID" $xy) || problem "click little-close: $out"; echo "  $out" ;;
-        *) problem "click little-close: no close button (${xy:-no answer})" ;;
+        [0-9]*" "[0-9]*) out=$("$OUT/click" "$PID" $xy $count) || problem "click $2: $out"; echo "  $out" ;;
+        *) problem "click $2: nowhere to click (${xy:-no answer})" ;;
       esac ;;
     bare-helper)
       helper="Cra Helper (${line#bare-helper })"

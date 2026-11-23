@@ -74,4 +74,14 @@ public struct WheelSpaceSwitch: Sendable {
         let notches = CGFloat(delta) / 120
         return horizontal ? -notches : notches
     }
+
+    /// Spaces ▸ Previous/Next Space (⌥⌘←/→): the wheel's page, so the first space's previous is the Library and Next
+    /// Space takes it out, as a swipe and the mouse buttons do (#707). Where the wheel stops they wrap, as the keys
+    /// always did: from the last space to the first, and from the first to the last where no Library can come in.
+    /// Nothing comes before the Library.
+    public static func menuTarget(step: Int, index: Int, count: Int, inLibrary: Bool, libraryAllowed: Bool) -> Target? {
+        if let page = target(step: step, index: index, count: count, inLibrary: inLibrary, libraryAllowed: libraryAllowed) { return page }
+        guard !inLibrary, count > 1, step != 0 else { return nil }
+        return .space(((index + step) % count + count) % count)
+    }
 }

@@ -35,6 +35,7 @@ enum StoreTests {
         zenFaviconSize()
         autoArchive()
         longAutoArchive()
+        profileAutoArchive()
         tabSleepCadence()
         tabRestTimes()
         integrity()
@@ -44,6 +45,8 @@ enum StoreTests {
         liveRepositoryMenus()
         liveFolderExpiryKeepsNavigatedPages()
         mergedPullRequestsLeaveAnUpdatedFolder()
+        closedPullRequestsLeaveFromTheirOwnPages()
+        closedPullRequestsStayOutAcrossRefreshes()
         gitLabHiddenItems()
         gitLabFolderExpiryAndDeletion()
         gitLabMultipleServers()
@@ -584,6 +587,40 @@ enum StoreTests {
         expect(!archived(pinned.id), "pinned tabs are never auto-archived")
     }
 
+    // promise: #693
+    /// Each profile's own "Archive tabs after", as in Arc: a space on a Work profile set to 7 days keeps
+    /// its tabs while the Default space's go after 12 hours, and a profile set to Never keeps them all.
+    @MainActor
+    private static func profileAutoArchive() {
+        let clock = ManualScheduler()
+        let composition = AppComposition(clock: clock)
+        let store = composition.store
+        let work = store.createProfile(name: "Work")
+        let school = store.createProfile(name: "School")
+        let profiles = store.profiles.map(\.id)
+        store.settings.setAutoArchive(.after(.twelveHours), profileID: nil, otherProfiles: profiles)
+        store.settings.setAutoArchive(.after(.sevenDays), profileID: work.id, otherProfiles: profiles)
+        store.settings.setAutoArchive(.never, profileID: school.id, otherProfiles: profiles)
+        let home = store.focusedSpaceID
+        var workSpace = store.createSpace(title: "Work", emoji: "", focus: false)
+        workSpace.profileID = work.id
+        store.updateSpace(workSpace)
+        var schoolSpace = store.createSpace(title: "School", emoji: "", focus: false)
+        schoolSpace.profileID = school.id
+        store.updateSpace(schoolSpace)
+        let personal = store.createTab(url: "https://example.com/personal", in: home, select: false)
+        let job = store.createTab(url: "https://example.com/job", in: workSpace.id, select: false)
+        let homework = store.createTab(url: "https://example.com/homework", in: schoolSpace.id, select: false)
+        composition.startPeriodicWork {}
+        func archived(_ id: UUID) -> Bool { store.item(id) == nil }
+        clock.advance(by: 12 * 3600 + AppComposition.autoArchiveInterval + 1)
+        expect(archived(personal.id), "the Default space's tab goes after Default's 12 hours")
+        expect(!archived(job.id), "the Work space's tab stays: Work archives after 7 days")
+        clock.advance(by: 7 * 86400)
+        expect(archived(job.id), "after 7 days the Work tab goes too")
+        expect(!archived(homework.id), "School's Never keeps its tab")
+    }
+
     // promise: #136
     /// Tab sleeping asks the windows once a minute; like Arc, it has no switch.
     @MainActor
@@ -837,6 +874,77 @@ enum StoreTests {
         store.expireLiveItems(olderThan: 120)
         expect(store.children(of: folder.id).compactMap(\.tab?.liveItemURL) == [open.url], "later refreshes don't bring them back")
         expect(store.integrityProblems().isEmpty, "the cleanup keeps the sidebar sound")
+    }
+
+    // promise: #697
+    /// A pull request merged or closed while its tab sits on one of its own pages (Files changed, a
+    /// comment link, owner/repo in another case, a query) leaves the folder after the grace like an
+    /// unopened one. Before #697 only a tab on exactly the listed address could go, so a pull
+    /// request you'd looked at stayed in the folder for good. A tab on another page stays (Arc).
+    @MainActor
+    private static func closedPullRequestsLeaveFromTheirOwnPages() {
+        let clock = ManualScheduler()
+        let store = AppComposition(clock: clock).store
+        guard let folder = store.createLiveFolder(.github, inSpace: store.focusedSpaceID) else { return expect(false, "a live folder is made") }
+        func pr(_ number: Int) -> LiveFolderPluginItem {
+            let url = "https://github.com/team/app/pull/\(number)"
+            return LiveFolderPluginItem(id: url, url: url, title: "PR \(number)", group: "team/app")
+        }
+        let open = pr(1), files = pr(5), comment = pr(6), query = pr(7), other = pr(8), longer = pr(9)
+        store.applyPluginResults(.init(items: [open, files, comment, query, other, longer]), to: folder.id)
+        func tab(_ item: LiveFolderPluginItem) -> UUID? { store.children(of: folder.id).first { $0.tab?.liveItemURL == item.url }?.id }
+        guard let filesTab = tab(files), let commentTab = tab(comment), let queryTab = tab(query),
+              let otherTab = tab(other), let longerTab = tab(longer), let openTab = tab(open) else {
+            return expect(false, "every pull request has a tab")
+        }
+        store.updateTab(filesTab, url: files.url + "/files", title: "Files")
+        store.updateTab(commentTab, url: "https://github.com/Team/App/pull/6#issuecomment-42", title: "Comment")
+        store.updateTab(queryTab, url: query.url + "?w=1", title: "Query")
+        store.updateTab(otherTab, url: "https://example.test/reading", title: "Reading")
+        store.updateTab(longerTab, url: "https://github.com/team/app/pull/90", title: "Another pull request")
+        store.prefs.windows[0].selectedTabPerSpace[store.focusedSpaceID] = openTab
+
+        clock.advance(by: 600)
+        store.applyPluginResults(.init(items: [open]), to: folder.id)
+        clock.advance(by: 120)
+        store.expireLiveItems(olderThan: 120)
+        let left = Set(store.children(of: folder.id).compactMap(\.tab?.liveItemURL))
+        expect(left == [open.url, other.url, longer.url],
+               "merged pull requests on their own pages go; one on another page or another pull request stays: \(left)")
+        expect(store.item(longerTab)?.tab?.savedTitle == "Another pull request", "pull request 90's page keeps its own title, not pull request 9's")
+        expect(store.item(filesTab) == nil || store.item(filesTab)?.tab?.savedTitle == "PR 5", "a pull request's own pages keep its title")
+        expect(store.integrityProblems().isEmpty, "the cleanup keeps the sidebar sound")
+    }
+
+    // promise: #697
+    /// The other half of #697 stays as Arc has it (its hiddenItems): a pull request closed out of the
+    /// folder by hand stays out on every refresh, and Reopen Closed Tab (⇧⌘T) puts it back.
+    @MainActor
+    private static func closedPullRequestsStayOutAcrossRefreshes() {
+        let clock = ManualScheduler()
+        let store = AppComposition(clock: clock).store
+        guard let folder = store.createLiveFolder(.github, inSpace: store.focusedSpaceID) else { return expect(false, "a live folder is made") }
+        let items = [1, 2].map { n -> LiveFolderPluginItem in
+            let url = "https://github.com/team/app/pull/\(n)"
+            return LiveFolderPluginItem(id: url, url: url, title: "PR \(n)", group: "team/app")
+        }
+        store.applyPluginResults(.init(items: items), to: folder.id)
+        guard let closed = store.children(of: folder.id).first(where: { $0.tab?.liveItemURL == items[1].url }) else {
+            return expect(false, "the pull request has a tab")
+        }
+        store.archiveTab(closed.id, reason: .manual)
+        for _ in 0..<3 {
+            clock.advance(by: 600)
+            store.applyPluginResults(.init(items: items), to: folder.id)
+            store.expireLiveItems(olderThan: 120)
+        }
+        expect(store.children(of: folder.id).compactMap(\.tab?.liveItemURL) == [items[0].url], "refreshes leave the closed pull request out")
+        if let archived = store.archive.first(where: { $0.item.tab?.liveItemURL == items[1].url }) { store.restoreArchived(archived.id, select: false) }
+        clock.advance(by: 600)
+        store.applyPluginResults(.init(items: items), to: folder.id)
+        expect(Set(store.children(of: folder.id).compactMap(\.tab?.liveItemURL)) == Set(items.map(\.url)),
+               "Reopen Closed Tab puts it back, and the next refresh keeps it")
+        expect(store.item(folder.id)?.liveFolder?.hiddenItems.isEmpty == true, "nothing is hidden once it's back")
     }
 
     @MainActor
