@@ -31,6 +31,16 @@ struct ToolbarAddressTests {
         #expect(windows["toggleToolbar"]?.name == "Toggle Toolbar")
         #expect(windows["stop"] != nil)
     }
+
+    /// Edit ▸ Paste and Go (#610) runs on Windows from the command bar, with no key: the Mac's ⌥⌘V
+    /// would be Ctrl+Alt+V, AltGr+V on many keyboards.
+    @Test
+    func pasteAndGoIsAWindowsCommand() {
+        let paste = KeyBindingDefaults.windows.first { $0.id == "pasteAndGo" }
+        #expect(paste?.inCommandBar == true)
+        #expect(paste?.shortcuts == [])
+        #expect(paste?.name == "Paste and Go")
+    }
 }
 
 /// The reload menu's rows, all of them commands Windows runs.

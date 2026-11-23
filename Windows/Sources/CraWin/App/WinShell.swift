@@ -39,6 +39,13 @@ enum WinShell {
         text.withCString { cra_clipboard_set_text($0) } != 0
     }
 
+    /// The clipboard's text, nil when it holds none (NSPasteboard's string(forType: .string)).
+    static func text() -> String? {
+        guard let text = cra_clipboard_text() else { return nil }
+        defer { cra_data_free(text) }
+        return String(cString: text)
+    }
+
     /// An image, as PNG and as a bitmap.
     @discardableResult
     static func copy(png: Data) -> Bool {
