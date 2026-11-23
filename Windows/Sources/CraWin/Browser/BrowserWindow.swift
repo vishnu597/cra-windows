@@ -28,6 +28,9 @@ final class BrowserWindow {
     private(set) var window: HostWindow!
     private var sidebar: SidebarView!
     private let sidebarPanel = Grid()
+    /// What the sidebar's gradient was last painted for (paintSidebarGradient).
+    private var gradientKey: [Double] = []
+    private var gradientColors: [RGB] = []
     /// The toolbar, the address pill and the sidebar: what the Library takes the place of.
     private var sidebarParts: [FrameworkElement] = []
     /// Arc's Library in the sidebar (LibraryView): the page shown, nil while it shows the tabs.
@@ -246,6 +249,7 @@ final class BrowserWindow {
         loadingBar = LoadingBar(owner: hwnd, dispatcher: dispatcher)
         sidebarEdge = SidebarEdge(owner: hwnd)
         window.onLayout = { [weak self] _ in
+            self?.paintSidebarGradient()
             self?.placeLoadingBar()
             self?.placeSidebarEdge()
             self?.syncLibraryWidth()
@@ -399,7 +403,7 @@ final class BrowserWindow {
         guard !closing else { return }
         withObservationTracking {
             sidebar.build()
-            sidebarPanel.background = sidebar.fill
+            paintSidebarGradient()
             applyPaneColors(store.focusedSpace(window: windowID).theme)
             downloads.apply(sidebar.palette, fill: sidebar.fill)
             if libraryPage != nil {
@@ -1809,6 +1813,18 @@ final class BrowserWindow {
     }
 
     /// The page area's own colour (between panes, in an empty pane) is the sidebar's.
+    /// The sidebar shows its slice of Arc's window gradient (45° from the window's top left, #669),
+    /// so it follows the window's size and the column's place in it.
+    private func paintSidebarGradient() {
+        let scale = window.scale, size = window.appWindow.clientSize, origin = window.columnOrigin
+        let key = [size.width, size.height, origin.x, origin.y].map(Double.init) + [scale]
+        guard key != gradientKey || sidebar.palette.colors != gradientColors else { return }
+        gradientKey = key
+        gradientColors = sidebar.palette.colors
+        sidebarPanel.background = sidebar.palette.windowFill(width: Double(size.width) / scale, height: Double(size.height) / scale,
+                                                             originX: Double(origin.x) / scale, originY: Double(origin.y) / scale)
+    }
+
     private func applyPaneColors(_ theme: SpaceTheme) {
         // The sidebar's top colour, as its palette draws it (SidebarSurface over SidebarMaterialFill's grey).
         let c = sidebar.palette.top
