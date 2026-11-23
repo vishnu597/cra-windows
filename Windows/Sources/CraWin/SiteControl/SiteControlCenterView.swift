@@ -21,6 +21,8 @@ final class SiteControlCenterView {
         var runExtension: (String) -> Void = { _ in }
         /// The "+" tile: the Chrome Web Store.
         var addExtension: () -> Void = {}
+        /// A tile's badge: pins the extension to the toolbar, or unpins it.
+        var togglePin: (String) -> Void = { _ in }
         /// The connection pill: the page's certificate. nil without one.
         var showCertificate: (() -> Void)?
     }
@@ -55,6 +57,7 @@ final class SiteControlCenterView {
         let id: String
         let name: String
         let icon: WriteableBitmap?
+        var pinned = false
     }
 
     /// Builds the contents for the page at `url`. `dark` is Windows' own light or dark mode, as
@@ -125,6 +128,7 @@ final class SiteControlCenterView {
         grid.columnSpacing = Double(M.gap)
         for _ in 0..<4 { grid.columnDefinitions.append(UI.column(UI.pixels(Double(M.tile.width)))) }
         var cells: [Button] = []
+        var badges: [Int: Button] = [:]
         for tile in tiles {
             let content: UIElement
             if let icon = tile.icon {
@@ -142,6 +146,7 @@ final class SiteControlCenterView {
             }
             ArcTip.set(b, tile.name)
             try? AutomationProperties.setName(b, tile.name)
+            badges[cells.count] = pinBadge(tile, tile: b, colors)
             cells.append(b)
         }
         let plus = FontIcon()
@@ -163,9 +168,53 @@ final class SiteControlCenterView {
             grid.children.append(b)
             try? Grid.setRow(b, Int32(i / 4))
             try? Grid.setColumn(b, Int32(i % 4))
+            // The badge after its tile, so it draws over it and takes the click.
+            if let badge = badges[i] {
+                grid.children.append(badge)
+                try? Grid.setRow(badge, Int32(i / 4))
+                try? Grid.setColumn(badge, Int32(i % 4))
+            }
         }
         section.children.append(grid)
         return section
+    }
+
+    /// Arc's SiteControlCenterExtensionPinButton: a 14 DIP circle off the tile's bottom-right
+    /// corner (37 × 21 in), the pin in it; filled while pinned, shown otherwise while the pointer
+    /// is on the tile or on it. A click pins or unpins ("Pin" / "Unpin").
+    private func pinBadge(_ entry: ExtensionTile, tile: Button, _ colors: Colors) -> Button {
+        let pin = FontIcon()
+        pin.glyph = WinGlyph.code("pin.fill")
+        pin.fontSize = 8
+        pin.foreground = entry.pinned ? colors.glyphOnAccent : colors.glyphOnInactive
+        let id = entry.id
+        let badge = UI.button(pin, fill: entry.pinned ? colors.accent : colors.inactive,
+                              padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in
+            self?.actions.togglePin(id)
+        }
+        badge.width = 14
+        badge.height = 14
+        badge.cornerRadius = CornerRadius(topLeft: 7, topRight: 7, bottomRight: 7, bottomLeft: 7)
+        badge.borderThickness = Thickness(left: 1, top: 1, right: 1, bottom: 1)
+        badge.borderBrush = colors.background
+        badge.horizontalAlignment = .left
+        badge.verticalAlignment = .top
+        badge.margin = Thickness(left: 37, top: 21, right: -3, bottom: -3)
+        Self.keepFill(badge, entry.pinned ? colors.accent : colors.inactive, hover: entry.pinned ? colors.accent : colors.secondary)
+        let help = entry.pinned ? "Unpin" : "Pin"
+        ArcTip.set(badge, help)
+        try? AutomationProperties.setName(badge, "\(help) \(entry.name)")
+        guard !entry.pinned else { return badge }
+        badge.visibility = .collapsed
+        // The tile's handlers hold the badge's wrapper (one made from Swift is freed with its last
+        // Swift reference); the badge's own hold it weakly.
+        var onTile = false, onBadge = false
+        func refresh(_ badge: Button?) { badge?.visibility = onTile || onBadge ? .visible : .collapsed }
+        tile.pointerEntered.addHandler { _, _ in onTile = true; refresh(badge) }
+        tile.pointerExited.addHandler { _, _ in onTile = false; refresh(badge) }
+        badge.pointerEntered.addHandler { [weak badge] _, _ in onBadge = true; refresh(badge) }
+        badge.pointerExited.addHandler { [weak badge] _, _ in onBadge = false; refresh(badge) }
+        return badge
     }
 
     /// "Settings" and a row a switch: a circle with the switch's glyph, its title and state.
