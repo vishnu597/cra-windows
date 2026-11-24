@@ -76,7 +76,7 @@ public enum ArcImporter {
             let created = refDate(it["createdAt"])
             let childIDs = it["childrenIds"] as? [String] ?? []
             if let tab = dataDict["tab"] as? [String: Any] {
-                guard let u = tab["savedURL"] as? String, !u.isEmpty else { return nil }
+                guard let u = tab["savedURL"] as? String, ImportedAddress.keeps(u) else { return nil }
                 return ImportedItem(customTitle: custom, pageTitle: tab["savedTitle"] as? String ?? "", url: u, createdAt: created,
                                     faviconPath: faviconFile(forItemID: id, in: supportDir), liveItemURL: tagged(tab["liveItemID"], "url"))
             }
@@ -140,7 +140,7 @@ public enum ArcImporter {
            let aitems = aroot["items"] as? [Any] {
             for case let e as [String: Any] in aitems {
                 guard let si = e["sidebarItem"] as? [String: Any], let d = si["data"] as? [String: Any],
-                      let tab = d["tab"] as? [String: Any], let u = tab["savedURL"] as? String, !u.isEmpty else { continue }
+                      let tab = d["tab"] as? [String: Any], let u = tab["savedURL"] as? String, ImportedAddress.keeps(u) else { continue }
                 let reason = (e["reason"] as? String) == "auto" ? ArchiveReason.auto : .manual
                 var spaceTitle: String?
                 if let src = e["source"] as? [String: Any], let sp = src["space"] as? [String: Any], let id = sp["_0"] as? String { spaceTitle = spaceTitleByID[id] }

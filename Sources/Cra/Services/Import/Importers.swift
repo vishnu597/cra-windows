@@ -99,7 +99,7 @@ enum DiaImporter {
                     guard let contents = tab["contents"] as? [[String: Any]] else { continue }
                     for content in contents {
                         guard let variant = content["variant"] as? [String: Any], let web = variant["webContent"] as? [String: Any],
-                              let w = web["_0"] as? [String: Any], let url = w["url"] as? String else { continue }
+                              let w = web["_0"] as? [String: Any], let url = w["url"] as? String, ImportedAddress.keeps(url) else { continue }
                         let item = ImportedItem(pageTitle: w["title"] as? String ?? "", url: url, createdAt: refDate(tab["creationDate"]))
                         if isFavorites { plan.favorites.append(item) } else { openTabs.append(item) }
                     }
@@ -116,7 +116,7 @@ enum DiaImporter {
                   let roots = root["roots"] as? [String: Any], let bar = roots["bookmark_bar"] as? [String: Any] else { continue }
             func convert(_ node: [String: Any]) -> ImportedItem? {
                 let name = node["name"] as? String ?? ""
-                if node["type"] as? String == "url", let u = node["url"] as? String {
+                if node["type"] as? String == "url", let u = node["url"] as? String, ImportedAddress.keeps(u) {
                     return ImportedItem(customTitle: name.isEmpty ? nil : name, pageTitle: name, url: u)
                 }
                 if node["type"] as? String == "folder" {

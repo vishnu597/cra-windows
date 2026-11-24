@@ -157,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         observeSystemWake()
         logSidebarProblems()
         LiveFolderManager.shared.start(store: store)
+        store.attributeHistoryProfiles()
         // A restart into an update while the user was away leaves the front app alone.
         if HitchMonitor.background {
             // Measured behind whatever is in front; still on screen, so pages keep drawing.
@@ -306,7 +307,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Extensions' shortcuts outside Global scope: Chrome catches them on its own window, which Cra never
         // shows, so Cra catches them first, pages included, as Chrome does (#701).
         extensionCommandMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            MainActor.assumeIsolated { self?.runExtensionCommand(event) == true ? nil : event }
+            MainActor.assumeIsolated {
+                guard let self else { return event }
+                return self.closesExtensionPopup(event) || self.runExtensionCommand(event) ? nil : event
+            }
         }
     }
 
@@ -1413,7 +1417,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     TestGesture.pageKey(String(k[0]), keyCode: code, modifiers: flags, in: roots, window: w, fromKeyboard: dict["source"] == "keyboard")
                 } else {
                     // The ⌘T bar, while it is open, has the keyboard; target=find sends it to the find bar's panel.
-                    let target = dict["target"] == "find" ? main.debugFindPanel
+                    // target=popup: an extension's popup has the keyboard, as after a click in it (#727).
+                    let target = dict["target"] == "popup" ? ExtensionPopupWindow.keyboardWindow
+                        : dict["target"] == "find" ? main.debugFindPanel
                         : dict["target"] == "littleFind" ? littleWindows.last?.finder.debugPanel : main.openCommandPanel
                     // source=keyboard: typed on the keyboard (source process 0), not posted by an app as a mouse driver does (#714).
                     TestGesture.key(String(k[0]), keyCode: code, modifiers: flags, in: target ?? w, fromKeyboard: dict["source"] == "keyboard")
@@ -1483,6 +1489,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let v = dict["instantLinksSetting"] { store.settings.instantLinks = v == "on"; return }
             // pageMarginSetting=<points>: Settings ▸ Pages ▸ Margin moved to that value, as the slider does (Ideas #366).
             if let v = dict["pageMarginSetting"].flatMap(Double.init) { store.settings.pageMargin = v; return }
+            // nowPlayingTint=arc|theme: Settings ▸ Tabs ▸ "Player in the space's colour" switched (Ideas #366).
+            if let v = dict["nowPlayingTint"].flatMap(NowPlayingTint.init(rawValue:)) { store.settings.nowPlayingTint = v; return }
             // sidebarSide=left|right: Settings ▸ Sidebar on the right, as its switch sets it (#464).
             if let v = dict["sidebarSide"].flatMap(SidebarSide.init(rawValue:)) { store.settings.sidebarSide = v; return }
             if let v = dict["instantLinksFail"] {
@@ -1928,6 +1936,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // ("toolbar empty point: <x> <y>"), and toolbarZoom=<label> whether the window has zoomed since.
             // pageTop=point (#685): where scenario.sh's `click page-top` presses, 5 pt into the focused page's top, a third
             // of the way across: "page top point: <x> <y>", top-left screen points. toolbarZoom then says whether it zoomed.
+            // sidebarEmpty=point (#722): where scenario.sh's `click sidebar-empty` presses, in the docked sidebar's empty
+            // space a third of the way up from its bottom, a spot only the sidebar itself takes: "sidebar empty point: <x> <y>".
+            if dict["sidebarEmpty"] == "point" {
+                let host = main.shell.sidebarHost
+                guard let w = main.window, host.window === w, !host.isHidden, let frame = w.contentView?.superview,
+                      let top = NSScreen.screens.first?.frame.maxY else {
+                    CraLog.note("sidebar empty point: none"); return
+                }
+                let inWindow = host.convert(NSPoint(x: host.bounds.midX, y: host.isFlipped ? host.bounds.maxY - host.bounds.height / 3 : host.bounds.minY + host.bounds.height / 3), to: nil)
+                let onScreen = w.convertPoint(toScreen: inWindow)
+                let hit = frame.hitTest(frame.convert(inWindow, from: nil))
+                CraLog.note("sidebar empty hit: \(hit.map { String(describing: type(of: $0)) } ?? "nil")")
+                CraLog.note("sidebar empty point: \(Int(onScreen.x)) \(Int(top - onScreen.y))")
+                return
+            }
             if dict["pageTop"] == "point" {
                 guard let card = main.shell.focusedCard, let w = main.window, let top = NSScreen.screens.first?.frame.maxY else {
                     CraLog.note("page top point: none"); return
@@ -1976,6 +1999,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     CraLog.note("toolbar double click \(label): zoomed=\(w.isZoomed ? 1 : 0) grew=\(w.frame.width > before.width + 1 || w.frame.height > before.height + 1 ? 1 : 0)")
                 }
+                return
+            }
+            // littleOtherDesktop=<n> (#738): the n-th Little Window (oldest first, Peeks left out) counts as on another
+            // desktop, as if opened there; a test copy can't make or switch desktops.
+            if let n = dict["littleOtherDesktop"].flatMap(Int.init) {
+                let lw = littleWindows.filter { !$0.isPeek }
+                if lw.indices.contains(n) { lw[n].debugOnOtherDesktop = true }
                 return
             }
             if let label = dict["littleFocus"] {
@@ -2819,6 +2849,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                           e.hasNext ? 1 : 0, e.hasVideo ? 1 : 0, np.pictureInPicture.contains(e.id) ? 1 : 0)
                 }
                 if np.entries.isEmpty { NSLog("Cra nowPlaying%@ none", label) }
+                // The cards' colour: "Cra nowPlaying[<label>] tint=<arc|theme> fill=#RRGGBB" (Ideas #366).
+                NSLog("Cra nowPlaying%@ tint=%@ fill=%@", label, store.settings.nowPlayingTint.rawValue,
+                      (main.shell.sidebarHost as? SidebarView)?.debugPlayerFill ?? "none")
                 // Tabs whose speaker shows, card or not: "Cra nowPlaying[<label>] sounding <host> uncontrollable=…" (#411).
                 for rt in main.browsers.runtimes.values where rt.browser.isAudible {
                     NSLog("Cra nowPlaying%@ sounding %@ uncontrollable=%d", label, CraLog.host(rt.browser.currentURL),
@@ -2856,6 +2889,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let label = dict["folderPreviewLit"] {
                 guard let preview = FolderPreviewController.shared.preview else { NSLog("Cra folderPreview %@: closed", label); return }
                 NSLog("Cra folderPreview %@: lit=%@ top=%.0f", label, preview.debugLit.map(String.init).joined(separator: ","), preview.debugTop)
+                return
+            }
+            // rowPoint=<id>: "row point: <x> <y>", where scenario.sh's `click row <id> move` rests the real pointer (#743).
+            if let r = dict["rowPoint"] {
+                guard let id = UUID(uuidString: r), let p = SpaceListView.debugRowPoint(id, ui: main.sidebarUI) else {
+                    CraLog.note("row point: none"); return
+                }
+                CraLog.note("row point: \(Int(p.x)) \(Int(p.y))")
+                return
+            }
+            // folderPreviewOpen=<label>: "Cra folderPreview <label>: open=<folder id>" or "open=none" (#743).
+            if let label = dict["folderPreviewOpen"] {
+                let open = FolderPreviewController.shared.isOpen ? FolderPreviewController.shared.folderID?.uuidString ?? "none" : "none"
+                NSLog("Cra folderPreview %@: open=%@", label, open)
                 return
             }
             if let f = dict["folderPreview"] {
@@ -3601,6 +3648,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// An extension's shortcut (chrome://extensions/shortcuts) pressed in a browser window: the ones that
     /// open its popup run as a click on its button does (#701); its own commands (chrome.commands.onCommand) go to
     /// the extension through the engine, with the page as the active tab. Global ones are the system's hot keys.
+    /// Close Tab or Close Window typed in an extension's popup: the popup closes, not the tab behind it (#727). Chrome's
+    /// bubble has the keyboard and would take the key before Cra's menu.
+    private func closesExtensionPopup(_ event: NSEvent) -> Bool {
+        guard !event.isARepeat, let id = bindings.action(for: event)?.id, ["closeTab", "closeWindow"].contains(id),
+              ExtensionPopupWindow.closes(forCloseCommandIn: event.window ?? NSApp.keyWindow) else { return false }
+        CraLog.note("extension popup: \(id) closes it")
+        return true
+    }
+
     private func runExtensionCommand(_ event: NSEvent) -> Bool {
         let held = event.modifierFlags.intersection([.command, .option, .control])
         guard !held.isEmpty, !event.isARepeat, let main, event.window === main.window || event.window?.parent === main.window else { return false }
@@ -3793,6 +3849,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             key.performClose(nil)
             return
         }
+        // An extension's popup in front, its menu item picked (#727).
+        if ["closeTab", "closeWindow"].contains(id), ExtensionPopupWindow.closes(forCloseCommandIn: NSApp.keyWindow) { return }
         // Settings in front closes on ⌘W, not the tab in the browser window behind it. With a
         // sheet up (an open panel) nothing closes: the sheet is answered first.
         if ["closeTab", "closeWindow"].contains(id), settingsInFront {
