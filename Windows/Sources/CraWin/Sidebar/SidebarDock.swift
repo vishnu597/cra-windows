@@ -18,7 +18,11 @@ final class SidebarDockCell {
     private let glyph = FontIcon()
     private let picture = WinUI.Image()
     private let dot = WinUI.Ellipse()  // not GDI's Ellipse
-    private var pictureData: Data?
+    /// What the picture shows now (an emoji or a picture icon, lit or faded), so a redraw that
+    /// changes nothing keeps its bitmap.
+    private var pictureKey: String?
+    /// Emoji and picture icons in colour and faded, by what they show (shared by every cell).
+    private static var bitmaps: [String: WriteableBitmap] = [:]
 
     init(id: UUID, icon: SpaceIcon, action: @escaping @MainActor () -> Void) {
         self.id = id
@@ -60,24 +64,28 @@ final class SidebarDockCell {
         glyph.visibility = .collapsed
         picture.visibility = .collapsed
         dot.visibility = .collapsed
-        let faint = lit ? 1.0 : 0.45
+        // Arc's unlit icon: faint and nearly grey (DockIconFade, the Mac's CIColorControls).
+        let look = DockIconFade.look(lit: lit)
         switch mark {
         case .emoji(let e):
-            emoji.text = e
-            emoji.opacity = faint
-            emoji.visibility = .visible
+            // Drawn to pixels so it can lose its colour; XAML's own glyph if that fails.
+            if let bitmap = Self.bitmap("emoji:\(e)", lit: lit, make: { Pixels.emoji(e, side: 48) }) {
+                show(bitmap, key: "emoji:\(e):\(lit)", side: 18, alpha: look.alpha)
+            } else {
+                emoji.text = e
+                emoji.opacity = look.alpha
+                emoji.visibility = .visible
+            }
         case .symbol(let name):
             glyph.glyph = WinGlyph.known(name) ?? WinGlyph.code("space")
             glyph.foreground = palette.text
-            glyph.opacity = faint
+            glyph.opacity = look.alpha
             glyph.visibility = .visible
         case .image(let data):
-            if pictureData != data {
-                pictureData = data
-                picture.source = Pixels.decode(data, side: 32)?.bitmap()
+            let id = "image:\(data.count):\(data.hashValue)"
+            if let bitmap = Self.bitmap(id, lit: lit, make: { Pixels.decode(data, side: 32) }) {
+                show(bitmap, key: "\(id):\(lit)", side: 16, alpha: look.alpha)
             }
-            picture.opacity = faint
-            picture.visibility = .visible
         case .dot(let diameter):
             dot.width = Double(diameter)
             dot.height = Double(diameter)
@@ -85,6 +93,32 @@ final class SidebarDockCell {
             dot.fill = dark ? UI.brush(255, 255, 255, alpha: alpha) : UI.brush(0, 0, 0, alpha: alpha)
             dot.visibility = .visible
         }
+    }
+}
+
+extension SidebarDockCell {
+    private func show(_ bitmap: WriteableBitmap, key: String, side: Double, alpha: Double) {
+        if pictureKey != key {
+            pictureKey = key
+            picture.source = bitmap
+        }
+        picture.width = side
+        picture.height = side
+        picture.opacity = alpha
+        picture.visibility = .visible
+    }
+
+    /// `id`'s bitmap in colour, or faded while the cell isn't lit, made once.
+    private static func bitmap(_ id: String, lit: Bool, make: () -> Pixels?) -> WriteableBitmap? {
+        let key = "\(id):\(lit)"
+        if let made = bitmaps[key] { return made }
+        guard let pixels = make() else { return nil }
+        let shown = lit ? pixels : pixels.desaturated(DockIconFade.saturation)
+        guard let bitmap = shown.bitmap() else { return nil }
+        // A long session with many picture changes keeps few: start over past a few hundred.
+        if bitmaps.count > 256 { bitmaps.removeAll() }
+        bitmaps[key] = bitmap
+        return bitmap
     }
 }
 
@@ -113,7 +147,8 @@ extension SidebarView {
             cell.button.pointerExited.addHandler { [weak self] _, _ in
                 if self?.dockHovered == id { self?.hoverDock(nil) }
             }
-            try? ToolTipService.setToolTip(cell.button, dockTip(space))
+            let tip = dockTip(space)
+            ArcTip.set(cell.button, tip.help, placement: .above, badge: tip.profile)
             try? AutomationProperties.setName(cell.button, space.title)
             cell.button.contextFlyout = spaceMenu(space)
             dockCells.append(cell)
@@ -173,35 +208,14 @@ extension SidebarView {
         return w > 0 ? w : 260
     }
 
-    /// Arc's tip: the space's name, its profile in a pill, then Go to Space N's keys.
-    private func dockTip(_ space: Space) -> FrameworkElement {
+    /// Arc's tip (ArcTip, as the Mac's SpaceDockIconView): the space's name, its profile in a pill,
+    /// then Go to Space N's keys in caps, above the icon 0.55 s after the pointer rests.
+    private func dockTip(_ space: Space) -> (help: String, profile: String) {
         let tip = SpaceDock.tip(title: space.title, profileName: store.profile(space.profileID)?.name,
                                 index: store.spaceOrder.firstIndex(of: space.id))
-        let row = StackPanel()
-        row.orientation = .horizontal
-        row.spacing = 6
-        let name = TextBlock()
-        name.text = tip.title.isEmpty ? "Space" : tip.title
-        name.verticalAlignment = .center
-        row.children.append(name)
-        let pill = Border()
-        pill.cornerRadius = CornerRadius(topLeft: 4, topRight: 4, bottomRight: 4, bottomLeft: 4)
-        pill.padding = Thickness(left: 5, top: 1, right: 5, bottom: 1)
-        pill.background = UI.brush(128, 128, 128, alpha: 60)
-        pill.verticalAlignment = .center
-        let profile = TextBlock()
-        profile.text = tip.profile
-        profile.fontSize = 11
-        pill.child = profile
-        row.children.append(pill)
-        if let n = tip.number, let chord = WinKeyBindings.shared.action("space\(n)")?.primary {
-            let keys = TextBlock()
-            keys.text = chord.windowsDisplay
-            keys.opacity = 0.6
-            keys.verticalAlignment = .center
-            row.children.append(keys)
-        }
-        return row
+        let name = tip.title.isEmpty ? "Space" : tip.title
+        guard let n = tip.number, let chord = WinKeyBindings.shared.action("space\(n)")?.primary else { return (name, tip.profile) }
+        return ("\(name) (\(chord.windowsDisplay))", tip.profile)
     }
 
     /// Shift + wheel or a sideways wheel over the sidebar: the next or previous space, as in Arc

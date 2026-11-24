@@ -25,6 +25,7 @@ enum WinGlyph {
         // The site control center's (the Mac's SF Symbols, in Segoe Fluent Icons).
         case "square.and.arrow.up": return "\u{E72D}"
         case "link": return "\u{E71B}"
+        case "pin.fill": return "\u{E841}"  // PinnedFill
         case "camera": return "\u{E722}"
         case "text.viewfinder": return "\u{E9A6}"
         case "lock.fill": return "\u{E72E}"

@@ -277,6 +277,9 @@ public enum KeyBindingDefaults {
             "copyURLMarkdown": [KeyChord("c", [.control, .option, .shift] as KeyChord.Modifiers)],
             // The Mac's ⌃⇧⌘C has no Windows counterpart left (Ctrl+Alt+Shift+C is Markdown).
             "copyURLQuote": [],
+            // Edit ▸ Paste and Go, from the command bar: the Mac's ⌥⌘V would be Ctrl+Alt+V, which
+            // is AltGr+V and types a letter on many keyboards.
+            "pasteAndGo": [],
             "find": [KeyChord("f", ctrl)],
             "findNext": [KeyChord("g", ctrl), KeyChord(KeyChord.function(3), [] as KeyChord.Modifiers)],
             "findPrevious": [KeyChord("g", ctrlShift), KeyChord(KeyChord.function(3), KeyChord.Modifiers.shift)],
@@ -348,6 +351,9 @@ public enum KeyBindingDefaults {
             // Chrome for Windows' other keys for it.
             "recentTab": [KeyChord(KeyChord.tab, ctrl)],
             "recentTabBackward": [KeyChord(KeyChord.tab, ctrlShift)],
+            // The Mac's ⌃⌥Tab over every space (#467). Windows keeps Ctrl+Alt+Tab for its own app
+            // switcher, so it has no default; a chord with Ctrl held works from the Shortcuts pane.
+            "recentTabAllSpaces": [], "recentTabAllSpacesBackward": [],
             "nextTab": [KeyChord(KeyChord.pageDown, ctrl)],
             "previousTab": [KeyChord(KeyChord.pageUp, ctrl)],
             "goBack": [KeyChord(KeyChord.left, alt)],

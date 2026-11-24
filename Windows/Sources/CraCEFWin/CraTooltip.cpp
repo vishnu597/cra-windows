@@ -120,9 +120,45 @@ extern "C" void cra_arc_tip_measure(const char *text, double max_width, const ch
     ReleaseDC(nullptr, screen);
 }
 
+extern "C" double cra_arc_tip_measure_badge(const char *name) {
+    StartGdiplus();
+    const std::wstring wide = Wide(name);
+    double width = 0;
+    HDC screen = GetDC(nullptr);
+    {
+        Gdiplus::Graphics g(screen);
+        g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
+        Gdiplus::Font font(kTextFamily, 11, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+        Gdiplus::RectF box;
+        g.MeasureString(wide.c_str(), -1, &font, Gdiplus::PointF(0, 0), &box);
+        width = box.Width;
+    }
+    ReleaseDC(nullptr, screen);
+    return width;
+}
+
+namespace {
+
+// The Mac's ProfileAvatarView in a 14 DIP box at `x, y`: a faint disc, two eyes and a smile.
+void DrawAvatar(Gdiplus::Graphics &g, Gdiplus::REAL x, Gdiplus::REAL y, uint32_t ink) {
+    Gdiplus::SolidBrush disc(ColorOf(ink, 26)), solid(ColorOf(ink));
+    g.FillEllipse(&disc, x, y, 14.0f, 14.0f);
+    for (Gdiplus::REAL ex : {4.5f, 8.0f}) {
+        Gdiplus::GraphicsPath eye;
+        AddRoundRect(eye, x + ex, y + 3, 1.5f, 4, 0.75f);
+        g.FillPath(&solid, &eye);
+    }
+    Gdiplus::Pen smile(ColorOf(ink), 1.35f);
+    smile.SetStartCap(Gdiplus::LineCapRound);
+    smile.SetEndCap(Gdiplus::LineCapRound);
+    g.DrawBezier(&smile, x + 4.1f, y + 9.6f, x + 6.03f, y + 10.67f, x + 7.97f, y + 10.67f, x + 9.9f, y + 9.6f);
+}
+
+}  // namespace
+
 extern "C" void cra_arc_tip_show(int x, int y, double width, double height, double scale, double corner, const char *text,
                                  double text_width, const char *const *keys, const double *cap_widths, size_t count,
-                                 const CraArcTipColors *colors) {
+                                 const char *badge, double badge_x, double badge_width, const CraArcTipColors *colors) {
     if (!colors || width <= 0 || height <= 0) return;
     HWND tip = TipWindow();
     if (!tip) return;
@@ -175,6 +211,23 @@ extern "C" void cra_arc_tip_show(int x, int y, double width, double height, doub
             centred.SetLineAlignment(Gdiplus::StringAlignmentCenter);
             Gdiplus::REAL cx = 10 + textW + 6;
             const Gdiplus::REAL cap = 19, top = (H - cap) / 2;
+
+            // A space icon's profile pill: 22 DIPs tall, the avatar 6 in, the name 3 after it.
+            if (badge && *badge && badge_width > 0) {
+                const auto px = static_cast<Gdiplus::REAL>(badge_x), pw = static_cast<Gdiplus::REAL>(badge_width);
+                const Gdiplus::REAL ph = 22, py = (H - ph) / 2;
+                Gdiplus::GraphicsPath pill;
+                AddRoundRect(pill, px, py, pw, ph, ph / 2);
+                g.FillPath(&capFace, &pill);
+                DrawAvatar(g, px + 6, py + (ph - 14) / 2, colors->cap_glyph);
+                Gdiplus::Font nameFont(kTextFamily, 11, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+                Gdiplus::StringFormat left;
+                left.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+                left.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+                const std::wstring name = Wide(badge);
+                g.DrawString(name.c_str(), -1, &nameFont, Gdiplus::RectF(px + 6 + 14 + 3, py, pw - 23, ph), &left, &capGlyph);
+                cx = px + pw + 6;
+            }
             for (size_t i = 0; i < count; ++i) {
                 const auto cw = static_cast<Gdiplus::REAL>(cap_widths ? cap_widths[i] : cap);
                 Gdiplus::GraphicsPath outer, face;

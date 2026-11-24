@@ -65,6 +65,13 @@ public enum PictureInPictureRequest {
     public static let exitScript =
         "document.pictureInPictureElement ? document.exitPictureInPicture().then(() => 'ok', () => 'none') : 'none'"
 
+    /// Whether the user's ask (Windows' command bar and its shortcut) goes on to the request after
+    /// `exitScript` answered `value`. The ask toggles, as the Mac's menu item turns into Exit
+    /// Picture in Picture while the page's video is out: a video the exit brought back ends it.
+    public static func requestsAfterExit(_ value: String?) -> Bool {
+        value != "ok"
+    }
+
     /// DevTools `Runtime.evaluate` parameters for one of these scripts: awaited, by value, and with
     /// the user gesture a request needs (the look and the exit need none).
     public static func evaluateParams(_ script: String, userGesture: Bool) -> String {

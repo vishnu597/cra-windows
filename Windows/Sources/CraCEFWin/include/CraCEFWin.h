@@ -151,6 +151,8 @@ void cra_hide_download_started_animation(void);
 
 /// UTF-8 text on the clipboard. 1 on success.
 int cra_clipboard_set_text(const char *text);
+/// The clipboard's text (CF_UNICODETEXT) as UTF-8, or NULL when it holds none. Free with cra_data_free.
+char *cra_clipboard_text(void);
 /// A PNG on the clipboard, as "PNG" (what browsers and Office paste) and as a bitmap (CF_DIB,
 /// for Paint and the rest). 1 on success.
 int cra_clipboard_set_png(const uint8_t *png, size_t length);
@@ -269,9 +271,13 @@ void cra_arc_tip_measure(const char *text, double max_width, const char *const *
                          double *text_height, double *key_widths);
 /// Shows the tip at `x, y` (screen pixels), `width` × `height` DIPs at `scale` pixels a DIP,
 /// `corner` its radius: the text 10 DIPs in, `text_width` wide, then the caps `cap_widths` wide.
+/// `badge` (a space icon's profile name, or NULL) goes in a pill `badge_width` DIPs wide from
+/// `badge_x`, before the caps: a smiling avatar, then the name, in the caps' colours.
 void cra_arc_tip_show(int x, int y, double width, double height, double scale, double corner, const char *text,
                       double text_width, const char *const *keys, const double *cap_widths, size_t count,
-                      const CraArcTipColors *colors);
+                      const char *badge, double badge_x, double badge_width, const CraArcTipColors *colors);
+/// A pill's name `name` in DIPs at its 11 DIP medium font.
+double cra_arc_tip_measure_badge(const char *name);
 void cra_arc_tip_hide(void);
 
 // MARK: - Download flight
@@ -304,6 +310,9 @@ int cra_image_decode(const uint8_t *bytes, size_t length, int side, CraImage *ou
 /// its file type. 1 on success. Any thread, and slow for a big file: not the UI thread.
 int cra_shell_file_image(const char *path, int side, CraImage *out);
 void cra_image_free(CraImage *image);
+/// `text` (an emoji) drawn in colour, centred in a `side` × `side` pixel square (CraEmoji.cpp),
+/// for the space dock to fade. 1 on success; free with cra_image_free. Any thread.
+int cra_emoji_render(const char *text, int side, CraImage *out);
 /// A window icon (HICON) of premultiplied BGRA pixels, top-down, `width * 4` bytes a row (a
 /// CraImage's): for WM_SETICON, the app icon picked in Settings ▸ General. 0 on failure. Free
 /// with cra_icon_destroy once no window shows it.

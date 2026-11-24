@@ -73,6 +73,8 @@ struct KeyBindingsTests {
         #expect(ShortcutDescriptions.text(for: try #require(win["importData"])).contains("Chrome"))
         #expect(ShortcutDescriptions.text(for: try #require(KeyBindingDefaults.mac.first { $0.id == "importData" })).contains("Dia"),
                 "the Mac's command keeps its own name and description")
+        #expect(win["recentTabAllSpaces"]?.shortcuts == [] && win["recentTabAllSpacesBackward"]?.shortcuts == [],
+                "Windows keeps Ctrl+Alt+Tab for itself")
         #expect(win["nextSpace"]?.primary?.windowsDisplay == "Ctrl+Alt+Right")
         #expect(win["copyURL"]?.primary?.windowsDisplay == "Ctrl+Shift+C")
         #expect(win["copyURLMarkdown"]?.primary?.windowsDisplay == "Ctrl+Alt+Shift+C")
@@ -212,6 +214,10 @@ struct KeyBindingsTests {
             == ["addSplitView", "closeSplitPane", "separateFromSplit", "expandSplitPane", "flipSplitOrientation", "nextSplitPane",
                 "previousSplitPane"])
         #expect(ShortcutsList.groups(in: r, query: "nothing like this").isEmpty)
+        // Search by keys (#374's pane): Windows' Ctrl is the chord's control.
+        #expect(ShortcutsList.groups(in: r, query: "ctrl t").flatMap(\.actions).map(\.id) == ["newTab"])
+        #expect(ShortcutsList.groups(in: r, query: "Ctrl+Shift+T").flatMap(\.actions).map(\.id) == ["reopenClosedTab"])
+        #expect(ShortcutsList.groups(in: r, query: "ctrl shift").isEmpty, "modifiers alone are no chord")
         #expect(ShortcutsList.groups(in: r, query: "", customizedOnly: true).isEmpty)
         #expect(ShortcutsList.groups(in: r, query: "", conflictingOnly: true).isEmpty)
         r.setShortcuts([Self.chord("t", .control)], for: "find")
