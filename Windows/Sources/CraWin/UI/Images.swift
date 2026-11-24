@@ -1,4 +1,5 @@
 import CraCEFWin
+import CraCore
 import Foundation
 import UWP
 import WindowsFoundation
@@ -33,6 +34,17 @@ struct Pixels: Sendable {
             return cra_image_decode(base, raw.count, Int32(side), &image)
         }
         return ok != 0 ? Pixels(taking: &image) : nil
+    }
+
+    /// An emoji drawn in colour in a `side` pixel square (cra_emoji_render).
+    static func emoji(_ text: String, side: Int) -> Pixels? {
+        var image = CraImage()
+        return cra_emoji_render(text, Int32(side), &image) != 0 ? Pixels(taking: &image) : nil
+    }
+
+    /// The same picture desaturated to `saturation` (DockIconFade, the Mac's CIColorControls).
+    func desaturated(_ saturation: Double) -> Pixels {
+        Pixels(width: width, height: height, bgra: DockIconFade.desaturate(bgra: bgra, saturation: saturation))
     }
 
     /// Explorer's preview of a file, else its icon, else its type's icon. Slow for a big file.

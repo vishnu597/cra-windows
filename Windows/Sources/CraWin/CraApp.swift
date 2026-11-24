@@ -68,6 +68,9 @@ public final class CraApp: SwiftApplication {
                                      onProfileDeleted: deleted.schedule)
             store.runAutoArchive()
             periodic = [clock.every(30 * 60) { store.runAutoArchive() }]
+            // Saved back and forward lists of tabs that are gone, other than the latest closed (#273).
+            PageListStore.shared.prune(keeping: PageHistory.kept(sidebarTabs: Set(store.allTabs().map(\.id)),
+                                                                 archive: store.archive.map(\.id)))
             self.clock = clock
             self.store = store
             startContentBlocking(store: store, clock: clock)
@@ -307,6 +310,9 @@ public final class CraApp: SwiftApplication {
             DeletedProfiles(directory: WinPaths.supportDir, chromiumCache: WinPaths.chromiumCache).run()
             // Passwords and sign-ins an import staged go in while no Chromium has the profile open.
             CredentialImport.applyPending(root: WinPaths.chromiumCache)
+            // The desktop apps' native messaging hosts (1Password, Bitwarden…), registered for
+            // Chrome, Edge or Brave, where Cra's Chromium finds them.
+            NativeMessagingHostsWin.mirror()
         } else {
             print("Cra: the data folder is held (\(lock)); launch steps left to the Cra running on it")
         }

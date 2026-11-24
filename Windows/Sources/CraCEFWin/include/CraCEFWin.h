@@ -310,6 +310,9 @@ int cra_image_decode(const uint8_t *bytes, size_t length, int side, CraImage *ou
 /// its file type. 1 on success. Any thread, and slow for a big file: not the UI thread.
 int cra_shell_file_image(const char *path, int side, CraImage *out);
 void cra_image_free(CraImage *image);
+/// `text` (an emoji) drawn in colour, centred in a `side` × `side` pixel square (CraEmoji.cpp),
+/// for the space dock to fade. 1 on success; free with cra_image_free. Any thread.
+int cra_emoji_render(const char *text, int side, CraImage *out);
 /// A window icon (HICON) of premultiplied BGRA pixels, top-down, `width * 4` bytes a row (a
 /// CraImage's): for WM_SETICON, the app icon picked in Settings ▸ General. 0 on failure. Free
 /// with cra_icon_destroy once no window shows it.
@@ -497,6 +500,11 @@ typedef struct CraBrowserCallbacks {
     int (*link_menu_items)(void *context);
     /// One of them was picked (`item`: its bit) for the link at `url`.
     void (*link_menu_chosen)(void *context, const char *url, int item);
+    /// Chromium downloads an Alt-clicked link; Arc opens it in Split View (#298). Asked before the
+    /// download starts, with the keys held at the page's last left press (`keys`: 1 Shift, 2 Ctrl,
+    /// 4 Alt) and how long ago it was in seconds (-1 when the last press was in another page).
+    /// Return nonzero when Cra opened the link instead; the download then doesn't start.
+    int (*download_opens_split)(void *context, const char *url, int keys, double click_age);
 } CraBrowserCallbacks;
 
 // MARK: - Browser

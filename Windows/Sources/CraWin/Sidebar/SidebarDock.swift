@@ -18,7 +18,11 @@ final class SidebarDockCell {
     private let glyph = FontIcon()
     private let picture = WinUI.Image()
     private let dot = WinUI.Ellipse()  // not GDI's Ellipse
-    private var pictureData: Data?
+    /// What the picture shows now (an emoji or a picture icon, lit or faded), so a redraw that
+    /// changes nothing keeps its bitmap.
+    private var pictureKey: String?
+    /// Emoji and picture icons in colour and faded, by what they show (shared by every cell).
+    private static var bitmaps: [String: WriteableBitmap] = [:]
 
     init(id: UUID, icon: SpaceIcon, action: @escaping @MainActor () -> Void) {
         self.id = id
@@ -60,24 +64,28 @@ final class SidebarDockCell {
         glyph.visibility = .collapsed
         picture.visibility = .collapsed
         dot.visibility = .collapsed
-        let faint = lit ? 1.0 : 0.45
+        // Arc's unlit icon: faint and nearly grey (DockIconFade, the Mac's CIColorControls).
+        let look = DockIconFade.look(lit: lit)
         switch mark {
         case .emoji(let e):
-            emoji.text = e
-            emoji.opacity = faint
-            emoji.visibility = .visible
+            // Drawn to pixels so it can lose its colour; XAML's own glyph if that fails.
+            if let bitmap = Self.bitmap("emoji:\(e)", lit: lit, make: { Pixels.emoji(e, side: 48) }) {
+                show(bitmap, key: "emoji:\(e):\(lit)", side: 18, alpha: look.alpha)
+            } else {
+                emoji.text = e
+                emoji.opacity = look.alpha
+                emoji.visibility = .visible
+            }
         case .symbol(let name):
             glyph.glyph = WinGlyph.known(name) ?? WinGlyph.code("space")
             glyph.foreground = palette.text
-            glyph.opacity = faint
+            glyph.opacity = look.alpha
             glyph.visibility = .visible
         case .image(let data):
-            if pictureData != data {
-                pictureData = data
-                picture.source = Pixels.decode(data, side: 32)?.bitmap()
+            let id = "image:\(data.count):\(data.hashValue)"
+            if let bitmap = Self.bitmap(id, lit: lit, make: { Pixels.decode(data, side: 32) }) {
+                show(bitmap, key: "\(id):\(lit)", side: 16, alpha: look.alpha)
             }
-            picture.opacity = faint
-            picture.visibility = .visible
         case .dot(let diameter):
             dot.width = Double(diameter)
             dot.height = Double(diameter)
@@ -85,6 +93,32 @@ final class SidebarDockCell {
             dot.fill = dark ? UI.brush(255, 255, 255, alpha: alpha) : UI.brush(0, 0, 0, alpha: alpha)
             dot.visibility = .visible
         }
+    }
+}
+
+extension SidebarDockCell {
+    private func show(_ bitmap: WriteableBitmap, key: String, side: Double, alpha: Double) {
+        if pictureKey != key {
+            pictureKey = key
+            picture.source = bitmap
+        }
+        picture.width = side
+        picture.height = side
+        picture.opacity = alpha
+        picture.visibility = .visible
+    }
+
+    /// `id`'s bitmap in colour, or faded while the cell isn't lit, made once.
+    private static func bitmap(_ id: String, lit: Bool, make: () -> Pixels?) -> WriteableBitmap? {
+        let key = "\(id):\(lit)"
+        if let made = bitmaps[key] { return made }
+        guard let pixels = make() else { return nil }
+        let shown = lit ? pixels : pixels.desaturated(DockIconFade.saturation)
+        guard let bitmap = shown.bitmap() else { return nil }
+        // A long session with many picture changes keeps few: start over past a few hundred.
+        if bitmaps.count > 256 { bitmaps.removeAll() }
+        bitmaps[key] = bitmap
+        return bitmap
     }
 }
 
