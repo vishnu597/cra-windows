@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 /// Arc's split menu: Rename…, and Reset Name and Icon back to the panes' names (SidebarMenus.split).
+@MainActor
 struct SplitRenameTests {
     @Test func aSplitRowShowsItsNameOrItsPanes() throws {
         let f = StoreFixture()
