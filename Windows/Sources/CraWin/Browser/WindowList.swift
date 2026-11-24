@@ -395,7 +395,7 @@ final class WindowList: BrowserWindowHost {
                 openLittleWindow(url: url, opener: nil, activate: true, space: space)
                 return
             }
-            guard let target = space.flatMap(normalWindow(forSpace:)) ?? lastNormalWindow() else { return }
+            guard let target = space.flatMap({ normalWindow(forSpace: $0) }) ?? lastNormalWindow() else { return }
             store.activeWindowID = target.windowID
             // background=1: unread in the sidebar, the page in front staying.
             store.createTab(url: url, in: space, select: !background, window: target.windowID)
