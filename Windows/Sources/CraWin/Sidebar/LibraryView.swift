@@ -127,6 +127,9 @@ final class LibraryView {
     func build(_ palette: SidebarPalette, dark: Bool) {
         let archive = store.archive
         let entries = history.entries
+        // Running, failed and cancelled downloads too (#245; the PC test found the page without
+        // a running one): their progress lines are part of what redraws it.
+        let listed = page == .downloads ? history.library(query: query) : []
         let revision = thumbnails.revision
         var key = Hasher()
         key.combine(page)
@@ -136,6 +139,7 @@ final class LibraryView {
         key.combine(archive.map(\.id))
         key.combine(archive.map(\.item.displayTitle))
         key.combine(entries.map(\.id))
+        key.combine(listed.map { "\($0.id)|\($0.name)|\($0.subtitle(now: Date()))" })
         key.combine(Calendar.current.startOfDay(for: Date()))
         let built = key.finalize()
         self.palette = palette
@@ -152,12 +156,12 @@ final class LibraryView {
         switch page {
         case .downloads:
             let exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
-            let sections = LibraryList.downloads(entries, matching: query, exists: exists)
+            let sections = LibraryList.downloads(listed)
             for section in sections {
                 addHeader(section.title)
-                for entry in section.items { addDownload(entry) }
+                for row in section.items { addDownload(row) }
             }
-            showEmpty(sections.isEmpty, LibraryList.empty(.downloads, hasAny: entries.contains { exists($0.path) }))
+            showEmpty(sections.isEmpty, LibraryList.empty(.downloads, hasAny: !history.live.isEmpty || entries.contains { exists($0.path) }))
         case .archive:
             let sections = LibraryList.archive(archive, matching: query)
             for section in sections {
@@ -400,10 +404,21 @@ final class LibraryView {
         if !url.isEmpty { ArcTip.set(row, url, placement: .cursor) }
     }
 
-    private func addDownload(_ entry: DownloadHistory.Entry) {
-        let path = entry.path
+    /// A download's row: a finished file's preview (or its type's icon while it runs), its name
+    /// and DownloadList's line (progress, "Cancelled", or size and time).
+    private func addDownload(_ row: DownloadHistory.Listed) {
+        let picture: WriteableBitmap?
+        let path: String?
+        switch row {
+        case .finished(let entry):
+            picture = thumbnails.thumbnail(for: entry.path)
+            path = entry.path
+        case .live(let live):
+            picture = thumbnails.typeIcon(for: live.name)
+            path = nil
+        }
         let tile: FrameworkElement
-        if let picture = thumbnails.thumbnail(for: path) {
+        if let picture {
             tile = UI.image(picture, size: 32)
         } else {
             let box = Border()
@@ -413,12 +428,19 @@ final class LibraryView {
             box.background = palette.tile
             tile = box
         }
-        // Arc's download menu (DownloadMenu): Open, Copy, Show in Folder, Hide, Move to Recycle Bin.
+        // Arc's download menu (DownloadMenu): Pause, Resume and Cancel while it runs; Open, Copy,
+        // Show in Folder, Hide, Move to Recycle Bin once done. Refilled as it opens.
         let menu = MenuFlyout()
-        DownloadRowMenu.fill(menu, for: .finished(entry), history: history)
-        addRow(tile: tile, tileInset: 5, title: LibraryList.fileName(path),
-               detail: DownloadHistory.Listed.finished(entry).subtitle(now: Date()), menu: menu) {
-            Shell.open(path)
+        let history = self.history
+        DownloadRowMenu.fill(menu, for: row, history: history)
+        menu.opening.addHandler { [weak menu] _, _ in
+            guard let menu else { return }
+            let now = history.library(query: "").first { $0.id == row.id } ?? row
+            DownloadRowMenu.fill(menu, for: now, history: history)
+        }
+        let title = path.map(LibraryList.fileName) ?? row.name
+        addRow(tile: tile, tileInset: 5, title: title, detail: row.subtitle(now: Date()), menu: menu) {
+            if let path { Shell.open(path) }
         }
     }
 
