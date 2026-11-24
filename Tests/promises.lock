@@ -180,6 +180,8 @@
 #131   Packages/CraCore/Tests/CraCoreTests/ExtensionProfilesTests.swift::importedPinsSeedOnlyNewLists  c959ca5560a7
 #131   Packages/CraCore/Tests/CraCoreTests/ExtensionProfilesTests.swift::rebuildKeepsExtensionsInProfilesMadeInCra  02966012603d
 #131   Packages/CraCore/Tests/CraCoreTests/ExtensionProfilesTests.swift::rebuildMatchesSpacesByName  5db767db6157
+#131   Packages/CraCore/Tests/CraCoreTests/WindowsPinnedExtensionsTests.swift::anImportBringsTheSourceBrowsersPins  1456d579337e
+#131   Packages/CraCore/Tests/CraCoreTests/WindowsPinnedExtensionsTests.swift::eachProfileTheImportMadeGetsItsSourcesPins  4722dbecb85d
 #131   Tests/Scenarios/space-profiles.scenario  9ca615fdf045
 #131   Tests/StoreTests.swift::arcProfiles  5e32237de12a
 #131   Tests/StoreTests.swift::newProfileDatabases  02fece3b6212
@@ -1526,6 +1528,7 @@
 #669   Packages/CraCore/Tests/CraCoreTests/SpaceGradientTests.swift::scalesWithTheWindow  71ea54139046
 #669   Packages/CraCore/Tests/CraCoreTests/SpaceGradientTests.swift::threeColoursAndOpacity  62b3d17d2721
 #669   Packages/CraCore/Tests/CraCoreTests/WindowGradientSliceTests.swift::aColumnShowsItsPartOfTheWindowsAxis  cddb0d3359b6
+#669   Packages/CraCore/Tests/CraCoreTests/WindowGradientSliceTests.swift::aStandAlonePartRunsAcrossItself  74d0f1741190
 #669   Packages/CraCore/Tests/CraCoreTests/WindowGradientSliceTests.swift::colorsFollowTheOklabCurve  7d9cb0604ba3
 #669   Tests/Scenarios/empty-card-appearance.scenario  929ad9bec480
 #669   Tests/Scenarios/space-gradient-axis.scenario  681b61330a50
