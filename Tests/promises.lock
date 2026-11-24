@@ -501,6 +501,7 @@
 #279   Packages/CraCore/Tests/CraCoreTests/FileMenuTests.swift::arcSections  656af4dd9bf7
 #279   Tests/Scenarios/arc-file-menu.scenario  a38584c2b20a
 #286   Packages/CraCore/Tests/CraCoreTests/PermissionAskTests.swift::onlyTheTabInFrontAsks  fc757adafaca
+#286   Packages/CraCore/Tests/CraCoreTests/PermissionLineTests.swift::aTabBehindWaitsUntilItIsShown  e404f7b78946
 #286   Tests/BrowserManagerLifecycleTests.swift::permissionWaitsForItsTabCase  47983328a052
 #286   Tests/Scenarios/permission-waits-for-its-tab.scenario  691141857a65
 #287   Packages/CraCore/Tests/CraCoreTests/SidebarHeaderLayoutTests.swift::moreMenuTones  27e6344399d8
@@ -711,6 +712,7 @@
 #370   Tests/BrowserManagerLifecycleTests.swift::pageViewTabCase  e9cbddff1ae5
 #370   Tests/Scenarios/swipe-back.scenario  f12e84f3acbe
 #371   Packages/CraCore/Tests/CraCoreTests/PermissionAskTests.swift::aPromptWhoseTabGoesBehindStepsAside  8624c170530d
+#371   Packages/CraCore/Tests/CraCoreTests/PermissionLineTests.swift::aCardWhoseTabGoesBehindStepsAside  ac5b97fe5bd9
 #371   Tests/BrowserManagerLifecycleTests.swift::permissionPopoverStepsAsideCase  de5396486ef4
 #371   Tests/Scenarios/permission-card.scenario  9ae102316834
 #373   Packages/CraCore/Tests/CraCoreTests/LittleWindowTriggerTests.swift::aLinkClickedWithOptionCommandOpensOneWhenTheSwitchIsOn  321009d2af63

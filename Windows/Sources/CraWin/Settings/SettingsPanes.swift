@@ -536,6 +536,8 @@ enum SettingsPanes {
         form.group("General:", [
             checkbox("Add new tabs to the top", \.newTabsAtTop),
             checkbox("Show the New Tab button above tabs", \.newTabButtonAtTop),
+            // The Mac's switch: the open favorite's rim in its logo's colours, not a plain one.
+            checkbox("Colorful favorite outline", \.favoriteLogoOutline),
             // GitHub #601, not in Arc: Arc's Restore Last Closed Tab switches to the space of the
             // tab closed last.
             checkbox("Reopen tabs from this Space only", \.reopenClosedTabCurrentSpaceOnly),

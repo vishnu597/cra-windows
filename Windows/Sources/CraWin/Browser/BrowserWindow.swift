@@ -31,6 +31,13 @@ final class BrowserWindow {
     /// What the sidebar's gradient was last painted for (paintSidebarGradient).
     private var gradientKey: [Double] = []
     private var gradientColors: [RGB] = []
+    /// The space the sidebar last drew and its colours, for the slide to the next (slideIfSwitched).
+    private var slidSpace: UUID?
+    private var lastDrawnColors: [RGB]?
+    /// A space switch's slide under way: the colours it fades from, its side (+1 right, -1 left),
+    /// when it began and how far the colours have come.
+    private var slide: (from: [RGB], direction: Double, started: Double, blend: Double)?
+    private var slideTimer: WinAppSDK.DispatcherQueueTimer?
     /// The toolbar, the address pill and the sidebar: what the Library takes the place of.
     private var sidebarParts: [FrameworkElement] = []
     /// Arc's Library in the sidebar (LibraryView): the page shown, nil while it shows the tabs.
@@ -163,8 +170,9 @@ final class BrowserWindow {
     private var essentialShortcutsCard: EssentialShortcutsCard?
     /// Use Both's check that the page kept a press (watchUseBoth).
     private var useBothWatch: ScheduledWork?
-    /// Permission requests waiting for the user, oldest first; the first is on screen.
-    private var permissionQueue: [(page: WeakPage, origin: String, kinds: PermissionKinds, answer: (Bool) -> Void)] = []
+    /// Permission requests for the user: one card at a time, and only for a page on screen; a
+    /// tab behind waits until it's shown, as Chrome does (CraCore's `PermissionLine`, #286).
+    private var permissions = PermissionLine<PagePermission>()
     private let permissionPrompt = PermissionPromptView()
     private var permissionWindow: FloatingWindow?
     private var permissionHeight = 120.0
@@ -423,6 +431,8 @@ final class BrowserWindow {
         guard !closing else { return }
         withObservationTracking {
             sidebar.build()
+            slideIfSwitched(to: store.focusedSpaceID(window: windowID))
+            lastDrawnColors = sidebar.palette.colors
             paintSidebarGradient()
             applyPaneColors(store.focusedSpace(window: windowID).theme)
             downloads.apply(sidebar.palette, fill: sidebar.fill)
@@ -472,6 +482,7 @@ final class BrowserWindow {
         for (id, page) in pages where shown[id] == nil { page.isVisible = false }
         for page in shown.values { page.isVisible = true }
         noteHidden(shown: Set(shown.keys))
+        if !permissions.isEmpty { askNextPermission() }
         show(selected.flatMap { shown[$0.id] }, tab: selected?.id)
         window.title = Self.title(selected?.displayTitle, incognito: isIncognito)
     }
@@ -617,8 +628,8 @@ final class BrowserWindow {
         extensionPopup?.close()
         toast.hide()
         permissionWindow?.hide()
-        for request in permissionQueue { request.answer(false) }
-        permissionQueue.removeAll()
+        for request in permissions.all { request.answer(false) }
+        permissions = PermissionLine()
         let open = Array(pages.values)
         pages.removeAll()
         shownPage = nil
@@ -1142,6 +1153,7 @@ final class BrowserWindow {
         case "pasteAndGo": pasteAndGo()
         case "stayOnTop": window.staysOnTop.toggle()
         case "capturePage": capture(fullPage: false)
+        case "captureFullPage": capture(fullPage: true)
         case "clearCache": shownPage?.clearSiteDataAndReload(cookies: false)
         case "clearCookies": shownPage?.clearSiteDataAndReload(cookies: true)
         case "devTools": shownPage?.runDevTools(.toggle)
@@ -2135,11 +2147,56 @@ final class BrowserWindow {
     private func paintSidebarGradient() {
         let scale = window.scale, size = window.appWindow.clientSize, origin = window.columnOrigin
         let key = [size.width, size.height, origin.x, origin.y].map(Double.init) + [scale]
-        guard key != gradientKey || sidebar.palette.colors != gradientColors else { return }
+        // Mid-switch, the colours on their way from the last space's to this one's (slideTick).
+        let colors = slide.map { SpaceSwitchSlide.colors($0.from, sidebar.palette.colors, blend: $0.blend) } ?? sidebar.palette.colors
+        guard key != gradientKey || colors != gradientColors else { return }
         gradientKey = key
-        gradientColors = sidebar.palette.colors
+        gradientColors = colors
         sidebarPanel.background = sidebar.palette.windowFill(width: Double(size.width) / scale, height: Double(size.height) / scale,
-                                                             originX: Double(origin.x) / scale, originY: Double(origin.y) / scale)
+                                                             originX: Double(origin.x) / scale, originY: Double(origin.y) / scale,
+                                                             colors: colors)
+    }
+
+    /// A switch to another space slides its part of the sidebar in from its side of the dock on Arc's
+    /// spring while the gradient cross-fades (SpaceSwitchSlide, the Mac's pager). Called after each
+    /// drawing with the space it drew.
+    private func slideIfSwitched(to space: UUID) {
+        defer { slidSpace = space }
+        guard let last = slidSpace, last != space, let from = lastDrawnColors else { return }
+        let order = store.pagedSpaces(window: windowID).map(\.id)
+        let direction = SpaceSwitchSlide.direction(from: order.firstIndex(of: last), to: order.firstIndex(of: space))
+        guard direction != 0, !WinAppearance.reduceMotion else { return }
+        // A switch mid-slide starts from the colours shown now.
+        let shown = slide.map { SpaceSwitchSlide.colors($0.from, from, blend: $0.blend) } ?? from
+        slide = (from: shown, direction: Double(direction), started: ProcessInfo.processInfo.systemUptime, blend: 0)
+        sidebar.slideSpace(offset: Double(direction))
+        paintSidebarGradient()
+        if slideTimer == nil, let queue = (try? WinAppSDK.DispatcherQueue.getForCurrentThread()) ?? nil {
+            slideTimer = try? queue.createTimer()
+            slideTimer?.interval = TimeSpan(duration: 160_000)  // 16 ms
+            slideTimer?.isRepeating = true
+            slideTimer?.tick.addHandler { [weak self] _, _ in self?.slideTick() }
+        }
+        try? slideTimer?.start()
+    }
+
+    private func slideTick() {
+        guard var s = slide, !closing else {
+            try? slideTimer?.stop()
+            return
+        }
+        let width = sidebarPanel.actualWidth
+        let f = SpaceSwitchSlide.frame(at: ProcessInfo.processInfo.systemUptime - s.started, width: width)
+        if f.done {
+            slide = nil
+            try? slideTimer?.stop()
+            sidebar.slideSpace(offset: 0)
+        } else {
+            s.blend = f.blend
+            slide = s
+            sidebar.slideSpace(offset: f.offset * s.direction)
+        }
+        paintSidebarGradient()
     }
 
     private func applyPaneColors(_ theme: SpaceTheme) {
@@ -2164,10 +2221,20 @@ final class BrowserWindow {
         }
     }
 
-    /// The oldest request's question over the page. A page that closed has no say any more.
-    private func showNextPermission() {
-        permissionQueue.removeAll { $0.page.page == nil || $0.page.page?.isClosed == true }
-        guard let request = permissionQueue.first, let permissionWindow, !closing else {
+    /// The tabs on screen changed, or a card went: a card whose page went behind steps aside
+    /// (unanswered, first in line again) and the oldest request whose page is on screen asks.
+    /// A page that closed has no say any more. True when a card is up.
+    @discardableResult private func askNextPermission() -> Bool {
+        let dead = permissions.remove { $0.page.page == nil || $0.page.page?.isClosed == true }
+        let change = permissions.tabsChanged { $0.page.page?.isVisible == true }
+        if dead.wasAsking || change.aside != nil { permissionWindow?.hide() }
+        if change.next != nil { showAskingPermission() }
+        return permissions.asking != nil
+    }
+
+    /// The asking request's question over the page.
+    private func showAskingPermission() {
+        guard let request = permissions.asking, let permissionWindow, !closing else {
             permissionWindow?.hide()
             return
         }
@@ -2178,19 +2245,18 @@ final class BrowserWindow {
     }
 
     private func answerPermission(_ allowed: Bool) {
-        guard !permissionQueue.isEmpty else { return }
-        permissionQueue.removeFirst().answer(allowed)
+        guard let request = permissions.finish() else { return }
+        request.answer(allowed)
         permissionWindow?.hide()
-        if permissionQueue.isEmpty {
+        if !askNextPermission() {
             if let window = HWND(bitPattern: hwnd) { _ = SetForegroundWindow(window) }
             focusContent()
         }
-        showNextPermission()
     }
 
     /// Centred over the page area, 12 DIPs below its top (where the Mac's sheet drops from).
     private func placePermissionPrompt() {
-        guard let permissionWindow, !permissionQueue.isEmpty, let window, let host = HWND(bitPattern: hwnd) else { return }
+        guard let permissionWindow, permissions.asking != nil, let window, let host = HWND(bitPattern: hwnd) else { return }
         let scale = window.scale, area = window.contentFrame
         let width = Int32((PermissionPromptView.width * scale).rounded()), height = Int32((permissionHeight * scale).rounded())
         var corner = POINT(x: area.x + (area.width - width) / 2, y: area.y + Int32((12 * scale).rounded()))
@@ -2296,11 +2362,7 @@ final class BrowserWindow {
             self?.runImport(source, credentials: credentials, extensions: extensions)
         }
         importDialog.onCancel = { [weak self] in self?.hideImportDialog() }
-        importDialog.extensionsOf = { [weak self] source in
-            guard let self, let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment),
-                  let userData = source.userData(in: folders) else { return ([], []) }
-            return (ExtensionImport.candidates(inUserData: userData), self.installedExtensionIDs())
-        }
+        importDialog.extensionsOf = { [weak self] source in self?.importableExtensions(source) ?? ([], []) }
         importDialog.onHeightChange = { [weak self] height in
             self?.importDialogHeight = height
             self?.placeImportDialog()
@@ -2385,6 +2447,13 @@ final class BrowserWindow {
         return .done(summary: summary, credentials: details.isEmpty ? nil : details.joined(separator: " "))
     }
 
+    /// The browser's extensions, and the IDs Cra has already, for the import's extensions page.
+    private func importableExtensions(_ source: WindowsImportSource) -> (candidates: [ExtensionImport.Candidate], installed: Set<String>) {
+        guard let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment),
+              let userData = source.userData(in: folders) else { return ([], []) }
+        return (ExtensionImport.candidates(inUserData: userData), installedExtensionIDs())
+    }
+
     /// Every extension ID Cra has: installed in any of its profiles (turned off too), or waiting in
     /// its Extensions folder for the next start.
     private func installedExtensionIDs() -> Set<String> {
@@ -2404,9 +2473,10 @@ final class BrowserWindow {
         let view = OnboardingView()
         let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment)
         let sources = folders.map { f in WindowsImportSource.available(in: f).map { OnboardingView.Source(source: $0, profiles: $0.profiles(in: f)) } } ?? []
-        view.importData = { [weak self] source, credentials in
+        view.extensionsOf = { [weak self] source in self?.importableExtensions(source) ?? ([], []) }
+        view.importData = { [weak self] source, credentials, extensions in
             guard let self else { return .failed("") }
-            let outcome = self.importData(source, credentials: credentials)
+            let outcome = self.importData(source, credentials: credentials, extensions: extensions)
             // Showing the imported space brings this window forward; the card takes the
             // keyboard back so Return still presses Continue (PR #38's PC test).
             _ = try? self.dispatcher.tryEnqueue { [weak self] in
@@ -3445,8 +3515,8 @@ extension BrowserWindow: WebPageDelegate {
     func page(_ page: WebPage, requestsPermissionForOrigin origin: String, kinds: PermissionKinds,
               answer: @escaping (Bool) -> Void) {
         guard !closing else { return answer(false) }
-        permissionQueue.append((WeakPage(page), origin, kinds, answer))
-        if permissionQueue.count == 1 { showNextPermission() }
+        let request = PagePermission(page: WeakPage(page), origin: origin, kinds: kinds, answer: answer)
+        if permissions.add(request, tabShown: page.isVisible) { showAskingPermission() }
     }
 
     /// A click into another pane focuses it (Arc: the split's focusItemID follows the click). The
@@ -3505,12 +3575,10 @@ extension BrowserWindow: WebPageDelegate {
             return
         }
         // Chromium dismissed its requests; the prompt moves on if it was asking for this page.
-        if permissionQueue.first?.page.page === page {
-            permissionQueue.removeFirst()
+        if permissions.remove(where: { $0.page.page === page }).wasAsking {
             permissionWindow?.hide()
-            showNextPermission()
+            askNextPermission()
         }
-        permissionQueue.removeAll { $0.page.page === page }
         guard let id = tabID(of: page), pages[id] === page else { return }
         pages[id] = nil
         // window.close(): the page's tab goes as a closed tab would.
@@ -3522,6 +3590,14 @@ extension BrowserWindow: WebPageDelegate {
 struct WeakPage {
     weak var page: WebPage?
     init(_ page: WebPage) { self.page = page }
+}
+
+/// A page's permission request waiting in `BrowserWindow.permissions`.
+struct PagePermission {
+    let page: WeakPage
+    let origin: String
+    let kinds: PermissionKinds
+    let answer: (Bool) -> Void
 }
 
 // MARK: - A sidebar tab dropped onto the page

@@ -79,6 +79,25 @@ struct ExtensionImportTests {
         #expect(picked.sourceProfiles == ["Default", "Profile 1"], "picked though off: every profile that has it")
     }
 
+    // The import card and the onboarding's import offer the same: the browser's extensions Cra
+    // doesn't have, the ones on there ticked, and a word on those it has.
+    @Test func theOfferLeavesOutWhatCraHas() {
+        let manifest = ExtensionManifest(name: "E", version: "1")
+        let folder = FileManager.default.temporaryDirectory
+        let on = ExtensionImport.Candidate(id: "on", folder: folder, manifest: manifest, isEnabled: true)
+        let off = ExtensionImport.Candidate(id: "off", folder: folder, manifest: manifest, isEnabled: false)
+        let had = ExtensionImport.Candidate(id: "had", folder: folder, manifest: manifest, isEnabled: true)
+        let offer = ExtensionImport.offer([on, off, had], installed: ["had"])
+        #expect(offer.fresh == [on, off])
+        #expect(offer.ticked == ["on"])
+        #expect(offer.alreadyIn == 1)
+        #expect(ExtensionImport.offer([had], installed: ["had"]).fresh.isEmpty, "nothing new: the step is skipped")
+        #expect(ExtensionImport.offerWords(alreadyIn: 0)
+                == "Cra copies the ones you pick into its own Extensions folder. They load in every profile when Cra next starts.")
+        #expect(ExtensionImport.offerWords(alreadyIn: 1).hasSuffix(" One is in Cra already."))
+        #expect(ExtensionImport.offerWords(alreadyIn: 3).hasSuffix(" 3 are in Cra already."))
+    }
+
     @Test func aCopyIsNamedByItsIDAndReplacesAnOlderOne() throws {
         let root = try Self.temp()
         defer { try? FileManager.default.removeItem(at: root) }

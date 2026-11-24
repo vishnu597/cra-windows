@@ -147,9 +147,10 @@ struct SidebarPalette {
 
     /// The sidebar column's slice of the window's gradient: the window is `width`×`height` DIPs and
     /// the column's top left is at `originX`, `originY` in it (on the right, or floated out).
-    func windowFill(width: Double, height: Double, originX: Double, originY: Double) -> Brush {
+    /// `colors` stand in for the palette's own while a space switch cross-fades them.
+    func windowFill(width: Double, height: Double, originX: Double, originY: Double, colors: [RGB]? = nil) -> Brush {
         let axis = WindowGradientSlice.axis(windowWidth: width, windowHeight: height, originX: originX, originY: originY)
-        return Self.gradient(colors, start: axis.start, end: axis.end, absolute: true)
+        return Self.gradient(colors ?? self.colors, start: axis.start, end: axis.end, absolute: true)
     }
 
     /// A linear brush through `stops` spread evenly from `start` to `end`: unit points of the element

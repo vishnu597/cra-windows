@@ -33,3 +33,21 @@ public enum SidebarTones {
         Tone(white: dark, alpha: dark ? 0.145 : 0.09)
     }
 }
+
+extension SidebarTones {
+    /// A favorite tile with no colour of its own (the Mac's FavoriteTileView): open, white at 13 %
+    /// on a dark theme and 38 % on a light one; under the pointer, the pill's hover; at rest, the pill.
+    public static func favoriteTile(dark: Bool, selected: Bool, hovered: Bool) -> Tone {
+        if selected { return Tone(white: true, alpha: dark ? 0.13 : 0.38) }
+        return hovered ? pillHover(dark: dark) : pill(dark: dark)
+    }
+
+    /// The open favorite's 2 pt rim (Arc's neutral one, with the logo outline off): white at 14 %
+    /// on a dark tile, black at 17 % on a light one.
+    public static func favoriteRim(dark: Bool) -> Tone {
+        Tone(white: dark, alpha: dark ? 0.14 : 0.17)
+    }
+
+    /// The logo outline's opacity over the tile.
+    public static let favoriteLogoRimOpacity = 0.72
+}

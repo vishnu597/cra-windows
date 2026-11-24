@@ -126,6 +126,15 @@ enum WinAppearance {
     /// transparency, which flattens the sidebar's material to one grey, active or not.
     static var reduceTransparency: Bool { WinRegistry.dword(personalize, "EnableTransparency") == 0 }
 
+    /// Settings ▸ Accessibility ▸ Visual effects ▸ "Animation effects" turned off: macOS's Reduce
+    /// motion, which skips the space switch's slide.
+    static var reduceMotion: Bool {
+        var on: Int32 = 1  // a BOOL
+        // SPI_GETCLIENTAREAANIMATION
+        guard SystemParametersInfoW(UINT(0x1042), 0, &on, 0) else { return false }
+        return on == 0
+    }
+
     /// The accent colour (DWM keeps it as 0xAABBGGRR); Windows 11's default blue without one.
     static var accent: (r: UInt8, g: UInt8, b: UInt8) {
         guard let v = WinRegistry.dword(#"Software\Microsoft\Windows\DWM"#, "AccentColor") else { return (0, 103, 192) }

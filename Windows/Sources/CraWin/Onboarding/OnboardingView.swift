@@ -29,7 +29,10 @@ final class OnboardingView {
     }
 
     // Wired by the browser window.
-    var importData: (WindowsImportSource, Bool) -> ImportOutcome = { _, _ in .failed("") }
+    /// The import: the browser, whether its passwords and sign-ins come, and the extensions picked.
+    var importData: (WindowsImportSource, Bool, [ExtensionImport.Candidate]) -> ImportOutcome = { _, _, _ in .failed("") }
+    /// The browser's extensions, and the IDs Cra has already (left off the list).
+    var extensionsOf: (WindowsImportSource) -> (candidates: [ExtensionImport.Candidate], installed: Set<String>) = { _ in ([], []) }
     /// Most visited sites from `source` (nil: any browser on this PC), as candidates and the ones
     /// ticked to start with; their icons go into the favicon cache.
     var pinCandidates: (WindowsImportSource?) -> (candidates: [Onboarding.PinCandidate], ticked: Set<String>) = { _ in
@@ -56,6 +59,10 @@ final class OnboardingView {
     private var sources: [Source] = []
     private var imported: WindowsImportSource?
     private var importResult: [String] = []
+    /// The picked browser's extensions Cra doesn't have, to pick from before it imports (the
+    /// Mac's ImportFlow Extensions step), with how many it has already.
+    private var extensionChoice: (source: WindowsImportSource, offer: ExtensionImport.Offer)?
+    private var extensionBoxes: [(id: String, box: CheckBox)] = []
     private var candidates: [Onboarding.PinCandidate] = []
     private var ticked: Set<String> = []
     private var chosenTheme: Int?
@@ -123,6 +130,7 @@ final class OnboardingView {
         footer.children.clear()
         controls = []
         pinTiles = [:]
+        extensionBoxes = []
         primary = nil
         switch next {
         case .cover: showCover()
@@ -194,6 +202,7 @@ final class OnboardingView {
             setButtons(primary: "Continue", back: false) { [weak self] in self?.advance() }
             return
         }
+        if let choice = extensionChoice { return showExtensions(choice) }
         guard !sources.isEmpty else {
             body.children.append(paragraph("Cra didn’t find \(WindowsImportSource.names) data on this PC. You can import later from Settings ▸ General."))
             setButtons(primary: "Continue", back: true) { [weak self] in self?.advance() }
@@ -233,12 +242,53 @@ final class OnboardingView {
         button.background = Self.row
         button.clickMode = .release
         try? AutomationProperties.setName(button, "Import from \(entry.source.name)")
-        button.click.addHandler { [weak self] _, _ in self?.runImport(entry.source) }
+        button.click.addHandler { [weak self] _, _ in self?.pick(entry.source) }
         return button
     }
 
-    private func runImport(_ source: WindowsImportSource) {
-        switch importData(source, wantsCredentials) {
+    /// A browser was picked: its extensions to pick from first, when it has any Cra doesn't, as
+    /// Import from Another Browser does.
+    private func pick(_ source: WindowsImportSource) {
+        let browser = extensionsOf(source)
+        let offer = ExtensionImport.offer(browser.candidates, installed: browser.installed)
+        guard !offer.fresh.isEmpty else { return runImport(source, extensions: []) }
+        extensionChoice = (source, offer)
+        show(.importData)
+    }
+
+    /// The extensions page: one box per extension, the ones on in the browser ticked; Back goes
+    /// to the browsers again.
+    private func showExtensions(_ choice: (source: WindowsImportSource, offer: ExtensionImport.Offer)) {
+        body.children.append(title("Extensions from \(choice.source.name)", size: 16, top: 10))
+        body.children.append(paragraph(ExtensionImport.offerWords(alreadyIn: choice.offer.alreadyIn)))
+        let list = StackPanel()
+        list.orientation = .vertical
+        list.spacing = 2
+        for e in choice.offer.fresh {
+            let name = e.version.isEmpty ? e.name : "\(e.name) \(e.version)"
+            let box = checkbox(e.isEnabled ? name : "\(name) (turned off)", on: choice.offer.ticked.contains(e.id)) { _ in }
+            try? AutomationProperties.setName(box, e.name)
+            list.children.append(box)
+            extensionBoxes.append((e.id, box))
+        }
+        let scroll = ScrollViewer()
+        scroll.maxHeight = 170
+        scroll.margin = Thickness(left: 0, top: 14, right: 0, bottom: 0)
+        scroll.content = list
+        body.children.append(scroll)
+        setButtons(primary: "Import", back: true, backAction: { [weak self] in
+            self?.extensionChoice = nil
+            self?.show(.importData)
+        }) { [weak self] in
+            guard let self else { return }
+            let picked = Set(self.extensionBoxes.filter { $0.box.isChecked == true }.map(\.id))
+            self.extensionChoice = nil
+            self.runImport(choice.source, extensions: choice.offer.fresh.filter { picked.contains($0.id) })
+        }
+    }
+
+    private func runImport(_ source: WindowsImportSource, extensions: [ExtensionImport.Candidate]) {
+        switch importData(source, wantsCredentials, extensions) {
         case .done(let summary, let words):
             imported = source
             importResult = [summary] + (words.map { [$0] } ?? [])
@@ -439,14 +489,19 @@ final class OnboardingView {
         return box
     }
 
-    private func setButtons(primary title: String, back: Bool, centred: Bool = false, _ action: @escaping () -> Void) {
+    /// The footer's buttons. Back goes to the step before, or does `backAction` when given.
+    private func setButtons(primary title: String, back: Bool, centred: Bool = false, backAction: (() -> Void)? = nil,
+                            _ action: @escaping () -> Void) {
         primaryAction = action
-        if back, let previous = flow.previous(before: step) {
+        let previous = flow.previous(before: step)
+        if back, backAction != nil || previous != nil {
             let button = Button()
             button.content = UI.text("Back", trimmed: false)
             button.minWidth = 80
             button.clickMode = .release
-            button.click.addHandler { [weak self] _, _ in self?.show(previous) }
+            button.click.addHandler { [weak self] _, _ in
+                if let backAction { backAction() } else if let previous { self?.show(previous) }
+            }
             footer.children.append(button)
             controls.append(button)
         }
