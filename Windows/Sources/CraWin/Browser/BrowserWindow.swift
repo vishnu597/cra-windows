@@ -211,6 +211,9 @@ final class BrowserWindow {
     private var hiddenAt: [UUID: Date] = [:]
     private var sleepAskAfter: [UUID: Date] = [:]
     private var sleepTimer: WinAppSDK.DispatcherQueueTimer?
+    /// Which pages make sound (AudibleProbe), asked every second: stock CEF doesn't say.
+    private var audibleTimer: WinAppSDK.DispatcherQueueTimer?
+    private var audible = AudibleProbe.Tracker()
     /// Arc's Ctrl+Tab switcher over the space's recent tabs.
     private var tabSwitcher: TabSwitcherWindow!
     /// Each tab's wait for its first response, and the tab whose "Still waiting" toast is up
@@ -335,6 +338,7 @@ final class BrowserWindow {
         makeSiteControlCenter()
         toast = ToastView(owner: window) { [weak self] in self?.pageOnScreen() }
         startTabSleeping()
+        startAudibleProbe()
         makeTabSwitcher()
         // Chromium closes its pages before their parent window goes (CEF's DoClose order).
         window.shouldClose = { [weak self] in
@@ -1124,7 +1128,7 @@ final class BrowserWindow {
         case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
         case "newFolder": sidebar.newFolder()
         case "newSpace": if !isIncognito { sidebar.newSpace() }
-        case "clearToday": store.clearToday(store.focusedSpaceID(window: windowID), playing: [])
+        case "clearToday": store.clearToday(store.focusedSpaceID(window: windowID), playing: sidebar.audibleTabIDs)
         case "showArchive": showLibrary(.archive)
         case "clearArchive": store.clearArchive()
         case "revealData": Shell.open(WinPaths.native(WinPaths.supportDir))
@@ -1279,6 +1283,38 @@ final class BrowserWindow {
     }
 
     private static let sleepRefusalBackoff: TimeInterval = 10 * 60
+
+    // MARK: Sound
+
+    private func startAudibleProbe() {
+        audibleTimer = try? dispatcher.createTimer()
+        audibleTimer?.interval = TimeSpan(duration: Int64(AudibleProbe.Tracker.pollInterval * 10_000_000))
+        audibleTimer?.isRepeating = true
+        audibleTimer?.tick.addHandler { [weak self] _, _ in self?.probeAudible() }
+        try? audibleTimer?.start()
+    }
+
+    /// Arc's speaker on a tab that plays sound (TabSound, #28): each live page says whether a
+    /// player in it can be heard, and the speaker holds 2 s after it stops (as on the Mac).
+    private func probeAudible() {
+        guard !closing else { return }
+        audible.keep(only: Set(pages.keys))
+        showAudible()
+        for (id, page) in pages where page.isCreated {
+            page.sendDevToolsMethod("Runtime.evaluate", params: AudibleProbe.evaluateParams) { [weak self, weak page] reply, error in
+                guard let self, let page, self.pages[id] === page, !self.closing else { return }
+                self.audible.note(id, audible: error == nil ? AudibleProbe.answer(fromReply: reply) : nil, now: Date())
+                self.showAudible()
+            }
+        }
+    }
+
+    private func showAudible() {
+        let now = audible.audible(now: Date())
+        guard now != sidebar.audibleTabIDs else { return }
+        sidebar.audibleTabIDs = now
+        queueRefresh()
+    }
 
     // MARK: Tab switcher
 
