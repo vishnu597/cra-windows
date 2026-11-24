@@ -4,7 +4,7 @@ import CoreGraphics
 #endif
 
 /// What a folder's preview lists and how big it is (Arc 1.171, Previews.FolderPreviewState and
-/// FolderPreviewItem; docs/arc-reverse-engineering.md "Folder previews"), shared by the Mac's
+/// FolderPreviewItem; docs/arc-reverse-engineering.md "Folder previews"), the same rules as the Mac's
 /// FolderPreviewController and the Windows one. Every tab under the folder, nested folders and
 /// splits included, most recently used first; the search keeps the rows whose title and address
 /// hold every word typed.

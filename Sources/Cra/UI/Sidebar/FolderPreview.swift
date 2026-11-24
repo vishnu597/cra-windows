@@ -160,12 +160,14 @@ final class FolderPreviewController {
     /// Every tab under the folder (nested folders and splits included), most recently used first
     /// (FolderPreviewState.allPossibleChildren, sorted by lastVisitDate).
     static func items(in folderID: UUID, store: SidebarStore, favicons: FaviconCache) -> [FolderPreviewItem] {
-        store.folderPreviewEntries(folderID).map { e in
-            let icon = favicons.image(forKey: e.iconKey)
-            return FolderPreviewItem(id: e.id, title: e.title, url: e.url, icon: icon,
-                                     glyphDark: icon == nil ? nil : favicons.glyphIsDark(forKey: e.iconKey),
-                                     lastVisit: e.lastVisit, badged: e.badged)
+        store.tabs(under: folderID).map { t in
+            let key = t.tab?.iconKey
+            let icon = favicons.image(forKey: key)
+            return FolderPreviewItem(id: t.id, title: t.displayTitle, url: t.tab?.url ?? "", icon: icon,
+                                     glyphDark: icon == nil ? nil : favicons.glyphIsDark(forKey: key),
+                                     lastVisit: t.tab?.timeLastActiveAt ?? t.createdAt, badged: t.isUnread)
         }
+        .sorted { $0.lastVisit > $1.lastVisit }
     }
 
     // MARK: Actions
@@ -224,32 +226,34 @@ struct FolderPreviewItem: Equatable {
 
 /// Measured on Arc 1.171 (2x window captures and 120 fps recordings, 31 Oct 2026).
 enum FolderPreviewMetrics {
-    static let width = FolderPreviewList.width
-    static let maxHeight = FolderPreviewList.maxHeight
+    static let width: CGFloat = 240
+    static let maxHeight: CGFloat = 320
     static let corner: CGFloat = 10
-    static let searchHeight = FolderPreviewList.searchHeight
+    static let searchHeight: CGFloat = 48
     /// From the hairline under the search field to the first row.
     static let listInset = FolderPreviewRows.listInset
     static let rowPitch = FolderPreviewRows.rowPitch
-    static let rowFill = FolderPreviewList.rowFill
+    static let rowFill: CGFloat = 44
     static let rowCorner: CGFloat = 4
     static let sideInset: CGFloat = 4
     /// Favicon and magnifier centre, and where the text starts, from the panel's left edge.
     static let iconCenter: CGFloat = 20
     static let textX: CGFloat = 36
-    static let gapFromSidebar = FolderPreviewList.gapFromSidebar
-    static let windowInset = FolderPreviewList.windowInset
+    static let gapFromSidebar: CGFloat = 4
+    static let windowInset: CGFloat = 18
     /// The row turns hovered, 0.45 s later the preview fades in (90 ms, scaling up from 0.85 at
     /// the middle of its left edge); it fades out over 80 ms as soon as the pointer is elsewhere.
-    static let openDelay = FolderPreviewList.openDelay
+    static let openDelay: TimeInterval = 0.45
     static let fadeIn: TimeInterval = 0.09
     static let fadeOut: TimeInterval = 0.08
     static let startScale: CGFloat = 0.85
     /// Crossing from the folder to the preview leaves both for a moment.
-    static let closeGrace = FolderPreviewList.closeGrace
+    static let closeGrace: TimeInterval = 0.06
 
     /// One row is 98 pt; six and more stop at 320 and scroll. Filtering keeps the size.
-    static func height(rows n: Int) -> CGFloat { FolderPreviewList.height(rows: n) }
+    static func height(rows n: Int) -> CGFloat {
+        min(searchHeight + 1 + listInset + CGFloat(max(n, 1)) * rowPitch, maxHeight)
+    }
 
     /// "15 hours ago", "1 week ago", as Arc words lastVisitDate.
     static func age(of date: Date, now: Date = Date()) -> String {
@@ -445,9 +449,12 @@ final class FolderPreviewView: NSView, NSTextFieldDelegate {
     // MARK: Filtering
 
     private func filter(keepSelection: Bool = false) {
-        let query = field.stringValue
+        let words = field.stringValue.lowercased().split(separator: " ").map(String.init)
         let previous = shown.indices.contains(selected) ? shown[selected].id : nil
-        shown = items.filter { FolderPreviewList.matches(title: $0.title, url: $0.url, query: query) }
+        shown = words.isEmpty ? items : items.filter { item in
+            let hay = (item.title + " " + item.url).lowercased()
+            return words.allSatisfy(hay.contains)
+        }
         selected = keepSelection ? (shown.firstIndex { $0.id == previous } ?? min(selected, max(0, shown.count - 1))) : 0
         while rows.count < shown.count {
             let r = FolderPreviewRowView(preview: self)
