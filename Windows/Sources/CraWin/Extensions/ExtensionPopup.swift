@@ -17,6 +17,7 @@ final class ExtensionPopup {
     private let window: HostWindow
     private var page: WebPage?
     private var closing = false
+    private var destroyed = false
     /// After it closed, for its owner to let go of it.
     var onClose: (() -> Void)?
     /// A link the popup opens in a tab (target=_blank, Ctrl-click): its owner's tab.
@@ -46,12 +47,23 @@ final class ExtensionPopup {
         _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { self.finish() }
     }
 
+    /// Hides the card and closes its page; the window itself goes only once Chromium is done
+    /// with the page (`pageDidClose`). Chromium makes a page's window a turn after
+    /// cra_browser_create, as a child of this one: destroying the parent first left it a dead
+    /// handle, and CreateWindowEx failing there is a CHECK in gfx::WindowImpl::Init that took
+    /// all of Cra down (PC test, 23 and 24 Nov 2026: a click on a pinned extension).
     private func finish() {
-        let page = self.page
-        self.page = nil
-        page?.close()
         window.onClose = nil
         window.onDeactivate = nil
+        if let hwnd = HWND(bitPattern: window.hwnd) { _ = ShowWindow(hwnd, SW_HIDE) }
+        guard let page, !page.isClosed else { return destroyWindow() }
+        page.close()
+    }
+
+    private func destroyWindow() {
+        guard !destroyed else { return }
+        destroyed = true
+        page = nil
         window.close()
         onClose?()
     }
@@ -75,9 +87,9 @@ extension ExtensionPopup: WebPageDelegate {
         return nil
     }
 
+    /// Chromium is done with the page: closed by `finish`, or by itself (window.close()).
     func pageDidClose(_ page: WebPage) {
         guard self.page === page else { return }
-        self.page = nil
-        close()
+        if closing { destroyWindow() } else { closing = true; finish() }
     }
 }

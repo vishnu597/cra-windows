@@ -384,6 +384,11 @@ built release app with a test profile. Note anything that fails in the release's
   the invalid-address line shows. Type a list's https address and press Return (and again with
   the Add button): the flyout closes and the list's row shows "Fetching…" then its domain count
   (PC test, 22 Nov 2026: typed addresses were dropped silently; Choose File… worked).
+- **Windows extension popup closing at once:** pin an extension with a popup, click its pin and
+  at once click the page (or another app), ten times in a row: Cra stays up every time and the
+  Application log has no Cra.exe crash in libcef (gfx::WindowImpl::Init). Then click the pin and
+  leave it: the popup opens and works (PC test, 23 and 24 Nov 2026: the popup's window was
+  destroyed before Chromium made the page in it, which crashed Cra).
   Use a real mouse for the double-clicks, including a tab that was not selected before the first
   click and a closed folder. Dragging a row first must not make its next single click rename it.
 - **Windows drag targets and Manage Spaces:** in a test space with no favorites, start dragging
