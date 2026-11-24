@@ -10,16 +10,22 @@ struct WindowsAudibleTests {
         String(decoding: try! JSONSerialization.data(withJSONObject: ["result": result]), as: UTF8.self)
     }
 
+    private func said(_ value: String) -> String { reply(["type": "string", "value": value]) }
+
     @Test(.bug("https://github.com/VictorKildahl/cra/issues/28")) func thePageSaysWhetherItMakesSound() {
-        #expect(AudibleProbe.answer(fromReply: reply(["type": "boolean", "value": true])) == true)
-        #expect(AudibleProbe.answer(fromReply: reply(["type": "boolean", "value": false])) == false)
+        #expect(AudibleProbe.answer(fromReply: said(#"{"audible":true,"controllable":true,"video":true}"#))
+            == AudibleProbe.Answer(audible: true, controllable: true, video: true))
+        #expect(AudibleProbe.answer(fromReply: said(#"{"audible":false,"controllable":false,"video":false}"#)) == AudibleProbe.Answer(audible: false))
         #expect(AudibleProbe.answer(fromReply: nil) == nil)
         #expect(AudibleProbe.answer(fromReply: reply(["type": "undefined"])) == nil)
+        #expect(AudibleProbe.answer(fromReply: said("not json")) == nil)
         #expect(AudibleProbe.answer(fromReply: #"{"result":{"type":"object"},"exceptionDetails":{"text":"x"}}"#) == nil)
+        #expect(AudibleProbe.Answer(audible: false, controllable: true, video: true) == AudibleProbe.Answer(audible: false),
+                "a quiet page has no controllable player")
     }
 
     @Test(.bug("https://github.com/VictorKildahl/cra/issues/28")) func onlyAPlayerThatCanBeHeardCounts() throws {
-        for rule in ["!m.paused", "!m.ended", "!m.muted", "m.volume > 0", "contentDocument"] {
+        for rule in ["!m.paused", "!m.ended", "!m.muted", "m.volume > 0", "contentDocument", "m.duration >= 5", "isFinite"] {
             #expect(AudibleProbe.script.contains(rule), "\(rule)")
         }
         #expect(!AudibleProbe.script.contains("play()") && !AudibleProbe.script.contains("pause()"), "it only looks")

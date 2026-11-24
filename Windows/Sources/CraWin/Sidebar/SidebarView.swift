@@ -310,6 +310,19 @@ final class SidebarView {
         }
     }
 
+    /// The now-playing player over the bottom of the tab list, under the downloads list
+    /// (attached after it): the Mac's downloads list keeps the cards resting.
+    func attachNowPlaying(_ tray: FrameworkElement) {
+        root.children.append(tray)
+        try? Grid.setRow(tray, 2)
+        try? Canvas.setZIndex(tray, 40)
+    }
+
+    /// The room the resting player takes: the list's last rows can scroll out from under it.
+    func reserveBottom(_ height: Double) {
+        list.padding = Thickness(left: 0, top: 0, right: 0, bottom: height)
+    }
+
     /// The downloads button goes in the footer, its list over the bottom of the tab list.
     func attachDownloads(button: FrameworkElement, list tray: FrameworkElement) {
         footer.children.append(button)

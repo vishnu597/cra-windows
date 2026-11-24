@@ -214,6 +214,9 @@ final class BrowserWindow {
     /// Which pages make sound (AudibleProbe), asked every second: stock CEF doesn't say.
     private var audibleTimer: WinAppSDK.DispatcherQueueTimer?
     private var audible = AudibleProbe.Tracker()
+    /// Arc's now-playing player at the bottom of the sidebar (#33): its cards and their view.
+    private var nowPlaying = NowPlayingList()
+    private let nowPlayingTray = NowPlayingTray()
     /// Arc's Ctrl+Tab switcher over the space's recent tabs.
     private var tabSwitcher: TabSwitcherWindow!
     /// Each tab's wait for its first response, and the tab whose "Still waiting" toast is up
@@ -247,6 +250,7 @@ final class BrowserWindow {
         commandBar = CommandBarView(engine: engine, store: store, windowID: session.id)
         sidebar = SidebarView(store: store, windowID: session.id, actions: self)
         downloads = DownloadsTray(history: .shared, dispatcher: dispatcher)
+        sidebar.attachNowPlaying(nowPlayingTray.root)
         sidebar.attachDownloads(button: downloads.button, list: downloads.list)
         // A private window shows only its own space: no Spaces page (Manage Spaces…).
         let spacesPage = incognito ? nil : SpacesManagerView(store: store, windowID: session.id, actions: self)
@@ -449,6 +453,7 @@ final class BrowserWindow {
             syncSidebarSide()
             placeSidebarEdge()
             syncPages()
+            syncNowPlaying()
             syncSlowResponse()
             syncTopBar()
             showAddress(store.selectedTab(window: windowID)?.tab?.url ?? "")
@@ -1287,6 +1292,7 @@ final class BrowserWindow {
     // MARK: Sound
 
     private func startAudibleProbe() {
+        setUpNowPlaying()
         audibleTimer = try? dispatcher.createTimer()
         audibleTimer?.interval = TimeSpan(duration: Int64(AudibleProbe.Tracker.pollInterval * 10_000_000))
         audibleTimer?.isRepeating = true
@@ -1299,13 +1305,58 @@ final class BrowserWindow {
     private func probeAudible() {
         guard !closing else { return }
         audible.keep(only: Set(pages.keys))
+        nowPlaying.keep(only: Set(pages.keys))
         showAudible()
+        syncNowPlaying()
         for (id, page) in pages where page.isCreated {
             page.sendDevToolsMethod("Runtime.evaluate", params: AudibleProbe.evaluateParams) { [weak self, weak page] reply, error in
                 guard let self, let page, self.pages[id] === page, !self.closing else { return }
-                self.audible.note(id, audible: error == nil ? AudibleProbe.answer(fromReply: reply) : nil, now: Date())
+                let answer = error == nil ? AudibleProbe.answer(fromReply: reply) : nil
+                self.audible.note(id, audible: answer?.audible, now: Date())
+                if let answer { self.nowPlaying.heard(id, answer) }
                 self.showAudible()
+                self.syncNowPlaying()
             }
+        }
+    }
+
+    /// The player's cards: tabs that played sound and aren't on screen, with the page's own title.
+    private func syncNowPlaying() {
+        let cards = nowPlaying.shown(onScreen: Set(paneIDs)).compactMap { entry -> NowPlayingTray.Card? in
+            guard let item = store.item(entry.id), let tab = item.tab else { return nil }
+            return .init(id: entry.id, title: tab.savedTitle.isEmpty ? item.displayTitle : tab.savedTitle,
+                         iconKey: tab.iconKey, playing: entry.playing, hasVideo: entry.hasVideo)
+        }
+        nowPlayingTray.show(cards, dark: sidebar.isDark)
+    }
+
+    private func setUpNowPlaying() {
+        nowPlayingTray.onRestingHeight = { [weak self] height in self?.sidebar.reserveBottom(height) }
+        nowPlayingTray.onShowTab = { [weak self] id in
+            guard let self else { return }
+            self.store.selectTab(id, window: self.windowID)
+        }
+        nowPlayingTray.onTogglePlayback = { [weak self] id in self?.playback(id, .toggle) }
+        nowPlayingTray.onPictureInPicture = { [weak self] id in self?.pages[id]?.requestPictureInPicture(automatic: false) }
+        nowPlayingTray.onDismiss = { [weak self] id in
+            guard let self else { return }
+            self.playback(id, .pause)
+            self.nowPlaying.remove(id)
+            self.syncNowPlaying()
+        }
+    }
+
+    /// The card's play/pause and ✕: the page's media elements, as the Mac's player runs a page
+    /// without media session handlers.
+    private func playback(_ id: UUID, _ op: NowPlayingList.Playback) {
+        guard let page = pages[id] else {
+            nowPlaying.remove(id)
+            return syncNowPlaying()
+        }
+        page.sendDevToolsMethod("Runtime.evaluate", params: NowPlayingList.playbackParams(op)) { [weak self] reply, _ in
+            guard let self, op == .toggle, let playing = NowPlayingList.playing(fromReply: reply) else { return }
+            self.nowPlaying.setPlaying(id, playing)
+            self.syncNowPlaying()
         }
     }
 
@@ -3316,6 +3367,9 @@ extension BrowserWindow: WebPageDelegate {
         guard let id = tabID(of: page) else { return }
         store.updateTab(id, url: url)
         if page === shownPage { showAddress(url) }
+        // A quiet page that navigates leaves the player; a playlist moving on keeps its card.
+        nowPlaying.navigated(id, audible: sidebar.audibleTabIDs.contains(id))
+        syncNowPlaying()
     }
 
     func page(_ page: WebPage, didFinishLoadingURL url: String, statusCode: Int) {

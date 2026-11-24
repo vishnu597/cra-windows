@@ -26,7 +26,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Sidebar | 10 | 16 | 0 | 3 | 0 |
 | Command bar and shortcuts | 4 | 6 | 0 | 0 | 0 |
 | Split view | 3 | 2 | 0 | 0 | 0 |
-| Little Windows, Peek and the Library | 2 | 5 | 0 | 3 | 0 |
+| Little Windows, Peek and the Library | 2 | 6 | 0 | 2 | 0 |
 | Tabs and memory | 2 | 5 | 0 | 1 | 0 |
 | Media and capture | 0 | 4 | 0 | 1 | 1 |
 | Profiles, privacy and site data | 8 | 2 | 0 | 4 | 0 |
@@ -36,7 +36,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Import and onboarding | 0 | 5 | 0 | 0 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 6 | 7 | 0 | 4 | 9 |
-| **All** | 50 | 76 | 0 | 23 | 18 |
+| **All** | 50 | 77 | 0 | 22 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -143,7 +143,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Library ▸ Media (`viewMedia`): screenshots, pictures and videos from the folders shown, after Arc's opt-in card | 🟡 [#156] | `LibraryMedia.swift`, `LibraryView.swift`, `MediaPreviewWindow.swift` | `MediaLibrary`, `LibraryPage` | Upstream 2294e13. Windows [#156]: Media heads the Library's rail, behind Arc's opt-in card (Show Media); the folders Arc reads (Documents, Desktop, Downloads, Pictures ▸ Screenshots, where Win+Print Screen and the Snipping Tool save) are scanned off the UI thread, top level only, newest first, into Arc's two-tile grid with Explorer's thumbnails and a play badge on videos. The ⋯ menu toggles each folder and hides Media; a tile opens the file, and its menu has Copy (the file, and a PNG's picture), Show in File Explorer and Hide (`MediaLibrary.windowsActions`; AirDrop and Share are Apple's). The Library's search filters tiles by name. Left: Arc's preview window and drag-out. Since a8fde87, bf6648e and f547bd8: Arc's media preview (`MediaPreview`), grid and menu. |
 | Easels (`newEasel`, `viewEasels`): Arc's canvas with text, shapes, freehand and captures, Library ▸ Easels | ❌ | `EaselBrowser.swift`, `EaselCanvasView.swift`, `LibraryView.swift`, `LibraryEaselGrid.swift` | `Easel`, `LibraryList` (`easels`), `EaselToolbar`, `EaselTileHover`, `CaptureMenuLayout`, `EaselSelection`, `EaselTextBox`, `EaselCanvas` | Upstream f7e3b8f to 3e2757b. The model, tools, hit-testing and saving are shared; Windows needs the canvas (Win2D or a XAML Canvas). Since fea3d7c and f547bd8: Arc's grid of easel cards, pictures resized by their corners (`EaselResize`). Sync #23: captures reach the target, tool keys match Arc and Library tiles grow/brighten on hover (#530); Windows has no easel canvas. Sync #24: multiple selection (#580) and wrapping text boxes. Sync #25: the canvas is endless and zooms (#580, `EaselCanvas`). |
 | Boosts (`newBoost`, `viewBoosts`): restyle a site (colours, fonts, Zap, CSS and JS code with the eyedropper and hammer), Library ▸ Boosts with each site's icon | ❌ | `BoostStore.swift`, `BoostEditor.swift`, `LibraryBoostRow.swift`, `SiteIconLoader.swift` | `Boost`, `BoostPicker`, `SiteIcon`, `BoostWheel` | Upstream 415ff0e, 5da196f, 8878058, a8fde87, 6523975. The model, picker and icon choice are shared; Windows needs the editor panel and injecting the boost into pages through CEF. `LibraryPage.boosts` is in CraCore; Windows' rail doesn't show it yet. Sync #23: Arc's wheel, related-elements slider, editable Code and Site Control Center New Boost are implemented on the Mac (#478); Windows still needs the editor. |
-| Now-playing player in the sidebar | ❌ | `NowPlayingTray.swift`, `NowPlaying.swift` | `AudibleHold` (Mac's WebKit tabs), `PlayerCardSession` | Windows counterpart for media keys: System Media Transport Controls. Upstream 44cce5e: on the Mac's Chromium engine the card follows the page's media session (`PlayerCardSession`); CEF pages follow the audible state. |
+| Now-playing player in the sidebar | 🟡 [#163] | `NowPlayingTray.swift`, `NowPlaying.swift` | `AudibleHold` (Mac's WebKit tabs), `PlayerCardSession`, `NowPlayingList`, `AudibleProbe` | Windows shows Arc's cards over the bottom of the tab list for tabs that played sound and aren't on screen (`NowPlayingList`, from what each page's script says, `AudibleProbe`): at rest the newest card (favicon back to the tab, previous, play/pause, next); the pointer over it opens every card with the page's title, Picture in Picture for a video and ✕ (pauses and dismisses). A ding under 5 s makes no card (#411); a tab that navigates while quiet loses its card. Stock CEF reports no media session, so previous and next stay dimmed, play/pause runs the page's media elements, and players in other sites' frames make no card. Left: the volume drawer, the stacked edges behind the resting card, the open/close animation, and no card for a tab in Picture in Picture. Windows counterpart for media keys: System Media Transport Controls. Upstream 44cce5e: on the Mac's Chromium engine the card follows the page's media session (`PlayerCardSession`); CEF pages follow the audible state. |
 | Downloads rename card | 🟡 | `DownloadRenameCard.swift` | `TidyDownloads` | The Windows list has open and Show in Folder; the rename card comes with Tidy Downloads. |
 
 ## Tabs and memory
@@ -940,3 +940,4 @@ Upstream sync #30 merged 27 commits after 624c19f1, to 402111fc. Conflicts:
 [#151]: https://github.com/vishnu597/cra-windows/pull/151
 [#152]: https://github.com/vishnu597/cra-windows/pull/152
 [#160]: https://github.com/vishnu597/cra-windows/pull/160
+[#163]: https://github.com/vishnu597/cra-windows/pull/163
