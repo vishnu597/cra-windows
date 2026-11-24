@@ -1090,6 +1090,14 @@ final class SidebarView {
         if item.isTab {
             // Favorites draw as tiles, which have no name to edit.
             if !favorite { menu.items.append(UI.menuItem("Rename…", action: "renameTab") { [weak self] in self?.beginRename(item: id) }) }
+            // Change Icon… (Arc's Emoji | Icon picker, #640), and Use Site Icon while it has one.
+            menu.items.append(UI.menuItem("Change Icon…") { [weak self] in self?.showTabIconPicker(id) })
+            if let custom = item.tab?.customIconKey {
+                menu.items.append(UI.menuItem("Use Site Icon") { [weak self] in
+                    self?.store.setCustomIcon(nil, for: id)
+                    self?.favicons.removeCustomIcon(custom)
+                })
+            }
             if favorite { menu.items.append(tileColorMenu(item)) }
             // Arc: "Add Split View" on the open tab, "Open in Split View" on another in its space.
             if store.isSelected(id, window: windowID) {
@@ -1314,6 +1322,29 @@ final class SidebarView {
             guard let self, var s = self.store.space(id) else { return }
             s.icon = icon
             self.store.updateSpace(s)
+        }
+        iconPicker = picker
+        picker.show(at: target)
+    }
+
+    /// Change Icon… on a favorite or a tab's row (the Mac's TabIconPicker): the space picker
+    /// under the tile or the row. A pick becomes the tab's own icon, drawn into a picture kept with
+    /// the favicons (TabCustomIcon); the trash goes back to the site's icon. The icon it had
+    /// before is thrown away.
+    func showTabIconPicker(_ id: UUID) {
+        guard store.item(id)?.tab != nil,
+              let target = favoriteTiles.first(where: { $0.id == id })?.element ?? rowMeta.first(where: { $0.itemID == id })?.element
+        else { return }
+        let picker = SpaceIconPickerView(current: .none, dark: palette.isDark) { [weak self] icon in
+            guard let self else { return }
+            let old = self.store.item(id)?.tab?.customIconKey
+            if case .none = icon {
+                self.store.setCustomIcon(nil, for: id)
+            } else {
+                guard let key = self.favicons.importCustomIcon(icon) else { return }
+                self.store.setCustomIcon(key, for: id)
+            }
+            if let old { self.favicons.removeCustomIcon(old) }
         }
         iconPicker = picker
         picker.show(at: target)
