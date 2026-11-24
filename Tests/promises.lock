@@ -470,6 +470,8 @@
 #273   Packages/CraCore/Tests/CraCoreTests/PageHistoryTests.swift::closedTabsKeepTheirsForReopening  2803b8d77931
 #273   Packages/CraCore/Tests/CraCoreTests/WindowsBackToReferrerTests.swift::aPopupsTabClosesBackToTheTabItCameFrom  525203d408e8
 #273   Packages/CraCore/Tests/CraCoreTests/WindowsBackToReferrerTests.swift::aTabTypedInHasNoBackOnceItsPagesRunOut  51a2c93f2b74
+#273   Packages/CraCore/Tests/CraCoreTests/WindowsPageListTests.swift::afterARelaunchBackGoesWhereItWent  c4ae395a8311
+#273   Packages/CraCore/Tests/CraCoreTests/WindowsPageListTests.swift::theSavedListFollowsThePage  aeacab8d5aad
 #273   Tests/BrowserManagerLifecycleTests.swift::pageHistoryCase  4d1b6424e82c
 #273   Tests/Scenarios/back-to-referrer.scenario  0f6d794025d8
 #273   Tests/Scenarios/page-history-relaunch.scenario  cf1852589121
