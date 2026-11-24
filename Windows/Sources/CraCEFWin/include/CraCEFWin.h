@@ -269,9 +269,13 @@ void cra_arc_tip_measure(const char *text, double max_width, const char *const *
                          double *text_height, double *key_widths);
 /// Shows the tip at `x, y` (screen pixels), `width` × `height` DIPs at `scale` pixels a DIP,
 /// `corner` its radius: the text 10 DIPs in, `text_width` wide, then the caps `cap_widths` wide.
+/// `badge` (a space icon's profile name, or NULL) goes in a pill `badge_width` DIPs wide from
+/// `badge_x`, before the caps: a smiling avatar, then the name, in the caps' colours.
 void cra_arc_tip_show(int x, int y, double width, double height, double scale, double corner, const char *text,
                       double text_width, const char *const *keys, const double *cap_widths, size_t count,
-                      const CraArcTipColors *colors);
+                      const char *badge, double badge_x, double badge_width, const CraArcTipColors *colors);
+/// A pill's name `name` in DIPs at its 11 DIP medium font.
+double cra_arc_tip_measure_badge(const char *name);
 void cra_arc_tip_hide(void);
 
 // MARK: - Download flight
