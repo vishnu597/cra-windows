@@ -3126,6 +3126,12 @@ extension BrowserWindow: LibraryActions {
         library.focusSearch()
     }
 
+    func previewMedia(_ files: [MediaLibrary.File], at index: Int) {
+        guard !closing else { return }
+        // Back to the grid's search once it closes, as the Library was.
+        MediaPreviewWin.show(files, at: index, over: window, store: store) { [weak self] in self?.focusLibrary() }
+    }
+
     func focusLibrary() {
         guard libraryPage != nil, !closing else { return }
         window.focusXAML()
