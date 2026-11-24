@@ -148,6 +148,8 @@ final class SidebarView {
     func folderRow(_ id: UUID) -> FrameworkElement? { folderRows[id] }
     /// Dia's pill back to the open tab while its row is scrolled away (SidebarJumpPill.swift).
     let jumpPill = SidebarJumpPill()
+    /// Arc's folder preview: a closed folder's tabs on a card beside the sidebar.
+    private(set) lazy var folderPreview = FolderPreview(sidebar: self)
     /// The favorites' columns as drawn, nil with none.
     private var favoritesColumns: Int?
 
@@ -577,6 +579,11 @@ final class SidebarView {
         }
         noteRow(folder, depth: depth, at: list.children.count - 1)
         folderRows[id] = row
+        if !open {
+            row.pointerEntered.addHandler { [weak self] _, _ in self?.folderPreview.entered(id) }
+            row.pointerExited.addHandler { [weak self] _, _ in self?.folderPreview.exited(id) }
+            row.pointerPressed.addHandler { [weak self] _, _ in self?.folderPreview.pressed() }
+        }
         guard open else {
             for tab in peeked { addRow(tab, depth: depth + 1) }
             return
