@@ -46,6 +46,10 @@ final class HostWindow {
     var floatingCornerRadius: Int32 = 16
     /// The strip's height over the page area, in DIPs; 0 hides it and the pages fill the area.
     var topBarHeight: Double = 0 { didSet { if topBarHeight != oldValue { layout() } } }
+    /// The strip floats over the pages' top edge instead of pushing them down (Automatically Hide
+    /// Toolbar, ToolbarAutoHide): the page area keeps the whole height, and the strip shows over it
+    /// while `topBarHeight` isn't 0.
+    var topBarFloats = false { didSet { if topBarFloats != oldValue { layout() } } }
     /// After every resize, with the page area (`contentFrame`).
     var onLayout: ((PixelRect) -> Void)?
     /// The window moved on screen (what floats over it follows).
@@ -267,7 +271,7 @@ final class HostWindow {
     var contentFrame: PixelRect {
         let size = appWindow.clientSize
         let column = dockedColumnWidth
-        let y = min(size.height, Int32((topBarHeight * scale).rounded()))
+        let y = topBarFloats ? 0 : min(size.height, Int32((topBarHeight * scale).rounded()))
         return PixelRect(x: sidebarSide == .right ? 0 : column, y: y, width: size.width - column, height: size.height - y)
     }
 
@@ -433,9 +437,15 @@ final class HostWindow {
         let frame = contentFrame, height = appWindow.clientSize.height
         placeColumn(frame: frame, height: height)
         if let bridge = topXaml.siteBridge, let strip = HWND(bitPattern: UInt(bridge.windowId.value)) {
-            if frame.y > 0 {
-                try? bridge.moveAndResize(RectInt32(x: frame.x, y: 0, width: frame.width, height: frame.y))
+            let stripHeight = min(height, Int32((topBarHeight * scale).rounded()))
+            if stripHeight > 0 {
+                try? bridge.moveAndResize(RectInt32(x: frame.x, y: 0, width: frame.width, height: stripHeight))
                 _ = ShowWindow(strip, SW_SHOWNA)
+                // Floating, it draws over the pages, which are its siblings.
+                if topBarFloats {
+                    let noSize: UINT = 0x0001, noMove: UINT = 0x0002, noActivate: UINT = 0x0010
+                    _ = SetWindowPos(strip, HWND(bitPattern: 0), 0, 0, 0, 0, noSize | noMove | noActivate)
+                }
             } else {
                 _ = ShowWindow(strip, SW_HIDE)
             }

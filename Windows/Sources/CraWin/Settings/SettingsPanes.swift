@@ -553,6 +553,8 @@ enum SettingsPanes {
             checkbox("Show the address in a toolbar above the page", get: { store.settings.addressBarPlacement == .toolbar },
                      set: { store.settings.addressBarPlacement = $0 ? .toolbar : .sidebar }),
             checkbox("Show the full URL in the toolbar", \.toolbarShowsFullURL),
+            // Not in Arc (Zen's compact mode): the toolbar floats over the page's top until wanted.
+            checkbox("Hide the toolbar until the pointer reaches the top of the page", \.autoHideToolbar),
             note("Off keeps the address at the top of the sidebar, as in Arc. Toggle Toolbar in the command bar switches it too.", palette: palette),
         ])
         // GitHub #464, not in Arc: the window's layout in a mirror (SidebarSide), as on the Mac.

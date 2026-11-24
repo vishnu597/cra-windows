@@ -248,6 +248,16 @@ final class WebPage: @unchecked Sendable {
         }
     }
 
+    /// The command bar's Picture in Picture and its shortcut: the video goes back into the page
+    /// when it is out, and is asked out otherwise (the Mac's menu item reads Exit Picture in
+    /// Picture then).
+    func togglePictureInPicture() {
+        sendDevToolsMethod("Runtime.evaluate", params: PictureInPictureRequest.evaluateParams(PictureInPictureRequest.exitScript, userGesture: false)) { [weak self] reply, _ in
+            guard let self, !self.isClosed, PictureInPictureRequest.requestsAfterExit(PictureInPictureRequest.value(fromReply: reply)) else { return }
+            self.requestPictureInPicture(automatic: false)
+        }
+    }
+
     /// The video Picture in Picture took goes back into the page.
     func exitPictureInPicture() {
         sendDevToolsMethod("Runtime.evaluate", params: PictureInPictureRequest.evaluateParams(PictureInPictureRequest.exitScript, userGesture: false)) { _, _ in }
