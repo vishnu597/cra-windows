@@ -24,6 +24,8 @@ final class ToolbarView {
     /// The window's history menus (right-click ← or →, BackForwardMenu) and reload menu (right-click
     /// ↻, ReloadMenuItems), shared with the sidebar header's buttons.
     var menus: (back: MenuFlyout, forward: MenuFlyout, reload: MenuFlyout)?
+    /// The pointer came over the bar (true) or left it: a split pane's bar shows its other controls then.
+    var onHover: (Bool) -> Void = { _ in }
 
     struct State: Equatable {
         var kind: ToolbarComposition.Kind = .noTab
@@ -37,6 +39,12 @@ final class ToolbarView {
         var autoHide = false
         /// The page's profile's pinned extensions that can run, in toolbar order.
         var pins: [Pin] = []
+        /// A split pane's own bar (Arc 1.171, GitHub #178): no toggle and no Split View button, the
+        /// split's options and close instead; an unfocused pane shows only Arc's essentials until
+        /// the pointer is over it (ToolbarComposition).
+        var inSplit = false
+        var focusedPane = true
+        var hovered = false
     }
 
     /// A pinned extension's button: its name (the tooltip) and its button icon.
@@ -54,6 +62,8 @@ final class ToolbarView {
     let root = Grid()
     /// The Site Control Center's sliders, which it and an extension's popup hang from.
     private(set) var sliders: Button?
+    /// A split pane's Split View Options button, which its menu hangs from.
+    private(set) var splitOptions: Button?
     /// The pinned extensions' buttons by extension id, which their popups hang from.
     private(set) var pinButtons: [String: Button] = [:]
     private let left = StackPanel()
@@ -83,12 +93,13 @@ final class ToolbarView {
         root.requestedTheme = colors.light ? .light : .dark
         hairline.background = colors.light ? UI.brush(0, 0, 0, alpha: 18) : UI.brush(255, 255, 255, alpha: 18)
 
-        let bar = ToolbarComposition(kind: state.kind, inSplit: false, sidebarVisible: state.sidebarVisible, sidebarSide: state.sidebarSide,
-                                     focusedPane: true, canGoBack: state.canGoBack, canGoForward: state.canGoForward,
+        let bar = ToolbarComposition(kind: state.kind, inSplit: state.inSplit, sidebarVisible: state.sidebarVisible, sidebarSide: state.sidebarSide,
+                                     focusedPane: state.focusedPane, hovered: state.hovered, canGoBack: state.canGoBack, canGoForward: state.canGoForward,
                                      isLoading: state.isLoading, pinnedExtensions: state.pins.map(\.id))
         left.children.clear()
         right.children.clear()
         sliders = nil
+        splitOptions = nil
         pinButtons = [:]
         for item in bar.left { if let b = button(item, dim: dim, hot: hot) { left.children.append(b) } }
         for item in bar.right { if let b = button(item, dim: dim, hot: hot) { right.children.append(b) } }
@@ -152,6 +163,8 @@ final class ToolbarView {
         hairline.isHitTestVisible = false
 
         for part in [left, address!, right, hairline] as [FrameworkElement] { root.children.append(part) }
+        root.pointerEntered.addHandler { [weak self] _, _ in self?.onHover(true) }
+        root.pointerExited.addHandler { [weak self] _, _ in self?.onHover(false) }
 
         // Cra's shortcuts while the bar has the keyboard (the page reports its own).
         root.keyDown.addHandler { [weak self] _, args in
@@ -175,6 +188,8 @@ final class ToolbarView {
             (symbol, name, action, enabled) = loading ? ("xmark", "Stop", "stop", on) : ("arrow.clockwise", "Refresh", "reload", on)
         case .extensions: (symbol, name, action, enabled) = ("slider.horizontal.3", "Site Controls", "siteControls", true)
         case .addSplit: (symbol, name, action, enabled) = ("square.split.2x1", "Add Split View", "addSplitView", shown?.kind == .normal)
+        case .splitOptions: (symbol, name, action, enabled) = ("rectangle.split.2x1", "Split View Options", "splitOptions", true)
+        case .closePane: (symbol, name, action, enabled) = ("xmark", "Close this Split Pane", "closeSplitPane", true)
         case .pinnedExtension(let id):
             return shown?.pins.first { $0.id == id }.map { pinButton($0, dim: dim, hot: hot) }
         default: return nil
@@ -195,6 +210,7 @@ final class ToolbarView {
         ArcTip.set(b, name + keys)
         try? AutomationProperties.setName(b, name)
         if action == "siteControls" { sliders = b }
+        if action == "splitOptions" { splitOptions = b }
         switch item {
         case .back: b.contextFlyout = menus?.back
         case .forward: b.contextFlyout = menus?.forward

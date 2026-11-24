@@ -23,6 +23,11 @@ final class HostWindow {
     private let xaml = DesktopWindowXamlSource()
     /// The strip over the page area, a second island so it covers no page (see above).
     private let topXaml = DesktopWindowXamlSource()
+    /// A split's panes' own bars (Arc's per-pane toolbar): an island each over its pane's top,
+    /// which the pane's page leaves free. Made as they are first needed, kept for the next split.
+    private var paneXaml: [DesktopWindowXamlSource] = []
+    /// What each of them holds (the Swift objects given, whose WinRT wrappers aren't the same each read).
+    private var paneXamlContent: [ObjectIdentifier?] = []
 
     /// The XAML column's width, in DIPs.
     var sidebarWidth: Double { didSet { layout() } }
@@ -275,6 +280,33 @@ final class HostWindow {
         return PixelRect(x: sidebarSide == .right ? 0 : column, y: y, width: size.width - column, height: size.height - y)
     }
 
+    /// Shows `bars` over the page area, each `content` at its `frame` (physical pixels relative to
+    /// the client area), and hides the islands past them. Pass the same contents again to move them.
+    func setPaneBars(_ bars: [(content: UIElement, frame: PixelRect)]) {
+        guard !closed else { return }
+        while paneXaml.count < bars.count {
+            let source = DesktopWindowXamlSource()
+            guard (try? source.initialize(appWindow.id)) != nil else { return }
+            paneXaml.append(source)
+            paneXamlContent.append(nil)
+        }
+        for (i, source) in paneXaml.enumerated() {
+            guard let bridge = source.siteBridge, let strip = HWND(bitPattern: UInt(bridge.windowId.value)) else { continue }
+            guard i < bars.count, bars[i].frame.width > 0, bars[i].frame.height > 0 else {
+                _ = ShowWindow(strip, SW_HIDE)
+                continue
+            }
+            let held = ObjectIdentifier(bars[i].content)
+            if paneXamlContent[i] != held {
+                source.content = bars[i].content
+                paneXamlContent[i] = held
+            }
+            let f = bars[i].frame
+            try? bridge.moveAndResize(RectInt32(x: f.x, y: f.y, width: f.width, height: f.height))
+            _ = ShowWindow(strip, SW_SHOWNA)
+        }
+    }
+
     /// Moves Win32 focus into the top strip's XAML, for a programmatic XAML focus to take.
     func focusTopBar() {
         guard let bridge = topXaml.siteBridge, let window = HWND(bitPattern: UInt(bridge.windowId.value)) else { return }
@@ -427,6 +459,9 @@ final class HostWindow {
         guard !closed else { return }
         closed = true
         onClose?()
+        for source in paneXaml { try? source.close() }
+        paneXaml = []
+        paneXamlContent = []
         try? topXaml.close()
         try? xaml.close()
         try? appWindow.destroy()
