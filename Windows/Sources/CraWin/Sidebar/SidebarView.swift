@@ -148,6 +148,8 @@ final class SidebarView {
     func folderRow(_ id: UUID) -> FrameworkElement? { folderRows[id] }
     /// Dia's pill back to the open tab while its row is scrolled away (SidebarJumpPill.swift).
     let jumpPill = SidebarJumpPill()
+    /// The favorites', header's and list's shift while a space switch slides (SpaceSwitchSlide).
+    private let slideShifts = [TranslateTransform(), TranslateTransform(), TranslateTransform()]
     /// The favorites' columns as drawn, nil with none.
     private var favoritesColumns: Int?
 
@@ -184,6 +186,8 @@ final class SidebarView {
             root.children.append(part)
             try? Grid.setRow(part, Int32(i))
         }
+        // The space's own part slides on a switch (slideSpace); the dock stays put, as on the Mac.
+        for (part, shift) in zip([favorites, header, scroll] as [FrameworkElement], slideShifts) { part.renderTransform = shift }
         root.children.append(jumpPill.body)
         try? Grid.setRow(jumpPill.body, 2)
         try? Canvas.setZIndex(jumpPill.body, 50)
@@ -305,6 +309,12 @@ final class SidebarView {
         footer.children.append(button)
         root.children.append(tray)
         try? Grid.setRow(tray, 2)
+    }
+
+    /// The space's part `offset` sidebar widths from its place (+ to the right), while a switch slides.
+    func slideSpace(offset: Double) {
+        let x = offset * (root.actualWidth > 0 ? root.actualWidth : Self.restingWidth)
+        for shift in slideShifts { shift.x = x }
     }
 
     var fill: Brush { palette.fill }
