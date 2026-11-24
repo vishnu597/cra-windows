@@ -171,6 +171,25 @@ final class WebPage: @unchecked Sendable {
         }
     }
 
+    /// A spare (SparePagesWin): a page in `profilePath`'s profile with nothing loaded, hidden in
+    /// `parent`, for the next tab that needs a page to take (`adopt`). No URL, so the address a
+    /// tab loads into it is the first entry of its history.
+    init(spareIn parent: UInt, frame: PixelRect, profilePath: String?) {
+        self.frame = frame
+        self.isIncognito = false
+        self.profilePath = profilePath
+        handle = (profilePath ?? "").withCString { profile in
+            cra_browser_create_in(UInt(parent), frame.x, frame.y, frame.width, frame.height, "", 0, profile, callbacks())
+        }
+    }
+
+    /// A spare taken by a tab: it moves into the tab's window and loads the tab's address.
+    func adopt(delegate: WebPageDelegate, parent: UInt, frame: PixelRect, url: String) {
+        self.delegate = delegate
+        move(toParent: parent, frame: frame)
+        loadURL(url)
+    }
+
     /// A popup host: return it from `page(_:popupHostForURL:inBackground:)` and the popup
     /// opens in it, in its opener's profile (which `incognito` and `profilePath` record).
     init(popupHostIn parent: UInt, frame: PixelRect, incognito: Bool = false, profilePath: String? = nil,

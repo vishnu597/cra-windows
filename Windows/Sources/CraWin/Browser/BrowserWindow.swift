@@ -474,8 +474,18 @@ final class BrowserWindow {
     }
 
     private func makePage(for id: UUID, url: String) -> WebPage {
-        let page = WebPage(parent: hwnd, frame: paneFrames[id] ?? contentFrame(), url: url, incognito: isIncognito,
-                           profilePath: store.profilePath(item: id), delegate: self)
+        let frame = paneFrames[id] ?? contentFrame()
+        let profile = store.profilePath(item: id)
+        let page: WebPage
+        // The profile's spare, made ahead, when there is one ready (SparePagesWin); then the next.
+        if SparePage.canTake(engine: .chromium, isEasel: false, incognito: isIncognito),
+           let spare = SparePagesWin.shared.take(profilePath: profile) {
+            spare.adopt(delegate: self, parent: hwnd, frame: frame, url: url)
+            page = spare
+        } else {
+            page = WebPage(parent: hwnd, frame: frame, url: url, incognito: isIncognito, profilePath: profile, delegate: self)
+        }
+        if !isIncognito { SparePagesWin.shared.refill(profilePath: profile, parent: hwnd, frame: contentFrame(), clock: clock) }
         livePages.insert(ObjectIdentifier(page))
         newPages[ObjectIdentifier(page)] = Date()
         page.userInfo = id
@@ -589,6 +599,7 @@ final class BrowserWindow {
     private func beginClosing() {
         guard !closing else { return }
         closing = true
+        SparePagesWin.shared.drop(parent: hwnd)
         commandBar.close()
         hideFindBar()
         hideSiteControlCenter()
