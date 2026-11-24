@@ -103,6 +103,8 @@ enum WinGlyph {
         case "headphones": return "\u{E7F6}"  // Headphone
         case "camera.fill": return "\u{E722}"  // Camera
         case "photo.fill": return "\u{E91B}"  // Photo
+        case "photo.on.rectangle": return "\u{E91B}"  // Photo: Library ▸ Media's opt-in card
+        case "play.fill": return "\u{E768}"  // Play: a video tile
         case "mic.fill": return "\u{E720}"  // Microphone
         case "speaker.wave.2.fill": return "\u{E767}"  // Volume
         case "gamecontroller.fill": return "\u{E7FC}"  // Game

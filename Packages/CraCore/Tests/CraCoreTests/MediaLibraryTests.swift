@@ -49,4 +49,17 @@ struct MediaLibraryTests {
         #expect(MediaLibrary.Action.allCases.filter(\.startsGroup) == [.sendMessage, .showInFinder, .hide])
         #expect(MediaLibrary.isVideo("/x/clip.MOV"))
     }
+
+    /// Windows' menu has no iMessage or AirDrop, and Explorer for Finder.
+    @Test func windowsMenuHasNoAppleSharing() {
+        #expect(MediaLibrary.windowsActions == [.copy, .showInFinder, .hide])
+        #expect(MediaLibrary.windowsActions.map { $0.windowsTitle(isVideo: false) } == ["Copy Image", "Show in File Explorer", "Hide from Cra"])
+        #expect(MediaLibrary.Action.copy.windowsTitle(isVideo: true) == "Copy Video")
+        #expect(MediaLibrary.windowsActions.map(\.startsGroup) == [false, true, true])
+    }
+
+    @Test func aFolderToggledOnGoesLast() {
+        #expect(MediaLibrary.toggled(.desktop, in: [.documents, .desktop, .downloads]) == [.documents, .downloads])
+        #expect(MediaLibrary.toggled(.desktop, in: [.documents, .downloads]) == [.documents, .downloads, .desktop])
+    }
 }
