@@ -4,6 +4,7 @@ import Observation
 import UWP
 import WinAppSDK
 import WinSDK
+import WindowsFoundation
 import WinUI
 
 /// What the sidebar asks of its window: things that touch pages, not only the store.
@@ -340,11 +341,16 @@ final class SidebarView {
             let label = tileIcon(item, dark: dark, colored: tileColor != nil)
             label.horizontalAlignment = .center
             let selected = item.id == open
-            let fill = FavoriteTileColors.fill(tileColor: tileColor, selected: selected, hovered: false).map { UI.brush($0) }
-                ?? (selected ? palette.selected : palette.tile)
+            // The Mac's FavoriteTileView: the pill at rest, its hover under the pointer, lighter while
+            // open; a coloured tile keeps its hue with a shade over it.
+            func fill(hovered: Bool) -> Brush {
+                FavoriteTileColors.fill(tileColor: tileColor, selected: selected, hovered: hovered).map { UI.brush($0) }
+                    ?? UI.brush(SidebarTones.favoriteTile(dark: palette.isDark, selected: selected, hovered: hovered))
+            }
+            let rest = fill(hovered: false), hover = fill(hovered: true)
             // Away from its pinned page, the second click of a double-click goes back there (#264).
             let away = item.tab.map { $0.url != $0.savedURL } == true
-            let tile = UI.button(label, fill: fill) { [weak self] in
+            let tile = UI.button(label, fill: rest) { [weak self] in
                 guard let self else { return }
                 let clicks = self.mouseClickCount(.item(item.id))
                 self.dragPressed(.item(item.id))
@@ -353,6 +359,12 @@ final class SidebarView {
                 }
                 self.select(item.id)
             }
+            _ = tile.resources.insert("ButtonBackgroundPointerOver", hover)
+            _ = tile.resources.insert("ButtonBackgroundPressed", hover)
+            let rim: Brush = selected ? favoriteRim(item, dark: dark) : UI.clear
+            tile.borderThickness = Thickness(left: 2, top: 2, right: 2, bottom: 2)
+            tile.borderBrush = rim
+            for key in ["ButtonBorderBrushPointerOver", "ButtonBorderBrushPressed"] { _ = tile.resources.insert(key, rim) }
             favoriteTiles.append((tile, item.id))
             tile.horizontalAlignment = .stretch
             tile.verticalAlignment = .stretch
@@ -362,6 +374,26 @@ final class SidebarView {
             try? Grid.setRow(tile, Int32(i / perRow))
             try? Grid.setColumn(tile, Int32(i % perRow))
         }
+    }
+
+    /// The open favorite's 2 DIP rim: Arc's neutral one, or with Settings ▸ Tabs ▸ Colorful
+    /// favorite outline on, its logo's colours at 72 % (FavoriteSelectionTint). The Mac sweeps
+    /// them round the tile; XAML has no conic brush, so they run corner to corner.
+    private func favoriteRim(_ item: SidebarItem, dark: Bool) -> Brush {
+        guard store.settings.favoriteLogoOutline else { return UI.brush(SidebarTones.favoriteRim(dark: dark)) }
+        let tab = item.isSplit ? store.children(of: item.id).first?.tab : item.tab
+        let stops = FavoriteSelectionTint.colors(iconColors: favicons.selectionColors(forKey: tab?.iconKey), dark: dark)
+        let brush = LinearGradientBrush()
+        brush.startPoint = WindowsFoundation.Point(x: 0, y: 0)
+        brush.endPoint = WindowsFoundation.Point(x: 1, y: 1)
+        for (i, hex) in stops.enumerated() {
+            let stop = GradientStop()
+            stop.color = UI.brush(hex).color
+            stop.offset = stops.count > 1 ? Double(i) / Double(stops.count - 1) : 0
+            brush.gradientStops.append(stop)
+        }
+        brush.opacity = SidebarTones.favoriteLogoRimOpacity
+        return brush
     }
 
     /// The grid's width: the sidebar's, or its fixed width before the first layout.
