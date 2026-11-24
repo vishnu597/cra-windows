@@ -228,24 +228,26 @@ final class ToolbarView {
         return b
     }
 
-    /// Arc's address menu: Copy URL, Show Full URL or Hide Full URL, Hide Toolbar.
+    /// Arc's address menu (CraCore ToolbarAddressMenu): Copy URL, Capture…, Capture Full Page,
+    /// Manage Extensions…, Show or Hide Full URL, Automatically Hide Toolbar, Hide Toolbar.
     private func addressMenu(showFullURL: Bool, autoHide: Bool) -> MenuFlyout {
         let menu = MenuFlyout()
-        func item(_ title: String, _ action: String) {
-            let entry = MenuFlyoutItem()
-            entry.text = title
-            entry.click.addHandler { [weak self] _, _ in self?.onAction(action) }
-            menu.items.append(entry)
+        for row in ToolbarAddressMenu.rows(showFullURL: showFullURL, autoHide: autoHide) {
+            switch row {
+            case .command(let id, let title):
+                menu.items.append(UI.menuItem(title, action: id) { [weak self] in self?.onAction(id) })
+            case .fullURL(let showing):
+                menu.items.append(UI.menuItem(showing ? "Hide Full URL" : "Show Full URL") { [weak self] in self?.onAction("toggleFullURL") })
+            case .autoHide(let on):
+                let hides = ToggleMenuFlyoutItem()
+                hides.text = "Automatically Hide Toolbar"
+                hides.isChecked = on
+                hides.click.addHandler { [weak self] _, _ in self?.onAction("toggleAutoHideToolbar") }
+                menu.items.append(hides)
+            case .separator:
+                menu.items.append(MenuFlyoutSeparator())
+            }
         }
-        item("Copy URL", "copyURL")
-        menu.items.append(MenuFlyoutSeparator())
-        item(showFullURL ? "Hide Full URL" : "Show Full URL", "toggleFullURL")
-        let hides = ToggleMenuFlyoutItem()
-        hides.text = "Automatically Hide Toolbar"
-        hides.isChecked = autoHide
-        hides.click.addHandler { [weak self] _, _ in self?.onAction("toggleAutoHideToolbar") }
-        menu.items.append(hides)
-        item("Hide Toolbar", "toggleToolbar")
         return menu
     }
 

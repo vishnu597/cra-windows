@@ -32,6 +32,21 @@ struct ToolbarAddressTests {
         #expect(windows["stop"] != nil)
     }
 
+    /// The address's menu is the Mac's, and every command in it runs on Windows.
+    @Test func addressMenuIsTheMacsAndRunsOnWindows() {
+        let rows = ToolbarAddressMenu.rows(showFullURL: false, autoHide: true)
+        #expect(rows == [.command("copyURL", "Copy URL"), .command("capturePage", "Capture…"),
+                         .command("captureFullPage", "Capture Full Page"), .separator,
+                         .command("manageExtensions", "Manage Extensions…"), .separator,
+                         .fullURL(showing: false), .autoHide(on: true), .command("toggleToolbar", "Hide Toolbar")])
+        #expect(!ToolbarAddressMenu.rows(showFullURL: true, autoHide: false, panes: 2).contains(.autoHide(on: false)),
+                "a split pane's bar never hides")
+        #expect(ToolbarAddressMenu.rows(showFullURL: true, autoHide: false).contains(.fullURL(showing: true)))
+        let windows = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.windows.map { ($0.id, $0) })
+        for case .command(let id, _) in rows { #expect(windows[id] != nil, "\(id) runs on Windows") }
+        #expect(windows["captureFullPage"]?.inCommandBar == true)
+    }
+
     /// Edit ▸ Paste and Go (#610) runs on Windows from the command bar, with no key: the Mac's ⌥⌘V
     /// would be Ctrl+Alt+V, AltGr+V on many keyboards.
     @Test
