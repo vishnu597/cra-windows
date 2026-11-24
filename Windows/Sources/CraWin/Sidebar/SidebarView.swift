@@ -45,6 +45,9 @@ protocol SidebarActions: AnyObject {
     func runCommand(_ id: String)
     /// A Blank Window's "Move to…": its tabs into that space, the window closing.
     func moveBlankWindow(toSpace id: UUID)
+    /// A tab dragged out of every Cra window and let go at that screen point (pixels): it opens
+    /// in a new Blank Window there.
+    func tearOffTab(_ id: UUID, atScreenX x: Int, y: Int)
     /// A sidebar tab dragged off the sidebar, over the page: whether the panes offer a split at
     /// the pointer (the window shows it). `before`: the tab open before the press.
     func splitDragMoved(tab id: UUID, before: UUID?) -> Bool

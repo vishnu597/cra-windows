@@ -2912,6 +2912,7 @@ extension BrowserWindow: LibraryActions {
 extension BrowserWindow: SidebarActions {
     func addSplitView() { addSplitPane() }
     func moveBlankWindow(toSpace id: UUID) { host?.moveBlankWindow(self, toSpace: id) }
+    func tearOffTab(_ id: UUID, atScreenX x: Int, y: Int) { host?.tearOffTab(id, atScreenX: x, y: y, from: self) }
     /// Set Profile ▸ New Profile… on a space's menu: the space starts ticked.
     func newProfile(forSpace id: UUID) { showNewProfile(ticked: [id]) }
 

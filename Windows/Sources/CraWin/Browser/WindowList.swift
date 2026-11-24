@@ -14,6 +14,9 @@ protocol BrowserWindowHost: AnyObject {
     /// A Blank Window's "Move to…": its tabs to the top of the space's Today, the one it had open
     /// shown with its page in the space's window, and the Blank Window closed.
     func moveBlankWindow(_ window: BrowserWindow, toSpace space: UUID)
+    /// A tab dragged out of every Cra window (#219): it moves into a new Blank Window the size of
+    /// `source`, centred where it was let go, its page as it was.
+    func tearOffTab(_ id: UUID, atScreenX x: Int, y: Int, from source: BrowserWindow)
     /// New Little Window (Ctrl+Alt+N): an empty one asking for an address.
     func newLittleWindow()
     /// Close Little Windows: each archives its page.
@@ -104,6 +107,22 @@ final class WindowList: BrowserWindowHost {
             : blank ? store.addBlankWindow(frame: frame?.string)
             : store.addWindow(spaceID: store.focusedSpaceID(window: store.lastNormalWindowID), frame: frame?.string)
         open(session, frame: frame, newWindow: true)?.activate()
+    }
+
+    func tearOffTab(_ id: UUID, atScreenX x: Int, y: Int, from source: BrowserWindow) {
+        guard store.item(id)?.isTab == true, !store.isIncognito(item: id) else { return }
+        let size = source.frame
+        let area = HostWindow.workArea(atX: x, y: y) ?? source.workArea ?? size
+        let frame = TabTearOff.frame(width: size.width, height: size.height, droppedAtX: Double(x), y: Double(y),
+                                     workArea: area, scale: source.scale)
+        let session = store.addBlankWindow(frame: frame.string)
+        store.moveToBlankWindow(id, window: session.id)
+        // Handed over before the new window makes a page of its own for the tab.
+        let page = source.releasePage(id)
+        guard let window = open(session, frame: frame, newWindow: false) else { page?.close(); return }
+        store.activeWindowID = window.windowID
+        if let page { window.adopt(page, for: id) }
+        window.activate()
     }
 
     func moveBlankWindow(_ window: BrowserWindow, toSpace space: UUID) {
