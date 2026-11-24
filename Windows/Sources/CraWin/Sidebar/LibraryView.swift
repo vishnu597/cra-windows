@@ -16,6 +16,8 @@ protocol LibraryActions: AnyObject {
     func restoreArchived(_ id: UUID)
     /// The keyboard back to the Library's search (Win32 focus into the XAML first).
     func focusLibrary()
+    /// Arc's preview of `files[index]` over the window (Library ▸ Media's click on a tile).
+    func previewMedia(_ files: [MediaLibrary.File], at index: Int)
 }
 
 /// Arc's Library as a mode of the sidebar (the Mac's LibraryView): the page rail on the left,
@@ -196,7 +198,7 @@ final class LibraryView {
                 break
             }
             let files = MediaLibrary.shown(media.files, query: query, hidden: Set(store.settings.mediaHidden))
-            for pair in MediaLibrary.rows(files) { addMediaRow(pair, dark: dark) }
+            for pair in MediaLibrary.rows(files) { addMediaRow(pair, in: files, dark: dark) }
             showEmpty(files.isEmpty, LibraryList.empty(.media, hasAny: !media.files.isEmpty))
         case .easels, .boosts, .spaces:
             showEmpty(true, LibraryList.Empty(symbol: page.symbol, title: "Not on Windows yet", detail: nil))
@@ -497,7 +499,7 @@ final class LibraryView {
     }
 
     /// One row of Arc's grid: up to two tiles, the picture fitted in each.
-    private func addMediaRow(_ files: [MediaLibrary.File], dark: Bool) {
+    private func addMediaRow(_ files: [MediaLibrary.File], in shown: [MediaLibrary.File], dark: Bool) {
         let m = MediaGridWin.self
         let row = Grid()
         row.columnDefinitions.append(UI.column(UI.star))
@@ -550,9 +552,9 @@ final class LibraryView {
                     }
                 })
             }
-            // A click opens it in Windows' viewer for its type (Photos, Media Player).
-            let button = UI.button(tile, padding: Thickness(left: m.padding, top: m.padding, right: m.padding, bottom: m.padding)) {
-                Shell.open(file.path)
+            // A click shows Arc's preview over the window, from there through the grid's order.
+            let button = UI.button(tile, padding: Thickness(left: m.padding, top: m.padding, right: m.padding, bottom: m.padding)) { [weak self] in
+                self?.actions?.previewMedia(shown, at: shown.firstIndex(of: file) ?? 0)
             }
             button.height = m.tile
             button.horizontalAlignment = .stretch

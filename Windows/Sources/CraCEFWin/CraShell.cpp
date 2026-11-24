@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <dwmapi.h>
 #include <shellapi.h>
+#include <shlwapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <wincodec.h>
@@ -423,4 +424,25 @@ extern "C" int cra_save_file_dialog_types(uintptr_t owner, const char *title, co
     int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, out, static_cast<int>(capacity), nullptr, nullptr);
     CoTaskMemFree(path);
     return n > 0 ? 1 : 0;
+}
+
+extern "C" int cra_shell_default_app_name(const char *path, char *out, size_t capacity) {
+    if (!path || !*path || !out || capacity == 0 || capacity > INT_MAX) return 0;
+    out[0] = 0;
+    // By the file's extension, as Explorer's Open does.
+    std::wstring wide = Wide(path);
+    std::wstring extension = PathFindExtensionW(wide.c_str());
+    if (extension.empty()) return 0;
+    wchar_t name[256] = {};
+    DWORD length = ARRAYSIZE(name);
+    if (FAILED(AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN | ASSOCF_NOTRUNCATE, ASSOCSTR_FRIENDLYAPPNAME, extension.c_str(),
+                                 nullptr, name, &length)) || !name[0]) {
+        return 0;
+    }
+    int n = WideCharToMultiByte(CP_UTF8, 0, name, -1, out, static_cast<int>(capacity), nullptr, nullptr);
+    if (n <= 0) {
+        out[0] = 0;
+        return 0;
+    }
+    return 1;
 }

@@ -142,6 +142,9 @@ char *cra_cef_preference_json(const char *profile_path, const char *name);
 /// An Explorer window on the file's folder with the file selected (Finder's "Show in Finder").
 /// Reuses a window already open on that folder, as Explorer's own "Open file location" does.
 void cra_shell_show_in_folder(const char *path);
+/// The name Windows gives the app that opens the file (Photos, Media Player), UTF-8 into `out`
+/// (`capacity` bytes): Library ▸ Media's "Open in …". 1 when Windows names one.
+int cra_shell_default_app_name(const char *path, char *out, size_t capacity);
 
 /// Hides Chrome's download-started animation (a download glyph that would fly from the page's
 /// top left to the toolbar Cra hides) for the next two seconds. Call when a download starts.
