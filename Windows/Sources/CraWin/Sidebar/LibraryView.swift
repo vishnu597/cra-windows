@@ -552,9 +552,10 @@ final class LibraryView {
                     }
                 })
             }
-            // A click shows Arc's preview over the window, from there through the grid's order.
+            // A click shows Arc's preview over the window, from there through the grid's order;
+            // a drag hands the file out (FileDragOut).
             let button = UI.button(tile, padding: Thickness(left: m.padding, top: m.padding, right: m.padding, bottom: m.padding)) { [weak self] in
-                self?.actions?.previewMedia(shown, at: shown.firstIndex(of: file) ?? 0)
+                FileDragOut.pressed(path: file.path) { self?.actions?.previewMedia(shown, at: shown.firstIndex(of: file) ?? 0) }
             }
             button.height = m.tile
             button.horizontalAlignment = .stretch
@@ -642,8 +643,10 @@ final class LibraryView {
             DownloadRowMenu.fill(menu, for: now, history: history)
         }
         let title = path.map(LibraryList.fileName) ?? row.name
+        // A click opens the file; a finished one drags out as the file itself (the Mac's
+        // LibraryItemCell; a file gone from the disk doesn't start one).
         addRow(tile: tile, tileInset: 5, title: title, detail: row.subtitle(now: Date()), menu: menu) {
-            if let path { Shell.open(path) }
+            FileDragOut.pressed(path: path) { if let path { Shell.open(path) } }
         }
     }
 
