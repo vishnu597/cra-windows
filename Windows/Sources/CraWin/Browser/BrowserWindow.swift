@@ -2180,6 +2180,8 @@ final class BrowserWindow {
             }
         }
         if copied > 0 { ExtensionList.shared.needsRestart = true }
+        // The source browser's toolbar pins, after the extensions are in (as on the Mac).
+        if let userData = source.userData(in: folders) { ExtensionPins.shared.seedImport(userData: userData, map: profiles) }
         let details = [report.summary(from: source.name), ExtensionImport.summary(imported: copied, failed: failed)].compactMap { $0 }
         return .done(summary: summary, credentials: details.isEmpty ? nil : details.joined(separator: " "))
     }

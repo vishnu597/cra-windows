@@ -65,6 +65,31 @@ public struct PinnedExtensions: Codable, Equatable, Sendable {
         profiles[profile] = ids
     }
 
+    /// Chromium's pinned extensions in a profile's Preferences file (`extensions.pinned_extensions`),
+    /// in toolbar order; nil when the file has none.
+    public static func chromiumPins(preferences data: Data) -> [String]? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return (json["extensions"] as? [String: Any])?["pinned_extensions"] as? [String]
+    }
+
+    /// An import's pins (GitHub #131, the Mac's ImportFlow.seedPinnedExtensions): each Cra profile
+    /// the import used shows the pins its source profile had, `sources` by source profile folder.
+    /// An import that bound no profiles brings the source's Default to Cra's Default. Default's
+    /// become everyone's list only while Cra has none (`hasSavedPins`: pinned-extensions.json
+    /// exists); another profile keeps a list of its own it already has.
+    public mutating func seedImport(_ sources: [String: [String]], map: ImportProfileMap, hasSavedPins: Bool) {
+        let pairs = map.bindsProfiles ? map.folders : ["Default": "Default"]
+        for (source, target) in pairs.sorted(by: { ($0.value == "Default" ? 0 : 1, $0.key) < ($1.value == "Default" ? 0 : 1, $1.key) }) {
+            guard let ids = sources[source] else { continue }
+            if target == "Default" {
+                guard !hasSavedPins, shared.isEmpty, profiles["Default"] == nil else { continue }
+                shared = ids
+            } else {
+                seed(ids, inProfile: target)
+            }
+        }
+    }
+
     /// Drops the extensions `isGone` says are no longer installed, from every list.
     public mutating func removeAll(where isGone: (String) -> Bool) {
         shared.removeAll(where: isGone)
