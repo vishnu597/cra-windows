@@ -31,3 +31,29 @@ public enum WindowTopBar: Equatable, Sendable {
 public enum ReloadMenuItems {
     public static let groups: [[String]] = [["reload", "hardReload"], ["clearCookies", "clearCache"], ["viewSource", "devTools"]]
 }
+
+/// The menu a right-click on the toolbar's address shows (PaneToolbarView.addressMenu, Arc 1.172.1):
+/// Copy URL, Capture…, Capture Full Page, Manage Extensions…, then Show or Hide Full URL, Automatically
+/// Hide Toolbar (the page's own bar only, not a split pane's) and Hide Toolbar. Arc's Share ▸ is in the
+/// Site Control Center, and Shared Quotes go through arc.net, so neither is listed.
+public enum ToolbarAddressMenu {
+    public enum Row: Equatable, Sendable {
+        /// A KeyBindings command by id, with its title.
+        case command(String, String)
+        /// Show Full URL, or Hide Full URL while it shows.
+        case fullURL(showing: Bool)
+        /// Automatically Hide Toolbar, ticked while on.
+        case autoHide(on: Bool)
+        case separator
+    }
+
+    public static func rows(showFullURL: Bool, autoHide: Bool, panes: Int = 1) -> [Row] {
+        var rows: [Row] = [.command("copyURL", "Copy URL"), .command("capturePage", "Capture…"),
+                           .command("captureFullPage", "Capture Full Page"), .separator,
+                           .command("manageExtensions", "Manage Extensions…"), .separator,
+                           .fullURL(showing: showFullURL)]
+        if panes <= 1 { rows.append(.autoHide(on: autoHide)) }
+        rows.append(.command("toggleToolbar", "Hide Toolbar"))
+        return rows
+    }
+}

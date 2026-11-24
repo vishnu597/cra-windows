@@ -273,6 +273,8 @@ public enum KeyBindingDefaults {
             "editURL": [KeyChord("l", ctrl)],
             "closeTab": [KeyChord("w", ctrl)],
             "capturePage": [KeyChord("2", ctrlShift)],
+            // The Mac has no key for it either.
+            "captureFullPage": [],
             "copyURL": [KeyChord("c", ctrlShift)],
             "copyURLMarkdown": [KeyChord("c", [.control, .option, .shift] as KeyChord.Modifiers)],
             // The Mac's ⌃⇧⌘C has no Windows counterpart left (Ctrl+Alt+Shift+C is Markdown).

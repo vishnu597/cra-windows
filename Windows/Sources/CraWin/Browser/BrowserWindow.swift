@@ -1135,6 +1135,7 @@ final class BrowserWindow {
         case "pasteAndGo": pasteAndGo()
         case "stayOnTop": window.staysOnTop.toggle()
         case "capturePage": capture(fullPage: false)
+        case "captureFullPage": capture(fullPage: true)
         case "clearCache": shownPage?.clearSiteDataAndReload(cookies: false)
         case "clearCookies": shownPage?.clearSiteDataAndReload(cookies: true)
         case "devTools": shownPage?.runDevTools(.toggle)
