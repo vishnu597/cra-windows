@@ -15,6 +15,10 @@
 #22    Tests/PolicyTests.swift::extensionLaunch  8f21949f730d
 #24    Packages/CraCore/Tests/CraCoreTests/ShippedThemesTests.swift::edgeToEdgeIsOffUnlessChosen  96da512d440f
 #24    Tests/FloatingSidebarTests.swift::geometry  eec2ad04b484
+#28    Packages/CraCore/Tests/CraCoreTests/WindowsAudibleTests.swift::noAnswerKeepsTheTabAndAClosedPageGoesQuiet  30147a8b2e9d
+#28    Packages/CraCore/Tests/CraCoreTests/WindowsAudibleTests.swift::onlyAPlayerThatCanBeHeardCounts  ba8b8cf00bca
+#28    Packages/CraCore/Tests/CraCoreTests/WindowsAudibleTests.swift::thePageSaysWhetherItMakesSound  af406dd08e11
+#28    Packages/CraCore/Tests/CraCoreTests/WindowsAudibleTests.swift::theSpeakerHoldsTwoSecondsAfterTheSoundStops  6918bed0ebb9
 #28    Tests/BrowserManagerLifecycleTests.swift::audiblePageStaysAwakeCase  124ac2fe284e
 #29    Packages/CraCore/Tests/CraCoreTests/FavoritesLayoutTests.swift::columnsByCountMatchArc  9ab00f8c8434
 #30    Packages/CraCore/Tests/CraCoreTests/ArcThemeImportTests.swift::solidThemeKeepsItsColour  02956e3cc1bb

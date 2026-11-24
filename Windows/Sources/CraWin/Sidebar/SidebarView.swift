@@ -108,6 +108,9 @@ final class SidebarView {
     /// Arc badges the tab a Peek came from with the peeked page's favicon (modalIcon), at the
     /// row's end. Set by the browser window, which builds the sidebar again.
     var peekBadge: (tabID: UUID, iconKey: String?)?
+    /// The tabs whose page makes sound, or did in the last 2 s (the Mac's audibleTabIDs): their
+    /// row shows the speaker and Clear keeps them. Set by the browser window.
+    var audibleTabIDs: Set<UUID> = []
     /// A press on the favicon of a pinned tab away from its page (Arc's icon region), and when.
     private var iconPress: (id: UUID, at: UInt64)?
     /// The last click on a tab row and whether it went back home (PinnedIconClick: a double-click
@@ -554,7 +557,7 @@ final class SidebarView {
             let away = store.isPinned(item.id) && item.tab.map { $0.url != $0.savedURL } == true
             appendRow(icon: .favicon(item.tab?.iconKey), title: item.displayTitle, subtitle: item.tab?.sidebarSubtitle(developerMode: developer),
                       depth: depth, selected: selected, ring: developer && selected, unread: item.isUnread, closable: closable,
-                      sound: TabSound.button(muted: item.tab?.muted ?? false, audible: false, editing: renaming.itemID == item.id).map { (item.id, $0) },
+                      sound: TabSound.button(muted: item.tab?.muted ?? false, audible: audibleTabIDs.contains(item.id), editing: renaming.itemID == item.id).map { (item.id, $0) },
                       peek: peekBadge?.tabID == item.id ? .favicon(peekBadge?.iconKey) : nil, menu: tabMenu(item), renames: item.id,
                       homeIcon: away ? item.id : nil) { [weak self] in
                 self?.dragPressed(.item(item.id))
@@ -1016,7 +1019,7 @@ final class SidebarView {
         try? Grid.setColumn(add, 0)
         if !store.children(of: space.todayContainerID).isEmpty {
             // Arc's "Clear": every Today tab goes to the archive.
-            let clear = UI.button("Clear", color: palette.secondaryText) { [weak self] in self?.store.clearToday(playing: []) }
+            let clear = UI.button("Clear", color: palette.secondaryText) { [weak self] in self.map { $0.store.clearToday(playing: $0.audibleTabIDs) } }
             row.children.append(clear)
             try? Grid.setColumn(clear, 1)
         }
@@ -1098,6 +1101,8 @@ final class SidebarView {
                 menu.items.append(UI.menuItem("Open in Split View") { [weak self] in self?.actions?.openInSplitView(id) })
             }
             menu.items.append(UI.menuItem("Duplicate", action: "duplicateTab") { [weak self] in _ = self?.store.duplicateTab(id) })
+            // Always offered: the Mac dims it on a quiet tab, but Windows can't hear players in
+            // other sites' frames or Web Audio (AudibleProbe), so a quiet-looking tab may play.
             menu.items.append(UI.menuItem(TabSound.menuTitle(muted: item.tab?.muted ?? false), action: "muteTab") { [weak self] in
                 self?.actions?.toggleMute(id)
             })
@@ -1245,7 +1250,7 @@ final class SidebarView {
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("New Space") { [weak self] in self?.newSpace() })
         }
-        menu.items.append(UI.menuItem("Clear Today", action: "clearToday") { [weak self] in self?.store.clearToday(space.id, playing: []) })
+        menu.items.append(UI.menuItem("Clear Today", action: "clearToday") { [weak self] in self.map { $0.store.clearToday(space.id, playing: $0.audibleTabIDs) } })
         if !store.isIncognito(space: space.id) { menu.items.append(profileMenu(space)) }
         menu.items.append(searchEngineMenu(space))
         if !store.isIncognito(space: space.id) {
