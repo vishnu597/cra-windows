@@ -32,3 +32,12 @@ struct ToolbarAddressTests {
         #expect(windows["stop"] != nil)
     }
 }
+
+/// The reload menu's rows, all of them commands Windows runs.
+struct ReloadMenuItemsTests {
+    @Test func groupsAreTheMacsAndRunOnWindows() {
+        #expect(ReloadMenuItems.groups == [["reload", "hardReload"], ["clearCookies", "clearCache"], ["viewSource", "devTools"]])
+        let windows = Set(KeyBindingDefaults.windows.map(\.id))
+        for id in ReloadMenuItems.groups.joined() { #expect(windows.contains(id), "\(id)") }
+    }
+}

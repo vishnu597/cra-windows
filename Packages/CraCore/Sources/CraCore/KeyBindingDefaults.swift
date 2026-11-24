@@ -348,6 +348,9 @@ public enum KeyBindingDefaults {
             // Chrome for Windows' other keys for it.
             "recentTab": [KeyChord(KeyChord.tab, ctrl)],
             "recentTabBackward": [KeyChord(KeyChord.tab, ctrlShift)],
+            // The Mac's ⌃⌥Tab over every space (#467). Windows keeps Ctrl+Alt+Tab for its own app
+            // switcher, so it has no default; a chord with Ctrl held works from the Shortcuts pane.
+            "recentTabAllSpaces": [], "recentTabAllSpacesBackward": [],
             "nextTab": [KeyChord(KeyChord.pageDown, ctrl)],
             "previousTab": [KeyChord(KeyChord.pageUp, ctrl)],
             "goBack": [KeyChord(KeyChord.left, alt)],

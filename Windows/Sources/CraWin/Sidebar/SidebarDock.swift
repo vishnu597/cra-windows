@@ -113,7 +113,8 @@ extension SidebarView {
             cell.button.pointerExited.addHandler { [weak self] _, _ in
                 if self?.dockHovered == id { self?.hoverDock(nil) }
             }
-            try? ToolTipService.setToolTip(cell.button, dockTip(space))
+            let tip = dockTip(space)
+            ArcTip.set(cell.button, tip.help, placement: .above, badge: tip.profile)
             try? AutomationProperties.setName(cell.button, space.title)
             cell.button.contextFlyout = spaceMenu(space)
             dockCells.append(cell)
@@ -173,35 +174,14 @@ extension SidebarView {
         return w > 0 ? w : 260
     }
 
-    /// Arc's tip: the space's name, its profile in a pill, then Go to Space N's keys.
-    private func dockTip(_ space: Space) -> FrameworkElement {
+    /// Arc's tip (ArcTip, as the Mac's SpaceDockIconView): the space's name, its profile in a pill,
+    /// then Go to Space N's keys in caps, above the icon 0.55 s after the pointer rests.
+    private func dockTip(_ space: Space) -> (help: String, profile: String) {
         let tip = SpaceDock.tip(title: space.title, profileName: store.profile(space.profileID)?.name,
                                 index: store.spaceOrder.firstIndex(of: space.id))
-        let row = StackPanel()
-        row.orientation = .horizontal
-        row.spacing = 6
-        let name = TextBlock()
-        name.text = tip.title.isEmpty ? "Space" : tip.title
-        name.verticalAlignment = .center
-        row.children.append(name)
-        let pill = Border()
-        pill.cornerRadius = CornerRadius(topLeft: 4, topRight: 4, bottomRight: 4, bottomLeft: 4)
-        pill.padding = Thickness(left: 5, top: 1, right: 5, bottom: 1)
-        pill.background = UI.brush(128, 128, 128, alpha: 60)
-        pill.verticalAlignment = .center
-        let profile = TextBlock()
-        profile.text = tip.profile
-        profile.fontSize = 11
-        pill.child = profile
-        row.children.append(pill)
-        if let n = tip.number, let chord = WinKeyBindings.shared.action("space\(n)")?.primary {
-            let keys = TextBlock()
-            keys.text = chord.windowsDisplay
-            keys.opacity = 0.6
-            keys.verticalAlignment = .center
-            row.children.append(keys)
-        }
-        return row
+        let name = tip.title.isEmpty ? "Space" : tip.title
+        guard let n = tip.number, let chord = WinKeyBindings.shared.action("space\(n)")?.primary else { return (name, tip.profile) }
+        return ("\(name) (\(chord.windowsDisplay))", tip.profile)
     }
 
     /// Shift + wheel or a sideways wheel over the sidebar: the next or previous space, as in Arc

@@ -22,6 +22,8 @@ final class TabSwitcherWindow {
         let iconKey: String?
         /// A split's panes (#554), in pane order with their share of its width; empty for a tab.
         var panes: [(iconKey: String?, width: Double)] = []
+        /// Ctrl+Alt+Tab's cards (#467) name their space over the picture's corner.
+        var spaceTitle: String?
     }
 
     private typealias L = TabSwitcherLayout
@@ -119,6 +121,31 @@ final class TabSwitcherWindow {
     }
 
     private func makeCard(_ card: Card, index: Int) -> Border {
+        let view = makeCardBody(card, index: index)
+        if let title = card.spaceTitle, let content = view.child as? Grid { content.children.append(spacePill(title)) }
+        return view
+    }
+
+    /// The Mac's space pill (TabSwitcherView): 20 tall, 6 in from the picture's top left corner, in the
+    /// pill of Arc's hover tips, the space's name in 11 pt medium.
+    private func spacePill(_ title: String) -> Border {
+        let pill = Border()
+        pill.height = 20
+        pill.cornerRadius = CornerRadius(topLeft: 6, topRight: 6, bottomRight: 6, bottomLeft: 6)
+        pill.background = dark ? UI.brush(26, 26, 26, alpha: 217) : UI.brush(255, 255, 255, alpha: 230)
+        pill.padding = Thickness(left: 7, top: 0, right: 7, bottom: 0)
+        pill.horizontalAlignment = .left
+        pill.verticalAlignment = .top
+        pill.maxWidth = Double(L.thumbnail.width) - 12
+        pill.margin = Thickness(left: Double(L.thumbnailOrigin.x) + 6, top: Double(L.thumbnailOrigin.y) + 6, right: 0, bottom: 0)
+        let text = UI.text(title, size: 11, color: dark ? UI.brush(255, 255, 255, alpha: 235) : UI.brush(0, 0, 0, alpha: 217))
+        text.fontWeight = UWP.FontWeight(weight: 500)
+        text.verticalAlignment = .center
+        pill.child = text
+        return pill
+    }
+
+    private func makeCardBody(_ card: Card, index: Int) -> Border {
         let view = Border()
         view.width = Double(L.card.width)
         view.height = Double(L.card.height)

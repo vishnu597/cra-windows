@@ -167,6 +167,7 @@
 #107   Packages/CraCore/Tests/CraCoreTests/PinnedExtensionsTests.swift::profileListsRoundTrip  7a57b17d2767
 #107   Packages/CraCore/Tests/CraCoreTests/PinnedExtensionsTests.swift::removedExtensionsLeaveEveryList  db169d3fdc84
 #107   Packages/CraCore/Tests/CraCoreTests/PinnedExtensionsTests.swift::unreadableFileMeansNoPins  8a2abe27ded2
+#107   Packages/CraCore/Tests/CraCoreTests/WindowsPinnedExtensionsTests.swift::theToolbarShowsTheProfilesPinsThatCanRun  989baf7dad3c
 #110   Packages/CraCore/Tests/CraCoreTests/SecureDNSTests.swift::aTemplateWithoutAHostIsNamedButNotShown  756f41421548
 #110   Packages/CraCore/Tests/CraCoreTests/SecureDNSTests.swift::customTemplatesKeepOnlyTheirHost  fd28b95e0a33
 #110   Packages/CraCore/Tests/CraCoreTests/SecureDNSTests.swift::line  fe1dcfb4701b
@@ -366,6 +367,7 @@
 #220   Tests/StoreTests.swift::blankWindows  2703cb42812a
 #226   Packages/CraCore/Tests/CraCoreTests/ToolbarCompositionTests.swift::theSlidersShowWithoutExtensions  e4ea26d65d01
 #226   Packages/CraCore/Tests/CraCoreTests/ToolbarCompositionTests.swift::theURLFieldHasTheSlidersWithoutExtensions  a7173c578717
+#226   Packages/CraCore/Tests/CraCoreTests/WindowsPinnedExtensionsTests.swift::theAddressPillShowsThePinsWhileTheAddressKeepsItsRoom  7a851f9ad1a4
 #226   Tests/Scenarios/site-controls-no-extensions.scenario  c1c5b5365539
 #227   Tests/Scenarios/quit-during-web-store-install.scenario  a3e3b0c8eb2b
 #228   Packages/CraCore/Tests/CraCoreTests/SidebarModelTests.swift::localServersStartInDeveloperMode  a5c974f73812
@@ -465,6 +467,8 @@
 #273   Packages/CraCore/Tests/CraCoreTests/PageHistoryTests.swift::aTabStillOnItsPageOpensWithItsHistory  0d05b11a0d19
 #273   Packages/CraCore/Tests/CraCoreTests/PageHistoryTests.swift::aTabThatMovedOnOrChangedEngineStartsFresh  f0907c5c1fd4
 #273   Packages/CraCore/Tests/CraCoreTests/PageHistoryTests.swift::closedTabsKeepTheirsForReopening  2803b8d77931
+#273   Packages/CraCore/Tests/CraCoreTests/WindowsBackToReferrerTests.swift::aPopupsTabClosesBackToTheTabItCameFrom  525203d408e8
+#273   Packages/CraCore/Tests/CraCoreTests/WindowsBackToReferrerTests.swift::aTabTypedInHasNoBackOnceItsPagesRunOut  51a2c93f2b74
 #273   Tests/BrowserManagerLifecycleTests.swift::pageHistoryCase  4d1b6424e82c
 #273   Tests/Scenarios/back-to-referrer.scenario  0f6d794025d8
 #273   Tests/Scenarios/page-history-relaunch.scenario  cf1852589121
@@ -1015,6 +1019,7 @@
 #495   Packages/CraCore/Tests/CraCoreTests/BackToReferrerTests.swift::fingersRightGoBackLeftGoForward  e3c741861f4f
 #495   Packages/CraCore/Tests/CraCoreTests/BackToReferrerTests.swift::historyComesFirstAndNothingElseCloses  565900329190
 #495   Packages/CraCore/Tests/CraCoreTests/BackToReferrerTests.swift::shortVerticalOrTakenBackSwipesDoNothing  0b697dfe95e4
+#495   Packages/CraCore/Tests/CraCoreTests/WindowsBackToReferrerTests.swift::aLittleWindowWithNothingBehindCloses  c4c6f227a2d6
 #495   Tests/Scenarios/little-window-back-inactive.scenario  62f21ec052ff
 #495   Tests/Scenarios/little-window-bar-swipe.scenario  65bdbd1f11d7
 #495   Tests/Scenarios/little-window-swipe-back.scenario  2a12df243277
@@ -1529,6 +1534,8 @@
 #669   Packages/CraCore/Tests/CraCoreTests/SpaceGradientTests.swift::runsFromTheTopLeftAt45Degrees  9652fb9f5cd8
 #669   Packages/CraCore/Tests/CraCoreTests/SpaceGradientTests.swift::scalesWithTheWindow  71ea54139046
 #669   Packages/CraCore/Tests/CraCoreTests/SpaceGradientTests.swift::threeColoursAndOpacity  62b3d17d2721
+#669   Packages/CraCore/Tests/CraCoreTests/WindowGradientSliceTests.swift::aColumnShowsItsPartOfTheWindowsAxis  cddb0d3359b6
+#669   Packages/CraCore/Tests/CraCoreTests/WindowGradientSliceTests.swift::colorsFollowTheOklabCurve  7d9cb0604ba3
 #669   Tests/Scenarios/empty-card-appearance.scenario  929ad9bec480
 #669   Tests/Scenarios/space-gradient-axis.scenario  681b61330a50
 #670   iOS/CraUITests/BrowserTests.swift::testExportDataFromSettings  9136fb7a2661

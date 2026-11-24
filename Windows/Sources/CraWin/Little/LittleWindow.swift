@@ -418,7 +418,14 @@ final class LittleWindow {
         switch id {
         case "closeTab", "closeWindow": isPeek ? attemptPeekClose(.closeShortcut) : requestClose()
         case "newTab", "editURL": openCommandBar()
-        case "goBack": page?.goBack()
+        // A Little Window is a link's page: Back with nothing behind closes it (#495); a Peek
+        // keeps to its page's history.
+        case "goBack":
+            switch LittleWindowBack.step(pageCanGoBack: page?.canGoBack ?? false, hasPage: hasPage, peek: isPeek) {
+            case .history: page?.goBack()
+            case .close: requestClose()
+            case .none: break
+            }
         case "goForward": page?.goForward()
         case "reload": page?.reload()
         case "hardReload": page?.reloadIgnoringCache()
@@ -445,7 +452,7 @@ final class LittleWindow {
         case "networkPanel": page?.runDevTools(.network)
         case "promoteLittleWindow": promote(to: nil)
         // Every window's pages; the toast shows here, as the Mac's in the key Little Window.
-        case "pictureInPicture": page?.requestPictureInPicture(automatic: false)
+        case "pictureInPicture": page?.togglePictureInPicture()
         case "pauseAllMedia": list?.pauseAllMedia { [weak self] text, action in self?.showToast(text, action: action) }
         // Move Tab to Space N sends the page there, as the spaces menu does (#86, #92).
         case let id where id.hasPrefix("moveTabToSpace"):

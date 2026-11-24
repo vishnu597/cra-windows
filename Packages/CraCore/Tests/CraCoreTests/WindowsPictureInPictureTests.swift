@@ -28,6 +28,16 @@ struct WindowsPictureInPictureTests {
         #expect(!PictureInPictureRequest.exitScript.contains("requestPictureInPicture"))
     }
 
+    /// PC test of PR #99: running Picture in Picture again left the video floating, because the
+    /// look answers "ok" for a video already out. The ask exits first and requests only when
+    /// nothing came back.
+    @Test func runningItAgainBringsTheVideoBack() {
+        #expect(!PictureInPictureRequest.requestsAfterExit("ok"), "the video came back: done")
+        #expect(PictureInPictureRequest.requestsAfterExit("none"), "nothing was out: ask")
+        #expect(PictureInPictureRequest.requestsAfterExit(nil), "no answer: ask")
+        #expect(PictureInPictureRequest.exitScript.hasPrefix("document.pictureInPictureElement ?"))
+    }
+
     @Test func windowsRunsPictureInPictureFromTheCommandBar() {
         let windows = Dictionary(uniqueKeysWithValues: KeyBindingDefaults.windows.map { ($0.id, $0) })
         #expect(windows["pictureInPicture"]?.inCommandBar == true)
