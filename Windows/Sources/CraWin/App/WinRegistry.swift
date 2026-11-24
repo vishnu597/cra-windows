@@ -62,6 +62,26 @@ enum WinRegistry {
         }
     }
 
+    /// The names of a key's subkeys; none when the key isn't there.
+    static func subkeys(_ key: String, root: HKEY? = nil) -> [String] {
+        var handle: HKEY?
+        // KEY_READ: (STANDARD_RIGHTS_READ | KEY_QUERY_VALUE | KEY_ENUMERATE_SUB_KEYS | KEY_NOTIFY) & ~SYNCHRONIZE.
+        let opened = key.withCString(encodedAs: UTF16.self) { RegOpenKeyExW(root ?? currentUser, $0, 0, REGSAM(0x20019), &handle) }
+        guard opened == 0, let handle else { return [] }
+        defer { RegCloseKey(handle) }
+        var names: [String] = []
+        var index: DWORD = 0
+        while true {
+            // A key name is at most 255 characters.
+            var buffer = [WCHAR](repeating: 0, count: 256)
+            var length = DWORD(buffer.count)
+            guard RegEnumKeyExW(handle, index, &buffer, &length, nil, nil, nil, nil) == 0 else { break }
+            names.append(String(decoding: buffer.prefix(Int(length)), as: UTF16.self))
+            index += 1
+        }
+        return names
+    }
+
     private static func read(_ key: String, _ name: String, type: DWORD, root: HKEY? = nil) -> [UInt8]? {
         let root = root ?? currentUser
         return key.withCString(encodedAs: UTF16.self) { k in
