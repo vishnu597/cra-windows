@@ -118,14 +118,13 @@ final class ImportDialogView {
     /// A browser was picked: its extensions to pick from first, when it has any Cra doesn't.
     private func pick(_ source: WindowsImportSource) {
         let withCredentials = credentials.isChecked == true
-        let offered = extensionsOf(source)
-        let fresh = offered.candidates.filter { !offered.installed.contains($0.id) }
-        guard !fresh.isEmpty else {
+        let browser = extensionsOf(source)
+        let offer = ExtensionImport.offer(browser.candidates, installed: browser.installed)
+        guard !offer.fresh.isEmpty else {
             onImport(source, withCredentials, [])
             return
         }
-        onHeightChange(showExtensions(source, fresh, alreadyIn: offered.candidates.count - fresh.count,
-                                      ticked: ExtensionImport.preselected(fresh, installed: offered.installed), credentials: withCredentials))
+        onHeightChange(showExtensions(source, offer.fresh, alreadyIn: offer.alreadyIn, ticked: offer.ticked, credentials: withCredentials))
         focus()
     }
 
@@ -136,9 +135,7 @@ final class ImportDialogView {
         rows = []
         extensionBoxes = []
         content.children.append(title("Extensions from \(source.name)"))
-        var words = "Cra copies the ones you pick into its own Extensions folder. They load in every profile when Cra next starts."
-        if alreadyIn > 0 { words += alreadyIn == 1 ? " One is in Cra already." : " \(alreadyIn) are in Cra already." }
-        content.children.append(paragraph(words))
+        content.children.append(paragraph(ExtensionImport.offerWords(alreadyIn: alreadyIn)))
         let list = StackPanel()
         list.orientation = .vertical
         list.spacing = 2
