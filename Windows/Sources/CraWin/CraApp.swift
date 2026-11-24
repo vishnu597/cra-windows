@@ -68,6 +68,9 @@ public final class CraApp: SwiftApplication {
                                      onProfileDeleted: deleted.schedule)
             store.runAutoArchive()
             periodic = [clock.every(30 * 60) { store.runAutoArchive() }]
+            // Saved back and forward lists of tabs that are gone, other than the latest closed (#273).
+            PageListStore.shared.prune(keeping: PageHistory.kept(sidebarTabs: Set(store.allTabs().map(\.id)),
+                                                                 archive: store.archive.map(\.id)))
             self.clock = clock
             self.store = store
             startContentBlocking(store: store, clock: clock)
