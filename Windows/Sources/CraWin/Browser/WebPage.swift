@@ -181,6 +181,11 @@ final class WebPage: @unchecked Sendable {
         handle = (profilePath ?? "").withCString { profile in
             cra_browser_create_in(UInt(parent), frame.x, frame.y, frame.width, frame.height, "", 0, profile, callbacks())
         }
+        // Out of sight until a tab takes it: made visible, the spare's blank page sat on top of
+        // the window's page (the newest child window is topmost) and hid it until the next tab
+        // switch (PC test, 24 Nov 2026). Chromium makes the window a turn later; OnAfterCreated
+        // reads this and hides it. The window's layout shows it again once a tab adopts it.
+        isVisible = false
     }
 
     /// A spare taken by a tab: it moves into the tab's window and loads the tab's address.

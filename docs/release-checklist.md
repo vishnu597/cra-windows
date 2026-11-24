@@ -389,6 +389,10 @@ built release app with a test profile. Note anything that fails in the release's
   Application log has no Cra.exe crash in libcef (gfx::WindowImpl::Init). Then click the pin and
   leave it: the popup opens and works (PC test, 23 and 24 Nov 2026: the popup's window was
   destroyed before Chromium made the page in it, which crashed Cra).
+- **Windows spare page hidden:** relaunch Cra, open a new tab (Ctrl+T) on any site and wait three
+  seconds: the page stays on screen (it doesn't turn into an empty dark area), and no extra
+  visible Chrome_WidgetWin child sits over it (PC test, 24 Nov 2026: the spare made ahead for
+  the next tab was created visible on top of the page until the next tab switch).
   Use a real mouse for the double-clicks, including a tab that was not selected before the first
   click and a closed folder. Dragging a row first must not make its next single click rename it.
 - **Windows drag targets and Manage Spaces:** in a test space with no favorites, start dragging
