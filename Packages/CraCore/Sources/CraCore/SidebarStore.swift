@@ -1506,6 +1506,19 @@ public final class SidebarStore {
         touch()
     }
 
+    /// A split row's name: the one it was renamed to, else its panes' names joined by " | ", as
+    /// Arc writes an unnamed split (the Mac's favorite tile and split row).
+    public func splitRowTitle(_ splitID: UUID) -> String {
+        if let title = items[splitID]?.title, !title.isEmpty { return title }
+        return children(of: splitID).map(\.displayTitle).joined(separator: " | ")
+    }
+
+    /// Whether the split menu offers Reset Name and Icon: it was renamed or given an icon.
+    public func splitHasOwnNameOrIcon(_ splitID: UUID) -> Bool {
+        guard let it = items[splitID], it.isSplit else { return false }
+        return it.title != nil || it.split?.icon != SpaceIcon.none
+    }
+
     /// Arc's Reset Name and Icon: the split shows its panes again.
     public func resetSplitNameAndIcon(_ splitID: UUID) {
         setSplitIcon(splitID, .none)

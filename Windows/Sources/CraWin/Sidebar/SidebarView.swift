@@ -493,13 +493,13 @@ final class SidebarView {
         if item.isFolder {
             addFolderRow(item, depth: depth)
         } else if item.isSplit {
-            let titles = store.children(of: item.id).map(\.displayTitle).joined(separator: " | ")
+            let titles = store.splitRowTitle(item.id)
             let selected = store.selectedTabID(window: windowID).map { store.splitContaining($0)?.id == item.id } ?? false
             // A click opens the split on the pane last focused in it (Arc: focusItemID).
             let panes = store.paneTabIDs(for: item.children.first ?? item.id)
             let focus = item.split?.focusTabID.flatMap { panes.contains($0) ? $0 : nil } ?? panes.first
             appendRow(icon: .text("⧉"), title: titles, depth: depth, selected: selected, unread: false, closable: nil,
-                      menu: splitMenu(item, open: selected)) { [weak self] in
+                      menu: splitMenu(item, open: selected), renames: item.id) { [weak self] in
                 self?.dragPressed(.item(item.id))
                 if let focus { self?.select(focus) }
             }
@@ -541,32 +541,9 @@ final class SidebarView {
             })
             menu.items.append(folderIconColorMenu(folder))
         }
-        // Arc's Move to ▸ (upstream #662): every space, the folder's own ticked, then New Space….
-        // The folder goes to the end of that space's Pinned with all it holds.
-        if !store.isIncognito(item: id) {
-            let move = MenuFlyoutSubItem()
-            move.text = "Move to"
-            let own = store.spaceID(ofItem: id)
-            for space in store.orderedSpaces where !store.isIncognito(space: space.id) {
-                let entry = ToggleMenuFlyoutItem()
-                entry.text = "\(space.emoji) \(space.title)"
-                entry.isChecked = space.id == own
-                entry.click.addHandler { [weak self] _, _ in
-                    guard let self, space.id != own else { return }
-                    self.store.moveTab(id, toSpace: space.id, window: self.windowID)
-                }
-                move.items.append(entry)
-            }
-            move.items.append(MenuFlyoutSeparator())
-            move.items.append(UI.menuItem("New Space…") { [weak self] in
-                // Arc's Create a Space page; the tab moves once the space is made, as on the Mac.
-                self?.beginSpaceCreation { [weak self] made in
-                    guard let self else { return }
-                    self.store.moveTab(id, toSpace: made, window: self.windowID)
-                }
-            })
-            menu.items.append(move)
-        }
+        // Arc's Move to ▸ (upstream #662): the folder goes to the end of that space's Pinned with
+        // all it holds.
+        if let move = moveToMenu(id) { menu.items.append(move) }
         menu.items.append(MenuFlyoutSeparator())
         menu.items.append(UI.menuItem("Delete Folder (archives tabs)") { [weak self] in self?.store.deleteFolder(id) })
         let peeked = open ? [] : store.peekedTabs(in: id)
@@ -1145,6 +1122,33 @@ final class SidebarView {
         return sub
     }
 
+    /// Arc's Move to ▸ (upstream #662) for a folder or a split: every space, its own ticked, then
+    /// New Space…, which moves it once the space is made. None from a private window.
+    private func moveToMenu(_ id: UUID) -> MenuFlyoutSubItem? {
+        guard !store.isIncognito(item: id) else { return nil }
+        let move = MenuFlyoutSubItem()
+        move.text = "Move to"
+        let own = store.spaceID(ofItem: id)
+        for space in store.orderedSpaces where !store.isIncognito(space: space.id) {
+            let entry = ToggleMenuFlyoutItem()
+            entry.text = "\(space.emoji) \(space.title)"
+            entry.isChecked = space.id == own
+            entry.click.addHandler { [weak self] _, _ in
+                guard let self, space.id != own else { return }
+                self.store.moveTab(id, toSpace: space.id, window: self.windowID)
+            }
+            move.items.append(entry)
+        }
+        move.items.append(MenuFlyoutSeparator())
+        move.items.append(UI.menuItem("New Space…") { [weak self] in
+            self?.beginSpaceCreation { [weak self] made in
+                guard let self else { return }
+                self.store.moveTab(id, toSpace: made, window: self.windowID)
+            }
+        })
+        return move
+    }
+
     /// Arc 1.171's split menu where the Windows app has the feature (SidebarMenus.split on the Mac).
     private func splitMenu(_ split: SidebarItem, open: Bool) -> MenuFlyout {
         let id = split.id
@@ -1168,6 +1172,18 @@ final class SidebarView {
             options.items.append(UI.menuItem("Close") { [weak self] in self?.actions?.closeSplitPane(paneID) })
             menu.items.append(options)
         }
+        menu.items.append(MenuFlyoutSeparator())
+        // Arc's way back to the panes from a renamed split or one with an icon.
+        if store.splitHasOwnNameOrIcon(id) {
+            menu.items.append(UI.menuItem("Reset Name and Icon") { [weak self] in self?.store.resetSplitNameAndIcon(id) })
+        }
+        menu.items.append(UI.menuItem("Rename…") { [weak self] in self?.beginRename(item: id) })
+        menu.items.append(MenuFlyoutSeparator())
+        menu.items.append(UI.menuItem("Duplicate") { [weak self] in
+            guard let self else { return }
+            _ = self.store.duplicateSplit(id, window: self.windowID)
+        })
+        if let move = moveToMenu(id) { menu.items.append(move) }
         menu.items.append(MenuFlyoutSeparator())
         menu.items.append(UI.menuItem("Archive Item") { [weak self] in
             guard let self else { return }

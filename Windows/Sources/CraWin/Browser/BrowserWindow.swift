@@ -1085,7 +1085,9 @@ final class BrowserWindow {
         case "openLibrary": toggleLibrary()
         case "toggleSidebar": toggleSidebar()
         case "viewArchive": showLibrary(.archive)
-        case "viewDownloads": showLibrary(.downloads)
+        // Ctrl+J is a show/hide toggle like Open Library, as in Arc (LibraryShortcut, #649); the
+        // other pages' commands only show their page.
+        case "viewDownloads": toggleLibrary(.downloads)
         case "manageSpaces": if !isIncognito { showLibrary(.spaces) }
         // Edit Space…: Arc's theme editor beside the sidebar (Windows has no Edit Space sheet yet).
         case "editSpace": if !isIncognito { sidebar.showStyleEditor(space: store.focusedSpaceID(window: windowID)) }
@@ -1186,11 +1188,13 @@ final class BrowserWindow {
 
     // MARK: Commands
 
-    /// Rename Tab…: the open tab's row takes a field. A favorite draws as a tile and a split's
-    /// pane as part of its split's row, so neither has a name to edit there.
+    /// Rename Tab…: the open tab's row takes a field. A pane has no row of its own, so its split's
+    /// name is edited (the Mac's renameTab); a favorite draws as a tile, with no name to edit there.
     private func renameSelectedTab() {
-        guard let t = store.selectedTabID(window: windowID), !store.isFavorite(t), store.splitContaining(t) == nil else { return }
-        sidebar.beginRename(item: t)
+        guard let t = store.selectedTabID(window: windowID) else { return }
+        let row = store.splitContaining(t)?.id ?? t
+        guard !store.isFavorite(row) else { return }
+        sidebar.beginRename(item: row)
     }
 
     private func closeCurrentTab() {
@@ -1331,6 +1335,15 @@ final class BrowserWindow {
     /// Arc's Library button and Ctrl+Shift+L: the Library on the page last shown, or back to the tabs.
     private func toggleLibrary() {
         if libraryPage == nil { showLibrary(lastLibraryPage) } else { closeLibrary() }
+    }
+
+    /// A page's shortcut: that page, or the Library closed when it shows that page already
+    /// (MainWindowController.toggleLibrary(_:)).
+    private func toggleLibrary(_ page: LibraryPage) {
+        switch LibraryShortcut.step(requested: page, shown: libraryPage) {
+        case .show: showLibrary(page)
+        case .close: closeLibrary()
+        }
     }
 
     private func setLibraryShown(_ open: Bool) {
