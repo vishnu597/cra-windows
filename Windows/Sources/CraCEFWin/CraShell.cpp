@@ -222,7 +222,7 @@ extern "C" int cra_clipboard_set_png(const uint8_t *png, size_t length) {
     return ok ? 1 : 0;
 }
 
-extern "C" int cra_clipboard_set_file(const char *path, const uint8_t *png, size_t png_length) {
+extern "C" int cra_clipboard_set_file_and_png(const char *path, const uint8_t *png, size_t png_length) {
     if (!path || !*path) return 0;
     std::wstring wide = Wide(path);
     // CF_HDROP: a DROPFILES header, then the paths as wide strings, the list ended by an empty one.

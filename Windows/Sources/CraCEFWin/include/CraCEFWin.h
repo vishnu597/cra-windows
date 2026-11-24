@@ -156,9 +156,9 @@ char *cra_clipboard_text(void);
 /// A PNG on the clipboard, as "PNG" (what browsers and Office paste) and as a bitmap (CF_DIB,
 /// for Paint and the rest). 1 on success.
 int cra_clipboard_set_png(const uint8_t *png, size_t length);
-/// A file on the clipboard (CF_HDROP: what Explorer, mail and a page's upload paste), with its
-/// PNG bytes as a picture too when `png` isn't NULL (Library ▸ Media's Copy Image). 1 on success.
-int cra_clipboard_set_file(const char *path, const uint8_t *png, size_t png_length);
+/// `cra_clipboard_set_file`, with a PNG's bytes as a picture too (PNG and CF_DIB), all in one
+/// clipboard write: Library ▸ Media's Copy of a PNG. 1 on success.
+int cra_clipboard_set_file_and_png(const char *path, const uint8_t *png, size_t png_length);
 /// Windows' Share window for a link (`title` may be NULL), over `owner` (an HWND). 1 when it opened.
 int cra_share_link(uintptr_t owner, const char *url, const char *title);
 /// One Share attempt: 1 opened, 2 Share's server is temporarily busy, 0 another failure.

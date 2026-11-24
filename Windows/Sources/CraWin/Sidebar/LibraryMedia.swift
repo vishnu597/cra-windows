@@ -111,9 +111,9 @@ enum MediaClipboard {
     static func copy(_ path: String) -> Bool {
         let png = path.lowercased().hasSuffix(".png") ? (try? Data(contentsOf: URL(fileURLWithPath: path))) : nil
         return path.withCString { p in
-            guard let png else { return cra_clipboard_set_file(p, nil, 0) != 0 }
+            guard let png else { return cra_clipboard_set_file(p) != 0 }
             return png.withUnsafeBytes { raw in
-                cra_clipboard_set_file(p, raw.bindMemory(to: UInt8.self).baseAddress, raw.count) != 0
+                cra_clipboard_set_file_and_png(p, raw.bindMemory(to: UInt8.self).baseAddress, raw.count) != 0
             }
         }
     }
