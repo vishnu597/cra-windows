@@ -521,6 +521,7 @@
 #293   Tests/FloatingSidebarTests.swift::arcsReveal  6d2dd8cf74a8
 #293   Tests/Scenarios/sidebar-parity.scenario  5f6091d9d874
 #295   Tests/Scenarios/peek-hidden-sidebar.scenario  9c7db82491f3
+#298   Packages/CraCore/Tests/CraCoreTests/LinkSplitClickTests.swift::altClickOnWindowsSplitsTheLinksDownload  0722246b0e73
 #298   Packages/CraCore/Tests/CraCoreTests/LinkSplitClickTests.swift::optionAloneOrWithCommandSplitsALinkClick  aca5d92cdaeb
 #298   Packages/CraCore/Tests/CraCoreTests/LinkSplitClickTests.swift::optionClickedLinkOpensInSplitInsteadOfDownloading  0bb35690a4d5
 #298   Packages/CraCore/Tests/CraCoreTests/LinkSplitClickTests.swift::otherDownloadsStayDownloads  d9fe10373142

@@ -33,6 +33,17 @@ public enum LinkSplitClick {
             && clickAge >= 0 && clickAge <= freshness && panes(url)
     }
 
+    /// The keys held at a page's last press on Windows, as the bridge reports them (1 Shift,
+    /// 2 Ctrl, 4 Alt), in the modifier flags the rest of this takes: Alt is ⌥, so an Alt-click
+    /// opens the split as an Option-click does. AltGr is Ctrl+Alt to Windows, so it never does.
+    public static func modifiers(windowsKeys bits: Int) -> UInt {
+        var keys: KeyChord.Modifiers = []
+        if bits & 1 != 0 { keys.insert(.shift) }
+        if bits & 2 != 0 { keys.insert(.control) }
+        if bits & 4 != 0 { keys.insert(.option) }
+        return keys.rawValue
+    }
+
     /// Cra's own, not in Arc (GitHub #498): with Settings ▸ Links ▸ "Middle-click a link in a split
     /// adds a pane" on, a link middle-clicked in a page that is a pane of a split opens as a new
     /// pane beside it instead of a tab behind the page. A middle click is a background tab to
