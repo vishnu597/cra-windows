@@ -31,6 +31,13 @@ final class BrowserWindow {
     /// What the sidebar's gradient was last painted for (paintSidebarGradient).
     private var gradientKey: [Double] = []
     private var gradientColors: [RGB] = []
+    /// The space the sidebar last drew and its colours, for the slide to the next (slideIfSwitched).
+    private var slidSpace: UUID?
+    private var lastDrawnColors: [RGB]?
+    /// A space switch's slide under way: the colours it fades from, its side (+1 right, -1 left),
+    /// when it began and how far the colours have come.
+    private var slide: (from: [RGB], direction: Double, started: Double, blend: Double)?
+    private var slideTimer: WinAppSDK.DispatcherQueueTimer?
     /// The toolbar, the address pill and the sidebar: what the Library takes the place of.
     private var sidebarParts: [FrameworkElement] = []
     /// Arc's Library in the sidebar (LibraryView): the page shown, nil while it shows the tabs.
@@ -81,6 +88,13 @@ final class BrowserWindow {
     /// and the gaps between them, in physical pixels relative to the client area.
     private var paneIDs: [UUID] = []
     private var paneFrames: [UUID: PixelRect] = [:]
+    /// A split's panes' own bars (Arc 1.171, GitHub #178), by pane position, and where each sits:
+    /// over its pane's top, which the page leaves free (paneFrames are the pages').
+    private var paneBars: [ToolbarView] = []
+    private var paneBarFrames: [UUID: PixelRect] = [:]
+    private var hoveredPaneBar: Int?
+    /// The Split View Options menu, kept while it shows (a MenuFlyout made from Swift is only a wrapper).
+    private var splitOptionsMenu: MenuFlyout?
     private var paneGaps: [PixelRect] = []
     /// The same layout in DIPs from the page area's top left, for hit-testing the dividers.
     private var paneLayoutResult = SplitPaneLayout.Result()
@@ -156,8 +170,9 @@ final class BrowserWindow {
     private var essentialShortcutsCard: EssentialShortcutsCard?
     /// Use Both's check that the page kept a press (watchUseBoth).
     private var useBothWatch: ScheduledWork?
-    /// Permission requests waiting for the user, oldest first; the first is on screen.
-    private var permissionQueue: [(page: WeakPage, origin: String, kinds: PermissionKinds, answer: (Bool) -> Void)] = []
+    /// Permission requests for the user: one card at a time, and only for a page on screen; a
+    /// tab behind waits until it's shown, as Chrome does (CraCore's `PermissionLine`, #286).
+    private var permissions = PermissionLine<PagePermission>()
     private let permissionPrompt = PermissionPromptView()
     private var permissionWindow: FloatingWindow?
     private var permissionHeight = 120.0
@@ -246,6 +261,7 @@ final class BrowserWindow {
         }
         downloads.pointer = pointer
         sidebar.pointer = pointer
+        sidebar.folderPreview.host = { [weak self] in self?.window }
         // A sidebar drag holds the mouse in the window itself, so no page sees it go by.
         sidebar.captureMouse = { [weak self] in
             guard let self, let host = HWND(bitPattern: self.hwnd) else { return }
@@ -415,6 +431,8 @@ final class BrowserWindow {
         guard !closing else { return }
         withObservationTracking {
             sidebar.build()
+            slideIfSwitched(to: store.focusedSpaceID(window: windowID))
+            lastDrawnColors = sidebar.palette.colors
             paintSidebarGradient()
             applyPaneColors(store.focusedSpace(window: windowID).theme)
             downloads.apply(sidebar.palette, fill: sidebar.fill)
@@ -464,6 +482,7 @@ final class BrowserWindow {
         for (id, page) in pages where shown[id] == nil { page.isVisible = false }
         for page in shown.values { page.isVisible = true }
         noteHidden(shown: Set(shown.keys))
+        if !permissions.isEmpty { askNextPermission() }
         show(selected.flatMap { shown[$0.id] }, tab: selected?.id)
         window.title = Self.title(selected?.displayTitle, incognito: isIncognito)
     }
@@ -473,15 +492,84 @@ final class BrowserWindow {
     }
 
     private func makePage(for id: UUID, url: String) -> WebPage {
-        let page = WebPage(parent: hwnd, frame: paneFrames[id] ?? contentFrame(), url: url, incognito: isIncognito,
-                           profilePath: store.profilePath(item: id), delegate: self)
+        let frame = paneFrames[id] ?? contentFrame()
+        let profile = store.profilePath(item: id)
+        let page: WebPage
+        // The profile's spare, made ahead, when there is one ready (SparePagesWin); then the next.
+        if SparePage.canTake(engine: .chromium, isEasel: false, incognito: isIncognito),
+           let spare = SparePagesWin.shared.take(profilePath: profile) {
+            spare.adopt(delegate: self, parent: hwnd, frame: frame, url: url)
+            page = spare
+        } else {
+            page = WebPage(parent: hwnd, frame: frame, url: url, incognito: isIncognito, profilePath: profile, delegate: self)
+        }
+        if !isIncognito { SparePagesWin.shared.refill(profilePath: profile, parent: hwnd, frame: contentFrame(), clock: clock) }
         livePages.insert(ObjectIdentifier(page))
         newPages[ObjectIdentifier(page)] = Date()
         page.userInfo = id
         page.isVisible = false
         if store.item(id)?.tab?.muted == true { page.setAudioMuted(true) }
         pages[id] = page
+        // The tab's back and forward list from before (#273): Back and Forward step through it
+        // while the page has nothing of its own that way.
+        if !isIncognito, let saved = PageListStore.shared.load(id), saved.restores(at: url) {
+            pageLists[ObjectIdentifier(page)] = saved
+        }
         return page
+    }
+
+    // MARK: Back and forward across a relaunch
+
+    /// The list each page started with (PageList, #273), as Back and Forward have stepped it, and
+    /// how many entries the page's own list had at its last save.
+    private var pageLists: [ObjectIdentifier: PageList] = [:]
+    private var pageEntryCounts: [ObjectIdentifier: Int] = [:]
+
+    /// Saves the tab's list once its page has loaded: Chromium's own list on top of the one the
+    /// page started with.
+    private func savePageList(_ page: WebPage) {
+        guard !page.isIncognito, let id = tabID(of: page), pages[id] === page else { return }
+        page.sendDevToolsMethod("Page.getNavigationHistory") { [weak self, weak page] json, _ in
+            guard let self, let page, let json, let live = PageList.live(history: json) else { return }
+            let key = ObjectIdentifier(page)
+            self.pageEntryCounts[key] = live.entries.count
+            let base = self.pageLists[key] ?? PageList(entries: [], index: 0, savedAt: Date())
+            PageListStore.shared.save(base.merged(live: live.entries, liveIndex: live.index, savedAt: Date()), for: id)
+            if page === self.shownPage { self.syncToolbar() } else { self.syncPaneBars() }
+        }
+    }
+
+    /// Back from the saved list: the page is replaced by the one before it. False when there is
+    /// none (the page has its own page behind, or the list starts here).
+    private func savedBack(_ page: WebPage) -> Bool {
+        let key = ObjectIdentifier(page)
+        guard let step = pageLists[key]?.back(pageCanGoBack: page.canGoBack) else { return false }
+        pageLists[key] = step.list
+        page.executeJavaScript(PageList.replaceScript(step.url))
+        return true
+    }
+
+    private func savedForward(_ page: WebPage) -> Bool {
+        let key = ObjectIdentifier(page)
+        guard let step = pageLists[key]?.forward(pageCanGoForward: page.canGoForward, pageEntries: pageEntryCounts[key] ?? 1)
+        else { return false }
+        pageLists[key] = step.list
+        page.executeJavaScript(PageList.replaceScript(step.url))
+        return true
+    }
+
+    private func canGoBackInSaved(_ page: WebPage) -> Bool {
+        pageLists[ObjectIdentifier(page)]?.back(pageCanGoBack: page.canGoBack) != nil
+    }
+
+    private func canGoForwardInSaved(_ page: WebPage) -> Bool {
+        let key = ObjectIdentifier(page)
+        return pageLists[key]?.forward(pageCanGoForward: page.canGoForward, pageEntries: pageEntryCounts[key] ?? 1) != nil
+    }
+
+    private func goForward() {
+        guard let page = shownPage else { return }
+        if !savedForward(page) { page.goForward() }
     }
 
     /// Focuses the selected tab's page (the panes are already on screen, syncPages).
@@ -529,6 +617,7 @@ final class BrowserWindow {
     private func beginClosing() {
         guard !closing else { return }
         closing = true
+        SparePagesWin.shared.drop(parent: hwnd)
         commandBar.close()
         hideFindBar()
         hideSiteControlCenter()
@@ -539,8 +628,8 @@ final class BrowserWindow {
         extensionPopup?.close()
         toast.hide()
         permissionWindow?.hide()
-        for request in permissionQueue { request.answer(false) }
-        permissionQueue.removeAll()
+        for request in permissions.all { request.answer(false) }
+        permissions = PermissionLine()
         let open = Array(pages.values)
         pages.removeAll()
         shownPage = nil
@@ -600,7 +689,7 @@ final class BrowserWindow {
         try? AutomationProperties.setName(sidebarButton, "Toggle Sidebar")
         toolbar.children.append(sidebarButton)
         let back = UI.button("\u{2190}") { [weak self] in self?.goBack() }
-        let forward = UI.button("\u{2192}") { [weak self] in self?.shownPage?.goForward() }
+        let forward = UI.button("\u{2192}") { [weak self] in self?.goForward() }
         back.contextFlyout = backMenu
         forward.contextFlyout = forwardMenu
         backMenu.opening.addHandler { [weak self] _, _ in self?.openHistoryMenu(.back) }
@@ -1014,7 +1103,9 @@ final class BrowserWindow {
         case "openLibrary": toggleLibrary()
         case "toggleSidebar": toggleSidebar()
         case "viewArchive": showLibrary(.archive)
-        case "viewDownloads": showLibrary(.downloads)
+        // Ctrl+J is a show/hide toggle like Open Library, as in Arc (LibraryShortcut, #649); the
+        // other pages' commands only show their page.
+        case "viewDownloads": toggleLibrary(.downloads)
         case "manageSpaces": if !isIncognito { showLibrary(.spaces) }
         // Edit Space…: Arc's theme editor beside the sidebar (Windows has no Edit Space sheet yet).
         case "editSpace": if !isIncognito { sidebar.showStyleEditor(space: store.focusedSpaceID(window: windowID)) }
@@ -1059,8 +1150,10 @@ final class BrowserWindow {
         case "copyURL": copyURL(markdown: false)
         case "copyURLMarkdown": copyURL(markdown: true)
         case "copyURLQuote": copyURLAsQuote()
+        case "pasteAndGo": pasteAndGo()
         case "stayOnTop": window.staysOnTop.toggle()
         case "capturePage": capture(fullPage: false)
+        case "captureFullPage": capture(fullPage: true)
         case "clearCache": shownPage?.clearSiteDataAndReload(cookies: false)
         case "clearCookies": shownPage?.clearSiteDataAndReload(cookies: true)
         case "devTools": shownPage?.runDevTools(.toggle)
@@ -1069,7 +1162,7 @@ final class BrowserWindow {
         case "networkPanel": shownPage?.runDevTools(.network)
         case "toggleDeveloperMode": toggleDeveloperMode()
         case "goBack": goBack()
-        case "goForward": shownPage?.goForward()
+        case "goForward": goForward()
         // The Mac's steps (MainWindowController.zoom(by:)): half a Chromium zoom level, which
         // Chromium keeps for the site.
         case "zoomIn": if let page = shownPage { page.zoomLevel += 0.5 }
@@ -1114,11 +1207,13 @@ final class BrowserWindow {
 
     // MARK: Commands
 
-    /// Rename Tab…: the open tab's row takes a field. A favorite draws as a tile and a split's
-    /// pane as part of its split's row, so neither has a name to edit there.
+    /// Rename Tab…: the open tab's row takes a field. A pane has no row of its own, so its split's
+    /// name is edited (the Mac's renameTab); a favorite draws as a tile, with no name to edit there.
     private func renameSelectedTab() {
-        guard let t = store.selectedTabID(window: windowID), !store.isFavorite(t), store.splitContaining(t) == nil else { return }
-        sidebar.beginRename(item: t)
+        guard let t = store.selectedTabID(window: windowID) else { return }
+        let row = store.splitContaining(t)?.id ?? t
+        guard !store.isFavorite(row) else { return }
+        sidebar.beginRename(item: row)
     }
 
     private func closeCurrentTab() {
@@ -1276,6 +1371,15 @@ final class BrowserWindow {
     /// Arc's Library button and Ctrl+Shift+L: the Library on the page last shown, or back to the tabs.
     private func toggleLibrary() {
         if libraryPage == nil { showLibrary(lastLibraryPage) } else { closeLibrary() }
+    }
+
+    /// A page's shortcut: that page, or the Library closed when it shows that page already
+    /// (MainWindowController.toggleLibrary(_:)).
+    private func toggleLibrary(_ page: LibraryPage) {
+        switch LibraryShortcut.step(requested: page, shown: libraryPage) {
+        case .show: showLibrary(page)
+        case .close: closeLibrary()
+        }
     }
 
     private func setLibraryShown(_ open: Bool) {
@@ -1665,7 +1769,8 @@ final class BrowserWindow {
         case .developer: DeveloperBarView.height
         case .toolbar: floats && !toolbarTracker.shown ? 0 : ToolbarView.height
         case .none: 0
-        }
+        }        // The focused pane's bar shows all its controls (a selection inside a split lands here).
+        syncPaneBars()
     }
 
     private func startToolbarPoll() {
@@ -1733,6 +1838,7 @@ final class BrowserWindow {
     /// The toolbar's buttons and colour for the open tab (its page's state, which isn't observed:
     /// the page's own callbacks call this too).
     private func syncToolbar() {
+        syncPaneBars()
         guard topBar == .toolbar else { return }
         let item = store.selectedTab(window: windowID)
         var state = ToolbarView.State()
@@ -1743,8 +1849,9 @@ final class BrowserWindow {
             state.themeColor = ToolbarColor.hex(reported: nil, remembered: t.themeColor)
         }
         if let page = shownPage {
-            state.canGoBack = tabID(of: page).map { store.backStep($0, canGoBack: page.canGoBack) != .none } ?? page.canGoBack
-            state.canGoForward = page.canGoForward
+            state.canGoBack = canGoBackInSaved(page)
+                || (tabID(of: page).map { store.backStep($0, canGoBack: page.canGoBack) != .none } ?? page.canGoBack)
+            state.canGoForward = page.canGoForward || canGoForwardInSaved(page)
             state.isLoading = page.isLoading
         }
         state.sidebarVisible = sidebarDocked
@@ -1874,12 +1981,116 @@ final class BrowserWindow {
             let x0 = px(r.minX), x1 = px(r.maxX), y0 = px(r.minY), y1 = px(r.maxY)
             return PixelRect(x: area.x + x0, y: area.y + y0, width: x1 - x0, height: y1 - y0)
         }
-        paneFrames = result.frames.mapValues(pixels)
+        let cards = result.frames.mapValues(pixels)
+        // Each pane of a split has its bar over its page (SplitPaneOptionsMenu.barsShown).
+        let bar = SplitPaneOptionsMenu.barsShown(panes: paneIDs.count, fullscreen: false) ? Int32((ToolbarView.height * scale).rounded()) : 0
+        paneBarFrames = bar > 0 ? cards.mapValues { PixelRect(x: $0.x, y: $0.y, width: $0.width, height: min(bar, $0.height)) } : [:]
+        paneFrames = bar > 0 ? cards.mapValues { c in
+            let top = min(bar, c.height)
+            return PixelRect(x: c.x, y: c.y + top, width: c.width, height: c.height - top)
+        } : cards
         paneGaps = result.gaps.map(pixels)
         for (id, frame) in paneFrames { pages[id]?.frame = frame }
+        placePaneBars()
         window.pill = paneDrag.flatMap { paneGaps.indices.contains($0.divider) ? pill(in: paneGaps[$0.divider]) : nil }
         placeFindBar()
         if slowResponseToastTab != nil { toast?.ownerMoved() }
+    }
+
+    /// Shows a bar over each pane of a split (none over a lone page, whose bar is the window's).
+    private func placePaneBars() {
+        guard let window else { return }
+        guard !paneBarFrames.isEmpty else {
+            hoveredPaneBar = nil
+            window.setPaneBars([])
+            return
+        }
+        while paneBars.count < paneIDs.count { paneBars.append(makePaneBar(index: paneBars.count)) }
+        let none = PixelRect(x: 0, y: 0, width: 0, height: 0)
+        window.setPaneBars(paneIDs.enumerated().map { i, id in (paneBars[i].root, paneBarFrames[id] ?? none) })
+        syncPaneBars()
+    }
+
+    private func makePaneBar(index: Int) -> ToolbarView {
+        let bar = ToolbarView()
+        bar.onKey = { [weak self] key in self?.handleShortcut(key) ?? false }
+        bar.onHover = { [weak self] over in
+            guard let self else { return }
+            if over { self.hoveredPaneBar = index } else if self.hoveredPaneBar == index { self.hoveredPaneBar = nil }
+            self.syncPaneBars()
+        }
+        bar.onAction = { [weak self] action in self?.paneBarAction(action, index: index) }
+        return bar
+    }
+
+    /// Each pane's bar for its own tab: the focused one carries all its controls, the others Arc's
+    /// essentials until the pointer is over them (ToolbarComposition with `inSplit`).
+    private func syncPaneBars() {
+        guard !paneBarFrames.isEmpty else { return }
+        let selected = store.selectedTabID(window: windowID)
+        for (i, id) in paneIDs.enumerated() where i < paneBars.count {
+            var state = ToolbarView.State()
+            state.kind = .emptyPane
+            if let item = store.item(id), let t = item.tab, !item.isEmptyTab {
+                state.kind = .normal
+                state.url = t.url
+                state.easelTitle = item.displayTitle
+                state.themeColor = ToolbarColor.hex(reported: nil, remembered: t.themeColor)
+            }
+            if let page = pages[id] {
+                state.canGoBack = canGoBackInSaved(page) || store.backStep(id, canGoBack: page.canGoBack) != .none
+                state.canGoForward = page.canGoForward || canGoForwardInSaved(page)
+                state.isLoading = page.isLoading
+            }
+            state.sidebarVisible = sidebarDocked
+            state.sidebarSide = store.settings.sidebarSide
+            state.showFullURL = store.settings.toolbarShowsFullURL
+            state.inSplit = true
+            state.focusedPane = selected == id
+            state.hovered = hoveredPaneBar == i
+            paneBars[i].show(state)
+        }
+    }
+
+    /// A click on a pane's bar acts on that pane: it takes the focus first, as Arc's bar does.
+    private func paneBarAction(_ action: String, index: Int) {
+        guard paneIDs.indices.contains(index) else { return }
+        let id = paneIDs[index]
+        if action == "closeSplitPane" { return closeSplitPane(id) }
+        if store.selectedTabID(window: windowID) != id {
+            store.selectTab(id, window: windowID)
+            refresh()
+        }
+        switch action {
+        case "splitOptions": showSplitOptions(for: id, from: paneBars[index].splitOptions)
+        case "siteControls": toggleSiteControlCenter()
+        case "toggleFullURL": store.settings.toolbarShowsFullURL.toggle()
+        case "toggleAutoHideToolbar": store.settings.autoHideToolbar.toggle()
+        case "stop": pages[id]?.stopLoading()
+        default: _ = perform(action)
+        }
+    }
+
+    /// Arc's Split View Options (SplitPaneOptionsMenu), for the pane whose bar it hangs from.
+    private func showSplitOptions(for id: UUID, from anchor: Button?) {
+        guard let anchor else { return }
+        let menu = MenuFlyout()
+        for entry in SplitPaneOptionsMenu.entries {
+            guard let entry else {
+                menu.items.append(MenuFlyoutSeparator())
+                continue
+            }
+            menu.items.append(UI.menuItem(entry.title, action: entry.action) { [weak self] in
+                guard let self else { return }
+                switch entry.action {
+                case "separateFromSplit": self.store.separateFromSplit(id)
+                case "closeSplitPane": self.closeSplitPane(id)
+                default: _ = self.perform(entry.action)
+                }
+            })
+        }
+        splitOptionsMenu = menu
+        try? menu.showAt(anchor)
     }
 
     private func paneLayout(factors: [UUID: CGFloat]) -> SplitPaneLayout {
@@ -1953,11 +2164,56 @@ final class BrowserWindow {
     private func paintSidebarGradient() {
         let scale = window.scale, size = window.appWindow.clientSize, origin = window.columnOrigin
         let key = [size.width, size.height, origin.x, origin.y].map(Double.init) + [scale]
-        guard key != gradientKey || sidebar.palette.colors != gradientColors else { return }
+        // Mid-switch, the colours on their way from the last space's to this one's (slideTick).
+        let colors = slide.map { SpaceSwitchSlide.colors($0.from, sidebar.palette.colors, blend: $0.blend) } ?? sidebar.palette.colors
+        guard key != gradientKey || colors != gradientColors else { return }
         gradientKey = key
-        gradientColors = sidebar.palette.colors
+        gradientColors = colors
         sidebarPanel.background = sidebar.palette.windowFill(width: Double(size.width) / scale, height: Double(size.height) / scale,
-                                                             originX: Double(origin.x) / scale, originY: Double(origin.y) / scale)
+                                                             originX: Double(origin.x) / scale, originY: Double(origin.y) / scale,
+                                                             colors: colors)
+    }
+
+    /// A switch to another space slides its part of the sidebar in from its side of the dock on Arc's
+    /// spring while the gradient cross-fades (SpaceSwitchSlide, the Mac's pager). Called after each
+    /// drawing with the space it drew.
+    private func slideIfSwitched(to space: UUID) {
+        defer { slidSpace = space }
+        guard let last = slidSpace, last != space, let from = lastDrawnColors else { return }
+        let order = store.pagedSpaces(window: windowID).map(\.id)
+        let direction = SpaceSwitchSlide.direction(from: order.firstIndex(of: last), to: order.firstIndex(of: space))
+        guard direction != 0, !WinAppearance.reduceMotion else { return }
+        // A switch mid-slide starts from the colours shown now.
+        let shown = slide.map { SpaceSwitchSlide.colors($0.from, from, blend: $0.blend) } ?? from
+        slide = (from: shown, direction: Double(direction), started: ProcessInfo.processInfo.systemUptime, blend: 0)
+        sidebar.slideSpace(offset: Double(direction))
+        paintSidebarGradient()
+        if slideTimer == nil, let queue = (try? WinAppSDK.DispatcherQueue.getForCurrentThread()) ?? nil {
+            slideTimer = try? queue.createTimer()
+            slideTimer?.interval = TimeSpan(duration: 160_000)  // 16 ms
+            slideTimer?.isRepeating = true
+            slideTimer?.tick.addHandler { [weak self] _, _ in self?.slideTick() }
+        }
+        try? slideTimer?.start()
+    }
+
+    private func slideTick() {
+        guard var s = slide, !closing else {
+            try? slideTimer?.stop()
+            return
+        }
+        let width = sidebarPanel.actualWidth
+        let f = SpaceSwitchSlide.frame(at: ProcessInfo.processInfo.systemUptime - s.started, width: width)
+        if f.done {
+            slide = nil
+            try? slideTimer?.stop()
+            sidebar.slideSpace(offset: 0)
+        } else {
+            s.blend = f.blend
+            slide = s
+            sidebar.slideSpace(offset: f.offset * s.direction)
+        }
+        paintSidebarGradient()
     }
 
     private func applyPaneColors(_ theme: SpaceTheme) {
@@ -1982,10 +2238,20 @@ final class BrowserWindow {
         }
     }
 
-    /// The oldest request's question over the page. A page that closed has no say any more.
-    private func showNextPermission() {
-        permissionQueue.removeAll { $0.page.page == nil || $0.page.page?.isClosed == true }
-        guard let request = permissionQueue.first, let permissionWindow, !closing else {
+    /// The tabs on screen changed, or a card went: a card whose page went behind steps aside
+    /// (unanswered, first in line again) and the oldest request whose page is on screen asks.
+    /// A page that closed has no say any more. True when a card is up.
+    @discardableResult private func askNextPermission() -> Bool {
+        let dead = permissions.remove { $0.page.page == nil || $0.page.page?.isClosed == true }
+        let change = permissions.tabsChanged { $0.page.page?.isVisible == true }
+        if dead.wasAsking || change.aside != nil { permissionWindow?.hide() }
+        if change.next != nil { showAskingPermission() }
+        return permissions.asking != nil
+    }
+
+    /// The asking request's question over the page.
+    private func showAskingPermission() {
+        guard let request = permissions.asking, let permissionWindow, !closing else {
             permissionWindow?.hide()
             return
         }
@@ -1996,19 +2262,18 @@ final class BrowserWindow {
     }
 
     private func answerPermission(_ allowed: Bool) {
-        guard !permissionQueue.isEmpty else { return }
-        permissionQueue.removeFirst().answer(allowed)
+        guard let request = permissions.finish() else { return }
+        request.answer(allowed)
         permissionWindow?.hide()
-        if permissionQueue.isEmpty {
+        if !askNextPermission() {
             if let window = HWND(bitPattern: hwnd) { _ = SetForegroundWindow(window) }
             focusContent()
         }
-        showNextPermission()
     }
 
     /// Centred over the page area, 12 DIPs below its top (where the Mac's sheet drops from).
     private func placePermissionPrompt() {
-        guard let permissionWindow, !permissionQueue.isEmpty, let window, let host = HWND(bitPattern: hwnd) else { return }
+        guard let permissionWindow, permissions.asking != nil, let window, let host = HWND(bitPattern: hwnd) else { return }
         let scale = window.scale, area = window.contentFrame
         let width = Int32((PermissionPromptView.width * scale).rounded()), height = Int32((permissionHeight * scale).rounded())
         var corner = POINT(x: area.x + (area.width - width) / 2, y: area.y + Int32((12 * scale).rounded()))
@@ -2114,11 +2379,7 @@ final class BrowserWindow {
             self?.runImport(source, credentials: credentials, extensions: extensions)
         }
         importDialog.onCancel = { [weak self] in self?.hideImportDialog() }
-        importDialog.extensionsOf = { [weak self] source in
-            guard let self, let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment),
-                  let userData = source.userData(in: folders) else { return ([], []) }
-            return (ExtensionImport.candidates(inUserData: userData), self.installedExtensionIDs())
-        }
+        importDialog.extensionsOf = { [weak self] source in self?.importableExtensions(source) ?? ([], []) }
         importDialog.onHeightChange = { [weak self] height in
             self?.importDialogHeight = height
             self?.placeImportDialog()
@@ -2203,6 +2464,13 @@ final class BrowserWindow {
         return .done(summary: summary, credentials: details.isEmpty ? nil : details.joined(separator: " "))
     }
 
+    /// The browser's extensions, and the IDs Cra has already, for the import's extensions page.
+    private func importableExtensions(_ source: WindowsImportSource) -> (candidates: [ExtensionImport.Candidate], installed: Set<String>) {
+        guard let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment),
+              let userData = source.userData(in: folders) else { return ([], []) }
+        return (ExtensionImport.candidates(inUserData: userData), installedExtensionIDs())
+    }
+
     /// Every extension ID Cra has: installed in any of its profiles (turned off too), or waiting in
     /// its Extensions folder for the next start.
     private func installedExtensionIDs() -> Set<String> {
@@ -2222,9 +2490,10 @@ final class BrowserWindow {
         let view = OnboardingView()
         let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment)
         let sources = folders.map { f in WindowsImportSource.available(in: f).map { OnboardingView.Source(source: $0, profiles: $0.profiles(in: f)) } } ?? []
-        view.importData = { [weak self] source, credentials in
+        view.extensionsOf = { [weak self] source in self?.importableExtensions(source) ?? ([], []) }
+        view.importData = { [weak self] source, credentials, extensions in
             guard let self else { return .failed("") }
-            let outcome = self.importData(source, credentials: credentials)
+            let outcome = self.importData(source, credentials: credentials, extensions: extensions)
             // Showing the imported space brings this window forward; the card takes the
             // keyboard back so Return still presses Continue (PR #38's PC test).
             _ = try? self.dispatcher.tryEnqueue { [weak self] in
@@ -2572,6 +2841,23 @@ final class BrowserWindow {
 
     /// Copy URL as Quote: the page's selection in curly quotes, then a link that scrolls to it
     /// (CleanURL.quote; the Mac's PageCommands.copyURLAsQuote).
+    /// Edit ▸ Paste and Go (AppDelegate.pasteAndGo, #610): the copied link as a new tab, other
+    /// copied text searched, routed by Air Traffic Control as a typed address is. From the command
+    /// bar, so no field has the keys and it never just pastes; a beep when there is nothing to open.
+    private func pasteAndGo() {
+        guard case .open(let text) = PasteAndGo.outcome(typing: false, clipboard: WinShell.text()) else {
+            _ = MessageBeep(0)
+            return
+        }
+        let url = SuggestionEngine.looksLikeURL(text) ? SuggestionEngine.urlFromInput(text) : engine.searchURL(text)
+        if !isIncognito, let space = store.settings.space(forTypedURL: url), space != store.focusedSpaceID(window: windowID),
+           store.orderedSpaces.contains(where: { $0.id == space }) {
+            store.createTab(url: url, in: space, window: windowID)
+        } else {
+            store.createTab(url: url, window: windowID)
+        }
+    }
+
     private func copyURLAsQuote() {
         guard let page = shownPage, let url = store.selectedTab(window: windowID)?.tab?.url, !url.isEmpty else { return }
         page.sendDevToolsMethod("Runtime.evaluate", params: #"{"expression":"getSelection().toString()","returnByValue":true}"#) { [weak self] result, _ in
@@ -2924,8 +3210,9 @@ extension BrowserWindow: WebPageDelegate {
     }
 
     func page(_ page: WebPage, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool) {
+        if !loading { savePageList(page) }
         syncSlowResponse()
-        if page === shownPage { syncToolbar() }
+        if page === shownPage { syncToolbar() } else { syncPaneBars() }
         if page === shownPage { syncLoadingBar(animated: true) }
     }
 
@@ -3055,6 +3342,8 @@ extension BrowserWindow: WebPageDelegate {
     private func goBack() {
         guard let page = shownPage else { return }
         guard let id = tabID(of: page) else { return page.goBack() }
+        // The saved pages from before a relaunch come before closing to the source tab.
+        if savedBack(page) { return }
         switch store.backStep(id, canGoBack: page.canGoBack) {
         case .history: page.goBack()
         case .close(let referrer):
@@ -3243,8 +3532,8 @@ extension BrowserWindow: WebPageDelegate {
     func page(_ page: WebPage, requestsPermissionForOrigin origin: String, kinds: PermissionKinds,
               answer: @escaping (Bool) -> Void) {
         guard !closing else { return answer(false) }
-        permissionQueue.append((WeakPage(page), origin, kinds, answer))
-        if permissionQueue.count == 1 { showNextPermission() }
+        let request = PagePermission(page: WeakPage(page), origin: origin, kinds: kinds, answer: answer)
+        if permissions.add(request, tabShown: page.isVisible) { showAskingPermission() }
     }
 
     /// A click into another pane focuses it (Arc: the split's focusItemID follows the click). The
@@ -3291,6 +3580,8 @@ extension BrowserWindow: WebPageDelegate {
 
     func pageDidClose(_ page: WebPage) {
         livePages.remove(ObjectIdentifier(page))
+        pageLists[ObjectIdentifier(page)] = nil
+        pageEntryCounts[ObjectIdentifier(page)] = nil
         newPages[ObjectIdentifier(page)] = nil
         if closing {
             // After this callback: it comes from inside CEF's OnBeforeClose, and destroying the
@@ -3301,12 +3592,10 @@ extension BrowserWindow: WebPageDelegate {
             return
         }
         // Chromium dismissed its requests; the prompt moves on if it was asking for this page.
-        if permissionQueue.first?.page.page === page {
-            permissionQueue.removeFirst()
+        if permissions.remove(where: { $0.page.page === page }).wasAsking {
             permissionWindow?.hide()
-            showNextPermission()
+            askNextPermission()
         }
-        permissionQueue.removeAll { $0.page.page === page }
         guard let id = tabID(of: page), pages[id] === page else { return }
         pages[id] = nil
         // window.close(): the page's tab goes as a closed tab would.
@@ -3318,6 +3607,14 @@ extension BrowserWindow: WebPageDelegate {
 struct WeakPage {
     weak var page: WebPage?
     init(_ page: WebPage) { self.page = page }
+}
+
+/// A page's permission request waiting in `BrowserWindow.permissions`.
+struct PagePermission {
+    let page: WeakPage
+    let origin: String
+    let kinds: PermissionKinds
+    let answer: (Bool) -> Void
 }
 
 // MARK: - A sidebar tab dropped onto the page

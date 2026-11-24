@@ -19,6 +19,7 @@
 
 #include <climits>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <set>
 #include <string>
@@ -164,6 +165,27 @@ extern "C" int cra_clipboard_set_text(const char *text) {
     return clipboard.open && clipboard.Put(CF_UNICODETEXT, wide.c_str(), (wide.size() + 1) * sizeof(wchar_t)) ? 1 : 0;
 }
 
+extern "C" char *cra_clipboard_text(void) {
+    // Not Clipboard, which empties the clipboard to write it.
+    bool open = false;
+    for (int i = 0; i < 10 && !(open = OpenClipboard(nullptr) != 0); i++) Sleep(10);
+    if (!open) return nullptr;
+    char *out = nullptr;
+    if (HANDLE data = GetClipboardData(CF_UNICODETEXT)) {
+        if (auto *text = static_cast<const wchar_t *>(GlobalLock(data))) {
+            int n = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+            if (n > 0 && (out = static_cast<char *>(std::malloc(n))) != nullptr &&
+                WideCharToMultiByte(CP_UTF8, 0, text, -1, out, n, nullptr, nullptr) != n) {
+                std::free(out);
+                out = nullptr;
+            }
+            GlobalUnlock(data);
+        }
+    }
+    CloseClipboard();
+    return out;
+}
+
 extern "C" int cra_clipboard_set_file(const char *path) {
     if (!path || !*path) return 0;
     std::wstring wide = Wide(path);
@@ -197,6 +219,27 @@ extern "C" int cra_clipboard_set_png(const uint8_t *png, size_t length) {
     static const UINT pngFormat = RegisterClipboardFormatW(L"PNG");
     bool ok = pngFormat && clipboard.Put(pngFormat, png, length);
     if (!dib.empty()) ok = clipboard.Put(CF_DIB, dib.data(), dib.size()) || ok;
+    return ok ? 1 : 0;
+}
+
+extern "C" int cra_clipboard_set_file_and_png(const char *path, const uint8_t *png, size_t png_length) {
+    if (!path || !*path) return 0;
+    std::wstring wide = Wide(path);
+    // CF_HDROP: a DROPFILES header, then the paths as wide strings, the list ended by an empty one.
+    std::vector<uint8_t> drop(sizeof(DROPFILES) + (wide.size() + 2) * sizeof(wchar_t), 0);
+    auto *header = reinterpret_cast<DROPFILES *>(drop.data());
+    header->pFiles = sizeof(DROPFILES);
+    header->fWide = TRUE;
+    memcpy(drop.data() + sizeof(DROPFILES), wide.c_str(), wide.size() * sizeof(wchar_t));
+    std::vector<uint8_t> dib = png && png_length > 0 && png_length <= UINT_MAX ? DIBFromPNG(png, png_length) : std::vector<uint8_t>();
+    Clipboard clipboard;
+    if (!clipboard.open) return 0;
+    bool ok = clipboard.Put(CF_HDROP, drop.data(), drop.size());
+    if (png && png_length > 0) {
+        static const UINT pngFormat = RegisterClipboardFormatW(L"PNG");
+        if (pngFormat) ok = clipboard.Put(pngFormat, png, png_length) || ok;
+        if (!dib.empty()) ok = clipboard.Put(CF_DIB, dib.data(), dib.size()) || ok;
+    }
     return ok ? 1 : 0;
 }
 

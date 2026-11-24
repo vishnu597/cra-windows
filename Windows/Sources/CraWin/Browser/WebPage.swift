@@ -171,6 +171,25 @@ final class WebPage: @unchecked Sendable {
         }
     }
 
+    /// A spare (SparePagesWin): a page in `profilePath`'s profile with nothing loaded, hidden in
+    /// `parent`, for the next tab that needs a page to take (`adopt`). No URL, so the address a
+    /// tab loads into it is the first entry of its history.
+    init(spareIn parent: UInt, frame: PixelRect, profilePath: String?) {
+        self.frame = frame
+        self.isIncognito = false
+        self.profilePath = profilePath
+        handle = (profilePath ?? "").withCString { profile in
+            cra_browser_create_in(UInt(parent), frame.x, frame.y, frame.width, frame.height, "", 0, profile, callbacks())
+        }
+    }
+
+    /// A spare taken by a tab: it moves into the tab's window and loads the tab's address.
+    func adopt(delegate: WebPageDelegate, parent: UInt, frame: PixelRect, url: String) {
+        self.delegate = delegate
+        move(toParent: parent, frame: frame)
+        loadURL(url)
+    }
+
     /// A popup host: return it from `page(_:popupHostForURL:inBackground:)` and the popup
     /// opens in it, in its opener's profile (which `incognito` and `profilePath` record).
     init(popupHostIn parent: UInt, frame: PixelRect, incognito: Bool = false, profilePath: String? = nil,
@@ -465,6 +484,17 @@ final class WebPage: @unchecked Sendable {
             let url = string(url)
             guard let extra = LinkMenuExtra(rawValue: Int(item)) else { return }
             WebPage.with(ctx) { $0.delegate?.page($0, opensLink: url, in: extra) }
+        }
+        // An Alt-clicked link, which Chromium downloads, opens in Split View as in Arc (#298), where
+        // the page offers Open Link in Split View (BrowserManager's opensSplitForDownloadURL).
+        cb.download_opens_split = { ctx, url, keys, age in
+            let url = string(url)
+            return WebPage.with(ctx, Int32(0)) { page in
+                guard LinkSplitClick.opensSplit(downloadOf: url, clickModifiers: LinkSplitClick.modifiers(windowsKeys: Int(keys)), clickAge: age),
+                      page.delegate?.linkMenuExtras(for: page).contains(.splitView) == true else { return 0 }
+                page.delegate?.page(page, opensLink: url, in: .splitView)
+                return 1
+            }
         }
         cb.view_source_requested = { ctx, url in
             WebPage.with(ctx) { $0.viewSource(of: string(url)) }

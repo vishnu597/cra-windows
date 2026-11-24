@@ -273,10 +273,15 @@ public enum KeyBindingDefaults {
             "editURL": [KeyChord("l", ctrl)],
             "closeTab": [KeyChord("w", ctrl)],
             "capturePage": [KeyChord("2", ctrlShift)],
+            // The Mac has no key for it either.
+            "captureFullPage": [],
             "copyURL": [KeyChord("c", ctrlShift)],
             "copyURLMarkdown": [KeyChord("c", [.control, .option, .shift] as KeyChord.Modifiers)],
             // The Mac's ⌃⇧⌘C has no Windows counterpart left (Ctrl+Alt+Shift+C is Markdown).
             "copyURLQuote": [],
+            // Edit ▸ Paste and Go, from the command bar: the Mac's ⌥⌘V would be Ctrl+Alt+V, which
+            // is AltGr+V and types a letter on many keyboards.
+            "pasteAndGo": [],
             "find": [KeyChord("f", ctrl)],
             "findNext": [KeyChord("g", ctrl), KeyChord(KeyChord.function(3), [] as KeyChord.Modifiers)],
             "findPrevious": [KeyChord("g", ctrlShift), KeyChord(KeyChord.function(3), KeyChord.Modifiers.shift)],

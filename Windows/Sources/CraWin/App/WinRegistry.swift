@@ -62,6 +62,26 @@ enum WinRegistry {
         }
     }
 
+    /// The names of a key's subkeys; none when the key isn't there.
+    static func subkeys(_ key: String, root: HKEY? = nil) -> [String] {
+        var handle: HKEY?
+        // KEY_READ: (STANDARD_RIGHTS_READ | KEY_QUERY_VALUE | KEY_ENUMERATE_SUB_KEYS | KEY_NOTIFY) & ~SYNCHRONIZE.
+        let opened = key.withCString(encodedAs: UTF16.self) { RegOpenKeyExW(root ?? currentUser, $0, 0, REGSAM(0x20019), &handle) }
+        guard opened == 0, let handle else { return [] }
+        defer { RegCloseKey(handle) }
+        var names: [String] = []
+        var index: DWORD = 0
+        while true {
+            // A key name is at most 255 characters.
+            var buffer = [WCHAR](repeating: 0, count: 256)
+            var length = DWORD(buffer.count)
+            guard RegEnumKeyExW(handle, index, &buffer, &length, nil, nil, nil, nil) == 0 else { break }
+            names.append(String(decoding: buffer.prefix(Int(length)), as: UTF16.self))
+            index += 1
+        }
+        return names
+    }
+
     private static func read(_ key: String, _ name: String, type: DWORD, root: HKEY? = nil) -> [UInt8]? {
         let root = root ?? currentUser
         return key.withCString(encodedAs: UTF16.self) { k in
@@ -105,6 +125,15 @@ enum WinAppearance {
     /// Settings ▸ Personalization ▸ Colors ▸ "Transparency effects" turned off: macOS's Reduce
     /// transparency, which flattens the sidebar's material to one grey, active or not.
     static var reduceTransparency: Bool { WinRegistry.dword(personalize, "EnableTransparency") == 0 }
+
+    /// Settings ▸ Accessibility ▸ Visual effects ▸ "Animation effects" turned off: macOS's Reduce
+    /// motion, which skips the space switch's slide.
+    static var reduceMotion: Bool {
+        var on: Int32 = 1  // a BOOL
+        // SPI_GETCLIENTAREAANIMATION
+        guard SystemParametersInfoW(UINT(0x1042), 0, &on, 0) else { return false }
+        return on == 0
+    }
 
     /// The accent colour (DWM keeps it as 0xAABBGGRR); Windows 11's default blue without one.
     static var accent: (r: UInt8, g: UInt8, b: UInt8) {

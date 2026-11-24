@@ -2,6 +2,7 @@ import CraCore
 import Foundation
 import UWP
 import WinAppSDK
+import WindowsFoundation
 import WinSDK
 import WinUI
 
@@ -23,8 +24,8 @@ protocol LibraryActions: AnyObject {
 /// shortcut, Escape or the arrow, and opens it again on the page last shown.
 @MainActor
 final class LibraryView {
-    /// The pages Windows has, in the rail's order: no Media (the Mac's MediaScanner) or Easels
-    /// (EaselCanvasView) yet. A private window has no Spaces page (it shows only its own space).
+    /// The pages Windows has, in the rail's order: no Easels (EaselCanvasView) or Boosts yet. A
+    /// private window has no Spaces page (it shows only its own space).
     let pages: [LibraryPage]
 
     let root = Grid()
@@ -57,6 +58,11 @@ final class LibraryView {
     private let emptyTitle = TextBlock()
     private let emptyDetail = TextBlock()
     private var palette = SidebarPalette(SpaceTheme.presets[0])
+    /// Arc's card over the Media page until Show Media is pressed.
+    private var mediaCard: Border?
+    private let media = MediaScannerWin.shared
+    /// The folders last read, so a redraw for another reason doesn't read them again.
+    private var mediaScanned: [MediaLibrary.Folder]?
     private var query = ""
     /// What the rows were last built from: a store change that leaves it alone (a page's title)
     /// doesn't build them again.
@@ -66,7 +72,7 @@ final class LibraryView {
          spaces: SpacesManagerView? = nil, actions: LibraryActions) {
         self.store = store
         self.spaces = spaces
-        pages = spaces == nil ? [.downloads, .archive] : [.downloads, .spaces, .archive]
+        pages = spaces == nil ? [.media, .downloads, .archive] : [.media, .downloads, .spaces, .archive]
         self.history = history
         self.favicons = favicons
         self.actions = actions
@@ -127,6 +133,9 @@ final class LibraryView {
     func build(_ palette: SidebarPalette, dark: Bool) {
         let archive = store.archive
         let entries = history.entries
+        // Running, failed and cancelled downloads too (#245; the PC test found the page without
+        // a running one): their progress lines are part of what redraws it.
+        let listed = page == .downloads ? history.library(query: query) : []
         let revision = thumbnails.revision
         var key = Hasher()
         key.combine(page)
@@ -136,7 +145,15 @@ final class LibraryView {
         key.combine(archive.map(\.id))
         key.combine(archive.map(\.item.displayTitle))
         key.combine(entries.map(\.id))
+        key.combine(listed.map { "\($0.id)|\($0.name)|\($0.subtitle(now: Date()))" })
         key.combine(Calendar.current.startOfDay(for: Date()))
+        if page == .media {
+            key.combine(store.settings.mediaLibraryEnabled)
+            key.combine(store.settings.mediaFolders.map(\.rawValue))
+            key.combine(store.settings.mediaHidden)
+            key.combine(media.files.map(\.path))
+            key.combine(media.revision)
+        }
         let built = key.finalize()
         self.palette = palette
         root.requestedTheme = dark ? .dark : .light
@@ -147,17 +164,23 @@ final class LibraryView {
             return spaces.build(dark: dark)
         }
         guard built != builtFrom else { return }
+        // Read again when the page shows or its folders change; the scan is off the UI thread.
+        if page == .media, store.settings.mediaLibraryEnabled, builtFrom == nil || mediaScanned != store.settings.mediaFolders {
+            mediaScanned = store.settings.mediaFolders
+            media.rescan(store.settings.mediaFolders)
+        }
         builtFrom = built
         rows.children.clear()
+        mediaCard?.visibility = .collapsed
         switch page {
         case .downloads:
             let exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
-            let sections = LibraryList.downloads(entries, matching: query, exists: exists)
+            let sections = LibraryList.downloads(listed)
             for section in sections {
                 addHeader(section.title)
-                for entry in section.items { addDownload(entry) }
+                for row in section.items { addDownload(row) }
             }
-            showEmpty(sections.isEmpty, LibraryList.empty(.downloads, hasAny: entries.contains { exists($0.path) }))
+            showEmpty(sections.isEmpty, LibraryList.empty(.downloads, hasAny: !history.live.isEmpty || entries.contains { exists($0.path) }))
         case .archive:
             let sections = LibraryList.archive(archive, matching: query)
             for section in sections {
@@ -165,7 +188,17 @@ final class LibraryView {
                 for item in section.items { addArchived(item) }
             }
             showEmpty(sections.isEmpty, LibraryList.empty(.archive, hasAny: !archive.isEmpty))
-        case .media, .easels, .boosts, .spaces:
+        case .media:
+            guard store.settings.mediaLibraryEnabled else {
+                showEmpty(false, LibraryList.empty(.media, hasAny: false))
+                scroll.visibility = .collapsed
+                showMediaCard(dark: dark)
+                break
+            }
+            let files = MediaLibrary.shown(media.files, query: query, hidden: Set(store.settings.mediaHidden))
+            for pair in MediaLibrary.rows(files) { addMediaRow(pair, dark: dark) }
+            showEmpty(files.isEmpty, LibraryList.empty(.media, hasAny: !media.files.isEmpty))
+        case .easels, .boosts, .spaces:
             showEmpty(true, LibraryList.Empty(symbol: page.symbol, title: "Not on Windows yet", detail: nil))
         }
     }
@@ -359,9 +392,181 @@ final class LibraryView {
             let clear = UI.menuItem("Clear Archive") { [weak self] in self?.store.clearArchive() }
             clear.isEnabled = !store.archive.isEmpty
             pageMenu.items.append(clear)
-        case .media, .easels, .spaces, .boosts:
+        case .media:
+            // Arc's right-click on the Library button: "Show media", each folder ticked when shown.
+            let header = UI.menuItem("Show media") {}
+            header.isEnabled = false
+            pageMenu.items.append(header)
+            for folder in MediaLibrary.Folder.allCases {
+                let entry = ToggleMenuFlyoutItem()
+                entry.text = folder.title
+                entry.isChecked = store.settings.mediaFolders.contains(folder)
+                entry.click.addHandler { [weak self] _, _ in
+                    guard let self else { return }
+                    self.store.settings.mediaFolders = MediaLibrary.toggled(folder, in: self.store.settings.mediaFolders)
+                }
+                pageMenu.items.append(entry)
+            }
+            if store.settings.mediaLibraryEnabled {
+                pageMenu.items.append(MenuFlyoutSeparator())
+                pageMenu.items.append(UI.menuItem("Hide Media") { [weak self] in self?.store.settings.mediaLibraryEnabled = false })
+            }
+        case .easels, .spaces, .boosts:
             break
         }
+    }
+
+    // MARK: Media
+
+    /// Arc's card over the Media page until it is turned on (the Mac's MediaOptInCard): its glyph,
+    /// "Your Media in the Library", what it does, Show Media and the privacy line, 222 DIPs wide.
+    private func showMediaCard(dark: Bool) {
+        let card = mediaCard ?? makeMediaCard()
+        card.background = dark ? UI.brush(46, 46, 46) : UI.brush(255, 255, 255)
+        card.requestedTheme = dark ? .dark : .light
+        card.visibility = .visible
+    }
+
+    private func makeMediaCard() -> Border {
+        let stack = StackPanel()
+        stack.spacing = 8
+        let glyph = FontIcon()
+        glyph.glyph = WinGlyph.code("photo.on.rectangle")
+        glyph.fontSize = 28
+        glyph.foreground = UI.brush(140, 120, 237)
+        glyph.margin = Thickness(left: 0, top: 4, right: 0, bottom: 0)
+        stack.children.append(glyph)
+        let title = UI.text(MediaLibrary.OptIn.title, size: 13)
+        title.fontWeight = UWP.FontWeight(weight: 600)
+        title.horizontalAlignment = .center
+        stack.children.append(title)
+        let detail = UI.text(MediaLibrary.OptIn.detail, size: 11.5)
+        detail.textWrapping = .wrap
+        detail.textAlignment = .center
+        detail.opacity = 0.8
+        stack.children.append(detail)
+        let label = UI.text(MediaLibrary.OptIn.button, size: 13, color: UI.brush(255, 255, 255))
+        label.fontWeight = UWP.FontWeight(weight: 500)
+        label.horizontalAlignment = .center
+        let button = UI.button(label, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in
+            self?.store.settings.mediaLibraryEnabled = true
+        }
+        button.height = 32
+        button.horizontalAlignment = .stretch
+        button.cornerRadius = CornerRadius(topLeft: 8, topRight: 8, bottomRight: 8, bottomLeft: 8)
+        // Arc's pink-to-blue button.
+        let fill = LinearGradientBrush()
+        fill.startPoint = WindowsFoundation.Point(x: 0, y: 0.5)
+        fill.endPoint = WindowsFoundation.Point(x: 1, y: 0.5)
+        for (offset, color) in [(0.0, UWP.Color(a: 255, r: 217, g: 140, b: 204)), (1.0, UWP.Color(a: 255, r: 102, g: 107, b: 242))] {
+            let stop = GradientStop()
+            stop.offset = offset
+            stop.color = color
+            fill.gradientStops.append(stop)
+        }
+        button.background = fill
+        button.margin = Thickness(left: 0, top: 4, right: 0, bottom: 0)
+        stack.children.append(button)
+        let privacy = StackPanel()
+        privacy.orientation = .horizontal
+        privacy.spacing = 4
+        let lock = FontIcon()
+        lock.glyph = WinGlyph.code("lock.fill")
+        lock.fontSize = 8
+        lock.verticalAlignment = .top
+        lock.margin = Thickness(left: 0, top: 3, right: 0, bottom: 0)
+        privacy.children.append(lock)
+        let line = UI.text(MediaLibrary.OptIn.privacy, size: 10)
+        line.textWrapping = .wrap
+        line.maxWidth = 176
+        privacy.children.append(line)
+        privacy.opacity = 0.6
+        stack.children.append(privacy)
+        let card = Border()
+        card.child = stack
+        card.width = 222
+        card.padding = Thickness(left: 16, top: 16, right: 16, bottom: 16)
+        card.cornerRadius = CornerRadius(topLeft: 12, topRight: 12, bottomRight: 12, bottomLeft: 12)
+        card.horizontalAlignment = .center
+        card.verticalAlignment = .top
+        card.margin = Thickness(left: 0, top: 60, right: 0, bottom: 0)
+        listColumn.children.append(card)
+        try? Grid.setRow(card, 1)
+        mediaCard = card
+        return card
+    }
+
+    /// One row of Arc's grid: up to two tiles, the picture fitted in each.
+    private func addMediaRow(_ files: [MediaLibrary.File], dark: Bool) {
+        let m = MediaGridWin.self
+        let row = Grid()
+        row.columnDefinitions.append(UI.column(UI.star))
+        row.columnDefinitions.append(UI.column(UI.star))
+        row.columnSpacing = m.gap
+        row.margin = Thickness(left: m.inset, top: 0, right: m.trailing, bottom: m.rowGap)
+        let ink: UInt8 = dark ? 255 : 0
+        for (i, file) in files.enumerated() {
+            let picture = Border()
+            picture.background = UI.brush(255, 255, 255)
+            picture.padding = Thickness(left: m.frame, top: m.frame, right: m.frame, bottom: m.frame)
+            picture.horizontalAlignment = .center
+            picture.verticalAlignment = .center
+            if let image = media.thumbnail(file) {
+                let view = WinUI.Image()
+                view.source = image
+                view.stretch = .uniform
+                view.maxWidth = m.tile - 2 * m.padding - 2 * m.frame
+                view.maxHeight = m.tile - 2 * m.padding - 2 * m.frame
+                picture.child = view
+            } else {
+                picture.width = 96
+                picture.height = 72
+                picture.background = UI.brush(ink, ink, ink, alpha: 15)
+            }
+            let tile = Grid()
+            tile.children.append(picture)
+            if MediaLibrary.isVideo(file.path) {
+                // Arc marks a video with a white ▶ over its picture.
+                let play = FontIcon()
+                play.glyph = WinGlyph.code("play.fill")
+                play.fontSize = 22
+                play.foreground = UI.brush(255, 255, 255)
+                play.horizontalAlignment = .center
+                play.verticalAlignment = .center
+                tile.children.append(play)
+            }
+            let menu = MenuFlyout()
+            let video = MediaLibrary.isVideo(file.path)
+            for action in MediaLibrary.windowsActions {
+                if action.startsGroup { menu.items.append(MenuFlyoutSeparator()) }
+                menu.items.append(UI.menuItem(action.windowsTitle(isVideo: video)) { [weak self] in
+                    guard let self else { return }
+                    switch action {
+                    case .copy: MediaClipboard.copy(file.path)
+                    case .showInFinder: Shell.showInFolder(file.path)
+                    case .hide:
+                        if !self.store.settings.mediaHidden.contains(file.path) { self.store.settings.mediaHidden.append(file.path) }
+                    case .sendMessage, .airDrop: break
+                    }
+                })
+            }
+            // A click opens it in Windows' viewer for its type (Photos, Media Player).
+            let button = UI.button(tile, padding: Thickness(left: m.padding, top: m.padding, right: m.padding, bottom: m.padding)) {
+                Shell.open(file.path)
+            }
+            button.height = m.tile
+            button.horizontalAlignment = .stretch
+            button.horizontalContentAlignment = .center
+            button.verticalContentAlignment = .center
+            button.cornerRadius = CornerRadius(topLeft: 10, topRight: 10, bottomRight: 10, bottomLeft: 10)
+            button.background = UI.brush(ink, ink, ink, alpha: 10)
+            button.contextFlyout = menu
+            ArcTip.set(button, file.name)
+            try? AutomationProperties.setName(button, file.name)
+            row.children.append(button)
+            try? Grid.setColumn(button, Int32(i))
+        }
+        rows.children.append(row)
     }
 
     // MARK: Rows
@@ -400,10 +605,21 @@ final class LibraryView {
         if !url.isEmpty { ArcTip.set(row, url, placement: .cursor) }
     }
 
-    private func addDownload(_ entry: DownloadHistory.Entry) {
-        let path = entry.path
+    /// A download's row: a finished file's preview (or its type's icon while it runs), its name
+    /// and DownloadList's line (progress, "Cancelled", or size and time).
+    private func addDownload(_ row: DownloadHistory.Listed) {
+        let picture: WriteableBitmap?
+        let path: String?
+        switch row {
+        case .finished(let entry):
+            picture = thumbnails.thumbnail(for: entry.path)
+            path = entry.path
+        case .live(let live):
+            picture = thumbnails.typeIcon(for: live.name)
+            path = nil
+        }
         let tile: FrameworkElement
-        if let picture = thumbnails.thumbnail(for: path) {
+        if let picture {
             tile = UI.image(picture, size: 32)
         } else {
             let box = Border()
@@ -413,12 +629,19 @@ final class LibraryView {
             box.background = palette.tile
             tile = box
         }
-        // Arc's download menu (DownloadMenu): Open, Copy, Show in Folder, Hide, Move to Recycle Bin.
+        // Arc's download menu (DownloadMenu): Pause, Resume and Cancel while it runs; Open, Copy,
+        // Show in Folder, Hide, Move to Recycle Bin once done. Refilled as it opens.
         let menu = MenuFlyout()
-        DownloadRowMenu.fill(menu, for: .finished(entry), history: history)
-        addRow(tile: tile, tileInset: 5, title: LibraryList.fileName(path),
-               detail: DownloadHistory.Listed.finished(entry).subtitle(now: Date()), menu: menu) {
-            Shell.open(path)
+        let history = self.history
+        DownloadRowMenu.fill(menu, for: row, history: history)
+        menu.opening.addHandler { [weak menu] _, _ in
+            guard let menu else { return }
+            let now = history.library(query: "").first { $0.id == row.id } ?? row
+            DownloadRowMenu.fill(menu, for: now, history: history)
+        }
+        let title = path.map(LibraryList.fileName) ?? row.name
+        addRow(tile: tile, tileInset: 5, title: title, detail: row.subtitle(now: Date()), menu: menu) {
+            if let path { Shell.open(path) }
         }
     }
 

@@ -24,13 +24,17 @@ final class Favicons {
         let pixels: Pixels
         /// A one-colour gray glyph (GitHub's octocat): true when dark, false when light.
         let glyphIsDark: Bool?
+        /// The logo's colours clockwise from the top (FavoriteSelectionTint.sample), for the open
+        /// favorite's outline.
+        let selectionColors: [String]
         var original: WriteableBitmap?
         /// The glyph in the sidebar's text colour, by whether the sidebar is dark.
         var tinted: [Bool: WriteableBitmap] = [:]
 
-        init(pixels: Pixels, glyphIsDark: Bool?) {
+        init(pixels: Pixels, glyphIsDark: Bool?, selectionColors: [String]) {
             self.pixels = pixels
             self.glyphIsDark = glyphIsDark
+            self.selectionColors = selectionColors
         }
     }
 
@@ -55,6 +59,12 @@ final class Favicons {
         }
         if icon.original == nil { icon.original = icon.pixels.bitmap() }
         return icon.original
+    }
+
+    /// The logo's colours for the open favorite's outline (the Mac's FaviconCache.selectionColors);
+    /// nil before the icon has loaded.
+    func selectionColors(forKey key: String?) -> [String]? {
+        icon(key)?.selectionColors
     }
 
     /// `persist` false keeps the icon in memory only (incognito pages).
@@ -85,7 +95,10 @@ final class Favicons {
     private static func makeIcon(_ png: Data, key: String) -> Icon? {
         guard let pixels = Pixels.decode(png) else { return nil }
         // Custom icons (the Mac's "custom-…" keys) are drawn as picked.
-        let tone = key.hasPrefix("custom-") ? nil : Pixels.decode(png, side: 32).flatMap { FaviconTone.glyphIsDark(rgba: $0.rgba) }
-        return Icon(pixels: pixels, glyphIsDark: tone)
+        let small = Pixels.decode(png, side: 32)
+        let tone = key.hasPrefix("custom-") ? nil : small.flatMap { FaviconTone.glyphIsDark(rgba: $0.rgba) }
+        // At 16 pixels, as the Mac samples it.
+        let colors = Pixels.decode(png, side: 16).map { FavoriteSelectionTint.sample(rgba: $0.rgba, width: $0.width, height: $0.height) } ?? []
+        return Icon(pixels: pixels, glyphIsDark: tone, selectionColors: colors)
     }
 }

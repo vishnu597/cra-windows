@@ -25,6 +25,7 @@ enum ArcProfileRebuilder {
     }
 
     static func run(store: SidebarStore, present: @escaping Present) {
+        guard isAvailable else { return present(AppDialog(ArcProfileRebuild.arcMissing)) { _ in } }
         guard let folders, let arc,
               let plan = try? arc.plan(in: folders, sqlite: { file, query in SQLiteSnapshot(copying: file)?.rows(query) ?? [] }) else {
             return present(AppDialog(ArcProfileRebuild.unreadable)) { _ in }

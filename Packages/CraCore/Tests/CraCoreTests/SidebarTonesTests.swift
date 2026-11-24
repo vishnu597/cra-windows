@@ -15,4 +15,18 @@ import Testing
         #expect(SidebarTones.pillHover(dark: false) == .init(white: false, alpha: 0.09))
         #expect(SidebarTones.pillHover(dark: true) == .init(white: true, alpha: 0.145))
     }
+    /// A plain favorite tile: the pill at rest, the pill's hover under the pointer, and a lighter
+    /// fill while open that the pointer doesn't change; the open one has Arc's neutral rim.
+    @Test func favoriteTilesFollowTheMacsStates() {
+        for dark in [false, true] {
+            #expect(SidebarTones.favoriteTile(dark: dark, selected: false, hovered: false) == SidebarTones.pill(dark: dark))
+            #expect(SidebarTones.favoriteTile(dark: dark, selected: false, hovered: true) == SidebarTones.pillHover(dark: dark))
+            #expect(SidebarTones.favoriteTile(dark: dark, selected: true, hovered: true)
+                == SidebarTones.favoriteTile(dark: dark, selected: true, hovered: false))
+        }
+        #expect(SidebarTones.favoriteTile(dark: true, selected: true, hovered: false) == .init(white: true, alpha: 0.13))
+        #expect(SidebarTones.favoriteTile(dark: false, selected: true, hovered: false) == .init(white: true, alpha: 0.38))
+        #expect(SidebarTones.favoriteRim(dark: true) == .init(white: true, alpha: 0.14))
+        #expect(SidebarTones.favoriteRim(dark: false) == .init(white: false, alpha: 0.17))
+    }
 }

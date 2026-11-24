@@ -31,6 +31,9 @@ struct ArcProfileRebuildPromptTests {
     @Test func theOtherSheets() {
         #expect(ArcProfileRebuild.unreadable.actions == [DialogAction("OK")])
         #expect(ArcProfileRebuild.nothingToMove.title == "No spaces to move")
+        // PC test, 22 Nov 2026: without Arc the command said it couldn't read Arc's spaces.
+        #expect(ArcProfileRebuild.arcMissing.title == "Arc isn't installed")
+        #expect(ArcProfileRebuild.arcMissing.actions == [DialogAction("OK")])
         let without = ArcProfileRebuild.withoutSignIns("Arc's key is locked.")
         #expect(without.message == "Arc's key is locked. The spaces would start signed out of every site. Cancel changes nothing.")
         #expect(without.actions.first == DialogAction("Move Without Sign-ins"))

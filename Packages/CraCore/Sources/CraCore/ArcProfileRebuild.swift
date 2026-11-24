@@ -67,6 +67,10 @@ public enum ArcProfileRebuild {
     public static let unreadable = DialogPrompt(title: "Cra couldn't read Arc's spaces.",
                                                 message: "Arc's sidebar file is missing or in a format this version doesn't know.")
 
+    /// Run with no Arc on the computer (the command bar offers it anyway).
+    public static let arcMissing = DialogPrompt(title: "Arc isn't installed",
+                                                message: "Rebuild Profiles from Arc reads Arc's spaces and profiles, so it needs Arc on this computer.")
+
     public static let nothingToMove = DialogPrompt(title: "No spaces to move",
                                                    message: "Every space named like one of your Arc spaces is already on the right profile, or Arc has it on its Default profile.")
 

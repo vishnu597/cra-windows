@@ -536,6 +536,8 @@ enum SettingsPanes {
         form.group("General:", [
             checkbox("Add new tabs to the top", \.newTabsAtTop),
             checkbox("Show the New Tab button above tabs", \.newTabButtonAtTop),
+            // The Mac's switch: the open favorite's rim in its logo's colours, not a plain one.
+            checkbox("Colorful favorite outline", \.favoriteLogoOutline),
             // GitHub #601, not in Arc: Arc's Restore Last Closed Tab switches to the space of the
             // tab closed last.
             checkbox("Reopen tabs from this Space only", \.reopenClosedTabCurrentSpaceOnly),
@@ -709,6 +711,11 @@ enum SettingsPanes {
             checkbox("Open a Peek window when clicking on links to other sites", \.peekLinksToOtherSites),
             otherSitesNote,
             everyTab,
+        ])
+        // The Mac's Previews… sheet; only the previews Windows has so far.
+        form.group("Show Previews:", [
+            blurb("Save a click! Hover your mouse over a Folder to quickly preview the tabs in it."),
+            checkbox("Folders", \.folderPreviews),
         ])
 
         let routesRow = StackPanel()

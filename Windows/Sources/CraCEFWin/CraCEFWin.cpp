@@ -171,9 +171,22 @@ void ApplyWebsiteAppearance(CefRefPtr<CefRequestContext> context) {
     if (context->GetChromeColorSchemeMode() != mode) context->SetChromeColorScheme(mode, 0);
 }
 
+/// A page's second download (and its third…) goes ahead. Chrome holds downloads after the first
+/// one from a page until the user answers "download multiple files?", but a Cra page has no
+/// Chrome permission manager to ask with, so Chromium's DownloadRequestLimiter cancelled every
+/// later one silently: after one download, a page's other download links did nothing (PC test,
+/// 22 Nov 2026). Allowing them by default is what Chrome does once that question is answered.
+void AllowMultipleDownloads(CefRefPtr<CefRequestContext> context) {
+    if (!context) return;
+    // Both URLs empty: the profile's default, which a site's own setting still overrides.
+    context->SetContentSetting(CefString(), CefString(), CEF_CONTENT_SETTING_TYPE_AUTOMATIC_DOWNLOADS,
+                               CEF_CONTENT_SETTING_VALUE_ALLOW);
+}
+
 /// What every profile gets once it loads (ApplyProfilePreferences in CraCEF.mm).
 void ApplyProfilePreferences(CefRefPtr<CefRequestContext> context) {
     HideDownloadBubble(context);
+    AllowMultipleDownloads(context);
     ApplyHttpsOnly(context);
     ApplyWebsiteAppearance(context);
 }
@@ -512,6 +525,8 @@ struct CraBrowser {
     bool can_go_forward = false;
     bool capturing_media = false;
     bool fullscreen = false;  // the page is in HTML fullscreen (a video): no window drag from its top
+    ULONGLONG last_press_tick = 0;  // the last left press in the page (GetTickCount64), 0 for none yet
+    int last_press_keys = 0;        // the keys held then: 1 Shift, 2 Ctrl, 4 Alt
     bool audio_muted = false;  // Cra's mute, kept across the page's navigations and its creation
     std::string current_url;
     std::string current_title;
@@ -1316,6 +1331,16 @@ public:
     bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString &target_url,
                           WindowOpenDisposition target_disposition, bool user_gesture) override {
         CraBrowser *o = Live();
+        // Ctrl+Alt-click: Chromium's split view, a pane beside this page as an Alt-click opens (#298),
+        // where the page offers Open Link in Split View. The app opens it after this returns.
+        if (o && user_gesture && target_disposition == CEF_WOD_NEW_SPLIT_VIEW && o->callbacks.link_menu_chosen
+            && o->callbacks.link_menu_items && (o->callbacks.link_menu_items(o->callbacks.context) & 1)) {
+            std::string url = target_url.ToString();
+            if (url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0) {
+                o->callbacks.link_menu_chosen(o->callbacks.context, url.c_str(), 1);
+                return true;
+            }
+        }
         // Shift-click (Chrome: a new window).
         if (o && user_gesture && target_disposition == CEF_WOD_NEW_WINDOW && o->callbacks.opens_peek &&
             o->callbacks.opens_peek(o->callbacks.context, target_url.ToString().c_str(), 1, 0))
@@ -1363,6 +1388,17 @@ public:
     }
 
     // Downloads -----------------------------------------------------------
+
+    // Chromium makes an Alt-clicked link a download of it; Arc opens it in Split View (#298).
+    // The click that asked is the last one in this page, a moment ago; it counts for one pane.
+    bool CanDownload(CefRefPtr<CefBrowser> browser, const CefString &url, const CefString &request_method) override {
+        CraBrowser *o = Live();
+        if (!o || !o->callbacks.download_opens_split) return true;
+        double age = o->last_press_tick ? (GetTickCount64() - o->last_press_tick) / 1000.0 : -1;
+        if (!o->callbacks.download_opens_split(o->callbacks.context, url.ToString().c_str(), o->last_press_keys, age)) return true;
+        o->last_press_tick = 0;
+        return false;
+    }
 
     bool OnBeforeDownload(CefRefPtr<CefBrowser> browser, CefRefPtr<CefDownloadItem> download_item,
                           const CefString &suggested_name, CefRefPtr<CefBeforeDownloadCallback> callback) override {
@@ -1881,6 +1917,15 @@ LRESULT CALLBACK ClickHook(int code, WPARAM wParam, LPARAM lParam) {
             }
         }
         g_pageTopPress = {};
+        // An Alt-click's download asks a moment later whether it is a split instead (#298).
+        if (wParam == WM_LBUTTONDOWN) {
+            for (CraBrowser *b : g_browsers) b->last_press_tick = 0;
+            if (clicked) {
+                clicked->last_press_tick = GetTickCount64();
+                clicked->last_press_keys = (GetKeyState(VK_SHIFT) < 0 ? 1 : 0) | (GetKeyState(VK_CONTROL) < 0 ? 2 : 0)
+                    | (GetKeyState(VK_MENU) < 0 ? 4 : 0);
+            }
+        }
         if (clicked && wParam == WM_LBUTTONDOWN && !clicked->is_popup_host && !clicked->fullscreen) {
             HWND page = clicked->browser->GetHost()->GetWindowHandle();
             if (PressHoldsForWindowDrag(page, mouse->pt)) g_pageTopPress = {target, GetAncestor(page, GA_ROOT), mouse->pt};

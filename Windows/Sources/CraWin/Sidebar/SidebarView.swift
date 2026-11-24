@@ -4,6 +4,7 @@ import Observation
 import UWP
 import WinAppSDK
 import WinSDK
+import WindowsFoundation
 import WinUI
 
 /// What the sidebar asks of its window: things that touch pages, not only the store.
@@ -148,6 +149,10 @@ final class SidebarView {
     func folderRow(_ id: UUID) -> FrameworkElement? { folderRows[id] }
     /// Dia's pill back to the open tab while its row is scrolled away (SidebarJumpPill.swift).
     let jumpPill = SidebarJumpPill()
+    /// The favorites', header's and list's shift while a space switch slides (SpaceSwitchSlide).
+    private let slideShifts = [TranslateTransform(), TranslateTransform(), TranslateTransform()]
+    /// Arc's folder preview: a closed folder's tabs on a card beside the sidebar.
+    private(set) lazy var folderPreview = FolderPreview(sidebar: self)
     /// The favorites' columns as drawn, nil with none.
     private var favoritesColumns: Int?
 
@@ -184,6 +189,8 @@ final class SidebarView {
             root.children.append(part)
             try? Grid.setRow(part, Int32(i))
         }
+        // The space's own part slides on a switch (slideSpace); the dock stays put, as on the Mac.
+        for (part, shift) in zip([favorites, header, scroll] as [FrameworkElement], slideShifts) { part.renderTransform = shift }
         root.children.append(jumpPill.body)
         try? Grid.setRow(jumpPill.body, 2)
         try? Canvas.setZIndex(jumpPill.body, 50)
@@ -307,6 +314,12 @@ final class SidebarView {
         try? Grid.setRow(tray, 2)
     }
 
+    /// The space's part `offset` sidebar widths from its place (+ to the right), while a switch slides.
+    func slideSpace(offset: Double) {
+        let x = offset * (root.actualWidth > 0 ? root.actualWidth : Self.restingWidth)
+        for shift in slideShifts { shift.x = x }
+    }
+
     var fill: Brush { palette.fill }
     var isDark: Bool { palette.isDark }
     var textColor: Brush { palette.text }
@@ -338,11 +351,16 @@ final class SidebarView {
             let label = tileIcon(item, dark: dark, colored: tileColor != nil)
             label.horizontalAlignment = .center
             let selected = item.id == open
-            let fill = FavoriteTileColors.fill(tileColor: tileColor, selected: selected, hovered: false).map { UI.brush($0) }
-                ?? (selected ? palette.selected : palette.tile)
+            // The Mac's FavoriteTileView: the pill at rest, its hover under the pointer, lighter while
+            // open; a coloured tile keeps its hue with a shade over it.
+            func fill(hovered: Bool) -> Brush {
+                FavoriteTileColors.fill(tileColor: tileColor, selected: selected, hovered: hovered).map { UI.brush($0) }
+                    ?? UI.brush(SidebarTones.favoriteTile(dark: palette.isDark, selected: selected, hovered: hovered))
+            }
+            let rest = fill(hovered: false), hover = fill(hovered: true)
             // Away from its pinned page, the second click of a double-click goes back there (#264).
             let away = item.tab.map { $0.url != $0.savedURL } == true
-            let tile = UI.button(label, fill: fill) { [weak self] in
+            let tile = UI.button(label, fill: rest) { [weak self] in
                 guard let self else { return }
                 let clicks = self.mouseClickCount(.item(item.id))
                 self.dragPressed(.item(item.id))
@@ -351,6 +369,12 @@ final class SidebarView {
                 }
                 self.select(item.id)
             }
+            _ = tile.resources.insert("ButtonBackgroundPointerOver", hover)
+            _ = tile.resources.insert("ButtonBackgroundPressed", hover)
+            let rim: Brush = selected ? favoriteRim(item, dark: dark) : UI.clear
+            tile.borderThickness = Thickness(left: 2, top: 2, right: 2, bottom: 2)
+            tile.borderBrush = rim
+            for key in ["ButtonBorderBrushPointerOver", "ButtonBorderBrushPressed"] { _ = tile.resources.insert(key, rim) }
             favoriteTiles.append((tile, item.id))
             tile.horizontalAlignment = .stretch
             tile.verticalAlignment = .stretch
@@ -360,6 +384,26 @@ final class SidebarView {
             try? Grid.setRow(tile, Int32(i / perRow))
             try? Grid.setColumn(tile, Int32(i % perRow))
         }
+    }
+
+    /// The open favorite's 2 DIP rim: Arc's neutral one, or with Settings ▸ Tabs ▸ Colorful
+    /// favorite outline on, its logo's colours at 72 % (FavoriteSelectionTint). The Mac sweeps
+    /// them round the tile; XAML has no conic brush, so they run corner to corner.
+    private func favoriteRim(_ item: SidebarItem, dark: Bool) -> Brush {
+        guard store.settings.favoriteLogoOutline else { return UI.brush(SidebarTones.favoriteRim(dark: dark)) }
+        let tab = item.isSplit ? store.children(of: item.id).first?.tab : item.tab
+        let stops = FavoriteSelectionTint.colors(iconColors: favicons.selectionColors(forKey: tab?.iconKey), dark: dark)
+        let brush = LinearGradientBrush()
+        brush.startPoint = WindowsFoundation.Point(x: 0, y: 0)
+        brush.endPoint = WindowsFoundation.Point(x: 1, y: 1)
+        for (i, hex) in stops.enumerated() {
+            let stop = GradientStop()
+            stop.color = UI.brush(hex).color
+            stop.offset = stops.count > 1 ? Double(i) / Double(stops.count - 1) : 0
+            brush.gradientStops.append(stop)
+        }
+        brush.opacity = SidebarTones.favoriteLogoRimOpacity
+        return brush
     }
 
     /// The grid's width: the sidebar's, or its fixed width before the first layout.
@@ -491,13 +535,13 @@ final class SidebarView {
         if item.isFolder {
             addFolderRow(item, depth: depth)
         } else if item.isSplit {
-            let titles = store.children(of: item.id).map(\.displayTitle).joined(separator: " | ")
+            let titles = store.splitRowTitle(item.id)
             let selected = store.selectedTabID(window: windowID).map { store.splitContaining($0)?.id == item.id } ?? false
             // A click opens the split on the pane last focused in it (Arc: focusItemID).
             let panes = store.paneTabIDs(for: item.children.first ?? item.id)
             let focus = item.split?.focusTabID.flatMap { panes.contains($0) ? $0 : nil } ?? panes.first
             appendRow(icon: .text("⧉"), title: titles, depth: depth, selected: selected, unread: false, closable: nil,
-                      menu: splitMenu(item, open: selected)) { [weak self] in
+                      menu: splitMenu(item, open: selected), renames: item.id) { [weak self] in
                 self?.dragPressed(.item(item.id))
                 if let focus { self?.select(focus) }
             }
@@ -539,32 +583,9 @@ final class SidebarView {
             })
             menu.items.append(folderIconColorMenu(folder))
         }
-        // Arc's Move to ▸ (upstream #662): every space, the folder's own ticked, then New Space….
-        // The folder goes to the end of that space's Pinned with all it holds.
-        if !store.isIncognito(item: id) {
-            let move = MenuFlyoutSubItem()
-            move.text = "Move to"
-            let own = store.spaceID(ofItem: id)
-            for space in store.orderedSpaces where !store.isIncognito(space: space.id) {
-                let entry = ToggleMenuFlyoutItem()
-                entry.text = "\(space.emoji) \(space.title)"
-                entry.isChecked = space.id == own
-                entry.click.addHandler { [weak self] _, _ in
-                    guard let self, space.id != own else { return }
-                    self.store.moveTab(id, toSpace: space.id, window: self.windowID)
-                }
-                move.items.append(entry)
-            }
-            move.items.append(MenuFlyoutSeparator())
-            move.items.append(UI.menuItem("New Space…") { [weak self] in
-                // Arc's Create a Space page; the tab moves once the space is made, as on the Mac.
-                self?.beginSpaceCreation { [weak self] made in
-                    guard let self else { return }
-                    self.store.moveTab(id, toSpace: made, window: self.windowID)
-                }
-            })
-            menu.items.append(move)
-        }
+        // Arc's Move to ▸ (upstream #662): the folder goes to the end of that space's Pinned with
+        // all it holds.
+        if let move = moveToMenu(id) { menu.items.append(move) }
         menu.items.append(MenuFlyoutSeparator())
         menu.items.append(UI.menuItem("Delete Folder (archives tabs)") { [weak self] in self?.store.deleteFolder(id) })
         let peeked = open ? [] : store.peekedTabs(in: id)
@@ -577,6 +598,11 @@ final class SidebarView {
         }
         noteRow(folder, depth: depth, at: list.children.count - 1)
         folderRows[id] = row
+        if !open {
+            row.pointerEntered.addHandler { [weak self] _, _ in self?.folderPreview.entered(id) }
+            row.pointerExited.addHandler { [weak self] _, _ in self?.folderPreview.exited(id) }
+            row.pointerPressed.addHandler { [weak self] _, _ in self?.folderPreview.pressed() }
+        }
         guard open else {
             for tab in peeked { addRow(tab, depth: depth + 1) }
             return
@@ -1138,6 +1164,33 @@ final class SidebarView {
         return sub
     }
 
+    /// Arc's Move to ▸ (upstream #662) for a folder or a split: every space, its own ticked, then
+    /// New Space…, which moves it once the space is made. None from a private window.
+    private func moveToMenu(_ id: UUID) -> MenuFlyoutSubItem? {
+        guard !store.isIncognito(item: id) else { return nil }
+        let move = MenuFlyoutSubItem()
+        move.text = "Move to"
+        let own = store.spaceID(ofItem: id)
+        for space in store.orderedSpaces where !store.isIncognito(space: space.id) {
+            let entry = ToggleMenuFlyoutItem()
+            entry.text = "\(space.emoji) \(space.title)"
+            entry.isChecked = space.id == own
+            entry.click.addHandler { [weak self] _, _ in
+                guard let self, space.id != own else { return }
+                self.store.moveTab(id, toSpace: space.id, window: self.windowID)
+            }
+            move.items.append(entry)
+        }
+        move.items.append(MenuFlyoutSeparator())
+        move.items.append(UI.menuItem("New Space…") { [weak self] in
+            self?.beginSpaceCreation { [weak self] made in
+                guard let self else { return }
+                self.store.moveTab(id, toSpace: made, window: self.windowID)
+            }
+        })
+        return move
+    }
+
     /// Arc 1.171's split menu where the Windows app has the feature (SidebarMenus.split on the Mac).
     private func splitMenu(_ split: SidebarItem, open: Bool) -> MenuFlyout {
         let id = split.id
@@ -1161,6 +1214,18 @@ final class SidebarView {
             options.items.append(UI.menuItem("Close") { [weak self] in self?.actions?.closeSplitPane(paneID) })
             menu.items.append(options)
         }
+        menu.items.append(MenuFlyoutSeparator())
+        // Arc's way back to the panes from a renamed split or one with an icon.
+        if store.splitHasOwnNameOrIcon(id) {
+            menu.items.append(UI.menuItem("Reset Name and Icon") { [weak self] in self?.store.resetSplitNameAndIcon(id) })
+        }
+        menu.items.append(UI.menuItem("Rename…") { [weak self] in self?.beginRename(item: id) })
+        menu.items.append(MenuFlyoutSeparator())
+        menu.items.append(UI.menuItem("Duplicate") { [weak self] in
+            guard let self else { return }
+            _ = self.store.duplicateSplit(id, window: self.windowID)
+        })
+        if let move = moveToMenu(id) { menu.items.append(move) }
         menu.items.append(MenuFlyoutSeparator())
         menu.items.append(UI.menuItem("Archive Item") { [weak self] in
             guard let self else { return }

@@ -151,9 +151,14 @@ void cra_hide_download_started_animation(void);
 
 /// UTF-8 text on the clipboard. 1 on success.
 int cra_clipboard_set_text(const char *text);
+/// The clipboard's text (CF_UNICODETEXT) as UTF-8, or NULL when it holds none. Free with cra_data_free.
+char *cra_clipboard_text(void);
 /// A PNG on the clipboard, as "PNG" (what browsers and Office paste) and as a bitmap (CF_DIB,
 /// for Paint and the rest). 1 on success.
 int cra_clipboard_set_png(const uint8_t *png, size_t length);
+/// `cra_clipboard_set_file`, with a PNG's bytes as a picture too (PNG and CF_DIB), all in one
+/// clipboard write: Library ▸ Media's Copy of a PNG. 1 on success.
+int cra_clipboard_set_file_and_png(const char *path, const uint8_t *png, size_t png_length);
 /// Windows' Share window for a link (`title` may be NULL), over `owner` (an HWND). 1 when it opened.
 int cra_share_link(uintptr_t owner, const char *url, const char *title);
 /// One Share attempt: 1 opened, 2 Share's server is temporarily busy, 0 another failure.
@@ -308,6 +313,9 @@ int cra_image_decode(const uint8_t *bytes, size_t length, int side, CraImage *ou
 /// its file type. 1 on success. Any thread, and slow for a big file: not the UI thread.
 int cra_shell_file_image(const char *path, int side, CraImage *out);
 void cra_image_free(CraImage *image);
+/// `text` (an emoji) drawn in colour, centred in a `side` × `side` pixel square (CraEmoji.cpp),
+/// for the space dock to fade. 1 on success; free with cra_image_free. Any thread.
+int cra_emoji_render(const char *text, int side, CraImage *out);
 /// A window icon (HICON) of premultiplied BGRA pixels, top-down, `width * 4` bytes a row (a
 /// CraImage's): for WM_SETICON, the app icon picked in Settings ▸ General. 0 on failure. Free
 /// with cra_icon_destroy once no window shows it.
@@ -495,6 +503,11 @@ typedef struct CraBrowserCallbacks {
     int (*link_menu_items)(void *context);
     /// One of them was picked (`item`: its bit) for the link at `url`.
     void (*link_menu_chosen)(void *context, const char *url, int item);
+    /// Chromium downloads an Alt-clicked link; Arc opens it in Split View (#298). Asked before the
+    /// download starts, with the keys held at the page's last left press (`keys`: 1 Shift, 2 Ctrl,
+    /// 4 Alt) and how long ago it was in seconds (-1 when the last press was in another page).
+    /// Return nonzero when Cra opened the link instead; the download then doesn't start.
+    int (*download_opens_split)(void *context, const char *url, int keys, double click_age);
 } CraBrowserCallbacks;
 
 // MARK: - Browser
