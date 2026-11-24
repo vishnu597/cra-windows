@@ -285,7 +285,7 @@ final class DownloadsTray {
     }
 
     private func check() {
-        let over = isOver(button) || (isOpen && isOver(list))
+        let over = isOver(button) || (isOpen && listHolds())
         if over {
             awayChecks = 0
             if !isOpen, let started = hoverStarted, Date().timeIntervalSince(started) >= 0.2 { setOpen(true) }
@@ -312,6 +312,21 @@ final class DownloadsTray {
         guard button.actualWidth > 0, let transform = try? glyph.transformToVisual(nil),
               let origin = try? transform.transformPoint(WindowsFoundation.Point(x: 0, y: 0)) else { return nil }
         return WindowsFoundation.Point(x: origin.x + Float(glyph.actualWidth / 2), y: origin.y + Float(glyph.actualHeight / 2))
+    }
+
+    /// The open list holds the pointer over its rows and over the column below them down to the
+    /// Library button, so a pointer on its way up from the button to a download keeps it open
+    /// (CraCore's `DownloadsTrayHover`, #575).
+    private func listHolds() -> Bool {
+        guard list.visibility == .visible, let p = pointer(), let rows = frame(of: list), let below = frame(of: button) else { return false }
+        return DownloadsTrayHover.holds(CGPoint(x: p.x, y: p.y), list: rows, buttonTop: below.minY, open: isOpen)
+    }
+
+    /// The element's frame in the XAML's coordinates (DIPs from the sidebar's top left).
+    private func frame(of element: FrameworkElement) -> CGRect? {
+        guard let transform = try? element.transformToVisual(nil),
+              let origin = try? transform.transformPoint(WindowsFoundation.Point(x: 0, y: 0)) else { return nil }
+        return CGRect(x: Double(origin.x), y: Double(origin.y), width: element.actualWidth, height: element.actualHeight)
     }
 
     private func isOver(_ element: FrameworkElement) -> Bool {

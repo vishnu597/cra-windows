@@ -54,6 +54,26 @@ public enum ExtensionImport {
         return out.sorted { ($0.name.lowercased(), $0.id) < ($1.name.lowercased(), $1.id) }
     }
 
+    /// What the extensions step offers from a browser: the ones Cra doesn't have yet, in order,
+    /// those ticked to start with, and how many Cra has already. An empty `fresh` skips the step.
+    public struct Offer: Equatable {
+        public let fresh: [Candidate]
+        public let ticked: Set<String>
+        public let alreadyIn: Int
+    }
+
+    public static func offer(_ candidates: [Candidate], installed: Set<String>) -> Offer {
+        let fresh = candidates.filter { !installed.contains($0.id) }
+        return Offer(fresh: fresh, ticked: preselected(fresh, installed: installed), alreadyIn: candidates.count - fresh.count)
+    }
+
+    /// The step's words: `alreadyIn` says how many of the browser's are in Cra already.
+    public static func offerWords(alreadyIn: Int) -> String {
+        var words = "Cra copies the ones you pick into its own Extensions folder. They load in every profile when Cra next starts."
+        if alreadyIn > 0 { words += alreadyIn == 1 ? " One is in Cra already." : " \(alreadyIn) are in Cra already." }
+        return words
+    }
+
     /// The ones ticked to start with: turned on in the browser, and not in Cra already.
     public static func preselected(_ candidates: [Candidate], installed: Set<String>) -> Set<String> {
         Set(candidates.filter { $0.isEnabled && !installed.contains($0.id) }.map(\.id))
