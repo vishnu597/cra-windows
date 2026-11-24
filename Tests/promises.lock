@@ -715,6 +715,8 @@
 #371   Packages/CraCore/Tests/CraCoreTests/PermissionLineTests.swift::aCardWhoseTabGoesBehindStepsAside  ac5b97fe5bd9
 #371   Tests/BrowserManagerLifecycleTests.swift::permissionPopoverStepsAsideCase  de5396486ef4
 #371   Tests/Scenarios/permission-card.scenario  9ae102316834
+#372   Packages/CraCore/Tests/CraCoreTests/AppIconImageTests.swift::aCutOutLogoIsFittedByItsVisiblePart  ae012245c9a7
+#372   Packages/CraCore/Tests/CraCoreTests/AppIconImageTests.swift::aPhotoFillsTheRoundedTile  c3fa07766f59
 #373   Packages/CraCore/Tests/CraCoreTests/LittleWindowTriggerTests.swift::aLinkClickedWithOptionCommandOpensOneWhenTheSwitchIsOn  321009d2af63
 #373   Packages/CraCore/Tests/CraCoreTests/LittleWindowTriggerTests.swift::onlyAClickInThisPageJustNowCounts  28d9c5ecab0f
 #373   Packages/CraCore/Tests/CraCoreTests/LittleWindowTriggerTests.swift::onlyPagesATabCanShowOpenOne  4f0de1686b25
