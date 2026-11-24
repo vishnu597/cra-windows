@@ -466,6 +466,17 @@ final class WebPage: @unchecked Sendable {
             guard let extra = LinkMenuExtra(rawValue: Int(item)) else { return }
             WebPage.with(ctx) { $0.delegate?.page($0, opensLink: url, in: extra) }
         }
+        // An Alt-clicked link, which Chromium downloads, opens in Split View as in Arc (#298), where
+        // the page offers Open Link in Split View (BrowserManager's opensSplitForDownloadURL).
+        cb.download_opens_split = { ctx, url, keys, age in
+            let url = string(url)
+            return WebPage.with(ctx, Int32(0)) { page in
+                guard LinkSplitClick.opensSplit(downloadOf: url, clickModifiers: LinkSplitClick.modifiers(windowsKeys: Int(keys)), clickAge: age),
+                      page.delegate?.linkMenuExtras(for: page).contains(.splitView) == true else { return 0 }
+                page.delegate?.page(page, opensLink: url, in: .splitView)
+                return 1
+            }
+        }
         cb.view_source_requested = { ctx, url in
             WebPage.with(ctx) { $0.viewSource(of: string(url)) }
         }

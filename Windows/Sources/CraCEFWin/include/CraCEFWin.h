@@ -495,6 +495,11 @@ typedef struct CraBrowserCallbacks {
     int (*link_menu_items)(void *context);
     /// One of them was picked (`item`: its bit) for the link at `url`.
     void (*link_menu_chosen)(void *context, const char *url, int item);
+    /// Chromium downloads an Alt-clicked link; Arc opens it in Split View (#298). Asked before the
+    /// download starts, with the keys held at the page's last left press (`keys`: 1 Shift, 2 Ctrl,
+    /// 4 Alt) and how long ago it was in seconds (-1 when the last press was in another page).
+    /// Return nonzero when Cra opened the link instead; the download then doesn't start.
+    int (*download_opens_split)(void *context, const char *url, int keys, double click_age);
 } CraBrowserCallbacks;
 
 // MARK: - Browser
