@@ -31,6 +31,13 @@ final class BrowserWindow {
     /// What the sidebar's gradient was last painted for (paintSidebarGradient).
     private var gradientKey: [Double] = []
     private var gradientColors: [RGB] = []
+    /// The space the sidebar last drew and its colours, for the slide to the next (slideIfSwitched).
+    private var slidSpace: UUID?
+    private var lastDrawnColors: [RGB]?
+    /// A space switch's slide under way: the colours it fades from, its side (+1 right, -1 left),
+    /// when it began and how far the colours have come.
+    private var slide: (from: [RGB], direction: Double, started: Double, blend: Double)?
+    private var slideTimer: WinAppSDK.DispatcherQueueTimer?
     /// The toolbar, the address pill and the sidebar: what the Library takes the place of.
     private var sidebarParts: [FrameworkElement] = []
     /// Arc's Library in the sidebar (LibraryView): the page shown, nil while it shows the tabs.
@@ -417,6 +424,8 @@ final class BrowserWindow {
         guard !closing else { return }
         withObservationTracking {
             sidebar.build()
+            slideIfSwitched(to: store.focusedSpaceID(window: windowID))
+            lastDrawnColors = sidebar.palette.colors
             paintSidebarGradient()
             applyPaneColors(store.focusedSpace(window: windowID).theme)
             downloads.apply(sidebar.palette, fill: sidebar.fill)
@@ -2025,11 +2034,56 @@ final class BrowserWindow {
     private func paintSidebarGradient() {
         let scale = window.scale, size = window.appWindow.clientSize, origin = window.columnOrigin
         let key = [size.width, size.height, origin.x, origin.y].map(Double.init) + [scale]
-        guard key != gradientKey || sidebar.palette.colors != gradientColors else { return }
+        // Mid-switch, the colours on their way from the last space's to this one's (slideTick).
+        let colors = slide.map { SpaceSwitchSlide.colors($0.from, sidebar.palette.colors, blend: $0.blend) } ?? sidebar.palette.colors
+        guard key != gradientKey || colors != gradientColors else { return }
         gradientKey = key
-        gradientColors = sidebar.palette.colors
+        gradientColors = colors
         sidebarPanel.background = sidebar.palette.windowFill(width: Double(size.width) / scale, height: Double(size.height) / scale,
-                                                             originX: Double(origin.x) / scale, originY: Double(origin.y) / scale)
+                                                             originX: Double(origin.x) / scale, originY: Double(origin.y) / scale,
+                                                             colors: colors)
+    }
+
+    /// A switch to another space slides its part of the sidebar in from its side of the dock on Arc's
+    /// spring while the gradient cross-fades (SpaceSwitchSlide, the Mac's pager). Called after each
+    /// drawing with the space it drew.
+    private func slideIfSwitched(to space: UUID) {
+        defer { slidSpace = space }
+        guard let last = slidSpace, last != space, let from = lastDrawnColors else { return }
+        let order = store.pagedSpaces(window: windowID).map(\.id)
+        let direction = SpaceSwitchSlide.direction(from: order.firstIndex(of: last), to: order.firstIndex(of: space))
+        guard direction != 0, !WinAppearance.reduceMotion else { return }
+        // A switch mid-slide starts from the colours shown now.
+        let shown = slide.map { SpaceSwitchSlide.colors($0.from, from, blend: $0.blend) } ?? from
+        slide = (from: shown, direction: Double(direction), started: ProcessInfo.processInfo.systemUptime, blend: 0)
+        sidebar.slideSpace(offset: Double(direction))
+        paintSidebarGradient()
+        if slideTimer == nil, let queue = (try? WinAppSDK.DispatcherQueue.getForCurrentThread()) ?? nil {
+            slideTimer = try? queue.createTimer()
+            slideTimer?.interval = TimeSpan(duration: 160_000)  // 16 ms
+            slideTimer?.isRepeating = true
+            slideTimer?.tick.addHandler { [weak self] _, _ in self?.slideTick() }
+        }
+        try? slideTimer?.start()
+    }
+
+    private func slideTick() {
+        guard var s = slide, !closing else {
+            try? slideTimer?.stop()
+            return
+        }
+        let width = sidebarPanel.actualWidth
+        let f = SpaceSwitchSlide.frame(at: ProcessInfo.processInfo.systemUptime - s.started, width: width)
+        if f.done {
+            slide = nil
+            try? slideTimer?.stop()
+            sidebar.slideSpace(offset: 0)
+        } else {
+            s.blend = f.blend
+            slide = s
+            sidebar.slideSpace(offset: f.offset * s.direction)
+        }
+        paintSidebarGradient()
     }
 
     private func applyPaneColors(_ theme: SpaceTheme) {
