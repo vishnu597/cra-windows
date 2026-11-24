@@ -146,6 +146,14 @@
 #include "net/base/net_errors.h"
 #include "ui/base/base_window.h"
 #include "extensions/browser/view_type_utils.h"
+#include "extensions/common/mojom/context_type.mojom.h"
+#include "extensions/browser/permissions/active_tab_permission_granter.h"
+#include "extensions/browser/event_router.h"
+#include "extensions/common/api/extension_action/action_info.h"
+#include "extensions/browser/extension_registrar.h"
+#include "chrome/browser/extensions/menu_manager.h"
+#include "extensions/browser/extension_registry.h"
+#include "chrome/browser/extensions/extension_tab_util.h"
 #include "extensions/common/mojom/view_type.mojom.h"
 #include "ui/views/controls/webview/cra_hosted_page.h"
 #include "ui/compositor/compositor.h"
@@ -178,6 +186,10 @@ extern "C" int CraEngineMain(int argc, const char** argv);
 - (void)pageDestroyed;
 - (void)pageBackgroundColor;
 - (void)applyPageCanvasTo:(content::RenderWidgetHostView*)view;
+- (void)applyCanvasBaseTo:(content::WebContents*)contents;
+- (void)applySpareCanvas;
+- (void)refreshCanvasBase:(content::WebContents*)contents;
+- (void)pageFirstPaint;
 - (void)pageFavicon:(NSImage*)image url:(NSString*)url;
 - (void)pageFindResult;
 - (void)pagePictureInPicture:(BOOL)active;
@@ -432,6 +444,8 @@ class PageObserver : public content::WebContentsObserver,
 
   // "Aw, Snap!" and "Page Unresponsive", for Cra's performance recorder (GitHub #91).
   void PrimaryMainFrameRenderProcessGone(base::TerminationStatus status) override {
+    // The page's next renderer (a tab slept by discarding, then shown again) starts on Arc's canvas too (#712).
+    [owner_ applyCanvasBaseTo:web_contents()];
     const char* what = "unknown";
     switch (status) {
       case base::TERMINATION_STATUS_ABNORMAL_TERMINATION:
@@ -502,6 +516,7 @@ class PageObserver : public content::WebContentsObserver,
     }
   }
   void DidStartLoading() override { [owner_ pageLoadingChanged]; }
+  void DidFirstVisuallyNonEmptyPaint() override { [owner_ pageFirstPaint]; }
   void DidStopLoading() override { [owner_ pageLoadingChanged]; }
   void LoadProgressChanged(double progress) override { [owner_ pageProgress:progress]; }
   void DidFinishLoad(content::RenderFrameHost* frame, const GURL& url) override {
@@ -2105,6 +2120,8 @@ bool HandleDebugMethod(content::WebContents* contents,
 
 @implementation CraBrowser {
   NSView* _container;
+  // The page's empty document draws in Arc's canvas colour until it first draws something of its own (#712).
+  BOOL _canvasBase;
   raw_ptr<content::WebContents> _contents;
   std::unique_ptr<PageObserver> _observer;
   std::unique_ptr<DevToolsFrontendObserver> _devToolsFrontend;
@@ -2264,12 +2281,14 @@ bool HandleDebugMethod(content::WebContents* contents,
     // Made now, while nothing waits on it; it goes in a tab strip when a tab takes it (takeSpareWithURL:).
     _spareProfile = profile;
     _spareContents = content::WebContents::Create(params);
+    [self applySpareCanvas];
     [SparePages() addObject:self];
     // Made: a tab can take it (SparePages.take), as the CEF bridge reports a spare once its browser exists.
     _isCreated = YES;
     return;
   }
   std::unique_ptr<content::WebContents> made = content::WebContents::Create(params);
+  [self applyCanvasBaseTo:made.get()];
   if (_sidePanel) {
     extensions::SetViewType(made.get(), extensions::mojom::ViewType::kExtensionSidePanel);
   }
@@ -3344,6 +3363,141 @@ static TabSharingInfoBarDelegate* ShareInsteadBar(content::WebContents* contents
   [self makeChromeActiveTab];
   return chrome::ExecuteCommand(host->browser(), command.intValue);
 }
+// An extension's command from its shortcut (#701): what Chrome's ExtensionKeybindingRegistry::CommandExecuted does
+// for a named command (DispatchCommandEvent there), with this page as the active tab.
+- (BOOL)runExtensionCommand:(NSString*)command extension:(NSString*)extensionID {
+  if (!_contents) {
+    return NO;
+  }
+  content::BrowserContext* context = _contents->GetBrowserContext();
+  std::string extension_id = base::SysNSStringToUTF8(extensionID), name = base::SysNSStringToUTF8(command);
+  const extensions::Extension* extension =
+      extensions::ExtensionRegistry::Get(context)->enabled_extensions().GetByID(extension_id);
+  if (!extension) {
+    return NO;
+  }
+  auto dispatch = [](base::WeakPtr<content::WebContents> contents, std::string extension_id, std::string name) {
+    if (!contents) {
+      return;
+    }
+    content::BrowserContext* context = contents->GetBrowserContext();
+    const extensions::Extension* extension =
+        extensions::ExtensionRegistry::Get(context)->enabled_extensions().GetByID(extension_id);
+    if (!extension) {
+      return;
+    }
+    auto args = base::MakeRefCounted<extensions::EventArgs>();
+    args->data.Append(name);
+    extensions::ExtensionTabUtil::ScrubTabBehavior scrub = extensions::ExtensionTabUtil::GetScrubTabBehavior(
+        extension, extensions::mojom::ContextType::kPrivilegedExtension, contents.get());
+    args->data.Append(base::Value(extensions::ExtensionTabUtil::CreateTabObject(contents.get(), scrub, extension).ToValue()));
+    auto event = std::make_unique<extensions::Event>(extensions::events::COMMANDS_ON_COMMAND, "commands.onCommand",
+                                                     std::move(args), context);
+    event->user_gesture = extensions::EventRouter::UserGestureState::kEnabled;
+    extensions::EventRouter::Get(context)->DispatchEventToExtension(extension_id, std::move(event));
+  };
+  if (auto* granter = extensions::ActiveTabPermissionGranter::FromWebContents(_contents)) {
+    granter->GrantIfRequested(extension, base::BindOnce(dispatch, _contents->GetWeakPtr(), extension_id, name));
+  } else {
+    dispatch(_contents->GetWeakPtr(), extension_id, name);
+  }
+  return YES;
+}
+// The extension's items for its action's menu (#695), as ExtensionContextMenuModel's MenuItemMatchesAction picks them.
+static bool CraItemFitsAction(const extensions::Extension* extension, const extensions::MenuItem* item) {
+  const extensions::ActionInfo* info = extensions::ActionInfo::GetExtensionActionInfo(extension);
+  if (!info) {
+    return false;
+  }
+  const extensions::MenuItem::ContextList& contexts = item->contexts();
+  return contexts.Contains(extensions::MenuItem::ALL) ||
+         (contexts.Contains(extensions::MenuItem::PAGE_ACTION) && info->type == extensions::ActionInfo::Type::kPage) ||
+         (contexts.Contains(extensions::MenuItem::BROWSER_ACTION) && info->type == extensions::ActionInfo::Type::kBrowser) ||
+         (contexts.Contains(extensions::MenuItem::ACTION) && info->type == extensions::ActionInfo::Type::kAction);
+}
+static NSString* CraMenuItemID(const extensions::MenuItem* item) {
+  return item->id().string_uid.empty() ? [NSString stringWithFormat:@"#%d", item->id().uid] : NS(item->id().string_uid);
+}
+static NSDictionary* CraMenuRow(extensions::MenuItem* item);
+static NSArray<NSDictionary*>* CraMenuRows(const extensions::MenuItem::OwnedList& items) {
+  NSMutableArray* out = [NSMutableArray array];
+  for (const auto& item : items) {
+    if (item->visible()) {
+      [out addObject:CraMenuRow(item.get())];
+    }
+  }
+  return out;
+}
+static NSDictionary* CraMenuRow(extensions::MenuItem* item) {
+  NSString* kind = item->type() == extensions::MenuItem::CHECKBOX    ? @"checkbox"
+                   : item->type() == extensions::MenuItem::RADIO     ? @"radio"
+                   : item->type() == extensions::MenuItem::SEPARATOR ? @"separator"
+                                                                     : @"normal";
+  return @{
+    @"id" : CraMenuItemID(item),
+    @"title" : base::SysUTF8ToNSString(item->title()),
+    @"enabled" : @(item->enabled()),
+    @"checked" : @(item->checked()),
+    @"kind" : kind,
+    @"children" : CraMenuRows(item->children()),
+  };
+}
+static extensions::MenuItem* CraFindMenuItem(const extensions::MenuItem::OwnedList& items, NSString* itemID) {
+  for (const auto& item : items) {
+    if ([CraMenuItemID(item.get()) isEqualToString:itemID]) {
+      return item.get();
+    }
+    if (extensions::MenuItem* child = CraFindMenuItem(item->children(), itemID)) {
+      return child;
+    }
+  }
+  return nullptr;
+}
+- (NSArray<NSDictionary<NSString*, id>*>*)extensionActionMenuItems:(NSString*)extensionID {
+  if (!_contents) {
+    return @[];
+  }
+  content::BrowserContext* context = _contents->GetBrowserContext();
+  std::string extension_id = base::SysNSStringToUTF8(extensionID);
+  const extensions::Extension* extension =
+      extensions::ExtensionRegistry::Get(context)->enabled_extensions().GetByID(extension_id);
+  const extensions::MenuItem::OwnedList* all =
+      extension ? extensions::MenuManager::Get(context)->MenuItems(extensions::MenuItem::ExtensionKey(extension_id)) : nullptr;
+  if (!all) {
+    return @[];
+  }
+  // Only the top-level rows meant for the action's menu, as Chrome's ContextMenuMatcher keeps them.
+  NSMutableArray* rows = [NSMutableArray array];
+  for (const auto& item : *all) {
+    if (item->visible() && CraItemFitsAction(extension, item.get())) {
+      [rows addObject:CraMenuRow(item.get())];
+    }
+  }
+  return rows;
+}
+- (BOOL)runExtensionMenuItem:(NSString*)itemID extension:(NSString*)extensionID {
+  if (!_contents) {
+    return NO;
+  }
+  content::BrowserContext* context = _contents->GetBrowserContext();
+  std::string extension_id = base::SysNSStringToUTF8(extensionID);
+  extensions::MenuManager* manager = extensions::MenuManager::Get(context);
+  const extensions::MenuItem::OwnedList* all = manager->MenuItems(extensions::MenuItem::ExtensionKey(extension_id));
+  extensions::MenuItem* item = all ? CraFindMenuItem(*all, itemID) : nullptr;
+  if (!item || !item->enabled()) {
+    return NO;
+  }
+  manager->ExecuteCommand(context, _contents, nullptr, content::ContextMenuParams(), item->id());
+  return YES;
+}
+- (BOOL)uninstallExtension:(NSString*)extensionID {
+  if (!_contents) {
+    return NO;
+  }
+  std::u16string error;
+  return extensions::ExtensionRegistrar::Get(_contents->GetBrowserContext())
+      ->UninstallExtension(base::SysNSStringToUTF8(extensionID), extensions::UNINSTALL_REASON_USER_INITIATED, &error);
+}
 - (void)probeBackgroundColor {
   if (_contents) {
     [self pageBackgroundColor];
@@ -3359,6 +3513,39 @@ static TabSharingInfoBarDelegate* ShareInsteadBar(content::WebContents* contents
 - (void)applyPageCanvasTo:(content::RenderWidgetHostView*)view {
   if (view) {
     view->SetBackgroundColor(PagesAreDark() ? SK_ColorBLACK : SK_ColorWHITE);
+  }
+}
+// A new page draws its empty document before its first page commits, and that frame stays on screen until the page
+// paints: white for a second and more on a dark site that draws late (#712), for a tab woken from sleep whether it
+// takes a spare page (drawn before any tab took it), makes a page and restores its history, or reloads in place
+// after a discard (its renderer gone: PrimaryMainFrameRenderProcessGone). The empty document
+// draws in Arc's canvas instead; the page goes back to Chromium's white base once it draws
+// (pageFirstPaint), so a page with no background of its own still paints white, as in Arc.
+- (void)applyCanvasBaseTo:(content::WebContents*)contents {
+  if (!contents) {
+    return;
+  }
+  contents->SetPageBaseBackgroundColor(PagesAreDark() ? SK_ColorBLACK : SK_ColorWHITE);
+  [self applyPageCanvasTo:contents->GetRenderWidgetHostView()];
+  _canvasBase = YES;
+}
+- (void)applySpareCanvas {
+  [self applyCanvasBaseTo:_spareContents.get()];
+}
+// The page drew something of its own: Chromium's base again, so a page with no background of its own paints white,
+// as in Arc. Not at commit: a page restored from its history (a tab woken without a spare) drew its first frame on
+// the cleared base, white, before its own colours came (#712).
+- (void)pageFirstPaint {
+  if (_canvasBase && _contents && !_contents->IsBeingDestroyed()) {
+    _canvasBase = NO;
+    _contents->SetPageBaseBackgroundColor(std::nullopt);
+    [self applyPageCanvasTo:_contents->GetRenderWidgetHostView()];
+  }
+}
+// View ▸ Appearance while a page still waits for its first paint.
+- (void)refreshCanvasBase:(content::WebContents*)contents {
+  if (_canvasBase) {
+    [self applyCanvasBaseTo:contents];
   }
 }
 - (void)executeJavaScript:(NSString*)script inDevTools:(BOOL)inDevTools {
@@ -4112,6 +4299,10 @@ views::View* PageHostBrowserView(BrowserWindowInterface* browser) {
   cra::SetWebsiteAppearance(mode);
   for (const auto& [contents, page] : PagesByContents()) {
     [page applyPageCanvasTo:contents->GetRenderWidgetHostView()];
+    [page refreshCanvasBase:contents];
+  }
+  for (CraBrowser* spare in SparePages().allObjects) {
+    [spare applySpareCanvas];
   }
 }
 + (NSInteger)websiteAppearance {

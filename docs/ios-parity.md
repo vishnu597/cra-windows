@@ -1,6 +1,6 @@
 # Arc Search parity (iPhone app)
 
-Arc Search 1.49.0 feature by feature, against Cra for iPhone on the `ios-app` branch. The
+Arc Search 1.49.0 feature by feature, against Cra for iPhone (`iOS/`, on main). The
 feature list comes from [arc-search-reference.md](arc-search-reference.md) (sections B and C);
 [ios.md](ios.md) says how a screen is measured and compared.
 
@@ -8,10 +8,12 @@ Status: **done** = built and compared with the reference; **partial** = some of 
 **missing** = nothing yet; *skip* = left out on purpose (account, cloud AI, a service that
 ended). "Measured" means the numbers come from Arc Search footage, not from a description.
 
+**Released.** Cra for iPhone is on the App Store since 23 November 2026 (0.1.0); the public
+TestFlight beta gets each build first. See [ios.md](ios.md#app-store).
+
 ## Where this stopped (12 November 2026)
 
-Work was paused mid-way. The branch is `ios-app`, in the worktree `../cra-ios`; nothing is
-pushed. Pick up here.
+Kept as the history of the build-up; the `ios-app` branch was merged into main on 13 November.
 
 **State of the tests.** 13 November, morning: every UI test passed (41, run in two halves);
 under the Mac's load at the time (security agents at a load average of several hundred) some were
@@ -78,6 +80,7 @@ the real app on an iPhone has to be recorded before then.
 | Call Arc | *skip* | Removed from Arc Search itself. |
 | Default search engine: Browse for Me, Google, Bing, DuckDuckGo, Ecosia, Perplexity, Kagi, custom | done | App Settings ▸ Search Engine lists Browse for Me first (only with the device's own model), the six engines, then Custom (`MobileSearchChoice`, `MobileSearch`). Custom asks for an https address with %s for the query; the row then shows its site, suggestions are off for it, and the Browse for Me switch reads its results. With Browse for Me picked, Go, voice and widget searches make a Browse for Me page. Arc Search's custom-engine editor was not seen. UI tests `testBrowseForMeCanBeTheSearchEngine`, `testACustomEngineTakesTheSearch`. |
 | Fidget-spinner logo | partial | The mark on the empty home screen spins when flicked, slows and settles upright (`MobileFidget`, `FidgetLogoView`). Built, not yet verified in the app. |
+| Rippling Dots on the empty home (not in Arc Search) | done | App Settings ▸ Rippling Dots, off by default (Victor, 23 Nov 2026; PR #708 by priyanshuppal). Arc Search's gradient gives way to a near-black field of dots (near-white in light mode) under the same logo, which still spins when flicked: a dot every 20 pt (2 pt, 6.5 pt at a crest), "Tap to search" over the pill, the bar's buttons floating without their slab. A press swells the dots under the finger, a lift sends a ring with a weaker one behind it, a drag leaves a wake, crossing rings add up, a soft haptic on each press, up to 120 Hz and still when nothing moves; Reduce Motion fades a lift where it is (`MobileRipples`, `MobileEmptyHome`, `DotFieldView`). UI tests `testRipplingDotsAreASettingUnderTheLogo`, `testRipplingDotsInDarkMode`. |
 
 ## Browse for Me
 

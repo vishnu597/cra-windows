@@ -1388,6 +1388,7 @@ final class EmptyHomeTests: BrowserTestCase {
         let logo = app.images["logo"]
         XCTAssertTrue(logo.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["bar-search"].exists)
+        XCTAssertFalse(app.staticTexts["Tap to search"].exists, "the dots are off until App Settings turns them on")
         XCTAssertEqual(logo.value as? String, "0.0 turns")
         // A flick across its right-hand side, downwards: clockwise.
         let from = logo.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.2))
@@ -1395,6 +1396,56 @@ final class EmptyHomeTests: BrowserTestCase {
         sleep(1)
         keep("empty-home")
         XCTAssertNotEqual(logo.value as? String, "0.0 turns")
+        app.buttons["bar-search"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+    }
+
+    /// App Settings ▸ Rippling Dots (PR #708, Victor 23 Nov 2026: a setting, with the logo kept) lays a field of dots
+    /// under the logo that sends a ring out wherever it is tapped, with "Tap to search" over the pill; the pill still
+    /// brings the sheet back.
+    func testRipplingDotsAreASettingUnderTheLogo() {
+        rippleDots(appearance: "light")
+    }
+
+    /// The same in dark mode: the near-black backdrop under the dots.
+    func testRipplingDotsInDarkMode() {
+        rippleDots(appearance: "dark")
+    }
+
+    private func rippleDots(appearance: String) {
+        // One page, so App Settings opens from its tab row; closing that last tab leaves the empty home screen.
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO", "-CraAppearance", appearance])
+        waitForPage("First")
+        app.buttons["bar-tabs"].tap()
+        app.buttons["bar-settings"].tap()
+        let toggle = app.switches["setting-home-dots"]
+        for _ in 0..<6 where !toggle.isHittable { app.swipeUp() }
+        XCTAssertTrue(toggle.isHittable)
+        XCTAssertEqual(toggle.value as? String, "0", "off by default")
+        toggle.switches.firstMatch.exists ? toggle.switches.firstMatch.tap() : toggle.tap()
+        XCTAssertEqual(toggle.value as? String, "1")
+        app.buttons["Done"].tap()
+        let card = app.buttons["tab-card-0"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        sleep(1)
+        card.swipeUp(velocity: .fast)
+        // The last tab gone, the sheet comes up ready to type (as without the dots); put away, the home is left.
+        let field = app.textFields["search-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        let start = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 200)), withVelocity: .fast, thenHoldForDuration: 0)
+        XCTAssertTrue(app.staticTexts["Tap to search"].waitForExistence(timeout: 5))
+        let logo = app.images["logo"]
+        XCTAssertTrue(logo.waitForExistence(timeout: 5), "the logo stays over the dots")
+        let dots = app.otherElements["dot-field"]
+        XCTAssertTrue(dots.exists)
+        XCTAssertTrue(app.buttons["bar-search"].exists)
+        XCTAssertEqual(dots.value as? String, "0 rings")
+        dots.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.2)).tap()
+        dots.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.75)).press(forDuration: 0.5)
+        XCTAssertEqual(dots.value as? String, "2 rings")
+        keep("empty-home-dots-\(appearance)")
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "tapping the dots doesn't open the search")
         app.buttons["bar-search"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
     }
@@ -1708,6 +1759,22 @@ final class AppIconDockTests: BrowserTestCase {
         }
     }
 
+    /// On iPad the Change App Icon picker shows all four icons whole, at an iPhone's size: its grid
+    /// once stretched to the wide sheet, so the icons grew past 250 pt and the second row was cut off.
+    func testIconPickerFitsEveryIconOnIPad() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "the iPhone opens the picker as a half sheet")
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO", "-CraShortcut", "change-icon"])
+        XCTAssertTrue(app.navigationBars["App Icon"].waitForExistence(timeout: 5))
+        sleep(1)
+        let sheet = app.scrollViews.firstMatch.frame
+        for icon in ["segments", "midnight", "mono", "violet"] {
+            let frame = app.buttons["icon-\(icon)"].frame
+            XCTAssertTrue(sheet.contains(frame), "\(icon) at \(frame) is cut off by the picker \(sheet)")
+            XCTAssertLessThanOrEqual(frame.width, 200, "\(icon) grew to the iPad sheet's width")
+        }
+        keep("app-icon-picker-ipad")
+    }
+
     /// App Settings ▸ Change App Icon opens Arc Search's dock sheet with every icon on its shelf,
     /// the current one marked.
     func testChangeAppIconShowsTheDock() {
@@ -1727,6 +1794,28 @@ final class AppIconDockTests: BrowserTestCase {
         XCTAssertTrue(app.buttons["icon-segments"].isSelected, "the current icon is marked")
         sleep(1)
         keep("icon-dock")
+    }
+
+    /// On iPad the dock's row of icons sits in the middle of the sheet, under its title, instead
+    /// of against the left edge with empty shelf to the right.
+    func testIconDockCentresItsRowOnIPad() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "on iPhone the row is wider than the sheet and scrolls")
+        launch(["-CraOpenURL", Self.page("First"), "-CraSearch", "NO"])
+        waitForPage("First")
+        app.buttons["bar-tabs"].tap()
+        XCTAssertTrue(app.buttons["bar-settings"].waitForExistence(timeout: 5))
+        app.buttons["bar-settings"].tap()
+        let row = app.buttons["setting-app-icon"]
+        XCTAssertTrue(app.buttons["setting-default-browser"].waitForExistence(timeout: 5))
+        for _ in 0..<3 where !row.isHittable { app.swipeUp() }
+        row.tap()
+        let title = app.staticTexts["App Icon"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        sleep(1)
+        let first = app.buttons["icon-segments"].frame, last = app.buttons["icon-violet"].frame
+        XCTAssertEqual((first.minX + last.maxX) / 2, title.frame.midX, accuracy: 6,
+                       "the icons run from \(first.minX) to \(last.maxX), not centred under the title at \(title.frame.midX)")
+        keep("icon-dock-ipad")
     }
 }
 

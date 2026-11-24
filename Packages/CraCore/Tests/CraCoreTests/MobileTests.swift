@@ -1231,7 +1231,9 @@ struct MobileFidgetTests {
         #expect(MobileFidget.restAngle(from: -1, speed: -1) == -2 * Double.pi)
         #expect(MobileFidget.quarterTurns(from: 0, to: 3.3) == 2)
     }
+}
 
+struct MobilePageBehindSearchTests {
     /// Arc Search pushes the page back as a card under the status bar while the sheet is up:
     /// 10 pt in from each side on a 393 pt screen.
     @Test func thePageSitsBehindTheSearchSheetAsACard() {

@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         mainWindows.first { $0.windowID == store.activeWindowID } ?? mainWindows.first
     }
     private var bootstrapped = false
+    private var extensionCommandMonitor: Any?
     private var pendingURLs: [String] = []
     private var settingsWindow: NSWindow?
     private var settingsController: SettingsWindowController?
@@ -54,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Before any window docks: window managers see one Cra window, not its page and panels (#391).
         DockedWindowAccessibility.install()
         SystemAppearance.shared.start()
+        DocumentPictureInPictureSpring.shared.start()
         installURLEventHandler()
         observeFrontmostApp()
         PerfCEF.install(app: self)
@@ -301,6 +303,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         observeChanges(of: { [store] in store.settings.soundEffects }) { CaptureSound.enabled = $0 }
         observeLinkMenu()
         logSecureDNS()
+        // Extensions' shortcuts outside Global scope: Chrome catches them on its own window, which Cra never
+        // shows, so Cra catches them first, pages included, as Chrome does (#701).
+        extensionCommandMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            MainActor.assumeIsolated { self?.runExtensionCommand(event) == true ? nil : event }
+        }
     }
 
     /// A sidebar whose links disagree (SidebarIntegrity) says so in the log, one fault a problem.
@@ -1235,6 +1242,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 CraLog.note("profile renamed: \(store.profileName(id))")
                 return
             }
+            // spellCheck=on|off: Settings ▸ Profiles' "Check spelling while typing" for the current space's profile (#715).
+            if let v = dict["spellCheck"] {
+                let path = store.profilePath(profile: store.focusedSpace(window: main.windowID).profileID)
+                if v == "on" || v == "off" { SpellCheckSetting.set(v == "on", profilePath: path) }
+                CraLog.note("spell check setting: \(SpellCheckSetting.isOn(profilePath: path) ? "on" : "off")")
+                return
+            }
             if let name = dict["chromePref"] {
                 CraLog.note("chrome pref \(name): " + (CraCEFRuntime.preference(name, forProfile: nil) ?? "none"))
                 return
@@ -1396,12 +1410,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     let roots: [NSView] = dict["devtools"] == "1"
                         ? [EmbeddedDevTools.holder(of: devTools).flatMap { $0.superview != nil ? $0 : nil } ?? devTools?.contentView].compactMap { $0 }
                         : [page.hostWindow?.contentView, page.containerView].compactMap { $0 }
-                    TestGesture.pageKey(String(k[0]), keyCode: code, modifiers: flags, in: roots, window: w)
+                    TestGesture.pageKey(String(k[0]), keyCode: code, modifiers: flags, in: roots, window: w, fromKeyboard: dict["source"] == "keyboard")
                 } else {
                     // The ⌘T bar, while it is open, has the keyboard; target=find sends it to the find bar's panel.
                     let target = dict["target"] == "find" ? main.debugFindPanel
                         : dict["target"] == "littleFind" ? littleWindows.last?.finder.debugPanel : main.openCommandPanel
-                    TestGesture.key(String(k[0]), keyCode: code, modifiers: flags, in: target ?? w)
+                    // source=keyboard: typed on the keyboard (source process 0), not posted by an app as a mouse driver does (#714).
+                    TestGesture.key(String(k[0]), keyCode: code, modifiers: flags, in: target ?? w, fromKeyboard: dict["source"] == "keyboard")
                 }
                 return
             }
@@ -1466,6 +1481,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             // instantLinks=<label>: the Instant Links row and the last run, as one line (#407).
             if let v = dict["instantLinksSetting"] { store.settings.instantLinks = v == "on"; return }
+            // pageMarginSetting=<points>: Settings ▸ Pages ▸ Margin moved to that value, as the slider does (Ideas #366).
+            if let v = dict["pageMarginSetting"].flatMap(Double.init) { store.settings.pageMargin = v; return }
             // sidebarSide=left|right: Settings ▸ Sidebar on the right, as its switch sets it (#464).
             if let v = dict["sidebarSide"].flatMap(SidebarSide.init(rawValue:)) { store.settings.sidebarSide = v; return }
             if let v = dict["instantLinksFail"] {
@@ -1605,6 +1622,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // Library's rail or gone, the button down or up; a second later cra.log says, under that label,
             // which frame its icon rests on and in how many it got there since it was picked, and the tile's
             // colours and wash.
+            // libraryBack=1: the Library rail's back arrow, as its click sends it (#726).
+            if dict["libraryBack"] != nil {
+                let pressed = (main.shell.sidebarHost as? SidebarView)?.debugLibraryBack() == true
+                CraLog.note("library back arrow: \(pressed ? "pressed" : "no library")")
+                return
+            }
             if let name = dict["libraryRail"] {
                 guard let page = LibraryPage(rawValue: name), let sidebar = main.shell.sidebarHost as? SidebarView else {
                     CraLog.note("library rail: none"); return
@@ -1673,6 +1696,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             // pinExtension=<id>: pinned to the toolbar on the Default profile, as the Extensions menu's pin does.
             if let id = dict["pinExtension"] { ExtensionStore.shared.setPinned(id, true, inProfile: "Default"); return }
+            // extensionRemove=<id>: Remove from Cra as its menu row does once the dialog says Remove (#695).
+            if let id = dict["extensionRemove"] {
+                if let e = ExtensionStore.shared.entries.first(where: { $0.extensionID == id }) { ExtensionsMenu.remove(e) }
+                // Chromium's own record of the profile's extensions, and Cra's list.
+                let chromium = CraCEFRuntime.extensionSettings(forProfile: nil)?.contains(id) == true
+                let cra = ExtensionStore.shared.entries.contains { $0.extensionID == id }
+                CraLog.note("extension remove \(id.prefix(8)): in chromium=\(chromium ? 1 : 0) in cra=\(cra ? 1 : 0)")
+                return
+            }
             // extensionMenu=<id>: the toolbar's right-click menu for that pinned extension (#695); press=<row> chooses one.
             if let id = dict["extensionMenu"], let bar = main.shell.paneCards.first?.toolbarHost as? PaneToolbarView {
                 CraLog.note("extension menu \(dict["label"] ?? id): " + bar.debugExtensionMenu(id, press: dict["press"]))
@@ -2141,7 +2173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         + "movable=\(flag(w.isMovable)) backgroundMovable=\(flag(w.isMovableByWindowBackground)) "
                         + "lightsIn=\(lightsPlace(w)) card=\(m.shell.cardReadout) sidebar=\(m.shell.sidebarReadout) "
                         + "floating=\(m.floatingSidebar?.edgeReadout ?? "-") shadow=\(m.floatingSidebar?.shadowReadout ?? "-") "
-                        + "onTop=\(flag(m.staysOnTop)) sheet=\(flag(w.attachedSheet != nil)) \(m.shell.loadingReadout) frameAdjust=\(CraWindow.frameAdjustment)")
+                        + "onTop=\(flag(m.staysOnTop)) sheet=\(flag(w.attachedSheet != nil)) \(m.shell.loadingReadout) \(m.pageCornerReadout) "
+                        + "frameAdjust=\(CraWindow.frameAdjustment)")
                 }
                 for (i, l) in littleWindows.enumerated() where !l.isPeek {
                     guard let w = l.window else { continue }
@@ -2430,6 +2463,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // pipPointer=readd|enter|move puts Chromium's tracking area back or sends its window the pointer (#535);
             // pipPinch=<m>,<m>… pinches it, one trackpad magnification per value (#534).
             if let label = dict["pip"] { NSLog("Cra pip %@: %@", label, PictureInPictureChrome.shared.readout()); return }
+            // docPip=<label>: the Document Picture in Picture windows (Meet's) and whether each is on screen;
+            // docPipDrop=left|right|bottom lets the first go half past that edge, as a drag of its top bar does (#702).
+            if let label = dict["docPip"] { NSLog("Cra docPip %@: %@", label, DocumentPictureInPictureSpring.shared.readout()); return }
+            if let edge = dict["docPipDrop"] { DocumentPictureInPictureSpring.shared.debugDrop(edge); return }
             if let count = dict["pipClick"].flatMap(Int.init) { PictureInPictureChrome.shared.debugClick(count); return }
             if let at = dict["pipSeek"].flatMap(Double.init) { PictureInPictureChrome.shared.debugSeek(at); return }
             if let name = dict["pipButton"] { PictureInPictureChrome.shared.debugPress(name); return }
@@ -2660,6 +2697,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // appIcon=<id>: picks an icon without remembering it; bundleIcon=<label>: Finder's icon on the app.
             if let id = dict["appIcon"] { AppIconManager.shared.select(id, remember: false); return }
             if let label = dict["bundleIcon"] { AppIconManager.shared.logBundleIcon(label); return }
+            // bundleIconPut=<id>: that icon on Cra.app as 0.1.54 put it, for a launch to take off (#724).
+            if let id = dict["bundleIconPut"] { AppIconManager.shared.putBundleIconForTest(id); return }
             // How far the open downloads list's hover reaches below its rows, and what a press there hits (#575).
             if let label = dict["downloadsTray"] {
                 let tray = (main.sidebarUI.downloadsTray as? DownloadsTrayView)?.hoverReadout ?? "none"
@@ -2732,6 +2771,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             if let v = dict["banner"] { SoftwareUpdater.shared.debugUpdated(v == "none" ? nil : v); return }
             if let v = dict["bannerReady"] { SoftwareUpdater.shared.debugReady(v == "none" ? nil : v); return }
+            // updateNotice=<label>: what the update banner says ("update notice <label>: …"); =click clicks it, as
+            // for a Cra.app replaced while it runs (app-replaced-while-running).
+            if let v = dict["updateNotice"] {
+                let u = SoftwareUpdater.shared
+                if v == "click" { if let n = u.notice { u.act(on: n) } else { CraLog.note("update notice click: none") }; return }
+                CraLog.note("update notice \(v): \(u.notice.map { "\($0.title) \($0.subtitle) (\($0.version))" } ?? "none")")
+                return
+            }
             // switcher=held: open as from ⌃Tab with ⌃ held, so keys go to it and letting go switches (#696);
             // switcher=state logs the selected card.
             if dict["switcher"] == "state" { main.debugTabSwitcherState(); return }
@@ -3449,9 +3496,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let which = offset < 0 ? "back" : "forward"
             let editing = self.textFieldHasKey(event)
             let overSidebar = self.mainWindows.contains { $0.pointerOverSidebar() }
-            guard let action = MouseButtonSpaceSwitch.action(offset: offset, pointerOverSidebar: overSidebar,
-                                                              editingText: editing, isRepeat: event.isARepeat) else {
-                if !event.isARepeat { CraLog.note("mouse key \(which): left for text") }
+            // Typed on the keyboard it is the page's (YouTube's chapters, #714); only a mouse driver's posted one acts.
+            let keyboard = MouseButtonSpaceSwitch.typedOnKeyboard(sourcePID: event.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID) ?? 0)
+            guard let action = MouseButtonSpaceSwitch.action(offset: offset, pointerOverSidebar: overSidebar, editingText: editing,
+                                                              isRepeat: event.isARepeat, typedOnKeyboard: keyboard) else {
+                if !event.isARepeat { CraLog.note("mouse key \(which): left for \(editing ? "text" : "the page, typed on the keyboard")") }
                 return event
             }
             switch action {
@@ -3463,7 +3512,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 CraLog.note("mouse key \(which): switched space")
             case .history(let step):
-                guard let browser = self.keyLittleWindow?.browser ?? self.keyMainWindow()?.currentBrowser else { return event }
+                guard let browser = self.keyLittleWindow?.browser ?? self.keyMainWindow()?.currentBrowser else {
+                    CraLog.note("mouse key \(which): history, no window in front")
+                    return event
+                }
                 if step < 0 { browser.goBack() } else { browser.goForward() }
                 CraLog.note("mouse key \(which): history")
             }
@@ -3546,6 +3598,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// A key before the page sees it: Cra takes native window commands, the shortcuts that prefer
     /// Cra, and Use Both's second press of a shortcut the page kept (Settings ▸ Shortcuts, #374).
     /// The rest go to the page and come back through handleUnhandledKey if it leaves them alone.
+    /// An extension's shortcut (chrome://extensions/shortcuts) pressed in a browser window: the ones that
+    /// open its popup run as a click on its button does (#701); its own commands (chrome.commands.onCommand) go to
+    /// the extension through the engine, with the page as the active tab. Global ones are the system's hot keys.
+    private func runExtensionCommand(_ event: NSEvent) -> Bool {
+        let held = event.modifierFlags.intersection([.command, .option, .control])
+        guard !held.isEmpty, !event.isARepeat, let main, event.window === main.window || event.window?.parent === main.window else { return false }
+        // chrome://extensions/shortcuts records a key by its press: Chrome holds its shortcuts back there.
+        if main.selectedTab?.tab?.url.hasPrefix("chrome://extensions") == true { return false }
+        let path = store.profilePath(profile: main.focusedSpace.profileID)
+        guard let json = CraCEFRuntime.preference("extensions.commands", forProfile: path) else { return false }
+        let bindings = ExtensionCommands.bindings(prefJSON: json)
+        guard !bindings.isEmpty,
+              let binding = ExtensionCommands.binding(in: bindings, characters: event.charactersIgnoringModifiers ?? "",
+                                                      keyCode: event.keyCode, modifiers: event.modifierFlags.rawValue) else { return false }
+        guard ExtensionCommands.opensPopup(binding.command) else {
+            // Its own command: the engine delivers it to the extension with this page as the active tab (engine -19).
+            let page = main.currentBrowser
+            let sent = page?.responds(to: #selector(CraBrowser.runExtensionCommand(_:extension:))) == true
+                && page?.runExtensionCommand(binding.command, extension: binding.extensionID) == true
+            CraLog.note("extension command \(binding.extensionID.prefix(8)) \(binding.command): \(sent ? "sent" : "not sent")")
+            return sent
+        }
+        CraLog.note("extension command \(binding.extensionID.prefix(8)): opens its popup")
+        main.runExtensionAction(binding.extensionID)
+        return true
+    }
+
     func handleReservedKey(_ event: NSEvent) -> Bool {
         if performNativePageShortcut(event) { return true }
         guard let action = bindings.action(for: event) else { return false }

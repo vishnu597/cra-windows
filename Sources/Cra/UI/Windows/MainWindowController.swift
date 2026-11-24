@@ -48,7 +48,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// Where the Library was sliding when the swipe caught it (LibrarySwipe.reveal's `toward`).
     private var librarySwipeToward: CGFloat?
     private var librarySettleSpring: (clock: SettleClock, from: CGFloat, velocity: CGFloat, target: CGFloat)?
+    /// The frames a Library settle has drawn so far.
+    private var librarySettleFrames = 0
     private var librarySettleLink: CADisplayLink?
+    /// Frames of the Library's slide on which the space pages' mask was still easing after the column (#717).
+    private var libraryMaskTrailFrames = 0
     /// Shows the lists' overlay knob again once a swipe's scroller flash has faded.
     private var swipeKnobReveal: DispatchWorkItem?
     /// Whether a touch over the sidebar hides the lists' knob (#77), or leaves it showing (#544).
@@ -188,6 +192,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         shell.autoHideToolbar = store.settings.hidesToolbar(above: selectedTabID.flatMap { store.item($0)?.tab?.url })
         shell.edgeToEdge = store.settings.edgeToEdgeContent
         shell.edgeToEdgeRoundedCorners = store.settings.edgeToEdgeRoundedCorners
+        shell.pageMargin = store.settings.pageMargin
         shell.sidebarSide = store.settings.sidebarSide
         lastSidebarVisible = sidebarVisible
         window.trafficLightsHidden = !sidebarVisible
@@ -472,7 +477,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         sidebarActions.toggleSidebar = { [weak self] in self?.toggleSidebar() }
         sidebarActions.toggleLibrary = { [weak self] in self?.toggleLibrary() }
         sidebarActions.showLibrary = { [weak self] page in self?.showLibrary(page) }
-        sidebarActions.closeLibrary = { [weak self] in self?.closeLibrary() }
+        sidebarActions.closeLibrary = { [weak self] in self?.leaveLibrary() }
         sidebarActions.restoreArchived = { [weak self] id in
             guard let self else { return }
             _ = self.store.restoreArchived(id)
@@ -655,6 +660,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         let palette = space.theme.palette
         // Its extensions belong to the space's profile.
         if siteControlCenter.isShown, siteControlCenterSpaceID != space.id { siteControlCenter.close() }
+        // A space change under an open ⌘T bar lists that space's tabs, as Arc's bar does (#721).
+        commandBar.follow(space: space.id)
         // refresh runs on every store change (each page title, each window move). A new root
         // view rebuilds its whole SwiftUI tree, and a new window appearance or background redraws
         // every view, so all of these follow the theme only when it changes. What the root
@@ -702,6 +709,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         if shell.autoHideToolbar != hidesBar { shell.autoHideToolbar = hidesBar }
         if shell.edgeToEdge != store.settings.edgeToEdgeContent { shell.edgeToEdge = store.settings.edgeToEdgeContent }
         shell.edgeToEdgeRoundedCorners = store.settings.edgeToEdgeRoundedCorners
+        shell.pageMargin = store.settings.pageMargin
         if shell.sidebarSide != store.settings.sidebarSide { moveSidebar(to: store.settings.sidebarSide) }
         // Before setPanes: a pane whose page is not live yet gets its bar colour now, not white.
         let bars = toolbarColors(panes: panes)
@@ -2260,6 +2268,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         return p.pageRect(in: body)
     }
 
+    /// For `cra://debug?windowState`: the visible page window's clip round, the window's own corner round, and
+    /// whether the page's corner stays inside the window's (#366: at a narrow margin a 6 pt page corner stood out
+    /// past the window's). `inside` takes the card's inset from the window's top-right corner, where the sidebar
+    /// never is on the left. An embedded page (EmbeddedPages) is clipped by its pane card, so that card's round counts.
+    var pageCornerReadout: String {
+        guard let window, let id = browsers.visibleTabID,
+              let layer = browsers.runtime(for: id)?.hostWindow?.contentView?.layer
+                ?? shell.paneCards.first(where: { $0.tabID == id })?.layer
+        else { return "pageRound=- windowRound=- inside=-" }
+        let windowRound = window.styleMask.contains(.fullScreen) ? 0 : LittleWindow.cornerRadius(of: window)
+        let card = shell.contentContainer.frame
+        let inset = min(shell.bounds.maxX - card.maxX, shell.bounds.maxY - card.maxY)
+        let inside = layer.cornerRadius + inset >= windowRound - 0.5
+        return String(format: "pageRound=%.0f windowRound=%.0f inside=%d", layer.cornerRadius, windowRound, inside ? 1 : 0)
+    }
+
     /// Only the page corners that are card corners get rounded (a page docked beside
     /// DevTools meets it with a straight edge, like Arc).
     private func updatePageCorners(_ w: NSWindow, page: NSRect, body: NSRect) {
@@ -2287,7 +2311,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             roundAtWindowCorners(layer, rect: page, flipped: cv.isFlipped)
             return
         }
-        let radius = shell.contentFullscreen ? 0 : shell.fillsWindow ? shell.paneCornerRadius : CraMetrics.contentCornerRadius
+        // The card's round as ShellView has it: Arc's 6 pt in its margin, more at a narrow one (#366), 0 in full screen.
+        let radius = shell.paneCornerRadius
         if layer.cornerRadius != radius { layer.cornerRadius = radius }
         var corners: CACornerMask = []
         // A fullscreen card is square.
@@ -2535,7 +2560,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             roundAtWindowCorners(layer, rect: window.convertFromScreen(w.frame), flipped: cv.isFlipped)
             return
         }
-        layer.cornerRadius = shell.fillsWindow ? shell.paneCornerRadius : CraMetrics.contentCornerRadius
+        layer.cornerRadius = shell.paneCornerRadius
         // Frontend-docked: the window spans the card body, so both bottom corners are
         // card corners, and the top ones too without the toolbar (else they showed past the
         // page's rounded top corners). Shell-docked (Alloy): it sits right of the page.
@@ -2724,9 +2749,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         let shown = store.window(windowID).sidebarVisible || shell.slidingSidebar
         if shell.sidebarSide == .right {
             let width = shell.bounds.width
-            return (0, shown && width - content.maxX > CraMetrics.contentInset ? content.maxX : nil)
+            let beside = PageMargin.besideSidebar(cardEdge: Double(width - content.maxX), margin: shell.pageMargin, fillsWindow: shell.fillsWindow)
+            return (0, shown && beside ? content.maxX : nil)
         }
-        return (shown && content.minX > CraMetrics.contentInset ? content.minX : 0, nil)
+        let beside = PageMargin.besideSidebar(cardEdge: Double(content.minX), margin: shell.pageMargin, fillsWindow: shell.fillsWindow)
+        return (shown && beside ? content.minX : 0, nil)
     }
 
     /// Where a click closes a Peek (screen coordinates): the page area, not the sidebar, whose rows
@@ -3358,19 +3385,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     private var hiddenByResize = false
     static let hiddenSidebarByDragKey = "hasHiddenSidebarWithGesture"
 
-    /// Arc's Library button and ⇧⌘L: open the Library on the page last shown, or leave it. In a
-    /// docked sidebar it slides in and out like the swipe into it (LibrarySwipe).
+    /// Arc's Library button and ⇧⌘L: open the Library on the page last shown, or leave it. It slides in and out
+    /// like the swipe into it, from a hidden sidebar too, and one that brought the sidebar out slides back out to
+    /// it (LibrarySwipe.buttonMotion, #726).
     func toggleLibrary() {
         // One on its way in from a hidden sidebar lands first.
         guard hiddenLibrary == nil else { return }
         let opening = librarySettleSpring.map { $0.target < 1 } ?? (sidebarUI.libraryPage == nil)
-        if librarySwipeFrom == nil, !shell.floatingSidebar, shell.sidebarVisible, !libraryShowedSidebar {
-            slideLibrary(to: opening ? 1 : 0)
-        } else if opening {
-            showLibrary(sidebarUI.lastLibraryPage)
-        } else {
-            closeLibrary()
+        let sidebar: LibrarySwipe.ButtonSidebar = shell.contentFullscreen ? .none
+            : shell.floatingSidebar || !shell.sidebarVisible ? .hidden : .docked
+        let motion = LibrarySwipe.buttonMotion(opening: opening, sidebar: sidebar, swiping: librarySwipeFrom != nil)
+        CraLog.note("library button: \(opening ? "opens" : "leaves") it \(motion)\(libraryShowedSidebar ? " to the hidden sidebar" : "")"
+                    + (sidebar == .hidden ? ", the floating sidebar \(floatingSidebar?.isShown == true ? "out" : "away")" : ""))
+        switch motion {
+        case .slide(let target): slideLibrary(to: target)
+        case .slideFromHidden: slideLibraryFromHidden()
+        case .show: showLibrary(sidebarUI.lastLibraryPage)
+        case .close: closeLibrary()
         }
+    }
+
+    /// The Library's back arrow and Esc: out the way its button takes it (#726). They went at once, and from a
+    /// hidden sidebar the tab list showed over the Library for a few frames as the page widened in steps.
+    func leaveLibrary() {
+        guard librarySettleSpring.map({ $0.target >= 1 }) ?? (sidebarUI.libraryPage != nil) else { return }
+        toggleLibrary()
     }
 
     /// A page's shortcut (⇧⌘J, View Media…): that page, or the Library closed when it shows that page
@@ -3913,11 +3952,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     }
 
     private func settleLibrary(from r: CGFloat, velocity: CGFloat, to target: CGFloat) {
-        librarySettleSpring = (clock: SettleClock(started: CACurrentMediaTime()), from: r, velocity: velocity, target: target)
+        libraryMaskTrailFrames = 0
+        librarySettleFrames = 0
+        let clock = SettleClock(started: CACurrentMediaTime())
+        librarySettleSpring = (clock: clock, from: r, velocity: velocity, target: target)
         if librarySettleLink == nil {
             let link = shell.displayLink(target: self, selector: #selector(stepLibrarySettle))
             link.add(to: .main, forMode: .common)
             librarySettleLink = link
+        }
+        // A display link gives no frames while the display sleeps: a settle that never drew lands at once, or the
+        // Library would stay on its way in and its button do nothing (#726).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, let s = self.librarySettleSpring, s.clock == clock, s.clock.origin == nil else { return }
+            CraLog.note("library slide drew no frame in 0.5 s: lands \(s.target >= 1 ? "in" : "out") at once")
+            self.stopLibrarySettle()
+            self.finishLibrarySwipe(at: s.target)
         }
     }
 
@@ -3928,9 +3978,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         librarySettleSpring = s
         if LibrarySwipe.isSettled(from: s.from, velocity: s.velocity, to: s.target, at: t, width: sidebarUI.libraryRevealWidth) {
             stopLibrarySettle()
+            // A scenario's proof that it moved, not appeared (#726).
+            let hidden = hiddenLibrary != nil || libraryShowedSidebar
+            CraLog.note("library slid \(s.target >= 1 ? "in" : "out")\(hidden ? (s.target >= 1 ? " from" : " to") + " the hidden sidebar" : "")"
+                        + " on \(librarySettleFrames) frames over \(Int((t * 1000).rounded())) ms")
             finishLibrarySwipe(at: s.target)
         } else {
+            // The last frame's narrowing: the space pages' mask must already be the column's, or the next space's
+            // column shows past its edge (#679, #717).
+            if (shell.sidebarHost as? SidebarView)?.pagesMaskTrails == true { libraryMaskTrailFrames += 1 }
             setLibraryReveal(LibrarySwipe.settle(from: s.from, velocity: s.velocity, to: s.target, at: t))
+            librarySettleFrames += 1
         }
     }
 
@@ -3989,6 +4047,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             // The column has just narrowed from the Library's width; the next space's column lies past its edge (#679).
             let trails = (shell.sidebarHost as? SidebarView)?.pagesMaskTrails == true
             CraLog.note("library left by a swipe: the sidebar hides again, the space pages' mask \(trails ? "trails" : "follows") the column")
+        } else if target < 1 {
+            // Left in place (its button, ⇧⌘L, a swipe): the column narrows to the tab list's width with the next
+            // space's column right past its edge, over the page (#717).
+            shell.layoutSubtreeIfNeeded()
+            let trails = (shell.sidebarHost as? SidebarView)?.pagesMaskTrails == true || libraryMaskTrailFrames > 0
+            CraLog.note("library left in place: the space pages' mask \(trails ? "trails" : "follows") the column"
+                        + (libraryMaskTrailFrames > 0 ? " on \(libraryMaskTrailFrames) frames" : ""))
         }
         shell.thawPages()
     }
@@ -4740,6 +4805,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // Where the frame went (#634): its right edge from the anchor, its top from under the URL field.
         let frame = ExtensionPopupWindow.shownFrame ?? .zero
         CraLog.note("extension popup \(step): shown, hangs from \(inSidebar ? "sidebar" : "page")")
+        CraLog.note("extension popup \(step) geometry: " + ExtensionPopupWindow.debugGeometry)
         CraLog.note("extension popup \(step) frame: dx=\(Int((frame.maxX - anchor.x).rounded())) dy=\(Int((frame.maxY - anchor.y).rounded())) "
                     + "minX=\(Int(frame.minX - (window?.screen?.frame.minX ?? 0))) fullscreen=\(window?.styleMask.contains(.fullScreen) == true ? 1 : 0) "
                     + "titleBar=\(Int(frame.midX)),\(Int((NSScreen.screens.first?.frame.maxY ?? 0) - frame.maxY + 10))")
@@ -6312,8 +6378,10 @@ final class CraWindow: NSWindow {
     /// and the toolbar takes a click as "edit URL", so the strip's presses are handled
     /// here: a double-click runs the title bar action, anything else drags the window.
     /// Edge to edge there is no margin, so only the 4 pt reaching into the toolbar (or the page) is left.
+    /// The margin is the one Settings ▸ Pages ▸ Margin sets (Ideas #366, PageMargin.titleStrip).
     private var titleStripHeight: CGFloat {
-        (contentView as? ShellView)?.edgeToEdge == true ? 4 : CraMetrics.contentInset + 4
+        guard let shell = contentView as? ShellView else { return CGFloat(PageMargin.titleStrip(margin: PageMargin.arc, edgeToEdge: false)) }
+        return CGFloat(PageMargin.titleStrip(margin: shell.pageMargin, edgeToEdge: shell.edgeToEdge))
     }
 
     /// Full screen is the system's to place (#308): no drag moves the window inside its Space,
