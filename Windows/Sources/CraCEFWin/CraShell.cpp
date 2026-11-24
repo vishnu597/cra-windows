@@ -19,6 +19,7 @@
 
 #include <climits>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <set>
 #include <string>
@@ -162,6 +163,27 @@ extern "C" int cra_clipboard_set_text(const char *text) {
     std::wstring wide = Wide(text);
     Clipboard clipboard;
     return clipboard.open && clipboard.Put(CF_UNICODETEXT, wide.c_str(), (wide.size() + 1) * sizeof(wchar_t)) ? 1 : 0;
+}
+
+extern "C" char *cra_clipboard_text(void) {
+    // Not Clipboard, which empties the clipboard to write it.
+    bool open = false;
+    for (int i = 0; i < 10 && !(open = OpenClipboard(nullptr) != 0); i++) Sleep(10);
+    if (!open) return nullptr;
+    char *out = nullptr;
+    if (HANDLE data = GetClipboardData(CF_UNICODETEXT)) {
+        if (auto *text = static_cast<const wchar_t *>(GlobalLock(data))) {
+            int n = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+            if (n > 0 && (out = static_cast<char *>(std::malloc(n))) != nullptr &&
+                WideCharToMultiByte(CP_UTF8, 0, text, -1, out, n, nullptr, nullptr) != n) {
+                std::free(out);
+                out = nullptr;
+            }
+            GlobalUnlock(data);
+        }
+    }
+    CloseClipboard();
+    return out;
 }
 
 extern "C" int cra_clipboard_set_file(const char *path) {

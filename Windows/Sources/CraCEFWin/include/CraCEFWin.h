@@ -151,6 +151,8 @@ void cra_hide_download_started_animation(void);
 
 /// UTF-8 text on the clipboard. 1 on success.
 int cra_clipboard_set_text(const char *text);
+/// The clipboard's text (CF_UNICODETEXT) as UTF-8, or NULL when it holds none. Free with cra_data_free.
+char *cra_clipboard_text(void);
 /// A PNG on the clipboard, as "PNG" (what browsers and Office paste) and as a bitmap (CF_DIB,
 /// for Paint and the rest). 1 on success.
 int cra_clipboard_set_png(const uint8_t *png, size_t length);

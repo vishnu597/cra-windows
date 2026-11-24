@@ -1059,6 +1059,7 @@ final class BrowserWindow {
         case "copyURL": copyURL(markdown: false)
         case "copyURLMarkdown": copyURL(markdown: true)
         case "copyURLQuote": copyURLAsQuote()
+        case "pasteAndGo": pasteAndGo()
         case "stayOnTop": window.staysOnTop.toggle()
         case "capturePage": capture(fullPage: false)
         case "clearCache": shownPage?.clearSiteDataAndReload(cookies: false)
@@ -2555,6 +2556,23 @@ final class BrowserWindow {
 
     /// Copy URL as Quote: the page's selection in curly quotes, then a link that scrolls to it
     /// (CleanURL.quote; the Mac's PageCommands.copyURLAsQuote).
+    /// Edit ▸ Paste and Go (AppDelegate.pasteAndGo, #610): the copied link as a new tab, other
+    /// copied text searched, routed by Air Traffic Control as a typed address is. From the command
+    /// bar, so no field has the keys and it never just pastes; a beep when there is nothing to open.
+    private func pasteAndGo() {
+        guard case .open(let text) = PasteAndGo.outcome(typing: false, clipboard: WinShell.text()) else {
+            _ = MessageBeep(0)
+            return
+        }
+        let url = SuggestionEngine.looksLikeURL(text) ? SuggestionEngine.urlFromInput(text) : engine.searchURL(text)
+        if !isIncognito, let space = store.settings.space(forTypedURL: url), space != store.focusedSpaceID(window: windowID),
+           store.orderedSpaces.contains(where: { $0.id == space }) {
+            store.createTab(url: url, in: space, window: windowID)
+        } else {
+            store.createTab(url: url, window: windowID)
+        }
+    }
+
     private func copyURLAsQuote() {
         guard let page = shownPage, let url = store.selectedTab(window: windowID)?.tab?.url, !url.isEmpty else { return }
         page.sendDevToolsMethod("Runtime.evaluate", params: #"{"expression":"getSelection().toString()","returnByValue":true}"#) { [weak self] result, _ in
