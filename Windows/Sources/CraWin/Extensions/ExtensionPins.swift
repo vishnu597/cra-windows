@@ -41,6 +41,23 @@ final class ExtensionPins {
         for f in onChange { f() }
     }
 
+    /// After an import (GitHub #131): each profile the import used shows the pins its source
+    /// profile had in that browser's `userData` (PinnedExtensions.seedImport). Pins of extensions
+    /// that load from the next start show then.
+    func seedImport(userData: URL, map: ImportProfileMap) {
+        let folders = map.bindsProfiles ? Array(map.folders.keys) : ["Default"]
+        var sources: [String: [String]] = [:]
+        for folder in folders {
+            let prefs = userData.appendingPathComponent(folder, isDirectory: true).appendingPathComponent("Preferences")
+            if let data = try? Data(contentsOf: prefs), let ids = PinnedExtensions.chromiumPins(preferences: data) { sources[folder] = ids }
+        }
+        let before = pins
+        pins.seedImport(sources, map: map, hasSavedPins: FileManager.default.fileExists(atPath: file.path))
+        guard pins != before else { return }
+        save()
+        for f in onChange { f() }
+    }
+
     private func save() {
         do {
             try JSONEncoder().encode(pins).write(to: file, options: .atomic)

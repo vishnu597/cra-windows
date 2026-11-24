@@ -38,4 +38,32 @@ struct WindowsPinnedExtensionsTests {
         let back = try JSONDecoder().decode(PinnedExtensions.self, from: try JSONEncoder().encode(pins))
         #expect(back == pins)
     }
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/131"))
+    func anImportBringsTheSourceBrowsersPins() throws {
+        let prefs = Data(#"{"extensions":{"pinned_extensions":["ublock","dark"]},"other":1}"#.utf8)
+        #expect(PinnedExtensions.chromiumPins(preferences: prefs) == ["ublock", "dark"])
+        #expect(PinnedExtensions.chromiumPins(preferences: Data("{}".utf8)) == nil)
+
+        var pins = PinnedExtensions()
+        pins.seedImport(["Default": ["ublock"], "Profile 1": ["x"]], map: ImportProfileMap(), hasSavedPins: false)
+        #expect(pins == PinnedExtensions(shared: ["ublock"]), "no profiles bound: the source's Default only")
+
+        var kept = PinnedExtensions(shared: ["mine"])
+        kept.seedImport(["Default": ["ublock"]], map: ImportProfileMap(), hasSavedPins: true)
+        #expect(kept == PinnedExtensions(shared: ["mine"]), "Cra's own pins stay")
+    }
+
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/131"))
+    func eachProfileTheImportMadeGetsItsSourcesPins() {
+        var pins = PinnedExtensions()
+        let map = ImportProfileMap(folders: ["Default": "Default", "Profile 3": "Profile 9"])
+        pins.seedImport(["Default": ["a"], "Profile 3": ["b", "c"]], map: map, hasSavedPins: false)
+        #expect(pins.ids(inProfile: "Default") == ["a"])
+        #expect(pins.ids(inProfile: "Profile 9") == ["b", "c"])
+        #expect(pins.ids(inProfile: "Profile 4") == ["a"], "a profile the import didn't touch shows the shared list")
+
+        var own = PinnedExtensions(shared: [], profiles: ["Profile 9": ["z"]])
+        own.seedImport(["Profile 3": ["b"]], map: map, hasSavedPins: true)
+        #expect(own.ids(inProfile: "Profile 9") == ["z"], "a profile's own list stays")
+    }
 }

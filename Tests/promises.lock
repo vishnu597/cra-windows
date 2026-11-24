@@ -181,6 +181,8 @@
 #131   Packages/CraCore/Tests/CraCoreTests/ExtensionProfilesTests.swift::importedPinsSeedOnlyNewLists  c959ca5560a7
 #131   Packages/CraCore/Tests/CraCoreTests/ExtensionProfilesTests.swift::rebuildKeepsExtensionsInProfilesMadeInCra  02966012603d
 #131   Packages/CraCore/Tests/CraCoreTests/ExtensionProfilesTests.swift::rebuildMatchesSpacesByName  5db767db6157
+#131   Packages/CraCore/Tests/CraCoreTests/WindowsPinnedExtensionsTests.swift::anImportBringsTheSourceBrowsersPins  1456d579337e
+#131   Packages/CraCore/Tests/CraCoreTests/WindowsPinnedExtensionsTests.swift::eachProfileTheImportMadeGetsItsSourcesPins  4722dbecb85d
 #131   Tests/Scenarios/space-profiles.scenario  9ca615fdf045
 #131   Tests/StoreTests.swift::arcProfiles  5e32237de12a
 #131   Tests/StoreTests.swift::newProfileDatabases  02fece3b6212
