@@ -253,6 +253,7 @@ final class BrowserWindow {
         }
         downloads.pointer = pointer
         sidebar.pointer = pointer
+        sidebar.folderPreview.host = { [weak self] in self?.window }
         // A sidebar drag holds the mouse in the window itself, so no page sees it go by.
         sidebar.captureMouse = { [weak self] in
             guard let self, let host = HWND(bitPattern: self.hwnd) else { return }
@@ -490,7 +491,66 @@ final class BrowserWindow {
         page.isVisible = false
         if store.item(id)?.tab?.muted == true { page.setAudioMuted(true) }
         pages[id] = page
+        // The tab's back and forward list from before (#273): Back and Forward step through it
+        // while the page has nothing of its own that way.
+        if !isIncognito, let saved = PageListStore.shared.load(id), saved.restores(at: url) {
+            pageLists[ObjectIdentifier(page)] = saved
+        }
         return page
+    }
+
+    // MARK: Back and forward across a relaunch
+
+    /// The list each page started with (PageList, #273), as Back and Forward have stepped it, and
+    /// how many entries the page's own list had at its last save.
+    private var pageLists: [ObjectIdentifier: PageList] = [:]
+    private var pageEntryCounts: [ObjectIdentifier: Int] = [:]
+
+    /// Saves the tab's list once its page has loaded: Chromium's own list on top of the one the
+    /// page started with.
+    private func savePageList(_ page: WebPage) {
+        guard !page.isIncognito, let id = tabID(of: page), pages[id] === page else { return }
+        page.sendDevToolsMethod("Page.getNavigationHistory") { [weak self, weak page] json, _ in
+            guard let self, let page, let json, let live = PageList.live(history: json) else { return }
+            let key = ObjectIdentifier(page)
+            self.pageEntryCounts[key] = live.entries.count
+            let base = self.pageLists[key] ?? PageList(entries: [], index: 0, savedAt: Date())
+            PageListStore.shared.save(base.merged(live: live.entries, liveIndex: live.index, savedAt: Date()), for: id)
+            if page === self.shownPage { self.syncToolbar() }
+        }
+    }
+
+    /// Back from the saved list: the page is replaced by the one before it. False when there is
+    /// none (the page has its own page behind, or the list starts here).
+    private func savedBack(_ page: WebPage) -> Bool {
+        let key = ObjectIdentifier(page)
+        guard let step = pageLists[key]?.back(pageCanGoBack: page.canGoBack) else { return false }
+        pageLists[key] = step.list
+        page.executeJavaScript(PageList.replaceScript(step.url))
+        return true
+    }
+
+    private func savedForward(_ page: WebPage) -> Bool {
+        let key = ObjectIdentifier(page)
+        guard let step = pageLists[key]?.forward(pageCanGoForward: page.canGoForward, pageEntries: pageEntryCounts[key] ?? 1)
+        else { return false }
+        pageLists[key] = step.list
+        page.executeJavaScript(PageList.replaceScript(step.url))
+        return true
+    }
+
+    private func canGoBackInSaved(_ page: WebPage) -> Bool {
+        pageLists[ObjectIdentifier(page)]?.back(pageCanGoBack: page.canGoBack) != nil
+    }
+
+    private func canGoForwardInSaved(_ page: WebPage) -> Bool {
+        let key = ObjectIdentifier(page)
+        return pageLists[key]?.forward(pageCanGoForward: page.canGoForward, pageEntries: pageEntryCounts[key] ?? 1) != nil
+    }
+
+    private func goForward() {
+        guard let page = shownPage else { return }
+        if !savedForward(page) { page.goForward() }
     }
 
     /// Focuses the selected tab's page (the panes are already on screen, syncPages).
@@ -609,7 +669,7 @@ final class BrowserWindow {
         try? AutomationProperties.setName(sidebarButton, "Toggle Sidebar")
         toolbar.children.append(sidebarButton)
         let back = UI.button("\u{2190}") { [weak self] in self?.goBack() }
-        let forward = UI.button("\u{2192}") { [weak self] in self?.shownPage?.goForward() }
+        let forward = UI.button("\u{2192}") { [weak self] in self?.goForward() }
         back.contextFlyout = backMenu
         forward.contextFlyout = forwardMenu
         backMenu.opening.addHandler { [weak self] _, _ in self?.openHistoryMenu(.back) }
@@ -1079,7 +1139,7 @@ final class BrowserWindow {
         case "networkPanel": shownPage?.runDevTools(.network)
         case "toggleDeveloperMode": toggleDeveloperMode()
         case "goBack": goBack()
-        case "goForward": shownPage?.goForward()
+        case "goForward": goForward()
         // The Mac's steps (MainWindowController.zoom(by:)): half a Chromium zoom level, which
         // Chromium keeps for the site.
         case "zoomIn": if let page = shownPage { page.zoomLevel += 0.5 }
@@ -1736,8 +1796,9 @@ final class BrowserWindow {
             state.themeColor = ToolbarColor.hex(reported: nil, remembered: t.themeColor)
         }
         if let page = shownPage {
-            state.canGoBack = tabID(of: page).map { store.backStep($0, canGoBack: page.canGoBack) != .none } ?? page.canGoBack
-            state.canGoForward = page.canGoForward
+            state.canGoBack = canGoBackInSaved(page)
+                || (tabID(of: page).map { store.backStep($0, canGoBack: page.canGoBack) != .none } ?? page.canGoBack)
+            state.canGoForward = page.canGoForward || canGoForwardInSaved(page)
             state.isLoading = page.isLoading
         }
         state.sidebarVisible = sidebarDocked
@@ -2979,6 +3040,7 @@ extension BrowserWindow: WebPageDelegate {
     }
 
     func page(_ page: WebPage, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool) {
+        if !loading { savePageList(page) }
         syncSlowResponse()
         if page === shownPage { syncToolbar() }
         if page === shownPage { syncLoadingBar(animated: true) }
@@ -3110,6 +3172,8 @@ extension BrowserWindow: WebPageDelegate {
     private func goBack() {
         guard let page = shownPage else { return }
         guard let id = tabID(of: page) else { return page.goBack() }
+        // The saved pages from before a relaunch come before closing to the source tab.
+        if savedBack(page) { return }
         switch store.backStep(id, canGoBack: page.canGoBack) {
         case .history: page.goBack()
         case .close(let referrer):
@@ -3346,6 +3410,8 @@ extension BrowserWindow: WebPageDelegate {
 
     func pageDidClose(_ page: WebPage) {
         livePages.remove(ObjectIdentifier(page))
+        pageLists[ObjectIdentifier(page)] = nil
+        pageEntryCounts[ObjectIdentifier(page)] = nil
         newPages[ObjectIdentifier(page)] = nil
         if closing {
             // After this callback: it comes from inside CEF's OnBeforeClose, and destroying the

@@ -55,4 +55,18 @@ struct LinkSplitClickTests {
         #expect(!LinkSplitClick.opensSplit("file:///Users/me/page.html", modifiers: Self.option))
         #expect(!LinkSplitClick.opensSplit("zoommtg://zoom.us/join", modifiers: Self.option))
     }
+
+    /// Windows: an Alt-click, which Chromium downloads there too, opens the split; Ctrl+Alt
+    /// (AltGr) and Shift+Alt don't, and the bridge's bits map to the Mac's flags.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/298"))
+    func altClickOnWindowsSplitsTheLinksDownload() {
+        #expect(LinkSplitClick.modifiers(windowsKeys: 0) == 0)
+        #expect(LinkSplitClick.modifiers(windowsKeys: 4) == Self.option)
+        #expect(LinkSplitClick.modifiers(windowsKeys: 7) == Self.option | Self.control | Self.shift)
+        #expect(LinkSplitClick.opensSplit(downloadOf: Self.link, clickModifiers: LinkSplitClick.modifiers(windowsKeys: 4), clickAge: 0.4))
+        #expect(!LinkSplitClick.opensSplit(downloadOf: Self.link, clickModifiers: LinkSplitClick.modifiers(windowsKeys: 6), clickAge: 0.4))
+        #expect(!LinkSplitClick.opensSplit(downloadOf: Self.link, clickModifiers: LinkSplitClick.modifiers(windowsKeys: 5), clickAge: 0.4))
+        #expect(!LinkSplitClick.opensSplit(downloadOf: Self.link, clickModifiers: LinkSplitClick.modifiers(windowsKeys: 4), clickAge: -1),
+                "the page's last press was elsewhere")
+    }
 }
