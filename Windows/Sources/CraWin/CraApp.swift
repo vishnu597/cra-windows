@@ -203,7 +203,7 @@ public final class CraApp: SwiftApplication {
                 notificationAreaIcon = NotificationAreaIcon(perform: { [weak windows] id in
                     guard let windows else { return }
                     switch id {
-                    case "newWindow" where !windows.windows.contains(where: { !$0.isIncognito }), "show": windows.showLastWindow()
+                    case "newWindow" where !windows.windows.contains(where: { !$0.isStandalone }), "show": windows.showLastWindow()
                     case "newWindow": windows.openNewWindow(incognito: false)
                     case "newIncognitoWindow": windows.openNewWindow(incognito: true)
                     case "newLittleWindow": windows.newLittleWindow()

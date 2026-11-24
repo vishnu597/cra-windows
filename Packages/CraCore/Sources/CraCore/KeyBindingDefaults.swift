@@ -268,6 +268,9 @@ public enum KeyBindingDefaults {
             "newTab": [KeyChord("t", ctrl)],
             "newWindow": [KeyChord("n", ctrl)],
             "newIncognitoWindow": [KeyChord("n", ctrlShift)],
+            // Arc's Blank Window, from the command bar: the Mac's ⌃⌘N would be Ctrl+Win+N, and Ctrl+Alt+N
+            // is New Little Window here.
+            "newBlankWindow": [],
             "closeWindow": [KeyChord("w", ctrlShift)],
             "reopenClosedTab": [KeyChord("t", ctrlShift)],
             "editURL": [KeyChord("l", ctrl)],

@@ -43,6 +43,8 @@ protocol SidebarActions: AnyObject {
     func confirmDeleteSpace(_ id: UUID)
     /// A command by its id (KeyBindingDefaults), as the command bar runs it.
     func runCommand(_ id: String)
+    /// A Blank Window's "Move to…": its tabs into that space, the window closing.
+    func moveBlankWindow(toSpace id: UUID)
     /// A sidebar tab dragged off the sidebar, over the page: whether the panes offer a split at
     /// the pointer (the window shows it). `before`: the tab open before the press.
     func splitDragMoved(tab id: UUID, before: UUID?) -> Bool
@@ -236,11 +238,15 @@ final class SidebarView {
         folderRows = [:]
         rowMeta = []
         divider = nil
-        buildFavorites(space)
+        // A Blank Window's sidebar is "This Window" over its tabs (BlankWindowChrome, #220).
+        let chrome = BlankWindowChrome.sidebar(blank: store.isBlank(space: space.id))
+        if chrome.favorites { buildFavorites(space) } else { clearFavorites() }
         buildHeader(space)
         list.children.clear()
-        for item in store.listedPinnedItems(in: space, window: windowID) { addRow(item, depth: 0) }
-        addDivider()
+        if chrome.pinned {
+            for item in store.listedPinnedItems(in: space, window: windowID) { addRow(item, depth: 0) }
+        }
+        if chrome.divider { addDivider() }
         // Settings ▸ Tabs ▸ "Show the New Tab button above tabs": else it follows Today's last tab.
         let newTabAtTop = store.settings.newTabButtonAtTop
         if newTabAtTop { addNewTabRow(space) }
@@ -320,6 +326,17 @@ final class SidebarView {
     /// Arc's grid (FavoritesLayout, #29): up to four columns that keep a tile at least as wide as
     /// it is tall, then the fewest that need no more rows; a short last row keeps the tile width.
     /// A tile's own colour (Tile Color) fills it, with a shade while it's open.
+    /// No favorites grid (a Blank Window's sidebar).
+    private func clearFavorites() {
+        favorites.children.clear()
+        favorites.columnDefinitions.clear()
+        favorites.rowDefinitions.clear()
+        favoriteTiles = []
+        favoritesColumns = nil
+        favorites.visibility = .collapsed
+        favoritesCard.visibility = .collapsed
+    }
+
     private func buildFavorites(_ space: Space) {
         favorites.children.clear()
         favorites.columnDefinitions.clear()
@@ -443,6 +460,7 @@ final class SidebarView {
             header.children.append(field)
             return
         }
+        if BlankWindowChrome.sidebar(blank: store.isBlank(space: space.id)).moveTo { return buildBlankHeader(space) }
         let name = UI.text("\(space.emoji) \(space.title)".trimmingCharacters(in: .whitespaces), size: 14, color: palette.text)
         // Arc: clicking the space's name folds its pinned tabs away.
         let spaceID = space.id
@@ -459,6 +477,44 @@ final class SidebarView {
         title.contextFlyout = spaceMenu(space)
         headerTitle = title
         header.children.append(title)
+    }
+
+    /// A Blank Window's header (Arc 1.172): "This Window", which does nothing on a click, and
+    /// "Move to…" in grey at its end, listing the spaces; picking one moves the window's tabs to
+    /// the top of that space's Today and closes the window (SpaceColumnView.moveToMenu).
+    private func buildBlankHeader(_ space: Space) {
+        let row = Grid()
+        row.columnDefinitions.append(UI.column(UI.star))
+        row.columnDefinitions.append(UI.column(UI.auto))
+        let name = UI.text(BlankWindow.title, size: 14, color: palette.text)
+        name.margin = Thickness(left: 6, top: 4, right: 6, bottom: 4)
+        name.verticalAlignment = .center
+        row.children.append(name)
+        let label = UI.text("Move to…", size: 11, color: palette.secondaryText)
+        label.fontWeight = UWP.FontWeight(weight: 500)
+        let move = UI.button(label, padding: Thickness(left: 6, top: 3, right: 6, bottom: 3)) {}
+        move.verticalAlignment = .center
+        let menu = MenuFlyout()
+        menu.shouldConstrainToRootBounds = false
+        let spaceID = space.id
+        for target in BlankWindowChrome.moveTargets(store.orderedSpaces, standalone: { [store] in store.isStandalone(space: $0) }) {
+            let emoji = target.icon.emoji
+            let item = UI.menuItem(emoji.isEmpty ? target.title : "\(emoji)  \(target.title)") { [weak self] in
+                guard let self, self.store.isBlank(space: spaceID) else { return }
+                self.actions?.moveBlankWindow(toSpace: target.id)
+            }
+            if let symbol = target.icon.symbol, let glyph = WinGlyph.known(symbol) {
+                let icon = FontIcon()
+                icon.glyph = glyph
+                item.icon = icon
+            }
+            menu.items.append(item)
+        }
+        move.flyout = menu
+        try? AutomationProperties.setName(move, "Move to")
+        row.children.append(move)
+        try? Grid.setColumn(move, 1)
+        header.children.append(row)
     }
 
     // MARK: Renaming
@@ -1073,7 +1129,8 @@ final class SidebarView {
         let favorite = store.isFavorite(id), pinned = store.isPinned(id)
         if favorite {
             menu.items.append(UI.menuItem("Remove from Favorites", action: "favoriteTab") { [weak self] in self?.store.removeFromFavorites(id) })
-        } else {
+        } else if BlankWindowChrome.sidebar(blank: store.isBlank(space: store.spaceID(ofItem: id))).pinned {
+            // A Blank Window's tabs have no favorites or pinned section to go to (Arc).
             menu.items.append(UI.menuItem("Add to Favorites", action: "favoriteTab") { [weak self] in self?.store.addToFavorites(id) })
             menu.items.append(UI.menuItem(pinned ? "Unpin" : "Pin", action: "pinTab") { [weak self] in self?.store.togglePinned(id) })
         }

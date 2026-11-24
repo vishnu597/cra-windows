@@ -137,7 +137,9 @@ extension SidebarView {
         spaceCells = []
         dockCells = []
         // An incognito window pages only its own space (SidebarStore.pagedSpaces).
-        for space in store.pagedSpaces(window: windowID) where !store.hidesSpaceHeader(space.id) {
+        // A Blank Window shows no space icons (Arc 1.172).
+        let chrome = BlankWindowChrome.sidebar(blank: store.isBlank(space: focused.id))
+        for space in store.pagedSpaces(window: windowID) where !store.hidesSpaceHeader(space.id) && chrome.spaceDock {
             let id = space.id
             let cell = SidebarDockCell(id: id, icon: space.icon) { [weak self] in
                 self?.dragPressed(.space(id))
@@ -165,8 +167,8 @@ extension SidebarView {
         }
         if dockHovered.map({ id in !dockCells.contains { $0.id == id } }) ?? false { dockHovered = nil }
         // Right-clicking the dock past its icons is Windows' Spaces menu (the Mac's menu bar has one).
-        footer.contextFlyout = store.isIncognito(space: focused.id) ? nil : spacesMenu(focused)
-        plusButton.visibility = store.isIncognito(space: focused.id) ? .collapsed : .visible
+        footer.contextFlyout = store.isStandalone(space: focused.id) ? nil : spacesMenu(focused)
+        plusButton.visibility = store.isIncognito(space: focused.id) || !chrome.plus ? .collapsed : .visible
         plusButton.foreground = palette.secondaryText
         refreshDock()
     }

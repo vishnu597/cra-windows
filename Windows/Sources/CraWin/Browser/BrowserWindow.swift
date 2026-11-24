@@ -22,6 +22,11 @@ final class BrowserWindow {
     let windowID: UUID
     /// A private (incognito) window.
     let isIncognito: Bool
+    /// Arc's Blank Window (#220): a normal window with a sidebar of its own, "This Window".
+    var isBlank: Bool { store.isBlank(window: windowID) }
+    /// A window that shows only a space of its own (incognito or Blank): not one of the normal
+    /// windows a link, a Little Window's page or New Window goes to.
+    var isStandalone: Bool { isIncognito || isBlank }
     /// The app's windows: new ones, and this one going.
     private weak var host: BrowserWindowHost?
     /// XAML in the sidebar column only, so the page gets real clicks (HostWindow).
@@ -405,6 +410,19 @@ final class BrowserWindow {
         livePages.insert(ObjectIdentifier(page))
         pages[id] = page
         queueRefresh()
+    }
+
+    /// Tab `id`'s live page, let go for another window to adopt (a Blank Window's Move to…):
+    /// this window no longer shows it, closes it or waits for it.
+    func releasePage(_ id: UUID) -> WebPage? {
+        guard !closing, let page = pages.removeValue(forKey: id) else { return nil }
+        let key = ObjectIdentifier(page)
+        livePages.remove(key)
+        pageLists[key] = nil
+        pageEntryCounts[key] = nil
+        newPages[key] = nil
+        if shownPage === page { shownPage = nil }
+        return page
     }
 
     // MARK: Store → window
@@ -965,7 +983,7 @@ final class BrowserWindow {
             let fillsEmptyPane = store.selectedTab(window: windowID)?.isEmptyTab == true
             if mode == .editURL || fillsEmptyPane, store.selectedTabID(window: windowID) != nil {
                 loadInSelectedTab(url)
-            } else if !isIncognito, let space = store.settings.space(forTypedURL: url), space != store.focusedSpaceID(window: windowID),
+            } else if !isStandalone, let space = store.settings.space(forTypedURL: url), space != store.focusedSpaceID(window: windowID),
                       store.orderedSpaces.contains(where: { $0.id == space }) {
                 // Air Traffic Control routes a typed URL too (upstream #421): the tab opens in the
                 // route's space and the window goes there, as in Arc.
@@ -1045,6 +1063,8 @@ final class BrowserWindow {
     /// for an id the Windows app doesn't perform yet.
     @discardableResult
     func perform(_ id: String) -> Bool {
+        // A Blank Window has no space list, pinned section or favorites to act on (Arc).
+        guard BlankWindowChrome.runs(id, blank: isBlank) else { return true }
         switch id {
         case "find": showFindBar()
         case "findNext": findNext(forward: true)
@@ -1069,6 +1089,7 @@ final class BrowserWindow {
         case "clearBrowsingData": if !isIncognito { store.createTab(url: BrowsingDataClear.pageURL, window: windowID) }
         case "newWindow": host?.openNewWindow(incognito: false)
         case "newIncognitoWindow": host?.openNewWindow(incognito: true)
+        case "newBlankWindow": host?.openBlankWindow()
         case "newLittleWindow": host?.newLittleWindow()
         case "closeLittleWindows": host?.closeLittleWindows()
         case "closeWindow": requestClose()
@@ -2651,7 +2672,7 @@ final class BrowserWindow {
             return
         }
         let url = SuggestionEngine.looksLikeURL(text) ? SuggestionEngine.urlFromInput(text) : engine.searchURL(text)
-        if !isIncognito, let space = store.settings.space(forTypedURL: url), space != store.focusedSpaceID(window: windowID),
+        if !isStandalone, let space = store.settings.space(forTypedURL: url), space != store.focusedSpaceID(window: windowID),
            store.orderedSpaces.contains(where: { $0.id == space }) {
             store.createTab(url: url, in: space, window: windowID)
         } else {
@@ -2890,6 +2911,7 @@ extension BrowserWindow: LibraryActions {
 
 extension BrowserWindow: SidebarActions {
     func addSplitView() { addSplitPane() }
+    func moveBlankWindow(toSpace id: UUID) { host?.moveBlankWindow(self, toSpace: id) }
     /// Set Profile ▸ New Profile… on a space's menu: the space starts ticked.
     func newProfile(forSpace id: UUID) { showNewProfile(ticked: [id]) }
 
