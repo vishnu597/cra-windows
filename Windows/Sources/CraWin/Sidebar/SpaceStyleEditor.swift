@@ -30,8 +30,8 @@ final class SpaceStyleEditorView {
     private let previous = Button()
     private let next = Button()
     private let swatches = StackPanel()
-    private var intensity: ThemeSlider!
-    private var grain: ThemeSlider!
+    private var intensity: ThemeWaveSlider!
+    private var grain: ThemeGrainDial!
     private var labels: [TextBlock] = []
     private var icons: [FontIcon] = []
     private var knobViews: [WinUI.Ellipse] = []
@@ -174,22 +174,21 @@ final class SpaceStyleEditorView {
         swatchRow.children.append(next)
         column.children.append(swatchRow)
 
-        // The intensity and the grain.
-        intensity = ThemeSlider(value: theme.intensity) { [weak self] in self?.changed() }
-        grain = ThemeSlider(value: theme.noise) { [weak self] in self?.changed() }
-        for (slider, name) in [(intensity!, "Intensity"), (grain!, "Grain")] {
-            let row = Grid()
-            row.columnDefinitions.append(UI.column(UI.pixels(70)))
-            row.columnDefinitions.append(UI.column(UI.star))
-            let title = label(name, size: 12)
-            title.verticalAlignment = .center
-            row.children.append(title)
-            try? AutomationProperties.setName(slider.root, name)
-            row.children.append(slider.root)
-            try? Grid.setColumn(slider.root, 1)
-            row.margin = Thickness(left: 10, top: 0, right: 10, bottom: 0)
-            column.children.append(row)
-        }
+        // The intensity's wave and the grain's dial, side by side as in Arc (no labels).
+        intensity = ThemeWaveSlider(value: theme.intensity) { [weak self] in self?.changed() }
+        grain = ThemeGrainDial(value: theme.noise) { [weak self] in self?.changed() }
+        let controls = Grid()
+        controls.columnDefinitions.append(UI.column(UI.star))
+        controls.columnDefinitions.append(UI.column(UI.pixels(ThemeGrainDial.side)))
+        controls.height = ThemeGrainDial.side
+        controls.margin = Thickness(left: 17, top: 0, right: 23, bottom: 0)
+        try? AutomationProperties.setName(intensity.root, "Intensity")
+        try? AutomationProperties.setName(grain.root, "Grain")
+        intensity.root.verticalAlignment = .center
+        controls.children.append(intensity.root)
+        controls.children.append(grain.root)
+        try? Grid.setColumn(grain.root, 1)
+        column.children.append(controls)
 
         card.child = column
         card.cornerRadius = CornerRadius(topLeft: 22, topRight: 22, bottomRight: 22, bottomLeft: 22)
@@ -264,7 +263,8 @@ final class SpaceStyleEditorView {
         for t in labels { t.foreground = ink(0.85) }
         for i in icons { i.foreground = ink(0.75) }
         for (value, b) in appearanceButtons { b.background = value == appearance ? ink(0.12) : UI.clear }
-        for slider in [intensity, grain] { slider?.apply(track: ink(0.15), fill: ink(0.6)) }
+        intensity.apply(light: light)
+        grain.apply(light: light)
         minus.isEnabled = SpaceColorWheel.canRemove(key.count)
         plus.isEnabled = SpaceColorWheel.canAdd(key)
         minus.opacity = minus.isEnabled ? 1 : 0.3
