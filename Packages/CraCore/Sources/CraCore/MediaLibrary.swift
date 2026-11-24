@@ -67,6 +67,30 @@ public enum MediaLibrary {
 
         /// A line goes before these.
         public var startsGroup: Bool { self == .sendMessage || self == .showInFinder || self == .hide }
+
+        /// Its title on Windows: Explorer for Finder.
+        public func windowsTitle(isVideo: Bool) -> String {
+            self == .showInFinder ? "Show in File Explorer" : title(isVideo: isVideo)
+        }
+    }
+
+    /// The same menu on Windows, which has no iMessage or AirDrop: Copy Image, —, Show in File
+    /// Explorer, —, Hide from Cra.
+    public static let windowsActions: [Action] = [.copy, .showInFinder, .hide]
+
+    /// Arc's opt-in card over the page until Show Media is pressed (Arc 1.172.1).
+    public enum OptIn {
+        public static let title = "Your Media in the Library"
+        public static let detail = "Quickly grab screenshots, images, and videos from your computer by showing them in the Cra Library!"
+        public static let button = "Show Media"
+        public static let privacy = "Media never leaves your computer and is not viewable by anyone but you."
+    }
+
+    /// The folders menu (Arc's right-click on the Library button: "Show media" and each folder
+    /// ticked when shown), then Hide Media once it is on. Toggling a folder keeps the others'
+    /// order and adds it at the end.
+    public static func toggled(_ folder: Folder, in folders: [Folder]) -> [Folder] {
+        folders.contains(folder) ? folders.filter { $0 != folder } : folders + [folder]
     }
 
     public static func isVideo(_ path: String) -> Bool { ["mov", "mp4", "m4v"].contains((path as NSString).pathExtension.lowercased()) }

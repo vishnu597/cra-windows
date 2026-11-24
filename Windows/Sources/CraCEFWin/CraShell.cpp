@@ -222,6 +222,27 @@ extern "C" int cra_clipboard_set_png(const uint8_t *png, size_t length) {
     return ok ? 1 : 0;
 }
 
+extern "C" int cra_clipboard_set_file_and_png(const char *path, const uint8_t *png, size_t png_length) {
+    if (!path || !*path) return 0;
+    std::wstring wide = Wide(path);
+    // CF_HDROP: a DROPFILES header, then the paths as wide strings, the list ended by an empty one.
+    std::vector<uint8_t> drop(sizeof(DROPFILES) + (wide.size() + 2) * sizeof(wchar_t), 0);
+    auto *header = reinterpret_cast<DROPFILES *>(drop.data());
+    header->pFiles = sizeof(DROPFILES);
+    header->fWide = TRUE;
+    memcpy(drop.data() + sizeof(DROPFILES), wide.c_str(), wide.size() * sizeof(wchar_t));
+    std::vector<uint8_t> dib = png && png_length > 0 && png_length <= UINT_MAX ? DIBFromPNG(png, png_length) : std::vector<uint8_t>();
+    Clipboard clipboard;
+    if (!clipboard.open) return 0;
+    bool ok = clipboard.Put(CF_HDROP, drop.data(), drop.size());
+    if (png && png_length > 0) {
+        static const UINT pngFormat = RegisterClipboardFormatW(L"PNG");
+        if (pngFormat) ok = clipboard.Put(pngFormat, png, png_length) || ok;
+        if (!dib.empty()) ok = clipboard.Put(CF_DIB, dib.data(), dib.size()) || ok;
+    }
+    return ok ? 1 : 0;
+}
+
 extern "C" int cra_share_link(uintptr_t owner, const char *url, const char *title) {
     return cra_share_link_attempt(owner, url, title) == 1 ? 1 : 0;
 }
