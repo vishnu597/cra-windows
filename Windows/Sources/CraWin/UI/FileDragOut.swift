@@ -4,6 +4,7 @@ import Foundation
 import UWP
 import WinAppSDK
 import WinSDK
+import WindowsFoundation
 
 /// A Library row or Media tile that a click opens and a drag hands out as the file (the Mac's
 /// MediaTile and LibraryItemCell): into Explorer, a mail, another app or a page's upload field.
