@@ -100,8 +100,12 @@ enum UI {
 /// as it reads over Arc's, active or not (`flatStops(over:)` with SidebarMaterialFill's grey).
 @MainActor
 struct SidebarPalette {
-    /// The sidebar's gradient, top to bottom.
+    /// The space's gradient on a part that stands alone (a Manage Spaces card, the downloads list):
+    /// Arc's 45° from its top left, blended in Oklab (#669). The sidebar column draws its slice of
+    /// the window's gradient instead (`windowFill`).
     let fill: Brush
+    /// The gradient's colours, first to last, blended in Oklab (WindowGradientSlice.colors).
+    let colors: [RGB]
     /// Its top colour, opaque: a glyph or a line in the space's colour, the page area's ground.
     let top: RGB
     let ground: Brush
@@ -121,10 +125,12 @@ struct SidebarPalette {
         let colors = SidebarSurface.shown(theme, systemDark: dark)
         let grey = SidebarMaterialFill.grey(theme: theme, active: active, systemDark: dark,
                                             reduceTransparency: WinAppearance.reduceTransparency)
-        let stops = colors.flatStops(over: grey)
+        let stops = WindowGradientSlice.colors(colors, over: grey)
+        self.colors = stops
         isDark = colors.dark
         top = stops.first ?? .black
-        fill = Self.gradient(stops)
+        let square = WindowGradientSlice.unitEnd(width: 1, height: 1)
+        fill = Self.gradient(stops, start: (0, 0), end: square, absolute: false)
         ground = UI.brush(top)
         if colors.dark {
             text = UI.brush(255, 255, 255, alpha: 235)
@@ -139,11 +145,22 @@ struct SidebarPalette {
         tile = UI.brush(SidebarTones.pill(dark: colors.dark))
     }
 
-    private static func gradient(_ stops: [RGB]) -> Brush {
+    /// The sidebar column's slice of the window's gradient: the window is `width`×`height` DIPs and
+    /// the column's top left is at `originX`, `originY` in it (on the right, or floated out).
+    func windowFill(width: Double, height: Double, originX: Double, originY: Double) -> Brush {
+        let axis = WindowGradientSlice.axis(windowWidth: width, windowHeight: height, originX: originX, originY: originY)
+        return Self.gradient(colors, start: axis.start, end: axis.end, absolute: true)
+    }
+
+    /// A linear brush through `stops` spread evenly from `start` to `end`: unit points of the element
+    /// it paints, or its own DIPs when `absolute`.
+    private static func gradient(_ stops: [RGB], start: (x: Double, y: Double), end: (x: Double, y: Double),
+                                 absolute: Bool) -> Brush {
         guard stops.count > 1, stops.contains(where: { $0 != stops[0] }) else { return UI.brush(stops.first ?? .black) }
         let brush = LinearGradientBrush()
-        brush.startPoint = WindowsFoundation.Point(x: 0.5, y: 0)
-        brush.endPoint = WindowsFoundation.Point(x: 0.5, y: 1)
+        if absolute { brush.mappingMode = .absolute }
+        brush.startPoint = WindowsFoundation.Point(x: Float(start.x), y: Float(start.y))
+        brush.endPoint = WindowsFoundation.Point(x: Float(end.x), y: Float(end.y))
         for (i, c) in stops.enumerated() {
             let stop = GradientStop()
             stop.color = UI.color(c)

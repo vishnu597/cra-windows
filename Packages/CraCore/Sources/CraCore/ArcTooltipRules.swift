@@ -12,6 +12,15 @@ public enum ArcTooltipRules {
     /// A tip pops in with no fade and fades out in this long.
     public static let fadeOutDuration = 0.06
 
+    /// A space icon's tip comes sooner than a control's: Arc 1.171 shows it ~0.62 s after the pointer
+    /// stops, which the Mac's panel reaches from 0.55 s (`SpaceDockIconView.idleDelay`).
+    public static let spaceIdleDelay = 0.55
+
+    /// The rest a tip placed so waits: the space icons' tips (`above`) sooner than the rest.
+    public static func idleDelay(for placement: Placement) -> Double {
+        placement == .above ? spaceIdleDelay : idleDelay
+    }
+
     /// How long to wait before showing a tip for a control the pointer has just come onto (or
     /// moved on): none while another tip shows or one closed within `warmWindow`. Times are
     /// seconds on one steady clock; `lastHiddenAt` nil after a click or key, which makes the
@@ -112,6 +121,39 @@ public enum ArcTooltipRules {
             let caps = capWidths.isEmpty ? 0 : textToCaps + capWidths.reduce(0, +) + capGap * Double(capWidths.count - 1)
             let height = max(Self.height, max(textHeight, capWidths.isEmpty ? 0 : cap) + (multiline ? 2 * multilinePadding : 0))
             return ((leading + text + caps + trailing).rounded(.up), height.rounded(.up))
+        }
+
+        /// A space icon's profile pill (the Mac's ProfilePill): 22 pt tall, 6 pt after the text, a
+        /// 14 pt avatar 6 pt in, then the name in 11 pt medium 3 pt on and 6 pt from its end; 3 pt
+        /// from the tip's end when no caps follow it.
+        public static let pillHeight = 22.0
+        public static let pillGap = 6.0
+        public static let pillTrailing = 3.0
+        public static let pillLeading = 6.0
+        public static let pillAvatar = 14.0
+        public static let pillNameGap = 3.0
+        public static let pillNameTrailing = 6.0
+        public static let pillFontSize = 11.0
+
+        /// The pill's width for a profile name `nameWidth` points wide at `pillFontSize`.
+        public static func pillWidth(nameWidth: Double) -> Double {
+            pillLeading + pillAvatar + pillNameGap + max(0, nameWidth).rounded(.up) + pillNameTrailing
+        }
+
+        /// The tip's size with a profile pill `pillWidth` wide after the text (a space icon's), or
+        /// none (`size(textWidth:textHeight:capWidths:)`). A tip that wraps shows no pill, as on the Mac.
+        public static func size(textWidth: Double, textHeight: Double, capWidths: [Double], pillWidth: Double?)
+            -> (width: Double, height: Double) {
+            let base = size(textWidth: textWidth, textHeight: textHeight, capWidths: capWidths)
+            guard let pillWidth, pillWidth > 0, base.height <= height else { return base }
+            // The pill sits between the text and the caps; with no caps it ends 3 pt from the edge.
+            let extra = pillGap + pillWidth - (capWidths.isEmpty ? trailing - pillTrailing : 0)
+            return ((base.width + extra).rounded(.up), base.height)
+        }
+
+        /// Where the pill starts, from the tip's left edge, after text `textWidth` wide.
+        public static func pillX(textWidth: Double) -> Double {
+            leading + min(textWidth, maxTextWidth) + pillGap
         }
 
         /// A cap is square for one character and grows for a word ("Ctrl", "Shift") by its

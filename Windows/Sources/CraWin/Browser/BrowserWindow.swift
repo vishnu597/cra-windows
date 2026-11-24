@@ -28,6 +28,9 @@ final class BrowserWindow {
     private(set) var window: HostWindow!
     private var sidebar: SidebarView!
     private let sidebarPanel = Grid()
+    /// What the sidebar's gradient was last painted for (paintSidebarGradient).
+    private var gradientKey: [Double] = []
+    private var gradientColors: [RGB] = []
     /// The toolbar, the address pill and the sidebar: what the Library takes the place of.
     private var sidebarParts: [FrameworkElement] = []
     /// Arc's Library in the sidebar (LibraryView): the page shown, nil while it shows the tabs.
@@ -138,7 +141,7 @@ final class BrowserWindow {
     private var hiddenByResize = false
     /// The tab sidebar's width in DIPs: the one saved (`WindowPrefs.sidebarWidth`, shared by
     /// every window), or the drag's while one is on.
-    private var tabSidebarWidth = WindowPrefs().sidebarWidth { didSet { syncHeaderLayout() } }
+    private var tabSidebarWidth = WindowPrefs().sidebarWidth { didSet { syncHeaderLayout(); syncPillPins(reload: false) } }
     /// The sidebar header's row (Arc's regular or narrow layout, SidebarHeaderLayout) and its parts.
     private var headerRow: StackPanel?
     private var headerButtons: (back: Button, forward: Button, reload: Button, more: Button)?
@@ -173,6 +176,13 @@ final class BrowserWindow {
     /// The sliders button at the end of the address pill, and the Site Control Center it opens.
     private var sliders: Button!
     private let slidersGlyph = FontIcon()
+    /// The pill's pinned extensions, before the sliders (syncPillPins), and what they show.
+    private let pillPins = StackPanel()
+    private var pillPinsShown: [ToolbarView.Pin]?
+    /// The profile's pins as last read, for a sidebar resize to fit again without reading them.
+    private var pillPinsAll: [ToolbarView.Pin] = []
+    /// The pill's pin buttons by extension id, kept for their popups to hang from.
+    private var pillPinButtons: [String: Button] = [:]
     private let siteControl = SiteControlCenterView()
     private var siteControlWindow: FloatingWindow?
     /// When the Site Control Center last closed because another window took the front: a press
@@ -251,6 +261,7 @@ final class BrowserWindow {
         loadingBar = LoadingBar(owner: hwnd, dispatcher: dispatcher)
         sidebarEdge = SidebarEdge(owner: hwnd)
         window.onLayout = { [weak self] _ in
+            self?.paintSidebarGradient()
             self?.placeLoadingBar()
             self?.placeSidebarEdge()
             self?.syncLibraryWidth()
@@ -404,7 +415,7 @@ final class BrowserWindow {
         guard !closing else { return }
         withObservationTracking {
             sidebar.build()
-            sidebarPanel.background = sidebar.fill
+            paintSidebarGradient()
             applyPaneColors(store.focusedSpace(window: windowID).theme)
             downloads.apply(sidebar.palette, fill: sidebar.fill)
             if libraryPage != nil {
@@ -588,7 +599,7 @@ final class BrowserWindow {
         ArcTip.set(sidebarButton, "Toggle Sidebar")
         try? AutomationProperties.setName(sidebarButton, "Toggle Sidebar")
         toolbar.children.append(sidebarButton)
-        let back = UI.button("\u{2190}") { [weak self] in self?.shownPage?.goBack() }
+        let back = UI.button("\u{2190}") { [weak self] in self?.goBack() }
         let forward = UI.button("\u{2192}") { [weak self] in self?.shownPage?.goForward() }
         back.contextFlyout = backMenu
         forward.contextFlyout = forwardMenu
@@ -640,11 +651,15 @@ final class BrowserWindow {
         let pill = Grid()
         pill.columnDefinitions.append(UI.column(UI.star))
         pill.columnDefinitions.append(UI.column(UI.auto))
+        pill.columnDefinitions.append(UI.column(UI.auto))
         pill.margin = Thickness(left: 0, top: 8, right: 0, bottom: 8)
         pill.children.append(addressButton)
         try? Grid.setColumn(addressButton, 0)
+        pillPins.orientation = .horizontal
+        pill.children.append(pillPins)
+        try? Grid.setColumn(pillPins, 1)
         pill.children.append(sliders)
-        try? Grid.setColumn(sliders, 1)
+        try? Grid.setColumn(sliders, 2)
 
         sidebarNavigation = [back, forward, reload, more, pill]
         let parts: [FrameworkElement] = [toolbar, pill, sidebar.root]
@@ -682,6 +697,44 @@ final class BrowserWindow {
         address.text = url.isEmpty ? "Search or enter address" : SuggestionEngine.humanURL(url)
         address.foreground = url.isEmpty ? sidebar.secondaryTextColor : sidebar.textColor
         slidersGlyph.foreground = sidebar.secondaryTextColor
+        syncPillPins()
+    }
+
+    /// The pill's pinned extensions while the toolbar is hidden (Arc 1.171, GitHub #226): the
+    /// page's profile's pins before the sliders, while they leave the address its room
+    /// (ToolbarComposition.urlFieldAccessories); more than fit show none there.
+    private func syncPillPins(reload: Bool = true) {
+        if reload { pillPinsAll = toolbarPins(scale: window?.scale ?? 1) }
+        let pins = pillPinsAll
+        let fitting = ToolbarComposition.urlFieldAccessories(pinnedExtensions: pins.map(\.id),
+                                                             fieldWidth: CGFloat(tabSidebarWidth - 20))
+        let shown = pins.filter { fitting.contains(.pinnedExtension($0.id)) }
+        guard shown != pillPinsShown else { return }
+        pillPinsShown = shown
+        pillPins.children.clear()
+        pillPinButtons = [:]
+        for pin in shown {
+            let content: UIElement
+            if let icon = pin.icon {
+                content = UI.image(icon, size: 16)
+            } else {
+                let piece = FontIcon()
+                piece.glyph = WinGlyph.code("puzzlepiece.extension")
+                piece.fontSize = 13
+                piece.foreground = sidebar.secondaryTextColor
+                content = piece
+            }
+            let id = pin.id
+            // The popup hangs from the pin.
+            let b = UI.button(content, padding: Thickness(left: 6, top: 5, right: 6, bottom: 5)) { [weak self] in
+                guard let self else { return }
+                self.runExtension(id, anchor: self.pillPinButtons[id].map { ($0, false) })
+            }
+            pillPinButtons[id] = b
+            ArcTip.set(b, pin.name)
+            try? AutomationProperties.setName(b, pin.name)
+            pillPins.children.append(b)
+        }
     }
 
     /// Keys to the page shown, else the sidebar.
@@ -1014,7 +1067,7 @@ final class BrowserWindow {
         case "inspectElement": shownPage?.runDevTools(.inspect)
         case "networkPanel": shownPage?.runDevTools(.network)
         case "toggleDeveloperMode": toggleDeveloperMode()
-        case "goBack": shownPage?.goBack()
+        case "goBack": goBack()
         case "goForward": shownPage?.goForward()
         // The Mac's steps (MainWindowController.zoom(by:)): half a Chromium zoom level, which
         // Chromium keeps for the site.
@@ -1667,7 +1720,7 @@ final class BrowserWindow {
             state.themeColor = ToolbarColor.hex(reported: nil, remembered: t.themeColor)
         }
         if let page = shownPage {
-            state.canGoBack = page.canGoBack
+            state.canGoBack = tabID(of: page).map { store.backStep($0, canGoBack: page.canGoBack) != .none } ?? page.canGoBack
             state.canGoForward = page.canGoForward
             state.isLoading = page.isLoading
         }
@@ -1675,6 +1728,7 @@ final class BrowserWindow {
         state.sidebarSide = store.settings.sidebarSide
         state.showFullURL = store.settings.toolbarShowsFullURL
         state.autoHide = store.settings.autoHideToolbar
+        state.pins = toolbarPins(scale: window?.scale ?? 1)
         pageToolbar.show(state)
     }
 
@@ -1685,6 +1739,9 @@ final class BrowserWindow {
             guard let self else { return }
             switch id {
             case "siteControls": self.toggleSiteControlCenter()
+            case let id where id.hasPrefix(ToolbarView.pinAction):
+                let ext = String(id.dropFirst(ToolbarView.pinAction.count))
+                self.runExtension(ext, anchor: self.pageToolbar.pinButtons[ext].map { ($0, true) })
             case "toggleFullURL": self.store.settings.toolbarShowsFullURL.toggle()
             case "toggleAutoHideToolbar": self.store.settings.autoHideToolbar.toggle()
             case "stop": self.shownPage?.stopLoading()
@@ -1868,6 +1925,18 @@ final class BrowserWindow {
     }
 
     /// The page area's own colour (between panes, in an empty pane) is the sidebar's.
+    /// The sidebar shows its slice of Arc's window gradient (45° from the window's top left, #669),
+    /// so it follows the window's size and the column's place in it.
+    private func paintSidebarGradient() {
+        let scale = window.scale, size = window.appWindow.clientSize, origin = window.columnOrigin
+        let key = [size.width, size.height, origin.x, origin.y].map(Double.init) + [scale]
+        guard key != gradientKey || sidebar.palette.colors != gradientColors else { return }
+        gradientKey = key
+        gradientColors = sidebar.palette.colors
+        sidebarPanel.background = sidebar.palette.windowFill(width: Double(size.width) / scale, height: Double(size.height) / scale,
+                                                             originX: Double(origin.x) / scale, originY: Double(origin.y) / scale)
+    }
+
     private func applyPaneColors(_ theme: SpaceTheme) {
         // The sidebar's top colour, as its palette draws it (SidebarSurface over SidebarMaterialFill's grey).
         let c = sidebar.palette.top
@@ -2241,8 +2310,17 @@ final class BrowserWindow {
     private func makeSiteControlCenter() {
         siteControl.ownerWindow = { [weak self] in self?.siteControlWindow?.hwnd ?? 0 }
         siteControl.onEscape = { [weak self] in self?.hideSiteControlCenter(refocus: true) }
-        // An install or a switch in chrome://extensions while it shows: its tiles follow.
+        // An install or a switch in chrome://extensions while it shows: its tiles follow. So
+        // does a pin or an unpin, here or in another window, and the toolbar's buttons with it.
         ExtensionList.shared.onChange.append { [weak self] in
+            self?.syncToolbar()
+            self?.syncPillPins()
+            guard let self, self.siteControlShown else { return }
+            self.showSiteControlCenter()
+        }
+        ExtensionPins.shared.onChange.append { [weak self] in
+            self?.syncToolbar()
+            self?.syncPillPins()
             guard let self, self.siteControlShown else { return }
             self.showSiteControlCenter()
         }
@@ -2288,6 +2366,10 @@ final class BrowserWindow {
             self.siteControl.focus()
         }
         actions.runExtension = { [weak self] id in self?.runExtension(id) }
+        actions.togglePin = { [weak self] id in
+            guard let self else { return }
+            ExtensionPins.shared.togglePin(id, profilePath: self.shownProfilePath)
+        }
         actions.addExtension = { [weak self] in self?.siteControlMore(.addExtension, url: url) }
         if ssl?.hasCertificate == true {
             actions.showCertificate = { [weak self] in
@@ -2312,15 +2394,20 @@ final class BrowserWindow {
     /// Under the sliders, on screen: their right edge, 4 DIPs below them (where the Site Control
     /// Center and an extension's popup hang).
     private func slidersCorner(host: HWND, scale: Double) -> POINT {
-        var corner = POINT(x: 0, y: 0)
-        // The toolbar's sliders while it shows (its strip starts at the page area's left edge).
+        // The toolbar's sliders while it shows.
         let onToolbar = topBar == .toolbar ? pageToolbar.sliders : nil
-        let sliders: Button = onToolbar ?? self.sliders
-        if let transform = try? sliders.transformToVisual(nil),
+        return corner(under: onToolbar ?? sliders, onToolbar: onToolbar != nil, host: host, scale: scale)
+    }
+
+    /// Under `button`, on screen: its right edge, 4 DIPs below it. `onToolbar`: it is in the
+    /// toolbar's strip, which starts at the page area's left edge, else in the sidebar column.
+    private func corner(under button: Button, onToolbar: Bool, host: HWND, scale: Double) -> POINT {
+        var corner = POINT(x: 0, y: 0)
+        if let transform = try? button.transformToVisual(nil),
            let origin = try? transform.transformPoint(WindowsFoundation.Point(x: 0, y: 0)) {
-            let right = (Double(origin.x) + sliders.actualWidth) * scale
-            let bottom = (Double(origin.y) + sliders.actualHeight + 4) * scale
-            let origin = onToolbar != nil ? (x: window.contentFrame.x, y: Int32(0)) : window.columnOrigin
+            let right = (Double(origin.x) + button.actualWidth) * scale
+            let bottom = (Double(origin.y) + button.actualHeight + 4) * scale
+            let origin = onToolbar ? (x: window.contentFrame.x, y: Int32(0)) : window.columnOrigin
             corner = POINT(x: Int32(right.rounded()) + origin.x, y: Int32(bottom.rounded()) + origin.y)
         }
         _ = ClientToScreen(host, &corner)
@@ -2334,36 +2421,56 @@ final class BrowserWindow {
         store.selectedTabID(window: windowID).flatMap { store.profilePath(item: $0) }
     }
 
-    /// The Site Control Center's extension tiles: the page's profile's turned-on extensions, by
-    /// name. None in a private window, whose off-the-record profile runs none here.
+    /// The Site Control Center's extension tiles: the page's profile's turned-on extensions, the
+    /// pinned ones first in toolbar order, then the rest by name (Arc, PinnedExtensions.menuOrder).
+    /// None in a private window, whose off-the-record profile runs none here.
     private func extensionTiles(scale: Double) -> [SiteControlCenterView.ExtensionTile]? {
         guard !isIncognito else { return nil }
+        let list = ExtensionList.shared, pins = ExtensionPins.shared
+        let path = shownProfilePath
+        let ordered = pins.pins.menuOrder(list.enabled(profilePath: path, chromiumCache: store.chromiumCache),
+                                          inProfile: ExtensionPins.profile(path), id: \.id, name: \.name)
+        return ordered.map {
+            SiteControlCenterView.ExtensionTile(id: $0.id, name: $0.name, icon: list.icon($0, points: 16, scale: scale),
+                                                pinned: pins.isPinned($0.id, profilePath: path))
+        }
+    }
+
+    /// The toolbar's pinned extensions (ToolbarView.Pin): none in a private window, as its
+    /// Site Control Center has no extensions.
+    private func toolbarPins(scale: Double) -> [ToolbarView.Pin] {
+        guard !isIncognito else { return [] }
         let list = ExtensionList.shared
-        return list.enabled(profilePath: shownProfilePath, chromiumCache: store.chromiumCache).map {
-            SiteControlCenterView.ExtensionTile(id: $0.id, name: $0.name, icon: list.icon($0, points: 16, scale: scale))
+        let path = shownProfilePath
+        let enabled = list.enabled(profilePath: path, chromiumCache: store.chromiumCache)
+        return ExtensionPins.shared.toolbarIDs(profilePath: path, enabled: enabled).compactMap { id in
+            enabled.first { $0.id == id }.map { ToolbarView.Pin(id: id, name: $0.name, icon: list.icon($0, points: 16, scale: scale)) }
         }
     }
 
     /// A click on an extension's tile. Windows has no toolbar for Chrome's popup to hang from,
     /// so the popup page opens in a card of its own, else its options page (ExtensionLaunch).
-    private func runExtension(_ id: String) {
+    /// `anchor`: the pin that was clicked (in the toolbar or not), which the popup hangs from;
+    /// else it hangs from the sliders.
+    private func runExtension(_ id: String, anchor: (button: Button, onToolbar: Bool)? = nil) {
         hideSiteControlCenter()
         guard !isIncognito else { return }
         let profile = shownProfilePath
         let available = ExtensionList.shared.entries(profilePath: profile, chromiumCache: store.chromiumCache).map(\.launch)
         switch ExtensionLaunch.decide(id, available: available, hasPage: false) {
-        case .popupWindow(let url): openExtensionPopup(url, profilePath: profile)
+        case .popupWindow(let url): openExtensionPopup(url, profilePath: profile, anchor: anchor)
         case .openTab(let url): store.createTab(url: url, window: windowID)
         case .nothing, .runAction: break
         }
     }
 
-    private func openExtensionPopup(_ url: String, profilePath: String?) {
+    private func openExtensionPopup(_ url: String, profilePath: String?, anchor: (button: Button, onToolbar: Bool)? = nil) {
         extensionPopup?.close()
         guard !closing, let window, let host = HWND(bitPattern: hwnd) else { return }
         do {
             let popup = try ExtensionPopup(url: url, profilePath: profilePath, owner: window,
-                                           corner: slidersCorner(host: host, scale: window.scale))
+                                           corner: anchor.map { corner(under: $0.button, onToolbar: $0.onToolbar, host: host, scale: window.scale) }
+                                               ?? slidersCorner(host: host, scale: window.scale))
             popup.onClose = { [weak self, weak popup] in
                 if self?.extensionPopup === popup { self?.extensionPopup = nil }
             }
@@ -2934,6 +3041,21 @@ extension BrowserWindow: WebPageDelegate {
         store.openLinkTab(url, from: tabID(of: page), inBackground: background, window: windowID)
     }
 
+    /// Back (Alt+Left, the header's ←, the toolbar's): the page's own history, else a tab a link
+    /// opened, with no page behind, closes and the tab it came from shows again (Arc's
+    /// navigateBackToReferrer, #273; MainWindowController.goBack on the Mac).
+    private func goBack() {
+        guard let page = shownPage else { return }
+        guard let id = tabID(of: page) else { return page.goBack() }
+        switch store.backStep(id, canGoBack: page.canGoBack) {
+        case .history: page.goBack()
+        case .close(let referrer):
+            print("Cra: back closes tab \(id) to the tab it came from")
+            store.closeToReferrer(id, referrer: referrer, window: windowID)
+        case .none: break
+        }
+    }
+
     /// The link menu's Open Link in Split View and, outside a private window, in Little Window.
     func linkMenuExtras(for page: WebPage) -> [LinkMenuExtra] {
         guard let id = tabID(of: page), pages[id] === page else { return [] }
@@ -2978,8 +3100,10 @@ extension BrowserWindow: WebPageDelegate {
 
     func page(_ page: WebPage, popupHostForURL url: String, inBackground background: Bool) -> WebPage? {
         // The popup gets a tab of its own; its page is the host Chromium opens it in.
-        let space = tabID(of: page).flatMap { store.spaceID(ofItem: $0) }
-        let tab = store.createTab(url: url, in: space, select: false, window: windowID)
+        // Its tab keeps the one it came from, for Back (#273).
+        let source = tabID(of: page)
+        let space = source.flatMap { store.spaceID(ofItem: $0) }
+        let tab = store.createTab(url: url, in: space, select: false, window: windowID, referrer: source)
         let host = WebPage(popupHostIn: hwnd, frame: contentFrame(), incognito: page.isIncognito, profilePath: page.profilePath,
                            delegate: self)
         livePages.insert(ObjectIdentifier(host))

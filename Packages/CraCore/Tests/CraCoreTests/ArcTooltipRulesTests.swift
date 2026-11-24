@@ -64,4 +64,29 @@ struct ArcTooltipRulesTests {
         #expect(colors.ring == tones.fill.mixed(with: .white, 0.1))
         #expect(ArcTooltipRules.Colors.little.fill == RGB(10 / 255, 13 / 255, 75 / 255))
     }
+
+    /// A space icon's tip: sooner than a control's (Arc's ~0.62 s), with its profile in a pill between the
+    /// name and the caps, as the Mac's ArcTooltipLabel lays it out.
+    @Test func spaceIconTipsComeSoonerWithAProfilePill() {
+        #expect(ArcTooltipRules.idleDelay(for: .above) == 0.55)
+        #expect(ArcTooltipRules.idleDelay(for: .corner) == 1.6)
+        #expect(ArcTooltipRules.idleDelay(for: .trailing) == 1.6)
+        let M = ArcTooltipRules.Metrics.self
+        // The pill: 6 + 14 avatar + 3 + the name + 6.
+        #expect(M.pillWidth(nameWidth: 40.2) == 70)
+        // "Work", the pill and Alt 1: 10 + text + 6 + pill + 6 + caps + 10.
+        let caps = [M.capWidth(glyphWidth: 18, characters: 3), M.cap]
+        let plain = M.size(textWidth: 30, textHeight: 16, capWidths: caps)
+        let badged = M.size(textWidth: 30, textHeight: 16, capWidths: caps, pillWidth: 70)
+        #expect(badged.width == plain.width + 6 + 70)
+        #expect(badged.height == 28)
+        // Without caps the pill ends 3 pt from the edge.
+        let noKeys = M.size(textWidth: 30, textHeight: 16, capWidths: [], pillWidth: 70)
+        #expect(noKeys.width == 10 + 30 + 6 + 70 + 3)
+        #expect(M.pillX(textWidth: 30) == 46)
+        // No pill is the same tip as before; a wrapped tip shows none.
+        #expect(M.size(textWidth: 30, textHeight: 16, capWidths: caps, pillWidth: nil) == plain)
+        let wrapped = M.size(textWidth: 400, textHeight: 45, capWidths: [])
+        #expect(M.size(textWidth: 400, textHeight: 45, capWidths: [], pillWidth: 70) == wrapped)
+    }
 }

@@ -23,6 +23,14 @@ public struct PinnedExtensions: Codable, Equatable, Sendable {
 
     public func isPinned(_ id: String, inProfile profile: String) -> Bool { ids(inProfile: profile).contains(id) }
 
+    /// The toolbar's pins (Windows' ToolbarView): the profile's pinned extensions that are
+    /// installed and turned on, in toolbar order, each once. A pin of an extension that is
+    /// turned off, or gone, shows no button: running one crashes Chromium (the Mac's #41).
+    public func toolbarIDs(inProfile profile: String, enabled: Set<String>) -> [String] {
+        var seen = Set<String>()
+        return ids(inProfile: profile).filter { enabled.contains($0) && seen.insert($0).inserted }
+    }
+
     /// The extensions menu's order (Arc): the pinned ones in toolbar order, then the rest by name.
     /// Each ID once: two installs of one extension (two folders with the same manifest key) or a
     /// pin saved twice listed it twice, and the menu's icon map trapped on the repeat (0.1.43).

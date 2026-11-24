@@ -35,11 +35,27 @@ final class ToolbarView {
         var sidebarSide: SidebarSide = .left
         var showFullURL = false
         var autoHide = false
+        /// The page's profile's pinned extensions that can run, in toolbar order.
+        var pins: [Pin] = []
     }
+
+    /// A pinned extension's button: its name (the tooltip) and its button icon.
+    struct Pin: Equatable {
+        let id: String
+        let name: String
+        let icon: WriteableBitmap?
+
+        static func == (a: Pin, b: Pin) -> Bool { a.id == b.id && a.name == b.name && a.icon === b.icon }
+    }
+
+    /// A pin's click: onAction with this before the extension's id.
+    static let pinAction = "runExtension:"
 
     let root = Grid()
     /// The Site Control Center's sliders, which it and an extension's popup hang from.
     private(set) var sliders: Button?
+    /// The pinned extensions' buttons by extension id, which their popups hang from.
+    private(set) var pinButtons: [String: Button] = [:]
     private let left = StackPanel()
     private let right = StackPanel()
     private var address: Button!
@@ -69,12 +85,17 @@ final class ToolbarView {
 
         let bar = ToolbarComposition(kind: state.kind, inSplit: false, sidebarVisible: state.sidebarVisible, sidebarSide: state.sidebarSide,
                                      focusedPane: true, canGoBack: state.canGoBack, canGoForward: state.canGoForward,
-                                     isLoading: state.isLoading, pinnedExtensions: [])
+                                     isLoading: state.isLoading, pinnedExtensions: state.pins.map(\.id))
         left.children.clear()
         right.children.clear()
         sliders = nil
+        pinButtons = [:]
         for item in bar.left { if let b = button(item, dim: dim, hot: hot) { left.children.append(b) } }
         for item in bar.right { if let b = button(item, dim: dim, hot: hot) { right.children.append(b) } }
+        // The address stays centred, clear of the longer side (four buttons at least, as on the
+        // Mac; more with pinned extensions).
+        let side = 37.0 * Double(max(4, left.children.count, right.children.count)) + 8
+        address.margin = Thickness(left: side, top: 0, right: side, bottom: 0)
 
         let parts = ToolbarAddress.parts(url: state.url, showFullURL: state.showFullURL, easelTitle: state.easelTitle)
         host.text = parts.host
@@ -154,6 +175,8 @@ final class ToolbarView {
             (symbol, name, action, enabled) = loading ? ("xmark", "Stop", "stop", on) : ("arrow.clockwise", "Refresh", "reload", on)
         case .extensions: (symbol, name, action, enabled) = ("slider.horizontal.3", "Site Controls", "siteControls", true)
         case .addSplit: (symbol, name, action, enabled) = ("square.split.2x1", "Add Split View", "addSplitView", shown?.kind == .normal)
+        case .pinnedExtension(let id):
+            return shown?.pins.first { $0.id == id }.map { pinButton($0, dim: dim, hot: hot) }
         default: return nil
         }
         let glyph = FontIcon()
@@ -178,6 +201,30 @@ final class ToolbarView {
         case .reload(_, true): b.contextFlyout = menus?.reload
         default: break
         }
+        return b
+    }
+
+    /// A pinned extension, its 16 DIP icon (else the puzzle piece) on a 37 × 26 button: a click
+    /// runs it as its Site Control Center tile does.
+    private func pinButton(_ pin: Pin, dim: Brush, hot: Brush) -> Button {
+        let content: UIElement
+        if let icon = pin.icon {
+            content = UI.image(icon, size: 16)
+        } else {
+            let piece = FontIcon()
+            piece.glyph = WinGlyph.code("puzzlepiece.extension")
+            piece.fontSize = 14
+            piece.foreground = dim
+            content = piece
+        }
+        let action = Self.pinAction + pin.id
+        let b = UI.button(content, padding: Thickness(left: 0, top: 0, right: 0, bottom: 0)) { [weak self] in self?.onAction(action) }
+        b.width = 37
+        b.height = 26
+        paint(b, hover: hot, ink: dim)
+        ArcTip.set(b, pin.name)
+        try? AutomationProperties.setName(b, pin.name)
+        pinButtons[pin.id] = b
         return b
     }
 
