@@ -156,8 +156,9 @@ final class BrowserWindow {
     private var essentialShortcutsCard: EssentialShortcutsCard?
     /// Use Both's check that the page kept a press (watchUseBoth).
     private var useBothWatch: ScheduledWork?
-    /// Permission requests waiting for the user, oldest first; the first is on screen.
-    private var permissionQueue: [(page: WeakPage, origin: String, kinds: PermissionKinds, answer: (Bool) -> Void)] = []
+    /// Permission requests for the user: one card at a time, and only for a page on screen; a
+    /// tab behind waits until it's shown, as Chrome does (CraCore's `PermissionLine`, #286).
+    private var permissions = PermissionLine<PagePermission>()
     private let permissionPrompt = PermissionPromptView()
     private var permissionWindow: FloatingWindow?
     private var permissionHeight = 120.0
@@ -465,6 +466,7 @@ final class BrowserWindow {
         for (id, page) in pages where shown[id] == nil { page.isVisible = false }
         for page in shown.values { page.isVisible = true }
         noteHidden(shown: Set(shown.keys))
+        if !permissions.isEmpty { askNextPermission() }
         show(selected.flatMap { shown[$0.id] }, tab: selected?.id)
         window.title = Self.title(selected?.displayTitle, incognito: isIncognito)
     }
@@ -610,8 +612,8 @@ final class BrowserWindow {
         extensionPopup?.close()
         toast.hide()
         permissionWindow?.hide()
-        for request in permissionQueue { request.answer(false) }
-        permissionQueue.removeAll()
+        for request in permissions.all { request.answer(false) }
+        permissions = PermissionLine()
         let open = Array(pages.values)
         pages.removeAll()
         shownPage = nil
@@ -2038,10 +2040,20 @@ final class BrowserWindow {
         }
     }
 
-    /// The oldest request's question over the page. A page that closed has no say any more.
-    private func showNextPermission() {
-        permissionQueue.removeAll { $0.page.page == nil || $0.page.page?.isClosed == true }
-        guard let request = permissionQueue.first, let permissionWindow, !closing else {
+    /// The tabs on screen changed, or a card went: a card whose page went behind steps aside
+    /// (unanswered, first in line again) and the oldest request whose page is on screen asks.
+    /// A page that closed has no say any more. True when a card is up.
+    @discardableResult private func askNextPermission() -> Bool {
+        let dead = permissions.remove { $0.page.page == nil || $0.page.page?.isClosed == true }
+        let change = permissions.tabsChanged { $0.page.page?.isVisible == true }
+        if dead.wasAsking || change.aside != nil { permissionWindow?.hide() }
+        if change.next != nil { showAskingPermission() }
+        return permissions.asking != nil
+    }
+
+    /// The asking request's question over the page.
+    private func showAskingPermission() {
+        guard let request = permissions.asking, let permissionWindow, !closing else {
             permissionWindow?.hide()
             return
         }
@@ -2052,19 +2064,18 @@ final class BrowserWindow {
     }
 
     private func answerPermission(_ allowed: Bool) {
-        guard !permissionQueue.isEmpty else { return }
-        permissionQueue.removeFirst().answer(allowed)
+        guard let request = permissions.finish() else { return }
+        request.answer(allowed)
         permissionWindow?.hide()
-        if permissionQueue.isEmpty {
+        if !askNextPermission() {
             if let window = HWND(bitPattern: hwnd) { _ = SetForegroundWindow(window) }
             focusContent()
         }
-        showNextPermission()
     }
 
     /// Centred over the page area, 12 DIPs below its top (where the Mac's sheet drops from).
     private func placePermissionPrompt() {
-        guard let permissionWindow, !permissionQueue.isEmpty, let window, let host = HWND(bitPattern: hwnd) else { return }
+        guard let permissionWindow, permissions.asking != nil, let window, let host = HWND(bitPattern: hwnd) else { return }
         let scale = window.scale, area = window.contentFrame
         let width = Int32((PermissionPromptView.width * scale).rounded()), height = Int32((permissionHeight * scale).rounded())
         var corner = POINT(x: area.x + (area.width - width) / 2, y: area.y + Int32((12 * scale).rounded()))
@@ -3319,8 +3330,8 @@ extension BrowserWindow: WebPageDelegate {
     func page(_ page: WebPage, requestsPermissionForOrigin origin: String, kinds: PermissionKinds,
               answer: @escaping (Bool) -> Void) {
         guard !closing else { return answer(false) }
-        permissionQueue.append((WeakPage(page), origin, kinds, answer))
-        if permissionQueue.count == 1 { showNextPermission() }
+        let request = PagePermission(page: WeakPage(page), origin: origin, kinds: kinds, answer: answer)
+        if permissions.add(request, tabShown: page.isVisible) { showAskingPermission() }
     }
 
     /// A click into another pane focuses it (Arc: the split's focusItemID follows the click). The
@@ -3379,12 +3390,10 @@ extension BrowserWindow: WebPageDelegate {
             return
         }
         // Chromium dismissed its requests; the prompt moves on if it was asking for this page.
-        if permissionQueue.first?.page.page === page {
-            permissionQueue.removeFirst()
+        if permissions.remove(where: { $0.page.page === page }).wasAsking {
             permissionWindow?.hide()
-            showNextPermission()
+            askNextPermission()
         }
-        permissionQueue.removeAll { $0.page.page === page }
         guard let id = tabID(of: page), pages[id] === page else { return }
         pages[id] = nil
         // window.close(): the page's tab goes as a closed tab would.
@@ -3396,6 +3405,14 @@ extension BrowserWindow: WebPageDelegate {
 struct WeakPage {
     weak var page: WebPage?
     init(_ page: WebPage) { self.page = page }
+}
+
+/// A page's permission request waiting in `BrowserWindow.permissions`.
+struct PagePermission {
+    let page: WeakPage
+    let origin: String
+    let kinds: PermissionKinds
+    let answer: (Bool) -> Void
 }
 
 // MARK: - A sidebar tab dropped onto the page

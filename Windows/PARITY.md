@@ -29,14 +29,14 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 | Little Windows, Peek and the Library | 2 | 4 | 0 | 4 | 0 |
 | Tabs and memory | 2 | 5 | 0 | 1 | 0 |
 | Media and capture | 0 | 4 | 0 | 1 | 1 |
-| Profiles, privacy and site data | 7 | 3 | 0 | 4 | 0 |
+| Profiles, privacy and site data | 8 | 2 | 0 | 4 | 0 |
 | DevTools and Developer Mode | 2 | 0 | 0 | 1 | 0 |
 | Extensions | 0 | 4 | 0 | 1 | 0 |
 | Settings | 2 | 7 | 0 | 2 | 0 |
 | Import and onboarding | 0 | 5 | 0 | 0 | 1 |
 | Arc Max (on-device AI) | 0 | 0 | 0 | 0 | 6 |
 | System integration and release | 6 | 7 | 0 | 4 | 9 |
-| **All** | 49 | 76 | 0 | 24 | 18 |
+| **All** | 50 | 75 | 0 | 24 | 18 |
 <!-- /summary -->
 
 ## Window, pages and toolbar
@@ -174,7 +174,7 @@ which say in users' words how each feature behaves. For look and feel: [brand](h
 
 | Feature | Windows | Mac code | Shared in CraCore | Notes and next step |
 |---|---|---|---|---|
-| Permission prompts | 🟡 [#17] | `CraCEF.mm`, `BrowserManager.swift` | `PermissionPrompt`, `PermissionAsk` | Windows prompts work. Upstream f8a9d1f queues a hidden tab's camera/microphone request until the tab is shown and logs outcomes; Windows does not yet use `PermissionAsk` for that waiting policy. |
+| Permission prompts | ✅ [#17] [#PERM] | `CraCEF.mm`, `BrowserManager.swift` | `PermissionPrompt`, `PermissionAsk`, `PermissionLine` | Windows prompts work. Upstream f8a9d1f queues a hidden tab's camera/microphone request until the tab is shown and logs outcomes. Windows [#PERM]: the browser window's requests wait in CraCore's `PermissionLine` (`PermissionAsk`'s rules): a page behind (another tab, or a split pane not on screen) waits until its tab is shown, one card at a time, oldest first, and a card whose tab goes behind steps aside unanswered and asks again first when its tab is back (#286, #371). A page that closes or sleeps takes its requests with it. Windows keeps no cra.log, so the request and outcome lines aren't written there. |
 | Profiles: per-space cookie folders, Set Profile, Change Profile, New Profile, Settings ▸ Profiles | ✅ [#19] | `ProfilesPane.swift`, `ProfileDialogs.swift`, `NewProfileDialog.swift` | `SpaceProfiles`, `DeletedProfiles` | |
 | Website languages per profile in Settings ▸ Profiles, Language Settings (`languageSettings`) opens Chromium's page (#209) | ✅ [#63] [#111] | `ProfilesPane.swift` | `BrowserLanguages` | Upstream b528590. Windows has the command ([#63], Chromium's page in a tab of the window's space). [#111]: each profile's row in Settings ▸ Profiles reads "Website languages: …" (Chromium's live `intl.accept_languages` once the profile has loaded, else its Preferences file, `BrowserLanguages.codes(livePref:preferencesFile:)`) and its Languages… button opens Chromium's page in the window's focused space when it's on that profile, else the profile's first space (`BrowserLanguages.space`); off, with the Mac's tip, for a profile no space uses. |
 | Rebuild profiles from Arc (`rebuildArcProfiles`) | 🟡 [#123] | `ArcProfileRebuilder.swift` | `ArcProfileRebuild` | Windows [#123]: Settings ▸ Profiles ▸ Rebuild from Arc… (beside Create Profile, while Arc's sidebar is on the PC) and the command bar's Rebuild Profiles from Arc… (`KeyBindingDefaults.windowsText`, no keys) find the spaces on Default that Arc has on a profile of its own (`SidebarStore.arcProfileMoves`), ask on Arc's sheet, move them (`applyArcProfileMoves`) and stage those Arc profiles' passwords and sign-ins for the next start (`CredentialImport`), then say what moved. The sheets' words are CraCore's `ArcProfileRebuild` (`confirmation(_:on:)`, `unreadable`, `nothingToMove`, `withoutSignIns`, `signInsNotSaved`, `moved`), which the Mac now uses too. Unlike the Mac, Windows doesn't restart (the sign-ins come in at the next start) and leaves extensions and their pins as they are, since its extensions load in every profile (stock CEF has no `extension-profiles.patch`). |
