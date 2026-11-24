@@ -76,7 +76,7 @@ final class ShortcutsPaneView {
         row.columnDefinitions.append(UI.column(UI.star))
         row.columnDefinitions.append(UI.column(UI.auto))
         row.columnDefinitions.append(UI.column(UI.auto))
-        search.placeholderText = "Search"
+        search.placeholderText = "Search by name or keys, like Ctrl T"
         search.height = Self.searchHeight
         search.isSpellCheckEnabled = false
         search.textChanged.addHandler { [weak self] _, _ in self?.render() }

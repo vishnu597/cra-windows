@@ -186,10 +186,10 @@ public enum ShortcutsList {
     @MainActor
     public static func groups(in registry: KeyBindingRegistry, query: String, customizedOnly: Bool = false,
                               conflictingOnly: Bool = false) -> [Group] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        // A name, or the keys typed as words ("ctrl t", "Ctrl+Shift+T"), as the Mac's pane takes them (ShortcutSearch).
         return sections.compactMap { section, title in
             let acts = registry.actions(in: section).filter { a in
-                (q.isEmpty || a.name.lowercased().contains(q))
+                ShortcutSearch.matches(query, name: a.name, shortcuts: a.shortcuts)
                     && (!customizedOnly || registry.isOverridden(a.id))
                     && (!conflictingOnly || !registry.conflicts(of: a).isEmpty)
             }
