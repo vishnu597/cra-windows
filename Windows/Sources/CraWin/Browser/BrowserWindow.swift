@@ -2181,11 +2181,7 @@ final class BrowserWindow {
             self?.runImport(source, credentials: credentials, extensions: extensions)
         }
         importDialog.onCancel = { [weak self] in self?.hideImportDialog() }
-        importDialog.extensionsOf = { [weak self] source in
-            guard let self, let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment),
-                  let userData = source.userData(in: folders) else { return ([], []) }
-            return (ExtensionImport.candidates(inUserData: userData), self.installedExtensionIDs())
-        }
+        importDialog.extensionsOf = { [weak self] source in self?.importableExtensions(source) ?? ([], []) }
         importDialog.onHeightChange = { [weak self] height in
             self?.importDialogHeight = height
             self?.placeImportDialog()
@@ -2270,6 +2266,13 @@ final class BrowserWindow {
         return .done(summary: summary, credentials: details.isEmpty ? nil : details.joined(separator: " "))
     }
 
+    /// The browser's extensions, and the IDs Cra has already, for the import's extensions page.
+    private func importableExtensions(_ source: WindowsImportSource) -> (candidates: [ExtensionImport.Candidate], installed: Set<String>) {
+        guard let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment),
+              let userData = source.userData(in: folders) else { return ([], []) }
+        return (ExtensionImport.candidates(inUserData: userData), installedExtensionIDs())
+    }
+
     /// Every extension ID Cra has: installed in any of its profiles (turned off too), or waiting in
     /// its Extensions folder for the next start.
     private func installedExtensionIDs() -> Set<String> {
@@ -2289,9 +2292,10 @@ final class BrowserWindow {
         let view = OnboardingView()
         let folders = WindowsImportSource.Folders(environment: ProcessInfo.processInfo.environment)
         let sources = folders.map { f in WindowsImportSource.available(in: f).map { OnboardingView.Source(source: $0, profiles: $0.profiles(in: f)) } } ?? []
-        view.importData = { [weak self] source, credentials in
+        view.extensionsOf = { [weak self] source in self?.importableExtensions(source) ?? ([], []) }
+        view.importData = { [weak self] source, credentials, extensions in
             guard let self else { return .failed("") }
-            let outcome = self.importData(source, credentials: credentials)
+            let outcome = self.importData(source, credentials: credentials, extensions: extensions)
             // Showing the imported space brings this window forward; the card takes the
             // keyboard back so Return still presses Continue (PR #38's PC test).
             _ = try? self.dispatcher.tryEnqueue { [weak self] in
