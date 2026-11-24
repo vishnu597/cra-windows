@@ -81,6 +81,13 @@ final class BrowserWindow {
     /// and the gaps between them, in physical pixels relative to the client area.
     private var paneIDs: [UUID] = []
     private var paneFrames: [UUID: PixelRect] = [:]
+    /// A split's panes' own bars (Arc 1.171, GitHub #178), by pane position, and where each sits:
+    /// over its pane's top, which the page leaves free (paneFrames are the pages').
+    private var paneBars: [ToolbarView] = []
+    private var paneBarFrames: [UUID: PixelRect] = [:]
+    private var hoveredPaneBar: Int?
+    /// The Split View Options menu, kept while it shows (a MenuFlyout made from Swift is only a wrapper).
+    private var splitOptionsMenu: MenuFlyout?
     private var paneGaps: [PixelRect] = []
     /// The same layout in DIPs from the page area's top left, for hit-testing the dividers.
     private var paneLayoutResult = SplitPaneLayout.Result()
@@ -517,7 +524,7 @@ final class BrowserWindow {
             self.pageEntryCounts[key] = live.entries.count
             let base = self.pageLists[key] ?? PageList(entries: [], index: 0, savedAt: Date())
             PageListStore.shared.save(base.merged(live: live.entries, liveIndex: live.index, savedAt: Date()), for: id)
-            if page === self.shownPage { self.syncToolbar() }
+            if page === self.shownPage { self.syncToolbar() } else { self.syncPaneBars() }
         }
     }
 
@@ -1733,7 +1740,8 @@ final class BrowserWindow {
         case .developer: DeveloperBarView.height
         case .toolbar: floats && !toolbarTracker.shown ? 0 : ToolbarView.height
         case .none: 0
-        }
+        }        // The focused pane's bar shows all its controls (a selection inside a split lands here).
+        syncPaneBars()
     }
 
     private func startToolbarPoll() {
@@ -1801,6 +1809,7 @@ final class BrowserWindow {
     /// The toolbar's buttons and colour for the open tab (its page's state, which isn't observed:
     /// the page's own callbacks call this too).
     private func syncToolbar() {
+        syncPaneBars()
         guard topBar == .toolbar else { return }
         let item = store.selectedTab(window: windowID)
         var state = ToolbarView.State()
@@ -1943,12 +1952,116 @@ final class BrowserWindow {
             let x0 = px(r.minX), x1 = px(r.maxX), y0 = px(r.minY), y1 = px(r.maxY)
             return PixelRect(x: area.x + x0, y: area.y + y0, width: x1 - x0, height: y1 - y0)
         }
-        paneFrames = result.frames.mapValues(pixels)
+        let cards = result.frames.mapValues(pixels)
+        // Each pane of a split has its bar over its page (SplitPaneOptionsMenu.barsShown).
+        let bar = SplitPaneOptionsMenu.barsShown(panes: paneIDs.count, fullscreen: false) ? Int32((ToolbarView.height * scale).rounded()) : 0
+        paneBarFrames = bar > 0 ? cards.mapValues { PixelRect(x: $0.x, y: $0.y, width: $0.width, height: min(bar, $0.height)) } : [:]
+        paneFrames = bar > 0 ? cards.mapValues { c in
+            let top = min(bar, c.height)
+            return PixelRect(x: c.x, y: c.y + top, width: c.width, height: c.height - top)
+        } : cards
         paneGaps = result.gaps.map(pixels)
         for (id, frame) in paneFrames { pages[id]?.frame = frame }
+        placePaneBars()
         window.pill = paneDrag.flatMap { paneGaps.indices.contains($0.divider) ? pill(in: paneGaps[$0.divider]) : nil }
         placeFindBar()
         if slowResponseToastTab != nil { toast?.ownerMoved() }
+    }
+
+    /// Shows a bar over each pane of a split (none over a lone page, whose bar is the window's).
+    private func placePaneBars() {
+        guard let window else { return }
+        guard !paneBarFrames.isEmpty else {
+            hoveredPaneBar = nil
+            window.setPaneBars([])
+            return
+        }
+        while paneBars.count < paneIDs.count { paneBars.append(makePaneBar(index: paneBars.count)) }
+        let none = PixelRect(x: 0, y: 0, width: 0, height: 0)
+        window.setPaneBars(paneIDs.enumerated().map { i, id in (paneBars[i].root, paneBarFrames[id] ?? none) })
+        syncPaneBars()
+    }
+
+    private func makePaneBar(index: Int) -> ToolbarView {
+        let bar = ToolbarView()
+        bar.onKey = { [weak self] key in self?.handleShortcut(key) ?? false }
+        bar.onHover = { [weak self] over in
+            guard let self else { return }
+            if over { self.hoveredPaneBar = index } else if self.hoveredPaneBar == index { self.hoveredPaneBar = nil }
+            self.syncPaneBars()
+        }
+        bar.onAction = { [weak self] action in self?.paneBarAction(action, index: index) }
+        return bar
+    }
+
+    /// Each pane's bar for its own tab: the focused one carries all its controls, the others Arc's
+    /// essentials until the pointer is over them (ToolbarComposition with `inSplit`).
+    private func syncPaneBars() {
+        guard !paneBarFrames.isEmpty else { return }
+        let selected = store.selectedTabID(window: windowID)
+        for (i, id) in paneIDs.enumerated() where i < paneBars.count {
+            var state = ToolbarView.State()
+            state.kind = .emptyPane
+            if let item = store.item(id), let t = item.tab, !item.isEmptyTab {
+                state.kind = .normal
+                state.url = t.url
+                state.easelTitle = item.displayTitle
+                state.themeColor = ToolbarColor.hex(reported: nil, remembered: t.themeColor)
+            }
+            if let page = pages[id] {
+                state.canGoBack = canGoBackInSaved(page) || store.backStep(id, canGoBack: page.canGoBack) != .none
+                state.canGoForward = page.canGoForward || canGoForwardInSaved(page)
+                state.isLoading = page.isLoading
+            }
+            state.sidebarVisible = sidebarDocked
+            state.sidebarSide = store.settings.sidebarSide
+            state.showFullURL = store.settings.toolbarShowsFullURL
+            state.inSplit = true
+            state.focusedPane = selected == id
+            state.hovered = hoveredPaneBar == i
+            paneBars[i].show(state)
+        }
+    }
+
+    /// A click on a pane's bar acts on that pane: it takes the focus first, as Arc's bar does.
+    private func paneBarAction(_ action: String, index: Int) {
+        guard paneIDs.indices.contains(index) else { return }
+        let id = paneIDs[index]
+        if action == "closeSplitPane" { return closeSplitPane(id) }
+        if store.selectedTabID(window: windowID) != id {
+            store.selectTab(id, window: windowID)
+            refresh()
+        }
+        switch action {
+        case "splitOptions": showSplitOptions(for: id, from: paneBars[index].splitOptions)
+        case "siteControls": toggleSiteControlCenter()
+        case "toggleFullURL": store.settings.toolbarShowsFullURL.toggle()
+        case "toggleAutoHideToolbar": store.settings.autoHideToolbar.toggle()
+        case "stop": pages[id]?.stopLoading()
+        default: _ = perform(action)
+        }
+    }
+
+    /// Arc's Split View Options (SplitPaneOptionsMenu), for the pane whose bar it hangs from.
+    private func showSplitOptions(for id: UUID, from anchor: Button?) {
+        guard let anchor else { return }
+        let menu = MenuFlyout()
+        for entry in SplitPaneOptionsMenu.entries {
+            guard let entry else {
+                menu.items.append(MenuFlyoutSeparator())
+                continue
+            }
+            menu.items.append(UI.menuItem(entry.title, action: entry.action) { [weak self] in
+                guard let self else { return }
+                switch entry.action {
+                case "separateFromSplit": self.store.separateFromSplit(id)
+                case "closeSplitPane": self.closeSplitPane(id)
+                default: _ = self.perform(entry.action)
+                }
+            })
+        }
+        splitOptionsMenu = menu
+        try? menu.showAt(anchor)
     }
 
     private func paneLayout(factors: [UUID: CGFloat]) -> SplitPaneLayout {
@@ -3012,7 +3125,7 @@ extension BrowserWindow: WebPageDelegate {
     func page(_ page: WebPage, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool) {
         if !loading { savePageList(page) }
         syncSlowResponse()
-        if page === shownPage { syncToolbar() }
+        if page === shownPage { syncToolbar() } else { syncPaneBars() }
         if page === shownPage { syncLoadingBar(animated: true) }
     }
 
