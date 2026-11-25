@@ -58,6 +58,10 @@ final class BrowserWindow {
     private var downloads: DownloadsTray!
     /// Downloads this window's pages started (the stall check), and the ones it has recorded.
     private var windowDownloads: Set<UInt32> = []
+    /// Pages whose tab closed because they only downloaded, kept out of sight until their
+    /// downloads end: Chromium reports a download only to the page it came from (`DownloadOnlyTabs`).
+    private var downloadOnly = DownloadOnlyTabs<ObjectIdentifier>()
+    private var downloadOnlyPages: [ObjectIdentifier: WebPage] = [:]
     /// Delete Space…'s question while it is up.
     private var deleteSpaceSheet: AppDialog?
     private var finishedDownloads: Set<UInt32> = []
@@ -639,8 +643,9 @@ final class BrowserWindow {
         permissionWindow?.hide()
         for request in permissions.all { request.answer(false) }
         permissions = PermissionLine()
-        let open = Array(pages.values)
+        let open = Array(pages.values) + Array(downloadOnlyPages.values)
         pages.removeAll()
+        downloadOnlyPages.removeAll()
         shownPage = nil
         paneIDs = []
         paneDrag = nil
@@ -3533,13 +3538,33 @@ extension BrowserWindow: WebPageDelegate {
     }
 
     func page(_ page: WebPage, didUpdateDownload download: DownloadInfo) {
-        if windowDownloads.insert(download.identifier).inserted {
+        let first = windowDownloads.insert(download.identifier).inserted
+        if first {
             // Chrome's glyph would fly from the page's top left to a toolbar Cra hides; the
             // sidebar's downloads button shows the progress (ChromeDownloadAnimation on the Mac).
             cra_hide_download_started_animation()
             if download.state == .inProgress { throwDownloadGlyph() }
         }
         record(download)
+        // A tab whose page only downloaded closes, as Chrome's does (DownloadOnlyTabs).
+        let key = ObjectIdentifier(page)
+        switch downloadOnly.report(download.identifier, from: key, first: first, pageHasDocument: page.hasDocument,
+                                   running: download.state == .inProgress) {
+        case .none: break
+        case .holdAndCloseTab:
+            guard let id = tabID(of: page), pages[id] === page else { return downloadOnly.forget(key) }
+            pages[id] = nil
+            page.isVisible = false
+            downloadOnlyPages[key] = page
+            // After this callback, which comes from inside Chromium's download code.
+            _ = try? dispatcher.tryEnqueue { [weak self] in self?.closeTab(id) }
+        case .closeTab:
+            guard let id = tabID(of: page), pages[id] === page else { return }
+            _ = try? dispatcher.tryEnqueue { [weak self] in self?.closeTab(id) }
+        case .closePage:
+            downloadOnlyPages[key] = nil
+            _ = try? dispatcher.tryEnqueue { page.close() }
+        }
     }
 
     /// Arc's download flight: the glyph thrown from the pointer onto the sidebar's downloads
@@ -3662,6 +3687,8 @@ extension BrowserWindow: WebPageDelegate {
         pageLists[ObjectIdentifier(page)] = nil
         pageEntryCounts[ObjectIdentifier(page)] = nil
         newPages[ObjectIdentifier(page)] = nil
+        downloadOnly.forget(ObjectIdentifier(page))
+        downloadOnlyPages[ObjectIdentifier(page)] = nil
         if closing {
             // After this callback: it comes from inside CEF's OnBeforeClose, and destroying the
             // pages' parent window there crashed libcef.

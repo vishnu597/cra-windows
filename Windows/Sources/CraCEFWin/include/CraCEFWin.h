@@ -561,6 +561,8 @@ int cra_browser_navigation_starts(CraBrowser *browser);
 const char *cra_browser_navigating_url(CraBrowser *browser);
 int cra_browser_can_go_back(CraBrowser *browser);
 int cra_browser_can_go_forward(CraBrowser *browser);
+/// Whether the page has shown a document: 0 while its only navigation became a download.
+int cra_browser_has_document(CraBrowser *browser);
 /// UTF-8, valid until the next call into this browser.
 const char *cra_browser_current_url(CraBrowser *browser);
 const char *cra_browser_current_title(CraBrowser *browser);
