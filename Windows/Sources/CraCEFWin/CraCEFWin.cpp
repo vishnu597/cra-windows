@@ -750,6 +750,44 @@ private:
     IMPLEMENT_REFCOUNTING(KeepAudioMuted);
 };
 
+/// A hidden page's window, hidden once Chromium has one: a Chrome-style child browser shows its
+/// window itself, after OnAfterCreated, whatever style it was asked for, so a spare page made
+/// ahead sat visible on top of the window's page and toolbar (PC test, 24 Nov 2026). Applies the
+/// frame (and so the hiding) again every 50 ms for up to 2 s.
+class HideWhenMade : public CefTask {
+public:
+    HideWhenMade(CraBrowser *owner, uint64_t serial, int ticksLeft) : owner_(owner), serial_(serial), ticks_(ticksLeft) {}
+    void Execute() override {
+        CraBrowser *o = owner_;
+        if (!g_browsers.count(o) || o->serial != serial_ || o->close_requested || !o->browser || o->visible) return;
+        HWND hwnd = o->browser->GetHost()->GetWindowHandle();
+        if (hwnd && IsWindowVisible(hwnd)) o->ApplyFrame();
+        if (ticks_ > 0) CefPostDelayedTask(TID_UI, new HideWhenMade(o, serial_, ticks_ - 1), 50);
+    }
+
+private:
+    CraBrowser *owner_;
+    uint64_t serial_;
+    int ticks_;
+    IMPLEMENT_REFCOUNTING(HideWhenMade);
+};
+
+/// Closes a page asked to close before Chromium had made it, a moment after OnAfterCreated:
+/// closing it from inside OnAfterCreated left the Chrome-style browser's tab strip half made, and
+/// its close crashed in Browser::TabStripEmpty (PC test, 24 Nov 2026: an extension popup closed
+/// as it opened).
+class CloseAfterCreated : public CefTask {
+public:
+    explicit CloseAfterCreated(CefRefPtr<CefBrowser> browser) : browser_(browser) {}
+    void Execute() override {
+        if (browser_ && browser_->IsValid()) browser_->GetHost()->CloseBrowser(true);
+    }
+
+private:
+    CefRefPtr<CefBrowser> browser_;
+    IMPLEMENT_REFCOUNTING(CloseAfterCreated);
+};
+
 /// A page's DevTools browser (made through OnBeforeDevToolsPopup). Detached when its page goes.
 class DevToolsClient : public CefClient,
                        public CefLifeSpanHandler,
@@ -1069,11 +1107,14 @@ public:
         }
         o->browser = browser;
         o->ApplyFrame();
-        if (!o->visible) browser->GetHost()->WasHidden(true);
+        if (!o->visible) {
+            browser->GetHost()->WasHidden(true);
+            CefPostTask(TID_UI, new HideWhenMade(o, o->serial, 40));
+        }
         if (o->focus_pending && o->visible) cra_browser_set_focused(o, 1);
         o->focus_pending = false;
         if (o->audio_muted) browser->GetHost()->SetAudioMuted(true);
-        if (o->close_requested) browser->GetHost()->CloseBrowser(true);
+        if (o->close_requested) CefPostDelayedTask(TID_UI, new CloseAfterCreated(browser), 50);
     }
 
     bool DoClose(CefRefPtr<CefBrowser> browser) override {
@@ -2197,9 +2238,29 @@ extern "C" CraBrowser *cra_browser_create(uintptr_t parent, int x, int y, int wi
     return cra_browser_create_in(parent, x, y, width, height, url, 0, nullptr, callbacks);
 }
 
+namespace {
+CraBrowser *CreateBrowserIn(uintptr_t parent, int x, int y, int width, int height, const char *url, int incognito,
+                            const char *profile_path, CraBrowserCallbacks callbacks, bool visible);
+}
+
 extern "C" CraBrowser *cra_browser_create_in(uintptr_t parent, int x, int y, int width, int height, const char *url,
                                              int incognito, const char *profile_path, CraBrowserCallbacks callbacks) {
+    return CreateBrowserIn(parent, x, y, width, height, url, incognito, profile_path, callbacks, true);
+}
+
+extern "C" CraBrowser *cra_browser_create_hidden_in(uintptr_t parent, int x, int y, int width, int height,
+                                                    const char *url, int incognito, const char *profile_path,
+                                                    CraBrowserCallbacks callbacks) {
+    return CreateBrowserIn(parent, x, y, width, height, url, incognito, profile_path, callbacks, false);
+}
+
+namespace {
+CraBrowser *CreateBrowserIn(uintptr_t parent, int x, int y, int width, int height, const char *url, int incognito,
+                            const char *profile_path, CraBrowserCallbacks callbacks, bool visible) {
     auto *b = new CraBrowser;
+    // Before Create: a window made visible stays so when Chromium's handle isn't there yet for
+    // OnAfterCreated's ApplyFrame to hide it (a spare page, PC test 24 Nov 2026).
+    b->visible = visible;
     b->incognito = incognito != 0;
     if (!b->incognito) b->profile_path = CachePath(profile_path);
     b->client = new CraClient(b);
@@ -2219,6 +2280,7 @@ extern "C" CraBrowser *cra_browser_create_in(uintptr_t parent, int x, int y, int
     }
     return b;
 }
+}  // namespace
 
 extern "C" void cra_browser_set_frame(CraBrowser *b, int x, int y, int width, int height) {
     if (!b) return;

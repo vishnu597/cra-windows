@@ -17,6 +17,10 @@ final class ExtensionPopup {
     private let window: HostWindow
     private var page: WebPage?
     private var closing = false
+    private let openedAt = Date()
+    /// How long after opening a lost activation is the opening click's, not the user leaving.
+    private static let openingGrace: TimeInterval = 0.4
+    private var destroyed = false
     /// After it closed, for its owner to let go of it.
     var onClose: (() -> Void)?
     /// A link the popup opens in a tab (target=_blank, Ctrl-click): its owner's tab.
@@ -29,7 +33,21 @@ final class ExtensionPopup {
         let scale = owner.scale
         let width = Int32((Self.size.width * scale).rounded()), height = Int32((Self.size.height * scale).rounded())
         window.placeClient(x: max(0, corner.x - width), y: corner.y, width: width, height: height)
-        window.onDeactivate = { [weak self] in self?.close() }
+        // The click that opened it ends in its owner, which takes the activation back at once
+        // (PC test, 24 Nov 2026: the popup closed as it opened). Then the popup takes it back,
+        // once; a later deactivation (a click elsewhere) closes it.
+        window.onDeactivate = { [weak self] in
+            guard let self else { return }
+            if Date().timeIntervalSince(self.openedAt) < Self.openingGrace {
+                _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { [weak self] in
+                    guard let self, !self.closing else { return }
+                    self.window.activate()
+                    self.page?.setFocused(true)
+                }
+            } else {
+                self.close()
+            }
+        }
         window.onClose = { [weak self] in self?.close() }
         window.onLayout = { [weak self] frame in self?.page?.frame = frame }
         page = WebPage(parent: window.hwnd, frame: window.contentFrame, url: url, profilePath: profilePath, delegate: self)
@@ -46,12 +64,23 @@ final class ExtensionPopup {
         _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { self.finish() }
     }
 
+    /// Hides the card and closes its page; the window itself goes only once Chromium is done
+    /// with the page (`pageDidClose`). Chromium makes a page's window a turn after
+    /// cra_browser_create, as a child of this one: destroying the parent first left it a dead
+    /// handle, and CreateWindowEx failing there is a CHECK in gfx::WindowImpl::Init that took
+    /// all of Cra down (PC test, 23 and 24 Nov 2026: a click on a pinned extension).
     private func finish() {
-        let page = self.page
-        self.page = nil
-        page?.close()
         window.onClose = nil
         window.onDeactivate = nil
+        if let hwnd = HWND(bitPattern: window.hwnd) { _ = ShowWindow(hwnd, SW_HIDE) }
+        guard let page, !page.isClosed else { return destroyWindow() }
+        page.close()
+    }
+
+    private func destroyWindow() {
+        guard !destroyed else { return }
+        destroyed = true
+        page = nil
         window.close()
         onClose?()
     }
@@ -75,9 +104,14 @@ extension ExtensionPopup: WebPageDelegate {
         return nil
     }
 
+    /// Chromium is done with the page: closed by `finish`, or by itself (window.close()).
     func pageDidClose(_ page: WebPage) {
         guard self.page === page else { return }
-        self.page = nil
-        close()
+        // A turn later, as LittleWindow does: this comes from inside CEF's OnBeforeClose, and
+        // destroying the window Chromium's browser lives in from there left its close task with
+        // a freed Browser, which crashed in Browser::TabStripEmpty (PC test, 24 Nov 2026).
+        _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue {
+            if self.closing { self.destroyWindow() } else { self.closing = true; self.finish() }
+        }
     }
 }
