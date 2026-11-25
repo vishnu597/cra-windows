@@ -56,4 +56,14 @@ struct FavoriteTileColorsTests {
         // White, hovered: 7 % black → 237.
         #expect(FavoriteTileColors.fill(tileColor: "#FFFFFF", selected: false, hovered: true) == "#EDEDED")
     }
+
+    /// Other Color… on Windows opens the colour dialog on the tile's colour and keeps the pick as hex.
+    @Test func otherColorRoundTripsThroughTheDialog() {
+        #expect(FavoriteTileColors.dialogRGB(tileColor: nil) == -1)
+        #expect(FavoriteTileColors.dialogRGB(tileColor: "not a colour") == -1)
+        #expect(FavoriteTileColors.dialogRGB(tileColor: "#FF8000") == 0xFF8000)
+        #expect(FavoriteTileColors.dialogRGB(tileColor: "#0a1b2c") == 0x0A1B2C)
+        #expect(FavoriteTileColors.hex(rgb: 0x0A1B2C) == "#0A1B2C")
+        #expect(FavoriteTileColors.hex(rgb: UInt32(FavoriteTileColors.dialogRGB(tileColor: "#5E8C31"))) == "#5E8C31")
+    }
 }

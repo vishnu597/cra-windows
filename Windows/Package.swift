@@ -61,6 +61,7 @@ let package = Package(
                 .linkedLibrary("crypt32"),  // certificate stores (the site control center's certificate)
                 .linkedLibrary("runtimeobject"),  // RoGetActivationFactory, HSTRINGs (the Share window)
                 .linkedLibrary("gdiplus"),  // the Peek's round buttons (CraOverlay.cpp)
+                .linkedLibrary("comdlg32"),  // ChooseColorW (a favorite's Other Color…)
                 .linkedLibrary("advapi32"),  // the registry (the round buttons' tips follow the apps' theme)
                 .linkedLibrary("winsqlite3"),  // Windows' SQLite (importing passwords and sign-ins, CraData.cpp)
                 .linkedLibrary("dwmapi"),  // DwmGetWindowAttribute (a Share sheet that draws nothing)
