@@ -331,5 +331,16 @@ final class SQLiteSnapshot {
     }
 
     func rows(_ sql: String) -> [[String: Any]] { database.rows(sql) }
+
+    /// A plan's reader: each file copied once, however many queries ask it (Zen's favicons.sqlite
+    /// is asked once per site).
+    static func reader() -> (URL, String) -> [[String: Any]] {
+        var open: [URL: SQLiteSnapshot?] = [:]
+        return { file, sql in
+            if open[file] == nil { open[file] = .some(SQLiteSnapshot(copying: file)) }
+            return open[file]??.rows(sql) ?? []
+        }
+    }
+
     func columns(of table: String) -> [ChromiumCredentialRows.Column] { database.columns(of: table) }
 }

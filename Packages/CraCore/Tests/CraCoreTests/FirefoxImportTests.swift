@@ -211,4 +211,69 @@ struct FirefoxImportTests {
         #expect(plan.spaces[0].pinned.map(\.pageTitle) == ["Docs", "Reading", "Bookmarks Menu"])
         #expect(plan.spaces[0].today.map(\.url) == ["https://b.example", "https://c.example", "http://d.example"])
     }
+    @Test func zensFaviconsComeFromFaviconsSqlite() throws {
+        let q = FirefoxFavicons.query(host: "it's.example", bitmapsOnly: true)
+        #expect(q.contains("LIKE 'https://its.example/%'") && q.contains("LIKE 'https://www.its.example/%'"), "the site or its www. name, quotes dropped")
+        #expect(q.contains("i.width < 65535") && q.contains("ORDER BY i.width DESC LIMIT 1"), "the largest bitmap: Windows can't draw an SVG")
+        #expect(!FirefoxFavicons.query(host: "a.example", bitmapsOnly: false).contains("65535"), "the Mac draws SVGs too")
+
+        let folder = ImportedItem(pageTitle: "F", isFolder: true, children: [ImportedItem(pageTitle: "B", url: "https://B.example/x")])
+        var spaces = [ImportedSpace(title: "One", emoji: "1", favorites: [ImportedItem(pageTitle: "A", url: "https://a.example")],
+                                    pinned: [folder], today: [ImportedItem(pageTitle: "Kept", url: "https://none.example", faviconPath: "/old.png")]),
+                      ImportedSpace(title: "Two", emoji: "2", today: [ImportedItem(pageTitle: "A again", url: "https://a.example/page")])]
+        #expect(FirefoxFavicons.hosts(in: spaces) == ["a.example", "b.example", "none.example"], "lowercased, once, folders included")
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(FirefoxFavicons.write(hosts: ["none.example"], into: dir, bitmapsOnly: true) { _ in [] }.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: dir.path), "no folder without an icon")
+        let icons = ["a.example": Data([1, 2, 3]), "b.example": Data([4, 5])]
+        let files = FirefoxFavicons.write(hosts: FirefoxFavicons.hosts(in: spaces), into: dir, bitmapsOnly: true) { query in
+            icons.first { query.contains("https://\($0.key)/") }.map { [["data": $0.value]] } ?? []
+        }
+        #expect(Set(files.keys) == ["a.example", "b.example"])
+        let written = try files.mapValues { try Data(contentsOf: URL(fileURLWithPath: $0)) }
+        #expect(written == icons, "the bytes as Zen kept them")
+
+        FirefoxFavicons.attach(files, to: &spaces)
+        #expect(spaces[0].favorites[0].faviconPath == files["a.example"] && spaces[1].today[0].faviconPath == files["a.example"])
+        #expect(spaces[0].pinned[0].children[0].faviconPath == files["b.example"], "a tab in a folder")
+        #expect(spaces[0].today[0].faviconPath == "/old.png", "an icon it had stays when Zen has none")
+    }
+
+    /// Zen on Windows brings each tab's favicon from favicons.sqlite (the Mac's ZenImporter).
+    @Test func windowsBringsZensFavicons() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let folders = WindowsImportSource.Folders(local: root.appendingPathComponent("Local", isDirectory: true),
+                                                  roaming: root.appendingPathComponent("Roaming", isDirectory: true))
+        let zen = folders.roaming.appendingPathComponent("zen", isDirectory: true)
+        let profile = zen.appendingPathComponent("Profiles/abc.default-release", isDirectory: true)
+        try fm.createDirectory(at: profile, withIntermediateDirectories: true)
+        try Data("[Profile0]\nIsRelative=1\nPath=Profiles/abc.default-release\nDefault=1\n".utf8).write(to: zen.appendingPathComponent("profiles.ini"))
+        try Data().write(to: profile.appendingPathComponent("places.sqlite"))
+        let sessions = """
+            {"spaces":[{"uuid":"w","name":"Work","icon":"💼","position":1}],
+             "tabs":[{"zenEssential":true,"entries":[{"url":"https://mail.example","title":"Mail"}]},
+                     {"pinned":true,"zenWorkspace":"w","entries":[{"url":"https://board.example","title":"Board"}]}]}
+            """
+        try Self.mozLz4(sessions).write(to: profile.appendingPathComponent("zen-sessions.jsonlz4"))
+        let source = try #require(WindowsImportSource.available(in: folders).first)
+        #expect(source.id == "zen")
+
+        let icons = root.appendingPathComponent("icons", isDirectory: true)
+        var asked: [String] = []
+        let plan = try source.plan(in: folders, sqlite: { file, query in
+            asked.append(file.lastPathComponent)
+            guard file.lastPathComponent == "favicons.sqlite", query.contains("https://mail.example/") else { return [] }
+            return [["data": Data([9, 9])]]
+        }, iconFolder: icons)
+        #expect(asked.filter { $0 == "favicons.sqlite" }.count == 2, "one question per site")
+        let mail = try #require(plan.spaces.first?.favorites.first)
+        let path = try #require(mail.faviconPath)
+        let bytes = try Data(contentsOf: URL(fileURLWithPath: path))
+        #expect(path.hasPrefix(icons.path) && bytes == Data([9, 9]))
+        #expect(plan.spaces[0].pinned.first?.faviconPath == nil, "a site Zen has no icon for")
+    }
 }
