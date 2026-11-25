@@ -220,6 +220,8 @@ final class BrowserWindow {
     private var audible = AudibleProbe.Tracker()
     /// Arc's now-playing player at the bottom of the sidebar (#33): its cards and their view.
     private var nowPlaying = NowPlayingList()
+    /// The pages that made sound at their last answer (no hold): music notes follow it.
+    private var soundPlaying: Set<UUID> = []
     private let nowPlayingTray = NowPlayingTray()
     /// Arc's Ctrl+Tab switcher over the space's recent tabs.
     private var tabSwitcher: TabSwitcherWindow!
@@ -1311,6 +1313,7 @@ final class BrowserWindow {
         guard !closing else { return }
         audible.keep(only: Set(pages.keys))
         nowPlaying.keep(only: Set(pages.keys))
+        soundPlaying.formIntersection(pages.keys)
         showAudible()
         syncNowPlaying()
         for (id, page) in pages where page.isCreated {
@@ -1318,7 +1321,10 @@ final class BrowserWindow {
                 guard let self, let page, self.pages[id] === page, !self.closing else { return }
                 let answer = error == nil ? AudibleProbe.answer(fromReply: reply) : nil
                 self.audible.note(id, audible: answer?.audible, now: Date())
-                if let answer { self.nowPlaying.heard(id, answer) }
+                if let answer {
+                    self.nowPlaying.heard(id, answer)
+                    if answer.audible { self.soundPlaying.insert(id) } else { self.soundPlaying.remove(id) }
+                }
                 self.showAudible()
                 self.syncNowPlaying()
             }
@@ -1367,8 +1373,9 @@ final class BrowserWindow {
 
     private func showAudible() {
         let now = audible.audible(now: Date())
-        guard now != sidebar.audibleTabIDs else { return }
+        guard now != sidebar.audibleTabIDs || soundPlaying != sidebar.soundPlayingTabIDs else { return }
         sidebar.audibleTabIDs = now
+        sidebar.soundPlayingTabIDs = soundPlaying
         queueRefresh()
     }
 

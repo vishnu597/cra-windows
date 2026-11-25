@@ -111,6 +111,11 @@ final class SidebarView {
     /// The tabs whose page makes sound, or did in the last 2 s (the Mac's audibleTabIDs): their
     /// row shows the speaker and Clear keeps them. Set by the browser window.
     var audibleTabIDs: Set<UUID> = []
+    /// The tabs whose page makes sound now, without the speaker's 2 s hold (the Mac's
+    /// soundPlayingTabIDs): music notes stop with the sound. Set by the browser window.
+    var soundPlayingTabIDs: Set<UUID> = []
+    /// The notes over each favorite playing music, kept across redraws so they keep rising.
+    private var musicNotes: [UUID: FavoriteMusicNotes] = [:]
     /// A press on the favicon of a pinned tab away from its page (Arc's icon region), and when.
     private var iconPress: (id: UUID, at: UInt64)?
     /// The last click on a tab row and whether it went back home (PinnedIconClick: a double-click
@@ -356,6 +361,11 @@ final class SidebarView {
         showFavoritesCard()
         let grid = FavoritesLayout(count: items.count, width: CGFloat(favoritesWidth))
         favoritesColumns = items.isEmpty ? nil : grid.columns
+        let ids = Set(items.map(\.id))
+        for (id, notes) in musicNotes where !ids.contains(id) {
+            notes.stop()
+            musicNotes[id] = nil
+        }
         guard !items.isEmpty else { return }
         let perRow = grid.columns
         for _ in 0..<perRow { favorites.columnDefinitions.append(UI.column(UI.star)) }
@@ -399,7 +409,27 @@ final class SidebarView {
             favorites.children.append(tile)
             try? Grid.setRow(tile, Int32(i / perRow))
             try? Grid.setColumn(tile, Int32(i % perRow))
+            addMusicNotes(item, dark: dark, row: i / perRow, column: i % perRow)
         }
+    }
+
+    /// Arc's notes over a favorite that plays music (MusicNotes.plays: a music site, sound
+    /// now): a split's when any of its tabs does. They finish rising once the sound stops.
+    private func addMusicNotes(_ item: SidebarItem, dark: Bool, row: Int, column: Int) {
+        let panes = item.isSplit ? store.children(of: item.id).filter(\.isTab) : [item]
+        let plays = panes.contains { p in
+            p.tab.map { MusicNotes.plays(url: $0.url, soundPlaying: soundPlayingTabIDs.contains(p.id)) } ?? false
+        }
+        guard plays || musicNotes[item.id]?.isActive == true else { return }
+        let notes = musicNotes[item.id] ?? FavoriteMusicNotes()
+        musicNotes[item.id] = notes
+        notes.dark = dark
+        notes.emitting = plays
+        favorites.children.append(notes.canvas)
+        try? Grid.setRow(notes.canvas, Int32(row))
+        try? Grid.setColumn(notes.canvas, Int32(column))
+        // Over the tiles round it.
+        try? Canvas.setZIndex(notes.canvas, 10)
     }
 
     /// The open favorite's 2 DIP rim: Arc's neutral one, or with Settings ▸ Tabs ▸ Colorful
