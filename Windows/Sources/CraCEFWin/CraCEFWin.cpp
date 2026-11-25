@@ -750,6 +750,28 @@ private:
     IMPLEMENT_REFCOUNTING(KeepAudioMuted);
 };
 
+/// A hidden page's window, hidden once Chromium has one: a Chrome-style child browser shows its
+/// window itself, after OnAfterCreated, whatever style it was asked for, so a spare page made
+/// ahead sat visible on top of the window's page and toolbar (PC test, 24 Nov 2026). Applies the
+/// frame (and so the hiding) again every 50 ms for up to 2 s.
+class HideWhenMade : public CefTask {
+public:
+    HideWhenMade(CraBrowser *owner, uint64_t serial, int ticksLeft) : owner_(owner), serial_(serial), ticks_(ticksLeft) {}
+    void Execute() override {
+        CraBrowser *o = owner_;
+        if (!g_browsers.count(o) || o->serial != serial_ || o->close_requested || !o->browser || o->visible) return;
+        HWND hwnd = o->browser->GetHost()->GetWindowHandle();
+        if (hwnd && IsWindowVisible(hwnd)) o->ApplyFrame();
+        if (ticks_ > 0) CefPostDelayedTask(TID_UI, new HideWhenMade(o, serial_, ticks_ - 1), 50);
+    }
+
+private:
+    CraBrowser *owner_;
+    uint64_t serial_;
+    int ticks_;
+    IMPLEMENT_REFCOUNTING(HideWhenMade);
+};
+
 /// Closes a page asked to close before Chromium had made it, a moment after OnAfterCreated:
 /// closing it from inside OnAfterCreated left the Chrome-style browser's tab strip half made, and
 /// its close crashed in Browser::TabStripEmpty (PC test, 24 Nov 2026: an extension popup closed
@@ -1085,7 +1107,10 @@ public:
         }
         o->browser = browser;
         o->ApplyFrame();
-        if (!o->visible) browser->GetHost()->WasHidden(true);
+        if (!o->visible) {
+            browser->GetHost()->WasHidden(true);
+            CefPostTask(TID_UI, new HideWhenMade(o, o->serial, 40));
+        }
         if (o->focus_pending && o->visible) cra_browser_set_focused(o, 1);
         o->focus_pending = false;
         if (o->audio_muted) browser->GetHost()->SetAudioMuted(true);
