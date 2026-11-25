@@ -62,3 +62,31 @@ struct SpaceStyleControlsDrawingTests {
         #expect(SpaceStyleControls.grainOpacity(value: 1) == 0.75)
     }
 }
+
+/// The colour pad's dots, knobs and swatches as the Mac draws them (#189).
+struct SpaceStylePadTests {
+    /// A 340 pt pad has 84 dots a row, 4 pt apart from 4 pt in.
+    @Test
+    func thePadIsDottedEveryFourPoints() {
+        let centres = SpaceStyleControls.padDotCentres(side: 340)
+        #expect(centres.count == 84)
+        #expect(centres.first == 4 && centres.last == 336)
+    }
+
+    /// A knob or swatch grows under the pointer and shrinks while pressed; pressed wins.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/189"))
+    func knobsGrowUnderThePointerAndShrinkWhenPressed() {
+        #expect(SpaceStyleControls.pillScale(hovered: false, pressed: false) == 1)
+        #expect(SpaceStyleControls.pillScale(hovered: true, pressed: false) == 1.08)
+        #expect(SpaceStyleControls.pillScale(hovered: true, pressed: true) == 0.92)
+        #expect(SpaceStyleControls.pillScale(hovered: false, pressed: true) == 0.92)
+    }
+
+    /// The shadow is full inside the knob, gone 3 pt past its edge, half at the edge.
+    @Test
+    func theKnobsShadowFadesOverThreePoints() {
+        #expect(SpaceStyleControls.knobShadow(distance: 10, radius: 22) == 0.25)
+        #expect(SpaceStyleControls.knobShadow(distance: 25, radius: 22) == 0)
+        #expect(abs(SpaceStyleControls.knobShadow(distance: 22, radius: 22) - 0.125) < 1e-12)
+    }
+}

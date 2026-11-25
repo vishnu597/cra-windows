@@ -20,6 +20,9 @@ final class SpaceStyleEditorView {
     private let column = StackPanel()
     private let pad = Grid()
     private let padFill = Border()
+    private let padDots = WinUI.Image()
+    /// The ink the dots were drawn in (they're drawn again when it or the screen's scale changes).
+    private var dotsDrawn: (light: Bool, scale: Double)?
     private let knobs = Canvas()
     private let hint = TextBlock()
     private let appearanceRow = StackPanel()
@@ -34,7 +37,9 @@ final class SpaceStyleEditorView {
     private var grain: ThemeGrainDial!
     private var labels: [TextBlock] = []
     private var icons: [FontIcon] = []
-    private var knobViews: [WinUI.Ellipse] = []
+    private var knobViews: [(view: Grid, scale: CompositeTransform)] = []
+    /// The knob under the pointer (Arc's PadWheel knob grows under it).
+    private var hovered: Int?
 
     /// Each change, drawn at once (a space's previewTheme, or the Create a Space draft), and the
     /// editor closing.
@@ -77,6 +82,13 @@ final class SpaceStyleEditorView {
         pad.height = Self.padSide
         padFill.cornerRadius = CornerRadius(topLeft: 8, topRight: 8, bottomRight: 8, bottomLeft: 8)
         pad.children.append(padFill)
+        // Arc's dots: 1 pt every 4 pt, at the ink × 0.12.
+        padDots.width = Self.padSide
+        padDots.height = Self.padSide
+        padDots.stretch = .fill
+        padDots.isHitTestVisible = false
+        pad.children.append(padDots)
+        pad.loaded.addHandler { [weak self] _, _ in self?.drawDots() }
         hint.text = "Tap to pick a color for this space"
         hint.fontSize = 13
         hint.horizontalAlignment = .center
@@ -94,17 +106,24 @@ final class SpaceStyleEditorView {
             let at = (x: Double(point.position.x), y: Double(point.position.y))
             self.held = self.knob(at: at)
             self.place(at: at)
+            self.scaleKnobs()
         }
         knobs.pointerMoved.addHandler { [weak self] _, args in
-            guard let self, self.held != nil, let args, let point = try? args.getCurrentPoint(self.knobs) else { return }
+            guard let self, let args, let point = try? args.getCurrentPoint(self.knobs) else { return }
+            let at = (x: Double(point.position.x), y: Double(point.position.y))
+            guard self.held != nil else {
+                self.hover(self.knobUnder(at))
+                return
+            }
             args.handled = true
-            self.place(at: (Double(point.position.x), Double(point.position.y)))
+            self.place(at: at)
         }
+        knobs.pointerExited.addHandler { [weak self] _, _ in self?.hover(nil) }
         knobs.pointerReleased.addHandler { [weak self] _, args in
             args?.handled = true
-            self?.held = nil
+            self?.release()
         }
-        knobs.pointerCaptureLost.addHandler { [weak self] _, _ in self?.held = nil }
+        knobs.pointerCaptureLost.addHandler { [weak self] _, _ in self?.release() }
 
         appearanceRow.orientation = .horizontal
         appearanceRow.spacing = 7.5
@@ -227,6 +246,11 @@ final class SpaceStyleEditorView {
 
     /// The knob under a press, else the main one (Arc: a press anywhere brings it there).
     private func knob(at p: (x: Double, y: Double)) -> Int {
+        knobUnder(p) ?? 0
+    }
+
+    /// The knob a point is on, the top one first.
+    private func knobUnder(_ p: (x: Double, y: Double)) -> Int? {
         let c = Self.padSide / 2
         for (i, hex) in key.prefix(3).enumerated().reversed() {
             let o = SpaceColorWheel.padOffset(of: hex)
@@ -234,7 +258,27 @@ final class SpaceStyleEditorView {
             let dx = p.x - (c + o.dx), dy = p.y - (c + o.dy)
             if dx * dx + dy * dy <= r * r { return i }
         }
-        return 0
+        return nil
+    }
+
+    private func hover(_ knob: Int?) {
+        guard knob != hovered else { return }
+        hovered = knob
+        scaleKnobs()
+    }
+
+    private func release() {
+        held = nil
+        scaleKnobs()
+    }
+
+    /// Each knob grows under the pointer and shrinks while held (SpaceStyleControls.pillScale).
+    private func scaleKnobs() {
+        for (i, k) in knobViews.enumerated() {
+            let s = SpaceStyleControls.pillScale(hovered: hovered == i, pressed: held == i)
+            k.scale.scaleX = s
+            k.scale.scaleY = s
+        }
     }
 
     private func turnPage(by step: Int) {
@@ -258,6 +302,7 @@ final class SpaceStyleEditorView {
         let rgb: UInt8 = light ? 0 : 255
         func ink(_ alpha: Double) -> Brush { UI.brush(rgb, rgb, rgb, alpha: UInt8(alpha * 255)) }
         padFill.background = ink(0.04)
+        drawDots(light: light)
         hint.foreground = ink(0.85)
         hint.visibility = key.isEmpty ? .visible : .collapsed
         for t in labels { t.foreground = ink(0.85) }
@@ -278,19 +323,93 @@ final class SpaceStyleEditorView {
         let c = Self.padSide / 2
         for (i, hex) in key.prefix(3).enumerated() {
             let side = i == 0 ? 44.0 : 27.0
+            let box = side + 2 * Self.shadowRoom
+            let view = Grid()
+            view.width = box
+            view.height = box
+            view.isHitTestVisible = false
+            // Arc's knob shadow: black at 0.25, 3 pt soft, 1 pt down.
+            let shadow = WinUI.Image()
+            shadow.source = Self.shadow(side: side)
+            shadow.stretch = .fill
+            shadow.margin = Thickness(left: 0, top: 1, right: 0, bottom: -1)
+            view.children.append(shadow)
             let k = WinUI.Ellipse()
             k.width = side
             k.height = side
             k.fill = UI.brush(hex)
             k.stroke = UI.brush(255, 255, 255)
             k.strokeThickness = i == 0 ? 4.5 : 2.5
-            k.isHitTestVisible = false
+            view.children.append(k)
+            let scale = CompositeTransform()
+            scale.centerX = box / 2
+            scale.centerY = box / 2
+            view.renderTransform = scale
             let o = SpaceColorWheel.padOffset(of: hex)
-            try? Canvas.setLeft(k, c + o.dx - side / 2)
-            try? Canvas.setTop(k, c + o.dy - side / 2)
-            knobViews.append(k)
-            knobs.children.append(k)
+            try? Canvas.setLeft(view, c + o.dx - box / 2)
+            try? Canvas.setTop(view, c + o.dy - box / 2)
+            knobViews.append((view, scale))
+            knobs.children.append(view)
         }
+        if let h = hovered, h >= knobViews.count { hovered = nil }
+        scaleKnobs()
+    }
+
+    /// Room round a knob for its shadow.
+    private static let shadowRoom = 5.0
+    private static var shadows: [Double: WriteableBitmap] = [:]
+
+    /// A knob's soft shadow, drawn at 2× once a size (SpaceStyleControls.knobShadow).
+    private static func shadow(side: Double) -> WriteableBitmap? {
+        if let made = shadows[side] { return made }
+        let scale = 2.0, box = side + 2 * shadowRoom, px = Int((box * scale).rounded(.up))
+        var bgra = [UInt8](repeating: 0, count: px * px * 4)
+        for y in 0..<px {
+            for x in 0..<px {
+                let dx = (Double(x) + 0.5) / scale - box / 2, dy = (Double(y) + 0.5) / scale - box / 2
+                let a = SpaceStyleControls.knobShadow(distance: (dx * dx + dy * dy).squareRoot(), radius: side / 2)
+                bgra[(y * px + x) * 4 + 3] = UInt8((a * 255).rounded())
+            }
+        }
+        let made = Pixels(width: px, height: px, bgra: bgra).bitmap()
+        shadows[side] = made
+        return made
+    }
+
+    /// The pad's dots in the card's ink at the screen's scale, drawn again only when either changes.
+    private func drawDots(light: Bool? = nil) {
+        let light = light ?? dotsDrawn?.light ?? !WinAppearance.isDark
+        let scale = max(1, pad.xamlRoot.map { $0.rasterizationScale } ?? 1)
+        if let d = dotsDrawn, d.light == light, d.scale == scale { return }
+        dotsDrawn = (light, scale)
+        let px = Int((Self.padSide * scale).rounded(.up))
+        let ink: UInt8 = light ? 0 : 255
+        let alpha = SpaceStyleControls.padDotOpacity
+        let r = SpaceStyleControls.padDotSide / 2
+        var bgra = [UInt8](repeating: 0, count: px * px * 4)
+        let centres = SpaceStyleControls.padDotCentres(side: Self.padSide)
+        for cy in centres {
+            for cx in centres {
+                let x0 = max(0, Int(((cx - r) * scale).rounded(.down)) - 1), x1 = min(px - 1, Int(((cx + r) * scale).rounded(.up)))
+                let y0 = max(0, Int(((cy - r) * scale).rounded(.down)) - 1), y1 = min(px - 1, Int(((cy + r) * scale).rounded(.up)))
+                guard x0 <= x1, y0 <= y1 else { continue }
+                for y in y0...y1 {
+                    for x in x0...x1 {
+                        let dx = (Double(x) + 0.5) / scale - cx, dy = (Double(y) + 0.5) / scale - cy
+                        let cover = min(max((r - (dx * dx + dy * dy).squareRoot()) * scale + 0.5, 0), 1)
+                        guard cover > 0 else { continue }
+                        let a = cover * alpha * 255
+                        let i = (y * px + x) * 4
+                        let c = UInt8((a * Double(ink) / 255).rounded())
+                        bgra[i] = c
+                        bgra[i + 1] = c
+                        bgra[i + 2] = c
+                        bgra[i + 3] = UInt8(a.rounded())
+                    }
+                }
+            }
+        }
+        padDots.source = Pixels(width: px, height: px, bgra: bgra).bitmap()
     }
 
     private func fillSwatches() {
@@ -309,6 +428,13 @@ final class SpaceStyleEditorView {
                 self?.changed()
             }
             b.cornerRadius = CornerRadius(topLeft: 12, topRight: 12, bottomRight: 12, bottomLeft: 12)
+            // Arc's ColorPillButtonStyle: a swatch grows a little under the pointer.
+            let grow = CompositeTransform()
+            grow.centerX = 12
+            grow.centerY = 12
+            dot.renderTransform = grow
+            b.pointerEntered.addHandler { [weak grow] _, _ in Self.scale(grow, hovered: true) }
+            b.pointerExited.addHandler { [weak grow] _, _ in Self.scale(grow, hovered: false) }
             // Arc: "Set space color to Catalog color: … ColorPickerBrandN".
             try? AutomationProperties.setName(b, "Set space color to \(page.name(i))")
             swatches.children.append(b)
@@ -317,6 +443,12 @@ final class SpaceStyleEditorView {
         next.isEnabled = self.page < SpaceColorPresets.pages.count - 1
         previous.opacity = previous.isEnabled ? 1 : 0.35
         next.opacity = next.isEnabled ? 1 : 0.35
+    }
+
+    private static func scale(_ t: CompositeTransform?, hovered: Bool) {
+        let s = SpaceStyleControls.pillScale(hovered: hovered, pressed: false)
+        t?.scaleX = s
+        t?.scaleY = s
     }
 
     /// A swatch's colours top left to bottom right.

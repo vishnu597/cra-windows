@@ -308,6 +308,7 @@
 #185   Packages/CraCore/Tests/CraCoreTests/SidebarModelTests.swift::developerBarShowsWithTheToolbarHidden  20670c4040fc
 #185   Tests/Scenarios/developer-bar.scenario  7e0621dd18c1
 #186   Packages/CraCore/Tests/CraCoreTests/LittleWindowActivationTests.swift::overAnotherAppsFullScreenItStaysNonActivating  17eaa896719a
+#189   Packages/CraCore/Tests/CraCoreTests/SpaceStyleControlsDrawingTests.swift::knobsGrowUnderThePointerAndShrinkWhenPressed  5d79de63156f
 #190   Packages/CraCore/Tests/CraCoreTests/DownloadLocationTests.swift::aMissingFolderFallsBackToDownloads  f5a843595618
 #190   Packages/CraCore/Tests/CraCoreTests/DownloadLocationTests.swift::eachProfileKeepsItsOwn  f394f179f5ba
 #190   Packages/CraCore/Tests/CraCoreTests/DownloadLocationTests.swift::goingBackToTheDefaultDropsTheEntry  96fe0ad9a50b
