@@ -249,6 +249,12 @@ final class HostWindow {
         return workArea(of: monitor)
     }
 
+    /// The work area of the monitor at that screen point (the nearest one off every monitor).
+    static func workArea(atX x: Int, y: Int) -> WindowFrame? {
+        guard let monitor = MonitorFromPoint(POINT(x: LONG(x), y: LONG(y)), DWORD(MONITOR_DEFAULTTONEAREST)) else { return nil }
+        return workArea(of: monitor)
+    }
+
     private static func workArea(of monitor: HMONITOR) -> WindowFrame? {
         var info = MONITORINFO()
         info.cbSize = DWORD(MemoryLayout<MONITORINFO>.size)

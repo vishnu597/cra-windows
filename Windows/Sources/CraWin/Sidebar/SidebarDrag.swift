@@ -220,7 +220,11 @@ extension SidebarView {
             let target = drag.target
             let source = drag.source
             endDrag(landing: true)
-            if let source, let target { land(source, on: target) }
+            if let source, let target {
+                land(source, on: target)
+            } else if case .item(let id)? = source {
+                tearOff(id)
+            }
             return
         }
         updateTarget(dt: dt)
@@ -476,6 +480,24 @@ extension SidebarView {
     }
 
     // MARK: Letting go
+
+    /// A tab let go where nothing took it and over no Cra window (#219): it opens alone in a new
+    /// Blank Window centred on the pointer (TabTearOff).
+    private func tearOff(_ id: UUID) {
+        var p = POINT()
+        guard GetCursorPos(&p), let item = store.item(id) else { return }
+        guard TabTearOff.tearsOff(isTab: item.isTab, incognito: store.isIncognito(item: id), dropAccepted: false,
+                                  overAppWindow: Self.isAppWindow(under: p)) else { return }
+        actions?.tearOffTab(id, atScreenX: Int(p.x), y: Int(p.y))
+    }
+
+    /// One of Cra's own windows is under `p` (screen pixels): a browser window, a Little Window, a Peek.
+    private static func isAppWindow(under p: POINT) -> Bool {
+        guard let under = WindowFromPoint(p), let top = GetAncestor(under, UINT(GA_ROOT)) else { return false }
+        var process: DWORD = 0
+        _ = GetWindowThreadProcessId(top, &process)
+        return process == GetCurrentProcessId()
+    }
 
     private func land(_ source: SidebarDragSource, on target: SidebarDragTarget) {
         switch (source, target) {

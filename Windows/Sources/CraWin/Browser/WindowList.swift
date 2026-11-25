@@ -9,6 +9,14 @@ import WinSDK
 protocol BrowserWindowHost: AnyObject {
     /// Arc's New Window (Ctrl+N) or New Incognito Window (Ctrl+Shift+N).
     func openNewWindow(incognito: Bool)
+    /// Arc's Blank Window (the command bar's Blank Window): a window with a sidebar of its own.
+    func openBlankWindow()
+    /// A Blank Window's "Move to…": its tabs to the top of the space's Today, the one it had open
+    /// shown with its page in the space's window, and the Blank Window closed.
+    func moveBlankWindow(_ window: BrowserWindow, toSpace space: UUID)
+    /// A tab dragged out of every Cra window (#219): it moves into a new Blank Window the size of
+    /// `source`, centred where it was let go, its page as it was.
+    func tearOffTab(_ id: UUID, atScreenX x: Int, y: Int, from source: BrowserWindow)
     /// New Little Window (Ctrl+Alt+N): an empty one asking for an address.
     func newLittleWindow()
     /// Close Little Windows: each archives its page.
@@ -82,14 +90,54 @@ final class WindowList: BrowserWindowHost {
     }
 
     func openNewWindow(incognito: Bool) {
+        openNewWindow(incognito: incognito, blank: false)
+    }
+
+    func openBlankWindow() {
+        openNewWindow(incognito: false, blank: true)
+    }
+
+    private func openNewWindow(incognito: Bool, blank: Bool) {
         let current = windows.first { $0.windowID == store.activeWindowID } ?? windows.last
         var frame: WindowFrame?
         if let current, let area = current.workArea {
             frame = current.frame.cascaded(step: Self.cascadeStep * current.scale, within: area)
         }
         let session = incognito ? store.addIncognitoWindow(frame: frame?.string)
+            : blank ? store.addBlankWindow(frame: frame?.string)
             : store.addWindow(spaceID: store.focusedSpaceID(window: store.lastNormalWindowID), frame: frame?.string)
         open(session, frame: frame, newWindow: true)?.activate()
+    }
+
+    func tearOffTab(_ id: UUID, atScreenX x: Int, y: Int, from source: BrowserWindow) {
+        guard store.item(id)?.isTab == true, !store.isIncognito(item: id) else { return }
+        let size = source.frame
+        let area = HostWindow.workArea(atX: x, y: y) ?? source.workArea ?? size
+        let frame = TabTearOff.frame(width: size.width, height: size.height, droppedAtX: Double(x), y: Double(y),
+                                     workArea: area, scale: source.scale)
+        let session = store.addBlankWindow(frame: frame.string)
+        store.moveToBlankWindow(id, window: session.id)
+        // Handed over before the new window makes a page of its own for the tab.
+        let page = source.releasePage(id)
+        guard let window = open(session, frame: frame, newWindow: false) else { page?.close(); return }
+        store.activeWindowID = window.windowID
+        if let page { window.adopt(page, for: id) }
+        window.activate()
+    }
+
+    func moveBlankWindow(_ window: BrowserWindow, toSpace space: UUID) {
+        guard window.isBlank, store.space(space) != nil, !store.isStandalone(space: space) else { return }
+        let open = store.moveBlankWindowTabs(window.windowID, toSpace: space)
+        guard let target = normalWindow(forSpace: space, excluding: window) else { return }
+        store.activeWindowID = target.windowID
+        if let open {
+            store.selectTab(open, window: target.windowID)
+            if let page = window.releasePage(open) { target.adopt(page, for: open) }
+        } else {
+            store.focusSpace(space, window: target.windowID)
+        }
+        window.requestClose()
+        target.activate()
     }
 
     func windowDidClose(_ window: BrowserWindow) {
@@ -103,7 +151,8 @@ final class WindowList: BrowserWindowHost {
         }
         // The last normal window keeps its session while private ones stay open, so the next
         // launch still has it; any other ends (an incognito one's tabs go with it).
-        if window.isIncognito || windows.contains(where: { !$0.isIncognito }) {
+        // A Blank Window's session goes with it, its space too (SidebarStore.removeWindow).
+        if window.isStandalone || windows.contains(where: { !$0.isStandalone }) {
             store.removeWindow(window.windowID)
         }
         if window.isIncognito, !windows.contains(where: \.isIncognito) {
@@ -249,7 +298,7 @@ final class WindowList: BrowserWindowHost {
             into.activate()
             return
         }
-        if !windows.contains(where: { !$0.isIncognito }) {
+        if !windows.contains(where: { !$0.isStandalone }) {
             // Every browser window closed: the last one's session opens again with the page's tab
             // already selected, so it never makes a page for the tab it showed before.
             let session = closedNormalSession()
@@ -346,7 +395,7 @@ final class WindowList: BrowserWindowHost {
                 openLittleWindow(url: url, opener: nil, activate: true, space: space)
                 return
             }
-            guard let target = space.flatMap(normalWindow(forSpace:)) ?? lastNormalWindow() else { return }
+            guard let target = space.flatMap({ normalWindow(forSpace: $0) }) ?? lastNormalWindow() else { return }
             store.activeWindowID = target.windowID
             // background=1: unread in the sidebar, the page in front staying.
             store.createTab(url: url, in: space, select: !background, window: target.windowID)
@@ -450,8 +499,8 @@ final class WindowList: BrowserWindowHost {
     /// The normal browser window in use last; with none open, the last normal window's session
     /// opens again (it stayed while Little Windows were open).
     private func lastNormalWindow() -> BrowserWindow? {
-        if let w = windows.first(where: { !$0.isIncognito && $0.windowID == store.lastNormalWindowID })
-            ?? windows.last(where: { !$0.isIncognito }) {
+        if let w = windows.first(where: { !$0.isStandalone && $0.windowID == store.lastNormalWindowID })
+            ?? windows.last(where: { !$0.isStandalone }) {
             return w
         }
         return reopen(closedNormalSession())
@@ -459,8 +508,8 @@ final class WindowList: BrowserWindowHost {
 
     /// The session the last normal window left (kept while Little Windows stayed open).
     private func closedNormalSession() -> WindowSession {
-        store.prefs.windows.first { !$0.isIncognito && $0.id == store.lastNormalWindowID }
-            ?? store.prefs.windows.first { !$0.isIncognito }
+        store.prefs.windows.first { !store.isStandalone(window: $0.id) && $0.id == store.lastNormalWindowID }
+            ?? store.prefs.windows.first { !store.isStandalone(window: $0.id) }
             ?? store.addWindow(spaceID: store.focusedSpaceID(window: store.lastNormalWindowID), frame: nil)
     }
 
@@ -470,10 +519,10 @@ final class WindowList: BrowserWindowHost {
         return open(session, frame: frame, newWindow: false)
     }
 
-    private func normalWindow(forSpace space: UUID) -> BrowserWindow? {
+    private func normalWindow(forSpace space: UUID, excluding: BrowserWindow? = nil) -> BrowserWindow? {
         guard let last = lastNormalWindow() else { return nil }
         let order = Self.zOrder()
-        let normal = windows.filter { !$0.isIncognito }
+        let normal = windows.filter { !$0.isStandalone && $0 !== excluding }
             .sorted { (order.firstIndex(of: $0.window.hwnd) ?? .max) < (order.firstIndex(of: $1.window.hwnd) ?? .max) }
         let id = SpaceWindow.window(for: space, windows: normal.map { (id: $0.windowID, space: store.focusedSpaceID(window: $0.windowID)) },
                                     lastUsed: last.windowID)
