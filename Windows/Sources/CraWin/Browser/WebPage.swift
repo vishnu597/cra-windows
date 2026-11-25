@@ -179,16 +179,13 @@ final class WebPage: @unchecked Sendable {
         self.isIncognito = false
         self.profilePath = profilePath
         handle = (profilePath ?? "").withCString { profile in
-            cra_browser_create_in(UInt(parent), frame.x, frame.y, frame.width, frame.height, "", 0, profile, callbacks())
+            cra_browser_create_hidden_in(UInt(parent), frame.x, frame.y, frame.width, frame.height, "", 0, profile, callbacks())
         }
-        // Out of sight until a tab takes it: made visible, the spare's blank page sat on top of
-        // the window's page (the newest child window is topmost) and hid it until the next tab
-        // switch (PC test, 24 Nov 2026). Chromium makes the window a turn later; OnAfterCreated
-        // reads this and hides it. The window's layout shows it again once a tab adopts it.
-        // Set directly: an initializer's own assignment doesn't run `isVisible`'s didSet, so
-        // `isVisible = false` alone never reached the bridge (PR #157's first build, PC test).
+        // Made hidden, out of sight until a tab takes it: made visible, the spare's blank page sat
+        // on top of the window's page and toolbar (the newest child window is topmost) until the
+        // next tab switch (PC test, 24 Nov 2026). Hiding it afterwards didn't reach Chromium's
+        // window. The window's layout shows it once a tab adopts it (isVisible = true).
         isVisible = false
-        if let handle { cra_browser_set_visible(handle, 0) }
     }
 
     /// A spare taken by a tab: it moves into the tab's window and loads the tab's address.

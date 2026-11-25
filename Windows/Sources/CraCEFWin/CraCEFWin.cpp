@@ -2197,9 +2197,29 @@ extern "C" CraBrowser *cra_browser_create(uintptr_t parent, int x, int y, int wi
     return cra_browser_create_in(parent, x, y, width, height, url, 0, nullptr, callbacks);
 }
 
+namespace {
+CraBrowser *CreateBrowserIn(uintptr_t parent, int x, int y, int width, int height, const char *url, int incognito,
+                            const char *profile_path, CraBrowserCallbacks callbacks, bool visible);
+}
+
 extern "C" CraBrowser *cra_browser_create_in(uintptr_t parent, int x, int y, int width, int height, const char *url,
                                              int incognito, const char *profile_path, CraBrowserCallbacks callbacks) {
+    return CreateBrowserIn(parent, x, y, width, height, url, incognito, profile_path, callbacks, true);
+}
+
+extern "C" CraBrowser *cra_browser_create_hidden_in(uintptr_t parent, int x, int y, int width, int height,
+                                                    const char *url, int incognito, const char *profile_path,
+                                                    CraBrowserCallbacks callbacks) {
+    return CreateBrowserIn(parent, x, y, width, height, url, incognito, profile_path, callbacks, false);
+}
+
+namespace {
+CraBrowser *CreateBrowserIn(uintptr_t parent, int x, int y, int width, int height, const char *url, int incognito,
+                            const char *profile_path, CraBrowserCallbacks callbacks, bool visible) {
     auto *b = new CraBrowser;
+    // Before Create: a window made visible stays so when Chromium's handle isn't there yet for
+    // OnAfterCreated's ApplyFrame to hide it (a spare page, PC test 24 Nov 2026).
+    b->visible = visible;
     b->incognito = incognito != 0;
     if (!b->incognito) b->profile_path = CachePath(profile_path);
     b->client = new CraClient(b);
@@ -2219,6 +2239,7 @@ extern "C" CraBrowser *cra_browser_create_in(uintptr_t parent, int x, int y, int
     }
     return b;
 }
+}  // namespace
 
 extern "C" void cra_browser_set_frame(CraBrowser *b, int x, int y, int width, int height) {
     if (!b) return;

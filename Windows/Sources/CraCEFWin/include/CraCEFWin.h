@@ -522,6 +522,10 @@ CraBrowser *cra_browser_create(uintptr_t parent, int x, int y, int width, int he
 /// Default).
 CraBrowser *cra_browser_create_in(uintptr_t parent, int x, int y, int width, int height, const char *url,
                                   int incognito, const char *profile_path, CraBrowserCallbacks callbacks);
+/// The same, made hidden: Chromium's window starts without WS_VISIBLE (a spare page made ahead,
+/// which cra_browser_set_visible shows once a tab takes it).
+CraBrowser *cra_browser_create_hidden_in(uintptr_t parent, int x, int y, int width, int height, const char *url,
+                                         int incognito, const char *profile_path, CraBrowserCallbacks callbacks);
 void cra_browser_set_frame(CraBrowser *browser, int x, int y, int width, int height);
 /// Moves the page (and its docked DevTools) into another window, live: a Little Window's page
 /// going into a browser window. Set its frame for the new parent after.
