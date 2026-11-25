@@ -63,6 +63,10 @@ final class BrowserWindow {
     private var downloads: DownloadsTray!
     /// Downloads this window's pages started (the stall check), and the ones it has recorded.
     private var windowDownloads: Set<UInt32> = []
+    /// Pages whose tab closed because they only downloaded, kept out of sight until their
+    /// downloads end: Chromium reports a download only to the page it came from (`DownloadOnlyTabs`).
+    private var downloadOnly = DownloadOnlyTabs<ObjectIdentifier>()
+    private var downloadOnlyPages: [ObjectIdentifier: WebPage] = [:]
     /// Delete Space…'s question while it is up.
     private var deleteSpaceSheet: AppDialog?
     private var finishedDownloads: Set<UInt32> = []
@@ -216,6 +220,12 @@ final class BrowserWindow {
     private var hiddenAt: [UUID: Date] = [:]
     private var sleepAskAfter: [UUID: Date] = [:]
     private var sleepTimer: WinAppSDK.DispatcherQueueTimer?
+    /// Which pages make sound (AudibleProbe), asked every second: stock CEF doesn't say.
+    private var audibleTimer: WinAppSDK.DispatcherQueueTimer?
+    private var audible = AudibleProbe.Tracker()
+    /// Arc's now-playing player at the bottom of the sidebar (#33): its cards and their view.
+    private var nowPlaying = NowPlayingList()
+    private let nowPlayingTray = NowPlayingTray()
     /// Arc's Ctrl+Tab switcher over the space's recent tabs.
     private var tabSwitcher: TabSwitcherWindow!
     /// Each tab's wait for its first response, and the tab whose "Still waiting" toast is up
@@ -249,6 +259,7 @@ final class BrowserWindow {
         commandBar = CommandBarView(engine: engine, store: store, windowID: session.id)
         sidebar = SidebarView(store: store, windowID: session.id, actions: self)
         downloads = DownloadsTray(history: .shared, dispatcher: dispatcher)
+        sidebar.attachNowPlaying(nowPlayingTray.root)
         sidebar.attachDownloads(button: downloads.button, list: downloads.list)
         // A private window shows only its own space: no Spaces page (Manage Spaces…).
         let spacesPage = incognito ? nil : SpacesManagerView(store: store, windowID: session.id, actions: self)
@@ -340,6 +351,7 @@ final class BrowserWindow {
         makeSiteControlCenter()
         toast = ToastView(owner: window) { [weak self] in self?.pageOnScreen() }
         startTabSleeping()
+        startAudibleProbe()
         makeTabSwitcher()
         // Chromium closes its pages before their parent window goes (CEF's DoClose order).
         window.shouldClose = { [weak self] in
@@ -463,6 +475,7 @@ final class BrowserWindow {
             syncSidebarSide()
             placeSidebarEdge()
             syncPages()
+            syncNowPlaying()
             syncSlowResponse()
             syncTopBar()
             showAddress(store.selectedTab(window: windowID)?.tab?.url ?? "")
@@ -648,8 +661,9 @@ final class BrowserWindow {
         permissionWindow?.hide()
         for request in permissions.all { request.answer(false) }
         permissions = PermissionLine()
-        let open = Array(pages.values)
+        let open = Array(pages.values) + Array(downloadOnlyPages.values)
         pages.removeAll()
+        downloadOnlyPages.removeAll()
         shownPage = nil
         paneIDs = []
         paneDrag = nil
@@ -1145,7 +1159,7 @@ final class BrowserWindow {
         case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
         case "newFolder": sidebar.newFolder()
         case "newSpace": if !isIncognito { sidebar.newSpace() }
-        case "clearToday": store.clearToday(store.focusedSpaceID(window: windowID), playing: [])
+        case "clearToday": store.clearToday(store.focusedSpaceID(window: windowID), playing: sidebar.audibleTabIDs)
         case "showArchive": showLibrary(.archive)
         case "clearArchive": store.clearArchive()
         case "revealData": Shell.open(WinPaths.native(WinPaths.supportDir))
@@ -1300,6 +1314,84 @@ final class BrowserWindow {
     }
 
     private static let sleepRefusalBackoff: TimeInterval = 10 * 60
+
+    // MARK: Sound
+
+    private func startAudibleProbe() {
+        setUpNowPlaying()
+        audibleTimer = try? dispatcher.createTimer()
+        audibleTimer?.interval = TimeSpan(duration: Int64(AudibleProbe.Tracker.pollInterval * 10_000_000))
+        audibleTimer?.isRepeating = true
+        audibleTimer?.tick.addHandler { [weak self] _, _ in self?.probeAudible() }
+        try? audibleTimer?.start()
+    }
+
+    /// Arc's speaker on a tab that plays sound (TabSound, #28): each live page says whether a
+    /// player in it can be heard, and the speaker holds 2 s after it stops (as on the Mac).
+    private func probeAudible() {
+        guard !closing else { return }
+        audible.keep(only: Set(pages.keys))
+        nowPlaying.keep(only: Set(pages.keys))
+        showAudible()
+        syncNowPlaying()
+        for (id, page) in pages where page.isCreated {
+            page.sendDevToolsMethod("Runtime.evaluate", params: AudibleProbe.evaluateParams) { [weak self, weak page] reply, error in
+                guard let self, let page, self.pages[id] === page, !self.closing else { return }
+                let answer = error == nil ? AudibleProbe.answer(fromReply: reply) : nil
+                self.audible.note(id, audible: answer?.audible, now: Date())
+                if let answer { self.nowPlaying.heard(id, answer) }
+                self.showAudible()
+                self.syncNowPlaying()
+            }
+        }
+    }
+
+    /// The player's cards: tabs that played sound and aren't on screen, with the page's own title.
+    private func syncNowPlaying() {
+        let cards = nowPlaying.shown(onScreen: Set(paneIDs)).compactMap { entry -> NowPlayingTray.Card? in
+            guard let item = store.item(entry.id), let tab = item.tab else { return nil }
+            return .init(id: entry.id, title: tab.savedTitle.isEmpty ? item.displayTitle : tab.savedTitle,
+                         iconKey: tab.iconKey, playing: entry.playing, hasVideo: entry.hasVideo)
+        }
+        nowPlayingTray.show(cards, dark: sidebar.isDark)
+    }
+
+    private func setUpNowPlaying() {
+        nowPlayingTray.onRestingHeight = { [weak self] height in self?.sidebar.reserveBottom(height) }
+        nowPlayingTray.onShowTab = { [weak self] id in
+            guard let self else { return }
+            self.store.selectTab(id, window: self.windowID)
+        }
+        nowPlayingTray.onTogglePlayback = { [weak self] id in self?.playback(id, .toggle) }
+        nowPlayingTray.onPictureInPicture = { [weak self] id in self?.pages[id]?.requestPictureInPicture(automatic: false) }
+        nowPlayingTray.onDismiss = { [weak self] id in
+            guard let self else { return }
+            self.playback(id, .pause)
+            self.nowPlaying.remove(id)
+            self.syncNowPlaying()
+        }
+    }
+
+    /// The card's play/pause and ✕: the page's media elements, as the Mac's player runs a page
+    /// without media session handlers.
+    private func playback(_ id: UUID, _ op: NowPlayingList.Playback) {
+        guard let page = pages[id] else {
+            nowPlaying.remove(id)
+            return syncNowPlaying()
+        }
+        page.sendDevToolsMethod("Runtime.evaluate", params: NowPlayingList.playbackParams(op)) { [weak self] reply, _ in
+            guard let self, op == .toggle, let playing = NowPlayingList.playing(fromReply: reply) else { return }
+            self.nowPlaying.setPlaying(id, playing)
+            self.syncNowPlaying()
+        }
+    }
+
+    private func showAudible() {
+        let now = audible.audible(now: Date())
+        guard now != sidebar.audibleTabIDs else { return }
+        sidebar.audibleTabIDs = now
+        queueRefresh()
+    }
 
     // MARK: Tab switcher
 
@@ -3060,6 +3152,12 @@ extension BrowserWindow: LibraryActions {
         library.focusSearch()
     }
 
+    func previewMedia(_ files: [MediaLibrary.File], at index: Int) {
+        guard !closing else { return }
+        // Back to the grid's search once it closes, as the Library was.
+        MediaPreviewWin.show(files, at: index, over: window, store: store) { [weak self] in self?.focusLibrary() }
+    }
+
     func focusLibrary() {
         guard libraryPage != nil, !closing else { return }
         window.focusXAML()
@@ -3303,6 +3401,9 @@ extension BrowserWindow: WebPageDelegate {
         guard let id = tabID(of: page) else { return }
         store.updateTab(id, url: url)
         if page === shownPage { showAddress(url) }
+        // A quiet page that navigates leaves the player; a playlist moving on keeps its card.
+        nowPlaying.navigated(id, audible: sidebar.audibleTabIDs.contains(id))
+        syncNowPlaying()
     }
 
     func page(_ page: WebPage, didFinishLoadingURL url: String, statusCode: Int) {
@@ -3460,13 +3561,33 @@ extension BrowserWindow: WebPageDelegate {
     }
 
     func page(_ page: WebPage, didUpdateDownload download: DownloadInfo) {
-        if windowDownloads.insert(download.identifier).inserted {
+        let first = windowDownloads.insert(download.identifier).inserted
+        if first {
             // Chrome's glyph would fly from the page's top left to a toolbar Cra hides; the
             // sidebar's downloads button shows the progress (ChromeDownloadAnimation on the Mac).
             cra_hide_download_started_animation()
             if download.state == .inProgress { throwDownloadGlyph() }
         }
         record(download)
+        // A tab whose page only downloaded closes, as Chrome's does (DownloadOnlyTabs).
+        let key = ObjectIdentifier(page)
+        switch downloadOnly.report(download.identifier, from: key, first: first, pageHasDocument: page.hasDocument,
+                                   running: download.state == .inProgress) {
+        case .none: break
+        case .holdAndCloseTab:
+            guard let id = tabID(of: page), pages[id] === page else { return downloadOnly.forget(key) }
+            pages[id] = nil
+            page.isVisible = false
+            downloadOnlyPages[key] = page
+            // After this callback, which comes from inside Chromium's download code.
+            _ = try? dispatcher.tryEnqueue { [weak self] in self?.closeTab(id) }
+        case .closeTab:
+            guard let id = tabID(of: page), pages[id] === page else { return }
+            _ = try? dispatcher.tryEnqueue { [weak self] in self?.closeTab(id) }
+        case .closePage:
+            downloadOnlyPages[key] = nil
+            _ = try? dispatcher.tryEnqueue { page.close() }
+        }
     }
 
     /// Arc's download flight: the glyph thrown from the pointer onto the sidebar's downloads
@@ -3589,6 +3710,8 @@ extension BrowserWindow: WebPageDelegate {
         pageLists[ObjectIdentifier(page)] = nil
         pageEntryCounts[ObjectIdentifier(page)] = nil
         newPages[ObjectIdentifier(page)] = nil
+        downloadOnly.forget(ObjectIdentifier(page))
+        downloadOnlyPages[ObjectIdentifier(page)] = nil
         if closing {
             // After this callback: it comes from inside CEF's OnBeforeClose, and destroying the
             // pages' parent window there crashed libcef.

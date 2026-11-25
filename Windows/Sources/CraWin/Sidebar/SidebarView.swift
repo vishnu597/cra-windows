@@ -113,6 +113,9 @@ final class SidebarView {
     /// Arc badges the tab a Peek came from with the peeked page's favicon (modalIcon), at the
     /// row's end. Set by the browser window, which builds the sidebar again.
     var peekBadge: (tabID: UUID, iconKey: String?)?
+    /// The tabs whose page makes sound, or did in the last 2 s (the Mac's audibleTabIDs): their
+    /// row shows the speaker and Clear keeps them. Set by the browser window.
+    var audibleTabIDs: Set<UUID> = []
     /// A press on the favicon of a pinned tab away from its page (Arc's icon region), and when.
     private var iconPress: (id: UUID, at: UInt64)?
     /// The last click on a tab row and whether it went back home (PinnedIconClick: a double-click
@@ -314,6 +317,19 @@ final class SidebarView {
             // Not while the store is being read for this drawing.
             _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { [weak page] in page?.cancelCreation() }
         }
+    }
+
+    /// The now-playing player over the bottom of the tab list, under the downloads list
+    /// (attached after it): the Mac's downloads list keeps the cards resting.
+    func attachNowPlaying(_ tray: FrameworkElement) {
+        root.children.append(tray)
+        try? Grid.setRow(tray, 2)
+        try? Canvas.setZIndex(tray, 40)
+    }
+
+    /// The room the resting player takes: the list's last rows can scroll out from under it.
+    func reserveBottom(_ height: Double) {
+        list.padding = Thickness(left: 0, top: 0, right: 0, bottom: height)
     }
 
     /// The downloads button goes in the footer, its list over the bottom of the tab list.
@@ -613,7 +629,7 @@ final class SidebarView {
             let away = store.isPinned(item.id) && item.tab.map { $0.url != $0.savedURL } == true
             appendRow(icon: .favicon(item.tab?.iconKey), title: item.displayTitle, subtitle: item.tab?.sidebarSubtitle(developerMode: developer),
                       depth: depth, selected: selected, ring: developer && selected, unread: item.isUnread, closable: closable,
-                      sound: TabSound.button(muted: item.tab?.muted ?? false, audible: false, editing: renaming.itemID == item.id).map { (item.id, $0) },
+                      sound: TabSound.button(muted: item.tab?.muted ?? false, audible: audibleTabIDs.contains(item.id), editing: renaming.itemID == item.id).map { (item.id, $0) },
                       peek: peekBadge?.tabID == item.id ? .favicon(peekBadge?.iconKey) : nil, menu: tabMenu(item), renames: item.id,
                       homeIcon: away ? item.id : nil) { [weak self] in
                 self?.dragPressed(.item(item.id))
@@ -1075,7 +1091,7 @@ final class SidebarView {
         try? Grid.setColumn(add, 0)
         if !store.children(of: space.todayContainerID).isEmpty {
             // Arc's "Clear": every Today tab goes to the archive.
-            let clear = UI.button("Clear", color: palette.secondaryText) { [weak self] in self?.store.clearToday(playing: []) }
+            let clear = UI.button("Clear", color: palette.secondaryText) { [weak self] in self.map { $0.store.clearToday(playing: $0.audibleTabIDs) } }
             row.children.append(clear)
             try? Grid.setColumn(clear, 1)
         }
@@ -1150,6 +1166,14 @@ final class SidebarView {
         if item.isTab {
             // Favorites draw as tiles, which have no name to edit.
             if !favorite { menu.items.append(UI.menuItem("Rename…", action: "renameTab") { [weak self] in self?.beginRename(item: id) }) }
+            // Change Icon… (Arc's Emoji | Icon picker, #640), and Use Site Icon while it has one.
+            menu.items.append(UI.menuItem("Change Icon…") { [weak self] in self?.showTabIconPicker(id) })
+            if let custom = item.tab?.customIconKey {
+                menu.items.append(UI.menuItem("Use Site Icon") { [weak self] in
+                    self?.store.setCustomIcon(nil, for: id)
+                    self?.favicons.removeCustomIcon(custom)
+                })
+            }
             if favorite { menu.items.append(tileColorMenu(item)) }
             // Arc: "Add Split View" on the open tab, "Open in Split View" on another in its space.
             if store.isSelected(id, window: windowID) {
@@ -1158,6 +1182,8 @@ final class SidebarView {
                 menu.items.append(UI.menuItem("Open in Split View") { [weak self] in self?.actions?.openInSplitView(id) })
             }
             menu.items.append(UI.menuItem("Duplicate", action: "duplicateTab") { [weak self] in _ = self?.store.duplicateTab(id) })
+            // Always offered: the Mac dims it on a quiet tab, but Windows can't hear players in
+            // other sites' frames or Web Audio (AudibleProbe), so a quiet-looking tab may play.
             menu.items.append(UI.menuItem(TabSound.menuTitle(muted: item.tab?.muted ?? false), action: "muteTab") { [weak self] in
                 self?.actions?.toggleMute(id)
             })
@@ -1305,7 +1331,7 @@ final class SidebarView {
         if !store.isIncognito(space: space.id) {
             menu.items.append(UI.menuItem("New Space") { [weak self] in self?.newSpace() })
         }
-        menu.items.append(UI.menuItem("Clear Today", action: "clearToday") { [weak self] in self?.store.clearToday(space.id, playing: []) })
+        menu.items.append(UI.menuItem("Clear Today", action: "clearToday") { [weak self] in self.map { $0.store.clearToday(space.id, playing: $0.audibleTabIDs) } })
         if !store.isIncognito(space: space.id) { menu.items.append(profileMenu(space)) }
         menu.items.append(searchEngineMenu(space))
         if !store.isIncognito(space: space.id) {
@@ -1374,6 +1400,29 @@ final class SidebarView {
             guard let self, var s = self.store.space(id) else { return }
             s.icon = icon
             self.store.updateSpace(s)
+        }
+        iconPicker = picker
+        picker.show(at: target)
+    }
+
+    /// Change Icon… on a favorite or a tab's row (the Mac's TabIconPicker): the space picker
+    /// under the tile or the row. A pick becomes the tab's own icon, drawn into a picture kept with
+    /// the favicons (TabCustomIcon); the trash goes back to the site's icon. The icon it had
+    /// before is thrown away.
+    func showTabIconPicker(_ id: UUID) {
+        guard store.item(id)?.tab != nil,
+              let target = favoriteTiles.first(where: { $0.id == id })?.element ?? rowMeta.first(where: { $0.itemID == id })?.element
+        else { return }
+        let picker = SpaceIconPickerView(current: .none, dark: palette.isDark) { [weak self] icon in
+            guard let self else { return }
+            let old = self.store.item(id)?.tab?.customIconKey
+            if case .none = icon {
+                self.store.setCustomIcon(nil, for: id)
+            } else {
+                guard let key = self.favicons.importCustomIcon(icon) else { return }
+                self.store.setCustomIcon(key, for: id)
+            }
+            if let old { self.favicons.removeCustomIcon(old) }
         }
         iconPicker = picker
         picker.show(at: target)

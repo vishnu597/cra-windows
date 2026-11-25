@@ -5,7 +5,9 @@
 
 #include <windows.h>
 #include <dwmapi.h>
+#include <ole2.h>
 #include <shellapi.h>
+#include <shlwapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <wincodec.h>
@@ -37,6 +39,8 @@ namespace {
 const CLSID kWICImagingFactory = {0xcacaf262, 0x9370, 0x4615, {0xa1, 0x3b, 0x9f, 0x55, 0x39, 0xda, 0x4c, 0x0a}};
 const GUID kPixelFormat32bppBGRA = {0x6fddc324, 0x4e03, 0x4bfe, {0xb1, 0x85, 0x3d, 0x77, 0x76, 0x8d, 0xc9, 0x0f}};
 const CLSID kFileSaveDialog = {0xc0b4e2f3, 0xba21, 0x4773, {0x8d, 0xba, 0x33, 0x5e, 0xc9, 0x46, 0xeb, 0x8b}};
+// BHID_DataObject (shlguid.h), the shell item's IDataObject.
+const GUID kBindDataObject = {0xb8c0bd9f, 0xed24, 0x455c, {0x83, 0xe6, 0xd5, 0x39, 0x0c, 0x4f, 0xe8, 0xc4}};
 const CLSID kFileOpenDialog = {0xdc1c5a9c, 0xe88a, 0x4dde, {0xa5, 0xa1, 0x60, 0xf8, 0x2a, 0x20, 0xae, 0xf7}};
 
 std::wstring Wide(const char *utf8) {
@@ -423,4 +427,47 @@ extern "C" int cra_save_file_dialog_types(uintptr_t owner, const char *title, co
     int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, out, static_cast<int>(capacity), nullptr, nullptr);
     CoTaskMemFree(path);
     return n > 0 ? 1 : 0;
+}
+
+extern "C" int cra_shell_default_app_name(const char *path, char *out, size_t capacity) {
+    if (!path || !*path || !out || capacity == 0 || capacity > INT_MAX) return 0;
+    out[0] = 0;
+    // By the file's extension, as Explorer's Open does.
+    std::wstring wide = Wide(path);
+    std::wstring extension = PathFindExtensionW(wide.c_str());
+    if (extension.empty()) return 0;
+    wchar_t name[256] = {};
+    DWORD length = ARRAYSIZE(name);
+    if (FAILED(AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN | ASSOCF_NOTRUNCATE, ASSOCSTR_FRIENDLYAPPNAME, extension.c_str(),
+                                 nullptr, name, &length)) || !name[0]) {
+        return 0;
+    }
+    int n = WideCharToMultiByte(CP_UTF8, 0, name, -1, out, static_cast<int>(capacity), nullptr, nullptr);
+    if (n <= 0) {
+        out[0] = 0;
+        return 0;
+    }
+    return 1;
+}
+
+extern "C" int cra_drag_file_out(const char *path) {
+    if (!path || !*path) return -1;
+    std::wstring wide = Wide(path);
+    if (GetFileAttributesW(wide.c_str()) == INVALID_FILE_ATTRIBUTES) return -1;
+    // Drag and drop needs OLE on this thread (COM alone isn't enough); balanced below.
+    HRESULT ole = OleInitialize(nullptr);
+    int result = -1;
+    {
+        ComPtr<IShellItem> item;
+        ComPtr<IDataObject> data;
+        if (SUCCEEDED(SHCreateItemFromParsingName(wide.c_str(), nullptr, IID_PPV_ARGS(&item))) &&
+            SUCCEEDED(item->BindToHandler(nullptr, kBindDataObject, IID_PPV_ARGS(&data)))) {
+            DWORD effect = DROPEFFECT_NONE;
+            // No drop source of our own: the shell's follows the mouse, Esc and the drag image.
+            HRESULT hr = SHDoDragDrop(nullptr, data.Get(), nullptr, DROPEFFECT_COPY | DROPEFFECT_LINK, &effect);
+            result = hr == DRAGDROP_S_DROP ? 1 : (SUCCEEDED(hr) ? 0 : -1);
+        }
+    }
+    if (SUCCEEDED(ole)) OleUninitialize();
+    return result;
 }

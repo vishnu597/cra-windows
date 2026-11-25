@@ -78,6 +78,33 @@ final class Favicons {
         DispatchQueue.global(qos: .utility).async { try? png.write(to: file, options: .atomic) }
     }
 
+    /// A pick from Change Icon…'s picker (#640) as a custom icon under a fresh key
+    /// (TabCustomIcon): an emoji or a symbol drawn into a 256 pixel picture, or the picture
+    /// itself fitted to one. nil for Remove, and for what can't be drawn.
+    func importCustomIcon(_ picked: SpaceIcon) -> String? {
+        guard let prefix = TabCustomIcon.keyPrefix(for: picked) else { return nil }
+        let pixels: Pixels?
+        switch picked {
+        case .emoji(let e): pixels = Pixels.emoji(e, side: 256)
+        case .symbol(let name): pixels = WinGlyph.known(name).flatMap { Pixels.symbol($0, side: 256) }
+        case .image(let data): pixels = Pixels.decode(data, side: 256)
+        case .none: pixels = nil
+        }
+        guard let png = pixels?.png else { return nil }
+        let key = prefix + UUID().uuidString.lowercased()
+        store(png: png, forKey: key)
+        return key
+    }
+
+    /// A custom icon nothing uses any more: out of memory and off the disk. A site's icon stays.
+    func removeCustomIcon(_ key: String) {
+        guard key.hasPrefix(TabCustomIcon.imagePrefix) else { return }
+        icons[key] = nil
+        missing.insert(key)
+        revision += 1
+        try? FileManager.default.removeItem(at: Self.folder.appendingPathComponent(FaviconKey.fileName(key)))
+    }
+
     private func icon(_ key: String?) -> Icon? {
         _ = revision
         guard let key else { return nil }
@@ -94,9 +121,11 @@ final class Favicons {
 
     private static func makeIcon(_ png: Data, key: String) -> Icon? {
         guard let pixels = Pixels.decode(png) else { return nil }
-        // Custom icons (the Mac's "custom-…" keys) are drawn as picked.
+        // Custom icons (the Mac's "custom-…" keys) are drawn as picked, but for a picked symbol,
+        // which turns light on a dark fill as a site's dark glyph does (TabCustomIcon.followsTheme).
         let small = Pixels.decode(png, side: 32)
-        let tone = key.hasPrefix("custom-") ? nil : small.flatMap { FaviconTone.glyphIsDark(rgba: $0.rgba) }
+        let drawnAsPicked = key.hasPrefix(TabCustomIcon.imagePrefix) && !TabCustomIcon.followsTheme(key: key)
+        let tone = drawnAsPicked ? nil : small.flatMap { FaviconTone.glyphIsDark(rgba: $0.rgba) }
         // At 16 pixels, as the Mac samples it.
         let colors = Pixels.decode(png, side: 16).map { FavoriteSelectionTint.sample(rgba: $0.rgba, width: $0.width, height: $0.height) } ?? []
         return Icon(pixels: pixels, glyphIsDark: tone, selectionColors: colors)

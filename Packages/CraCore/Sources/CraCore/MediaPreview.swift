@@ -36,6 +36,41 @@ public enum MediaPreview {
         return CGRect(x: (box.midX - w / 2).rounded(), y: (box.midY - h / 2).rounded(), width: w, height: h)
     }
 
+    /// The window behind the panel, darkened this much (black at 45 %).
+    public static let dim: Double = 0.45
+
+    /// The header's button: "Open in Preview" on the Mac, the file's own app on Windows
+    /// ("Open in Photos"); "Open" when Windows names no app for it.
+    public static func openTitle(app: String?) -> String {
+        guard let app = app?.trimmingCharacters(in: .whitespaces), !app.isEmpty else { return "Open" }
+        return "Open in \(app)"
+    }
+
+    /// The keys the preview takes, whichever platform reads them.
+    public enum Key: Sendable { case escape, left, right, space }
+
+    public enum KeyAction: Equatable, Sendable { case close, step(Int) }
+
+    /// Esc closes, ← → step, Space closes a picture as Quick Look does (a video keeps it for
+    /// play and pause).
+    public static func action(for key: Key, isVideo: Bool) -> KeyAction? {
+        switch key {
+        case .escape: return .close
+        case .left: return .step(-1)
+        case .right: return .step(1)
+        case .space: return isVideo ? nil : .close
+        }
+    }
+
+    /// What's left after the shown file is hidden from the preview: the files without it and the
+    /// one to show next (the one after it, else the one before), nil when none are left.
+    public static func hiding(_ index: Int, from files: [MediaLibrary.File]) -> (files: [MediaLibrary.File], index: Int)? {
+        guard files.indices.contains(index) else { return files.isEmpty ? nil : (files, min(max(index, 0), files.count - 1)) }
+        var rest = files
+        rest.remove(at: index)
+        return rest.isEmpty ? nil : (rest, min(index, rest.count - 1))
+    }
+
     /// ‹ and › step through the grid's order and stop at its ends.
     public static func step(_ index: Int, by delta: Int, count: Int) -> Int? {
         let next = index + delta

@@ -15,6 +15,10 @@
 #22    Tests/PolicyTests.swift::extensionLaunch  8f21949f730d
 #24    Packages/CraCore/Tests/CraCoreTests/ShippedThemesTests.swift::edgeToEdgeIsOffUnlessChosen  96da512d440f
 #24    Tests/FloatingSidebarTests.swift::geometry  eec2ad04b484
+#28    Packages/CraCore/Tests/CraCoreTests/WindowsAudibleTests.swift::noAnswerKeepsTheTabAndAClosedPageGoesQuiet  30147a8b2e9d
+#28    Packages/CraCore/Tests/CraCoreTests/WindowsAudibleTests.swift::onlyAPlayerThatCanBeHeardCounts  f255d47d7a46
+#28    Packages/CraCore/Tests/CraCoreTests/WindowsAudibleTests.swift::thePageSaysWhetherItMakesSound  e0971e2b254c
+#28    Packages/CraCore/Tests/CraCoreTests/WindowsAudibleTests.swift::theSpeakerHoldsTwoSecondsAfterTheSoundStops  6918bed0ebb9
 #28    Tests/BrowserManagerLifecycleTests.swift::audiblePageStaysAwakeCase  124ac2fe284e
 #29    Packages/CraCore/Tests/CraCoreTests/FavoritesLayoutTests.swift::columnsByCountMatchArc  9ab00f8c8434
 #30    Packages/CraCore/Tests/CraCoreTests/ArcThemeImportTests.swift::solidThemeKeepsItsColour  02956e3cc1bb
@@ -25,6 +29,10 @@
 #32    Tests/BrowserManagerLifecycleTests.swift::refusalBackoffCase  2043060d6237
 #32    Tests/BrowserManagerLifecycleTests.swift::sleepClockCase  d4f708c0529e
 #32    Tests/Scenarios/tab-sleep-probe.scenario  2328ea8f721b
+#33    Packages/CraCore/Tests/CraCoreTests/WindowsNowPlayingTests.swift::aPausedTabKeepsItsCardTillItNavigatesQuiet  1328ed0e278e
+#33    Packages/CraCore/Tests/CraCoreTests/WindowsNowPlayingTests.swift::aTabThatStartsPlayingGetsACardOldestFirst  63fbdfcc0491
+#33    Packages/CraCore/Tests/CraCoreTests/WindowsNowPlayingTests.swift::dismissedClosedAndOnScreenTabsShowNoCard  be878c04fc60
+#33    Packages/CraCore/Tests/CraCoreTests/WindowsNowPlayingTests.swift::theCardPlaysAndPausesThePage  be68fc68519e
 #33    Tests/BrowserManagerLifecycleTests.swift::nowPlayingCase  896f39d0c04e
 #33    Tests/BrowserManagerLifecycleTests.swift::nowPlayingSkipsPictureInPictureCase  df2bec09cf49
 #33    Tests/BrowserManagerLifecycleTests.swift::playerMediaSessionCase  70013060dd84
@@ -715,6 +723,8 @@
 #371   Packages/CraCore/Tests/CraCoreTests/PermissionLineTests.swift::aCardWhoseTabGoesBehindStepsAside  ac5b97fe5bd9
 #371   Tests/BrowserManagerLifecycleTests.swift::permissionPopoverStepsAsideCase  de5396486ef4
 #371   Tests/Scenarios/permission-card.scenario  9ae102316834
+#372   Packages/CraCore/Tests/CraCoreTests/AppIconImageTests.swift::aCutOutLogoIsFittedByItsVisiblePart  ae012245c9a7
+#372   Packages/CraCore/Tests/CraCoreTests/AppIconImageTests.swift::aPhotoFillsTheRoundedTile  c3fa07766f59
 #373   Packages/CraCore/Tests/CraCoreTests/LittleWindowTriggerTests.swift::aLinkClickedWithOptionCommandOpensOneWhenTheSwitchIsOn  321009d2af63
 #373   Packages/CraCore/Tests/CraCoreTests/LittleWindowTriggerTests.swift::onlyAClickInThisPageJustNowCounts  28d9c5ecab0f
 #373   Packages/CraCore/Tests/CraCoreTests/LittleWindowTriggerTests.swift::onlyPagesATabCanShowOpenOne  4f0de1686b25
@@ -827,6 +837,7 @@
 #411   Packages/CraCore/Tests/CraCoreTests/PlayerCardSessionTests.swift::aPauseKeepsThePausedCard  9a4925226707
 #411   Packages/CraCore/Tests/CraCoreTests/PlayerCardSessionTests.swift::aTrackThatEndsRemovesTheCardAfterTheWait  8cdd4bd5ec4c
 #411   Packages/CraCore/Tests/CraCoreTests/PlayerCardSessionTests.swift::mediaPlayingMakesAPlayingCard  07251c71ede9
+#411   Packages/CraCore/Tests/CraCoreTests/WindowsNowPlayingTests.swift::aDingMakesNoCard  e50c7e85abf9
 #411   Tests/BrowserManagerLifecycleTests.swift::nowPlayingFollowsMediaSessionCase  a35d831887cc
 #411   Tests/BrowserManagerLifecycleTests.swift::nowPlayingSkipsUncontrollableSoundCase  834fe4ecbf39
 #411   Tests/Scenarios/player-follows-session.scenario  e115e9dba0e8

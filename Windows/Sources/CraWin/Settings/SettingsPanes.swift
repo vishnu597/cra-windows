@@ -22,7 +22,8 @@ enum SettingsPanes {
     /// Dia's card idiom (GeneralPane on the Mac): a "System" card with Cra's place in Windows.
     /// `importData` opens Import from Another Browser in the browser window in use (the Mac's
     /// Advanced ▸ Your data row; Windows' Advanced pane has only how Cra opens).
-    static func general(store: SidebarStore, palette: SettingsPalette, importData: @escaping @MainActor () -> Void,
+    static func general(store: SidebarStore, palette: SettingsPalette, owner: @escaping @MainActor () -> UInt = { 0 },
+                        importData: @escaping @MainActor () -> Void,
                         exportSpaces: @escaping @MainActor () -> Void) -> SettingsPaneContent {
         let stack = StackPanel()
         stack.orientation = .vertical
@@ -123,12 +124,13 @@ enum SettingsPanes {
                     trailing: UI.button("Export…") { exportSpaces() }, palette: palette),
         ], palette: palette))
 
-        // Arc's Icon tab (the Mac's IconPane, #372): Cra's four icons, the picked one ringed.
+        // Arc's Icon tab (the Mac's IconPane, #372): Cra's four icons and the user's own, the picked one ringed.
         let iconHeader = header("App icon", palette: palette)
         iconHeader.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 20, right: 0, bottom: 8)
         stack.children.append(iconHeader)
-        stack.children.append(appIconCard(palette: palette, syncs: &syncs))
-        let iconNote = note("Cra’s windows, their taskbar buttons and Alt+Tab show it at once. A taskbar pin and the Start menu keep Segments.",
+        stack.children.append(appIconCard(palette: palette, owner: owner, syncs: &syncs))
+        let iconNote = note("Cra’s windows, their taskbar buttons and Alt+Tab show it at once. A taskbar pin and the Start menu keep Segments. "
+                            + "For your own, pick any image: a photo or a logo on a background fills the rounded tile.",
                             palette: palette)
         iconNote.margin = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 6, right: 0, bottom: 0)
         stack.children.append(iconNote)
@@ -142,9 +144,11 @@ enum SettingsPanes {
         }
     }
 
-    /// A tile for each of `AppIconChoice.presets`: its 64 DIP picture in a ring (the accent once
-    /// picked), its name under it; a click picks it (`WindowIcon.select`).
-    private static func appIconCard(palette: SettingsPalette, syncs: inout [() -> Void]) -> UIElement {
+    /// A tile for each of `AppIconChoice.presets` and the user's own: its 64 DIP picture in a ring
+    /// (the accent once picked), its name under it; a click picks it (`WindowIcon.select`), or, for
+    /// Your own before there is one, opens the picker. Choose Image… and Remove sit under them.
+    private static func appIconCard(palette: SettingsPalette, owner: @escaping @MainActor () -> UInt,
+                                    syncs: inout [() -> Void]) -> UIElement {
         let row = StackPanel()
         row.orientation = .horizontal
         row.spacing = 18
@@ -154,19 +158,51 @@ enum SettingsPanes {
             label.fontWeight = UWP.FontWeight(weight: picked ? 600 : 400)
         }
         var rings: [(String, Border, TextBlock)] = []
-        for option in AppIconChoice.presets {
+        // The Mac's "Your own icon" row: its picture once there is one, Choose Image… and Remove.
+        let ownID = AppIconChoice.customID
+        let options = AppIconChoice.presets + [AppIconChoice.Option(id: ownID, name: "Your own")]
+        let ownRing = Border()
+        let problem = UI.text("", size: 11, color: palette.secondaryText, trimmed: false)
+        problem.textWrapping = .wrap
+        problem.visibility = .collapsed
+        var refresh: () -> Void = {}
+        func showOwn() {
+            if let bitmap = WindowIcon.customPicture(side: 128)?.bitmap() {
+                ownRing.child = UI.image(bitmap, size: 64)
+            } else {
+                let plus = UI.text("+", size: 28, color: palette.secondaryText)
+                plus.horizontalAlignment = .center
+                plus.verticalAlignment = .center
+                ownRing.child = plus
+            }
+        }
+        func chooseImage() {
+            guard let file = WinShell.pickFile(owner: owner(), title: "Choose an image for Cra’s icon") else { return }
+            do {
+                try WindowIcon.setCustom(from: file)
+                problem.visibility = .collapsed
+            } catch {
+                problem.text = "“\(file.lastPathComponent)” isn’t an image Cra can read."
+                problem.visibility = .visible
+            }
+            showOwn()
+            refresh()
+        }
+        for option in options {
             let tile = StackPanel()
             tile.orientation = .vertical
             tile.spacing = 6
             tile.background = UI.clear
-            let ring = Border()
+            let ring = option.id == ownID ? ownRing : Border()
             ring.width = 76
             ring.height = 76
             ring.cornerRadius = CornerRadius(topLeft: 18, topRight: 18, bottomRight: 18, bottomLeft: 18)
             ring.borderThickness = Thickness(left: 2, top: 2, right: 2, bottom: 2)
             ring.padding = Thickness(left: 4, top: 4, right: 4, bottom: 4)
-            if let file = WindowIcon.pictureFile(option.id), let data = try? Data(contentsOf: file),
-               let bitmap = Pixels.decode(data, side: 128)?.bitmap() {
+            if option.id == ownID {
+                showOwn()
+            } else if let file = WindowIcon.pictureFile(option.id), let data = try? Data(contentsOf: file),
+                      let bitmap = Pixels.decode(data, side: 128)?.bitmap() {
                 ring.child = UI.image(bitmap, size: 64)
             }
             tile.children.append(ring)
@@ -176,18 +212,45 @@ enum SettingsPanes {
             try? AutomationProperties.setName(tile, "\(option.name) app icon")
             let id = option.id
             tile.tapped.addHandler { _, _ in
+                // Your own, before there is one: the picker, as the Mac's row does.
+                if id == ownID && !WindowIcon.hasCustom { return chooseImage() }
                 guard WindowIcon.selectedID != id else { return }
                 WindowIcon.select(id)
-                for (other, ring, label) in rings { paint(ring, label, picked: other == id) }
+                refresh()
             }
             row.children.append(tile)
             rings.append((id, ring, name))
         }
+        let remove = UI.button("Remove") {
+            WindowIcon.removeCustom()
+            problem.visibility = .collapsed
+            showOwn()
+            refresh()
+        }
+        let buttons = StackPanel()
+        buttons.orientation = .horizontal
+        buttons.spacing = 8
+        buttons.children.append(UI.button("Choose Image…") { chooseImage() })
+        buttons.children.append(remove)
+        let controls = StackPanel()
+        controls.orientation = .vertical
+        controls.spacing = 6
+        controls.padding = Thickness(left: Double(DiaSettingsMetrics.cardRowInset), top: 0, right: 14, bottom: 14)
+        controls.children.append(buttons)
+        controls.children.append(problem)
         let shown = rings
-        let sync = { for (id, ring, label) in shown { paint(ring, label, picked: id == WindowIcon.selectedID) } }
+        let sync = {
+            for (id, ring, label) in shown { paint(ring, label, picked: id == WindowIcon.selectedID) }
+            remove.visibility = WindowIcon.hasCustom ? .visible : .collapsed
+        }
+        refresh = sync
         sync()
         syncs.append(sync)
-        return card([row], palette: palette)
+        let column = StackPanel()
+        column.orientation = .vertical
+        column.children.append(row)
+        column.children.append(controls)
+        return card([column], palette: palette)
     }
 
     // MARK: Privacy
