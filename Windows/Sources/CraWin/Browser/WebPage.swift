@@ -185,7 +185,10 @@ final class WebPage: @unchecked Sendable {
         // the window's page (the newest child window is topmost) and hid it until the next tab
         // switch (PC test, 24 Nov 2026). Chromium makes the window a turn later; OnAfterCreated
         // reads this and hides it. The window's layout shows it again once a tab adopts it.
+        // Set directly: an initializer's own assignment doesn't run `isVisible`'s didSet, so
+        // `isVisible = false` alone never reached the bridge (PR #157's first build, PC test).
         isVisible = false
+        if let handle { cra_browser_set_visible(handle, 0) }
     }
 
     /// A spare taken by a tab: it moves into the tab's window and loads the tab's address.
