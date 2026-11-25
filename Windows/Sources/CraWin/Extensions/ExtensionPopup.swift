@@ -17,6 +17,9 @@ final class ExtensionPopup {
     private let window: HostWindow
     private var page: WebPage?
     private var closing = false
+    private let openedAt = Date()
+    /// How long after opening a lost activation is the opening click's, not the user leaving.
+    private static let openingGrace: TimeInterval = 0.4
     private var destroyed = false
     /// After it closed, for its owner to let go of it.
     var onClose: (() -> Void)?
@@ -30,7 +33,21 @@ final class ExtensionPopup {
         let scale = owner.scale
         let width = Int32((Self.size.width * scale).rounded()), height = Int32((Self.size.height * scale).rounded())
         window.placeClient(x: max(0, corner.x - width), y: corner.y, width: width, height: height)
-        window.onDeactivate = { [weak self] in self?.close() }
+        // The click that opened it ends in its owner, which takes the activation back at once
+        // (PC test, 24 Nov 2026: the popup closed as it opened). Then the popup takes it back,
+        // once; a later deactivation (a click elsewhere) closes it.
+        window.onDeactivate = { [weak self] in
+            guard let self else { return }
+            if Date().timeIntervalSince(self.openedAt) < Self.openingGrace {
+                _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue { [weak self] in
+                    guard let self, !self.closing else { return }
+                    self.window.activate()
+                    self.page?.setFocused(true)
+                }
+            } else {
+                self.close()
+            }
+        }
         window.onClose = { [weak self] in self?.close() }
         window.onLayout = { [weak self] frame in self?.page?.frame = frame }
         page = WebPage(parent: window.hwnd, frame: window.contentFrame, url: url, profilePath: profilePath, delegate: self)

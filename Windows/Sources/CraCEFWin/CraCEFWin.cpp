@@ -750,6 +750,22 @@ private:
     IMPLEMENT_REFCOUNTING(KeepAudioMuted);
 };
 
+/// Closes a page asked to close before Chromium had made it, a moment after OnAfterCreated:
+/// closing it from inside OnAfterCreated left the Chrome-style browser's tab strip half made, and
+/// its close crashed in Browser::TabStripEmpty (PC test, 24 Nov 2026: an extension popup closed
+/// as it opened).
+class CloseAfterCreated : public CefTask {
+public:
+    explicit CloseAfterCreated(CefRefPtr<CefBrowser> browser) : browser_(browser) {}
+    void Execute() override {
+        if (browser_ && browser_->IsValid()) browser_->GetHost()->CloseBrowser(true);
+    }
+
+private:
+    CefRefPtr<CefBrowser> browser_;
+    IMPLEMENT_REFCOUNTING(CloseAfterCreated);
+};
+
 /// A page's DevTools browser (made through OnBeforeDevToolsPopup). Detached when its page goes.
 class DevToolsClient : public CefClient,
                        public CefLifeSpanHandler,
@@ -1073,7 +1089,7 @@ public:
         if (o->focus_pending && o->visible) cra_browser_set_focused(o, 1);
         o->focus_pending = false;
         if (o->audio_muted) browser->GetHost()->SetAudioMuted(true);
-        if (o->close_requested) browser->GetHost()->CloseBrowser(true);
+        if (o->close_requested) CefPostDelayedTask(TID_UI, new CloseAfterCreated(browser), 50);
     }
 
     bool DoClose(CefRefPtr<CefBrowser> browser) override {
