@@ -82,6 +82,18 @@ public enum FavoriteTileColors {
         String(format: "#%02X%02X%02X", Int(red), Int(green), Int(blue))
     }
 
+    /// Other Color…'s dialog on a toolkit that speaks 0xRRGGBB (Windows' ChooseColor): the tile's
+    /// colour to open on (-1 for none), and the pick back as the hex a tile keeps.
+    public static func dialogRGB(tileColor: String?) -> Int {
+        guard let tileColor, let c = HexColor.components(tileColor) else { return -1 }
+        func byte(_ v: Double) -> Int { Int((v * 255).rounded()) }
+        return byte(c.r) << 16 | byte(c.g) << 8 | byte(c.b)
+    }
+
+    public static func hex(rgb: UInt32) -> String {
+        hex(red: UInt8((rgb >> 16) & 0xFF), green: UInt8((rgb >> 8) & 0xFF), blue: UInt8(rgb & 0xFF))
+    }
+
     private static func same(_ a: String, _ b: String?) -> Bool {
         guard let b else { return false }
         return a.caseInsensitiveCompare(b) == .orderedSame

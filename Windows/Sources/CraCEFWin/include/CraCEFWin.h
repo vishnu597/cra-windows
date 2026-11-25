@@ -194,6 +194,10 @@ int cra_downloads_folder(char *out, size_t capacity);
 /// Cra.exe's product version ("1.2.3") from its version information into `out`; 0 without it.
 /// A local build says "0.0.0" (Resources/Cra.rc).
 int cra_app_version(char *out, size_t capacity);
+/// Windows' colour dialog (Other Color… on a favorite's Tile Color ▸, the Mac's NSColorPanel),
+/// opened on `initial` (0xRRGGBB, or -1 for none). The picked colour goes to `out` as 0xRRGGBB;
+/// 1 when one was picked. Modal.
+int cra_choose_color(uintptr_t owner, int initial, uint32_t *out);
 /// Windows' Save dialog for a PNG, in Downloads, suggesting `file_name`. The chosen path goes to
 /// `out` (UTF-8, `capacity` bytes). 1 when a path was chosen. Modal.
 int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity);

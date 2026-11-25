@@ -4,6 +4,7 @@
 #include "CraCEFWin.h"
 
 #include <windows.h>
+#include <commdlg.h>
 #include <dwmapi.h>
 #include <ole2.h>
 #include <shellapi.h>
@@ -378,6 +379,26 @@ extern "C" int cra_pick_file_dialog(uintptr_t owner, const char *title, char *ou
     int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, out, static_cast<int>(capacity), nullptr, nullptr);
     CoTaskMemFree(path);
     return n > 0 ? 1 : 0;
+}
+
+extern "C" int cra_choose_color(uintptr_t owner, int initial, uint32_t *out) {
+    if (!out) return 0;
+    // The dialog's 16 custom colours stay for the rest of the run, as Windows' own apps keep them.
+    static COLORREF custom[16] = {};
+    CHOOSECOLORW choose = {};
+    choose.lStructSize = sizeof(choose);
+    choose.hwndOwner = reinterpret_cast<HWND>(owner);
+    choose.lpCustColors = custom;
+    choose.Flags = CC_FULLOPEN | CC_ANYCOLOR;
+    if (initial >= 0) {
+        const uint32_t rgb = uint32_t(initial);
+        choose.rgbResult = RGB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+        choose.Flags |= CC_RGBINIT;
+    }
+    if (!ChooseColorW(&choose)) return 0;
+    *out = (uint32_t(GetRValue(choose.rgbResult)) << 16) | (uint32_t(GetGValue(choose.rgbResult)) << 8) |
+           uint32_t(GetBValue(choose.rgbResult));
+    return 1;
 }
 
 extern "C" int cra_save_png_dialog(uintptr_t owner, const char *title, const char *file_name, char *out, size_t capacity) {

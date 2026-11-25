@@ -1,3 +1,4 @@
+import CraCEFWin
 import CraCore
 import Foundation
 import Observation
@@ -1182,6 +1183,13 @@ final class SidebarView {
             entry.click.addHandler { [weak self] _, _ in self?.store.setTileColor(choice.hex, for: [id]) }
             sub.items.append(entry)
         }
+        // The Mac's Other Color… (NSColorPanel): Windows' colour dialog, on the tile's colour.
+        sub.items.append(UI.menuItem("Other Color…") { [weak self] in
+            var picked: UInt32 = 0
+            let owner = UInt(bitPattern: GetActiveWindow())
+            guard let self, cra_choose_color(owner, Int32(FavoriteTileColors.dialogRGB(tileColor: current)), &picked) != 0 else { return }
+            self.store.setTileColor(FavoriteTileColors.hex(rgb: picked), for: [id])
+        })
         sub.items.append(MenuFlyoutSeparator())
         sub.items.append(UI.menuItem("Use This Color for All Favorites") { [weak self] in
             guard let self, let space = self.store.spaceID(ofItem: id).flatMap(self.store.space) else { return }
