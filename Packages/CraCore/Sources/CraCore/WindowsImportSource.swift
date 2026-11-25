@@ -152,8 +152,11 @@ public struct WindowsImportSource: Identifiable, Hashable {
 
     /// What importing this browser adds. Arc on Windows keeps no preferences Cra reads.
     /// `sqlite` reads a query's rows from a database file another app may hold open (Firefox's
-    /// and Zen's places.sqlite); without it their bookmarks and older Zen's spaces are skipped.
-    public func plan(in folders: Folders, sqlite: (URL, String) -> [[String: Any]] = { _, _ in [] }) throws -> ImportPlan {
+    /// and Zen's places.sqlite and favicons.sqlite); without it their bookmarks, older Zen's spaces
+    /// and Zen's favicons are skipped. Zen's favicons are written under `iconFolder` for the import
+    /// to copy (FirefoxFavicons, the Mac's ZenImporter).
+    public func plan(in folders: Folders, sqlite: (URL, String) -> [[String: Any]] = { _, _ in [] },
+                     iconFolder: URL = FileManager.default.temporaryDirectory.appendingPathComponent("cra-zen-favicons", isDirectory: true)) throws -> ImportPlan {
         guard let dir = folder(in: folders) else { throw ImportError.notFound(name) }
         switch kind {
         case .arc: return try ArcImporter.plan(supportDir: dir, preferences: .init())
@@ -164,7 +167,11 @@ public struct WindowsImportSource: Identifiable, Hashable {
             let bookmarks = FirefoxImport.bookmarks(rows: sqlite(places, FirefoxImport.bookmarksQuery))
             if kind == .zen {
                 let sidebar = ZenImport.sidebar(profile: profile) { sqlite(places, ZenImport.workspacesQuery) }
-                return ZenImport.plan(sidebar: sidebar, bookmarks: bookmarks)
+                let icons = profile.appendingPathComponent(FirefoxFavicons.fileName)
+                return ZenImport.plan(sidebar: sidebar, bookmarks: bookmarks) { spaces in
+                    let files = FirefoxFavicons.write(hosts: FirefoxFavicons.hosts(in: spaces), into: iconFolder, bitmapsOnly: true) { sqlite(icons, $0) }
+                    FirefoxFavicons.attach(files, to: &spaces)
+                }
             }
             return FirefoxImport.plan(browser: name, bookmarks: bookmarks,
                                       openTabs: FirefoxImport.session(profile: profile).map(FirefoxImport.openTabs) ?? [])

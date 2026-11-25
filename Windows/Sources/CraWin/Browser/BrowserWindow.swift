@@ -2508,7 +2508,7 @@ final class BrowserWindow {
         let summary: String
         var profiles = ImportProfileMap()
         do {
-            let plan = try source.plan(in: folders) { file, query in SQLiteSnapshot(copying: file)?.rows(query) ?? [] }
+            let plan = try source.plan(in: folders, sqlite: SQLiteSnapshot.reader())
             let result = store.apply(plan, includeArchive: true, includeSettings: source.kind == .arc, favicons: Favicons.folder)
             if let first = result.spaceIDs.first { store.focusSpace(first, window: windowID) }
             summary = result.summary(from: source.name)
