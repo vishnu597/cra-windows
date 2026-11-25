@@ -107,6 +107,11 @@ extension ExtensionPopup: WebPageDelegate {
     /// Chromium is done with the page: closed by `finish`, or by itself (window.close()).
     func pageDidClose(_ page: WebPage) {
         guard self.page === page else { return }
-        if closing { destroyWindow() } else { closing = true; finish() }
+        // A turn later, as LittleWindow does: this comes from inside CEF's OnBeforeClose, and
+        // destroying the window Chromium's browser lives in from there left its close task with
+        // a freed Browser, which crashed in Browser::TabStripEmpty (PC test, 24 Nov 2026).
+        _ = try? WinAppSDK.DispatcherQueue.getForCurrentThread()?.tryEnqueue {
+            if self.closing { self.destroyWindow() } else { self.closing = true; self.finish() }
+        }
     }
 }
