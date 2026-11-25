@@ -559,6 +559,9 @@
 #303   Packages/CraCore/Tests/CraCoreTests/MusicNotesTests.swift::fieldIsCentredOnTheIconsTopEdge  ed1fe24fdf19
 #303   Packages/CraCore/Tests/CraCoreTests/MusicNotesTests.swift::otherSites  10add4b90759
 #303   Packages/CraCore/Tests/CraCoreTests/MusicNotesTests.swift::playsOnlyWhatCanBeHeardOnAMusicSite  047425a5dc39
+#303   Packages/CraCore/Tests/CraCoreTests/WindowsMusicNotesTests.swift::aNoteRisesGrowsAndFades  cae591553b69
+#303   Packages/CraCore/Tests/CraCoreTests/WindowsMusicNotesTests.swift::notesAreBornAtArcsRates  c7b09fd557f9
+#303   Packages/CraCore/Tests/CraCoreTests/WindowsMusicNotesTests.swift::notesStayInTheirCone  7ca5ac28e5c7
 #303   Tests/BrowserManagerLifecycleTests.swift::musicNotesPauseWithinHoldCase  a89980952d6f
 #303   Tests/Scenarios/music-notes.scenario  fb0ac37b38ea
 #305   Packages/CraCore/Tests/CraCoreTests/AddressBarPlacementTests.swift::bothChoicesAreNamed  36f4e5cee543
