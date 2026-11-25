@@ -145,6 +145,11 @@ void cra_shell_show_in_folder(const char *path);
 /// The name Windows gives the app that opens the file (Photos, Media Player), UTF-8 into `out`
 /// (`capacity` bytes): Library ▸ Media's "Open in …". 1 when Windows names one.
 int cra_shell_default_app_name(const char *path, char *out, size_t capacity);
+/// Drags the file out as Explorer does (its picture under the pointer, CF_HDROP and the shell's
+/// own formats): into Explorer, a mail, another app or a page's upload. Call while the mouse
+/// button that started it is still down; runs its own loop until the drop. 1 when it was dropped
+/// somewhere, 0 when it was let go nowhere or cancelled with Esc, -1 when it couldn't start.
+int cra_drag_file_out(const char *path);
 
 /// Hides Chrome's download-started animation (a download glyph that would fly from the page's
 /// top left to the toolbar Cra hides) for the next two seconds. Call when a download starts.
