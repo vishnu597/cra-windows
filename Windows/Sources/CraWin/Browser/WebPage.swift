@@ -220,6 +220,8 @@ final class WebPage: @unchecked Sendable {
     var canGoForward: Bool { handle.map { cra_browser_can_go_forward($0) != 0 } ?? false }
     var isCreated: Bool { handle.map { cra_browser_is_created($0) != 0 } ?? false }
     /// The page closed itself (window.close()).
+    /// False while the page has shown nothing: its only navigation became a download.
+    var hasDocument: Bool { handle.map { cra_browser_has_document($0) != 0 } ?? false }
     var closedByPage: Bool { handle.map { cra_browser_closed_by_page($0) != 0 } ?? false }
 
     var frame: PixelRect = PixelRect(x: 0, y: 0, width: 0, height: 0) {

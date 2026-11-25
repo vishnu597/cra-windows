@@ -2358,6 +2358,7 @@ extern "C" const char *cra_browser_navigating_url(CraBrowser *b) {
 extern "C" int cra_browser_can_go_back(CraBrowser *b) { return b && b->can_go_back ? 1 : 0; }
 extern "C" int cra_browser_can_go_forward(CraBrowser *b) { return b && b->can_go_forward ? 1 : 0; }
 extern "C" int cra_browser_closed_by_page(CraBrowser *b) { return b && b->closed_by_page ? 1 : 0; }
+extern "C" int cra_browser_has_document(CraBrowser *b) { return b && b->browser && b->browser->HasDocument() ? 1 : 0; }
 
 extern "C" const char *cra_browser_current_url(CraBrowser *b) {
     if (!b) return "";
