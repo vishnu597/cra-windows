@@ -18,7 +18,7 @@ struct MobilePullHapticsTests {
     }
 
     @Test func aTickPlaysEveryTwoPointsFromTwentyFour() {
-        let ticks = played((24...128).map(CGFloat.init))
+        let ticks = played((24...128).map { CGFloat($0) })
         #expect(ticks.count == 53)
         #expect(ticks.first?.intensity == MobilePullHaptics.faintest)
         #expect(ticks.last?.intensity == MobilePullHaptics.strongest)
@@ -27,7 +27,7 @@ struct MobilePullHapticsTests {
     }
 
     @Test func theTicksOnlyEverGetStronger() {
-        let ticks = played(stride(from: 24, through: 128, by: 2).map(CGFloat.init))
+        let ticks = played(stride(from: 24, through: 128, by: 2).map { CGFloat($0) })
         #expect(ticks.count == 53)
         #expect(zip(ticks.map(\.intensity), ticks.dropFirst().map(\.intensity)).allSatisfy { $0 < $1 })
     }
