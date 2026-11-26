@@ -4,8 +4,8 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: 3ac3a029 -->
-Upstream reviewed through **3ac3a029** (VictorKildahl/cra main, 26 Nov 2026), every commit triaged
+<!-- upstream-reviewed: ff4f6d6c -->
+Upstream reviewed through **ff4f6d6c** (VictorKildahl/cra main, 26 Nov 2026), every commit triaged
 under Waiting in upstream (sync #26: 16 commits after 15ae9afc). The Windows gaps below remain explicit rather
 than inheriting the Mac's status.
 
@@ -992,6 +992,30 @@ The command bar and the import code are the fork's CraCore copies, so upstream's
 | 93895c0b | Sidebar + menu stays dark on a grey space in light mode, pinned by a test (#822) | Sidebar creation menu row (test only). ➖ |
 | bbd9d6b9 | iPhone: only the tab row's focused card shows its title (#816, `MobileTabCarousel`) | iPhone. ➖ |
 | 3ac3a029 | Live Calendar: a Google Calendar favorite reads its events again, also when the page loads a frame late, on engine 159.0.8154.45-9 (#817) | Live Calendar row (Mac engine bridge and `LiveCalendarClient`). Windows has no Live Calendar yet. ❌ |
+
+### Sync #36: 58 commits after 3ac3a029, through ff4f6d6c
+
+PR #791 rewrote the Mac's `BlockLists` (filter syntax, element hiding, Chromium's network rules through `ChromiumFilterLists.swift`, Standard or Strict, a per-site pause). The fork had made the Mac's `BlockLists` a wrapper over CraCore's `BlocklistStore`, which Windows uses. To keep the Mac identical to upstream:
+- **Mac.** `BlockLists.swift` and `PrivacyPane.swift` are upstream's again.
+- **Site Control Center.** It takes upstream's Ad Blocking row (`pausedFilterHosts`, `toggleFilters(on:)`) and keeps the shared metrics, security label and More menu from CraCore.
+- **Windows.** It keeps `BlocklistStore` (domains only). The new `DesktopFilterLists` and `DesktopNetworkRules` are in CraCore for the day Windows moves to them. `blockAdsAndTrackers` is now AdAway plus Anudeep, and Windows' one switch still sets both.
+
+| Commits | What | Windows |
+|---|---|---|
+| 41ca47a4, 2ab468ed, f948d26c, 4a6d6488, 93b096fd, b0ae8dd5, b7220169, 87dc131a, 9e921b15, 2397e2a5, 4706c588, da3a9712, 947d739a, 66b72e1a, a16c03b7, 983ee7d6, 5e69c514, fcebf39d, 2ae68989, ada7ad52, ba57c927, f1d8230d | Privacy: selectable filter lists (AdAway, Anudeep, personal rules, a 45-list catalog), full filter syntax and element hiding (`DesktopFilterLists`, `DesktopNetworkRules`, `ChromiumFilterLists.swift`), one switch with Standard or Strict, and a per-site pause in the site menu (PR #791) | Block lists row. Windows still has the one switch and added domain lists (`BlocklistStore`), with no element hiding, catalog or per-site pause. 🟡 |
+| 0ec83048 | Command bar: ⌘Z undoes typing and ⇧⌘Z redoes it, as in Arc (#809, `TypingUndoSteps`, `FieldTypingUndo.swift`) | Command bar row. WinUI's TextBox has its own undo, not Arc's steps. ❌ |
+| df3125b0, 9d811846, 5e82e7ec | Shared extensions: a Web Store extension in every profile, managed in Settings, "Managed by Cra" (discussion #595, `SharedExtensions`) | Extensions row. ❌ |
+| b9dfb423 | Downloads: a download from a link no longer swipes the primary display off a full-screen Space; Chromium's own download arrow is gone, on engine -11 (#774) | macOS Spaces and engine. ➖ |
+| 9072143d | Extension popups from `chrome.action.openPopup()` show every time | Mac popup window. ➖ |
+| d3d7283d | App links: an address whose app is Cra itself isn't handed back to it (#821, `AppLinks.handsBackToCra`) | App links row. Windows doesn't hand addresses to apps yet. ➖ |
+| e4253fcd | Sidebar + menu: light in Light mode and dark in Dark mode, from the space's palette (#822, `ArcMenuTones` `dark:`) | Sidebar creation menu row. Windows' menu doesn't take the space's tones yet. ❌ |
+| 09a394e8, adb488d1, f0fa35c0, 3f25e1e5 | Sidebar: double-click the resize edge for Arc's 228 pt (#819, `SidebarResize`) | Sidebar width row. ❌ |
+| 84bc2c0f | Sidebar header: no dead space between ← → ↻ and the toggle (#818, `SidebarHeaderLayout`) | Sidebar header row. Windows lays out its own buttons. ❌ |
+| 11a79298 | Command bar: a scenario pins Arc's neutral bar for a site search while the site-colour fill is off (#820) | Command bar row (test only). ➖ |
+| 82b85a44 | Floating sidebar tests read a mouse-button value the test sets | Mac tests. ➖ |
+| 30180333 | Scenarios: a # with text after it stays in the line | Mac scenarios. ➖ |
+| 6050f766, ff4f6d6c | Code of Conduct, GOVERNANCE.md and sponsors; the Easels row says sharing is done | Docs. ➖ |
+| 4d2ea6c5, eafab001, b07dd235, b87b2992, f585c45b, b4bf27aa, 8ad61794, 9ddb4820, 87880b1a, 009da696, e7fbc60c, 8c92063a, 77bf41b7, 1b5404d3, 30ce8f58, f3b83f4b, e5d87b3a, b91b7f1b | iPhone: the tab bar rides the finger and takes the page's colour (PR #814, `MobileChrome`), a lone tab's card is centred (#816), share sheet names (#829), version 0.1.3 | iPhone. ➖ |
 
 ## Keeping this current
 
