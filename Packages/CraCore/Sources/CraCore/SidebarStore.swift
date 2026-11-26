@@ -3073,6 +3073,26 @@ public final class SidebarStore {
         historyFile.save(Array(history.values), delay: 5)
     }
 
+    /// History saved before #609 has no profiles, so every profile's bar suggested it: the profiles'
+    /// own Chromium histories say whose each page was (CommandBarProfileScope.attributing, #729).
+    /// The profile folders to read, by CommandBarProfileScope.key; nil when every entry has its profiles.
+    /// The app reads the History files (`attributeHistoryProfiles`, SidebarStore+App).
+    public var historyProfileFolders: [(key: String, folder: String)]? {
+        guard history.values.contains(where: { $0.profiles == nil }) else { return nil }
+        return [(CommandBarProfileScope.key(nil), "Default")]
+            + profiles.map { (CommandBarProfileScope.key($0.id), $0.directoryName) }
+    }
+
+    /// The addresses each profile's Chromium History has give old entries their profiles; returns how
+    /// many changed.
+    @discardableResult
+    public func adoptHistoryProfiles(chromiumURLs urls: [String: Set<String>]) -> Int {
+        let changed = CommandBarProfileScope.attributing(Array(history.values), chromiumURLs: urls)
+        for e in changed { history[e.url] = e }
+        if !changed.isEmpty { historyFile.save(Array(history.values), delay: 5) }
+        return changed.count
+    }
+
     /// An address entered in the command bar in `profile` (typed, or an Open URL or visited-page row picked;
     /// not a search): counted on its page, as Chromium's typed_count, so ⌘T completes the site's name to it
     /// (TypedCompletion, #667). A page not visited yet gets its entry now; its visit comes as it loads.

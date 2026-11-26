@@ -109,7 +109,7 @@ struct FirefoxImportTests {
         let items = FirefoxImport.bookmarks(rows: Self.bookmarkRows)
         #expect(items.map(\.pageTitle) == ["Docs", "Reading", "Bookmarks Menu"], "toolbar first, empty folders and the unsorted folder left out")
         #expect(items[0].customTitle == nil && items[0].createdAt == Date(timeIntervalSince1970: 1_700_000_000))
-        #expect(items[1].isFolder && items[1].children.map(\.url) == ["https://paper.example"], "only web pages")
+        #expect(items[1].isFolder && items[1].children.map(\.url) == ["https://paper.example", "about:preferences"], "any address, as from Arc (#742)")
         #expect(items[2].children.map(\.customTitle) == ["Menu one"])
     }
 
