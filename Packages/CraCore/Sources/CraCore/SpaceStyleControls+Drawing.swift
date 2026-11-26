@@ -110,3 +110,36 @@ extension SpaceStyleControls {
         0.15 + 0.6 * min(max(value, 0), 1)
     }
 }
+
+// MARK: The pad
+
+extension SpaceStyleControls {
+    /// The pad's dots: 1 pt across, every 4 pt from 4 pt in, at the card's ink × 0.12.
+    public static let padDotPitch = 4.0
+    public static let padDotSide = 1.0
+    public static let padDotOpacity = 0.12
+
+    /// The dots' centres along one side of a `side` pt pad (4, 8, … short of the far edge).
+    public static func padDotCentres(side: Double) -> [Double] {
+        Array(stride(from: padDotPitch, to: side, by: padDotPitch))
+    }
+
+    /// Arc's ColorPillButtonStyle, which the swatches and the pad's knobs share (#189):
+    /// 8% larger under the pointer, 8% smaller while pressed; pressed wins.
+    public static let pillHovered = 1.08
+    public static let pillPressed = 0.92
+
+    public static func pillScale(hovered: Bool, pressed: Bool) -> Double {
+        pressed ? pillPressed : hovered ? pillHovered : 1
+    }
+
+    /// A knob's shadow (black at 0.25, 3 pt soft, 1 pt down): its opacity at `distance` pt from the
+    /// centre of a knob `radius` pt round.
+    public static let knobShadowOpacity = 0.25
+    public static let knobShadowBlur = 3.0
+
+    public static func knobShadow(distance: Double, radius: Double) -> Double {
+        let t = min(max((radius + knobShadowBlur - distance) / (2 * knobShadowBlur), 0), 1)
+        return knobShadowOpacity * t * t * (3 - 2 * t)
+    }
+}
