@@ -161,13 +161,15 @@ public struct WindowsImportSource: Identifiable, Hashable {
         case .firefox, .zen:
             guard let profile = FirefoxImport.defaultProfile(root: dir) else { throw ImportError.notFound(name) }
             let places = profile.appendingPathComponent("places.sqlite")
-            let bookmarks = FirefoxImport.bookmarks(rows: sqlite(places, FirefoxImport.bookmarksQuery))
+            var skipped: [ImportSkip] = []
+            let bookmarks = FirefoxImport.bookmarks(rows: sqlite(places, FirefoxImport.bookmarksQuery), skip: { skipped.append($0) })
             if kind == .zen {
                 let sidebar = ZenImport.sidebar(profile: profile) { sqlite(places, ZenImport.workspacesQuery) }
-                return ZenImport.plan(sidebar: sidebar, bookmarks: bookmarks)
+                return ZenImport.plan(sidebar: sidebar, bookmarks: bookmarks, bookmarksSkipped: skipped)
             }
-            return FirefoxImport.plan(browser: name, bookmarks: bookmarks,
-                                      openTabs: FirefoxImport.session(profile: profile).map(FirefoxImport.openTabs) ?? [])
+            let tabs = FirefoxImport.session(profile: profile, skip: { skipped.append($0) })
+                .map { FirefoxImport.openTabs(session: $0, skip: { skipped.append($0) }) } ?? []
+            return FirefoxImport.plan(browser: name, bookmarks: bookmarks, openTabs: tabs, skipped: skipped)
         }
     }
 }
