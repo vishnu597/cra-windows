@@ -43,6 +43,12 @@ struct TestItem {
     var isTab: Bool { tab != nil }
 }
 enum TestRoot { case today }
+@MainActor final class BlockLists {
+    static let shared = BlockLists()
+    func isPaused(url: String) -> Bool { false }
+    func style(for host: String) -> String { "" }
+}
+
 @MainActor final class SidebarStore {
     static let documentReplaced = Notification.Name("CraSidebarDocumentReplaced")
     struct Settings {
@@ -54,6 +60,7 @@ enum TestRoot { case today }
         }
         var shareThemeWithWebsites = true
         var blockCookieBanners = false
+        var blockAdsAndTrackers = true
         var littleWindowOnOptionCommandClick = false
         /// Settings ▸ Links ▸ a middle click in a split adds a pane (#498), off by default.
         var splitMiddleClickAddsPane = false
@@ -137,6 +144,9 @@ enum TestRoot { case today }
     /// The profiles a loaded page asked for Web Store installs in (#203), in order.
     var webStoreProfiles: [String] = []
     func installFromWebStore(using browser: CraBrowser, profile: String) { webStoreProfiles.append(profile) }
+    /// The profiles a loaded page brought its shared extensions up to date in (discussion #595), in order.
+    var sharedProfiles: [String] = []
+    func reconcileShared(profile: String, using browser: CraBrowser? = nil) { sharedProfiles.append(profile) }
 }
 enum BrowsingDataClear {
     enum Range { case allTime }

@@ -307,6 +307,9 @@ built release app with a test profile. Note anything that fails in the release's
 - **#354:** on two displays, with another app full screen on the primary one and Cra on the
   other: a link that opens a tab, a ⌘-click that opens one behind, a tab whose page has to load,
   a Peek and DevTools all leave the primary display on its full-screen Space.
+- **#774:** the same two displays: a click on a link that downloads (with and without Ask Where to
+  Save), a page's file picker and an alert leave the primary display on its full-screen Space,
+  and only Cra's download flight shows, no arrow of Chromium's.
 - **#231:** with Keep Cra in the menu bar on, the C shows in the menu bar in light and dark.
   ⌘Q takes the windows and the Dock icon away, and focus goes to the app behind. A full-screen
   window leaves its Space first. ⌥⌘N from another app opens a Little Window at once, with the
@@ -692,6 +695,20 @@ built release app with a test profile. Note anything that fails in the release's
   hold it: it presses in under the finger (94 %, Arc Search's about 94.5 %) and comes back out without
   growing past its size (it puffed up to 106 %). `PillPressTests` covers a held press; a quick tap's way
   back needs an eye.
+
+- **The bar's settle:** on a TestFlight build on a real iPhone, flick the page up and down quickly,
+  each flick landing while the bar is still moving, and flick from near the bottom where the
+  home-indicator swipe can take the touch: the bar always comes to rest fully open or closed, never
+  between them. The simulator cannot stage a system gesture taking the page's pan;
+  `testFlicksLandingOnASettleLeaveTheBarAtAnEnd` covers the flicks themselves.
+
+- **The page under the bar (iOS 26):** on a TestFlight build on a real iPhone, open a long page with
+  a sticky or fixed `bottom: 0` element and drag the bar slowly both ways, then let it settle: the
+  element rides on the bar's top every frame, never under it and never apart from it, the page's
+  scroll stays even under the finger the whole way, the page's content shows through the bar's
+  frosted material, and the last line scrolls clear of the bar.
+  `PageUnderBarTests` pins the geometry in the simulator; the blur and the frame rate are a phone's
+  to judge.
 
 - **Pull to refresh:** on a TestFlight build on a real iPhone with System Haptics on, pull a page down
   from its top: the page's whole view comes down with the pull (its content stays at the top inside it, so

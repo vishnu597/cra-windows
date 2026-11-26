@@ -299,10 +299,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// checkbox). The bundled list (resources/blocklist) and the lists added in Settings (#507)
     /// are read off the main thread; the switch and the lists follow the settings live, no restart.
     private func startContentBlocking() {
+        observeContentBlocking()
         observeChanges(of: { [store] in store.settings.customBlocklists }) { [composition] in
             BlockLists.shared.set(addresses: $0, clock: composition.clock)
         }
-        observeContentBlocking()
+        BlockLists.shared.hidingChanged = { [weak self] in
+            for window in self?.mainWindows ?? [] { window.browsers.refreshElementHiding() }
+        }
+        observeChanges(of: { [store] in store.settings.activePersonalFilters }) {
+            BlockLists.shared.setPersonal($0)
+        }
         observeHttpsOnly()
         // Arc's "Archive Little Arcs after:": a Little Window left alone that long closes, its page archived.
         littleWindowArchiveCheck = composition.clock.every(60) { [weak self] in self?.archiveIdleLittleWindows() }
@@ -471,6 +477,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Chromium calls each profile what Cra does, after a rename too (#666).
         store.onProfileNamesChanged = { [store] in ChromiumProfileNames.apply(store: store) }
         ChromiumProfileNames.apply(store: store)
+        // Shared extensions belong in every profile, one made later too (discussion #595).
+        ExtensionStore.profileFoldersSource = { [weak self] in ["Default"] + (self?.store.profiles.map(\.directoryName) ?? []) }
+        observeChanges(of: { [store] in store.profiles.map(\.directoryName) }) { _ in ExtensionStore.shared.pushManagedExtensions() }
     }
 
     /// Chromium's secure DNS setting (Settings > Privacy, chrome://settings/security), left on
@@ -528,7 +537,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var globalHotkey: GlobalHotkey?
 
     private func observeContentBlocking() {
-        observeChanges(of: { [store] in store.settings.blockAdsAndTrackers }, apply: CraCEFRuntime.setContentBlockingEnabled)
+        observeChanges(of: { [store] in store.settings.pausedFilterHosts ?? [] }) {
+            BlockLists.shared.setPausedHosts($0)
+        }
+        observeChanges(of: { [store] in store.settings.hasActiveBlockFilters }) {
+            CraCEFRuntime.setContentBlockingEnabled($0)
+        }
+        observeChanges(of: { [store] in
+            (store.settings.adAwayEnabled ? ["adaway"] : []) + (store.settings.anudeepEnabled ? ["anudeep"] : [])
+        }) {
+            BlockLists.shared.setBundledSources($0)
+        }
     }
 
     /// The last update notice toasted this launch (UpdateNotice.toast), and how many were.
@@ -1889,6 +1908,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 CraLog.note("extension list \(label): incognito=\(target.pageIsIncognito ? 1 : 0) [\(names)]")
                 return
             }
+            // extensionProfiles=<label>: the line Settings ▸ Extensions shows under each extension, which profiles have it
+            // (discussion #595).
+            if let label = dict["extensionProfiles"] {
+                ExtensionStore.shared.reload()
+                let profiles = [("Default", store.profileName(nil))] + store.profiles.map { ($0.directoryName, $0.name) }
+                for e in ExtensionStore.shared.entries {
+                    CraLog.note("extension profiles \(label): \(e.extensionID) \(ExtensionStore.shared.profilesLine(for: e, profiles: profiles))")
+                }
+                return
+            }
+            // shareExtension=<id>[&profile=<folder>&included=0|1], stopSharing=<id>, removeShared=<id>: what Settings ▸
+            // Extensions does for a shared extension, past its confirmations (discussion #595).
+            if let id = dict["shareExtension"] {
+                ExtensionStore.shared.reload()
+                guard let e = ExtensionStore.shared.entries.first(where: { $0.extensionID == id }) else {
+                    CraLog.note("shared extension \(id): not installed"); return
+                }
+                if let profile = dict["profile"] {
+                    ExtensionStore.shared.setShared(e, profile: profile, included: dict["included"] != "0")
+                } else {
+                    ExtensionStore.shared.share(e)
+                }
+                return
+            }
+            if let id = dict["stopSharing"] ?? dict["removeShared"],
+               let e = ExtensionStore.shared.entries.first(where: { $0.extensionID == id }) {
+                if dict["stopSharing"] != nil { ExtensionStore.shared.stopSharing(e) } else { ExtensionStore.shared.removeShared(e) }
+                return
+            }
             if let id = dict["removeExtension"] {
                 if let e = ExtensionStore.shared.entries.first(where: { $0.extensionID == id }) { ExtensionStore.shared.remove(e) }
                 return
@@ -2032,6 +2080,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // externalURL=<url>: a link as another app hands it over (Air Traffic Control, #258);
             // the installed Cra would get one sent with `open`.
             if let url = dict["externalURL"] { openExternalURL(url); return }
+            // appLinkOwnedByCra=<scheme>: Cra stands as the Mac's app for it (#821; AppLinkPrompt).
+            if let scheme = dict["appLinkOwnedByCra"] {
+                AppLinkPrompt.debugSchemesOwnedByCra = scheme.isEmpty ? [] : [scheme.lowercased()]
+                return
+            }
             // airTrafficControl=<png path>: the Air Traffic Control sheet with the current routes,
             // drawn off screen (#258), so its popups can be checked without taking the screen.
             if let out = dict["airTrafficControl"] {
@@ -3042,7 +3095,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // Settings ▸ Privacy ▸ Fingerprinting protection on or off, as its switch sets it.
             if let v = dict["fingerprinting"] { store.settings.fingerprintingProtection = v == "on"; return }
             // Settings ▸ Privacy without the pointer (#507): blockLists=<address,…>|none sets the added
-            // block lists, blockAds=on|off the switch they sit under.
+            // block lists, blockAds=on|off both offline sources.
+            if let url = dict["toggleSiteFilters"], let host = AppSettings.filterHost(url) {
+                store.settings.toggleFilters(on: host)
+                return
+            }
             if let v = dict["blockLists"] { store.settings.customBlocklists = v == "none" ? [] : v.split(separator: ",").map(String.init); return }
             if let v = dict["blockAds"] {
                 store.settings.blockAdsAndTrackers = v == "on"
@@ -3228,6 +3285,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             // spaceCreation=state|type:<name>|icon:<emoji>|symbol:<name>|theme:<n>|profile:<n>|engine:<keyword>|create|cancel: Arc's
             // Create a Space page, one step on it, and what it and the dock then show.
+            // plusMenu=<label>: the colours the sidebar's + menu opens with (#822: dark or light with the Mac's appearance).
+            if let label = dict["plusMenu"] {
+                CraLog.note("plus menu \(label): " + ((main.shell.sidebarHost as? SidebarView)?.debugCreationMenuColors() ?? "no sidebar"))
+                return
+            }
             if let step = dict["spaceCreation"] { main.debugSpaceCreation(step); return }
             if let g = dict["swipe"]?.split(separator: ",").compactMap({ Double($0) }), g.count == 2 {
                 // &releaseStall=<ms>: the main thread held that long after the release, as a busy space switch holds it (#613).
@@ -3545,6 +3607,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 main.testDragEnded(tab.id, at: point)
                 return
             }
+            // sidebarEdge=doubleClick: a double click on the sidebar's edge (#819).
+            if dict["sidebarEdge"] == "doubleClick" { main.testSidebarEdgeDoubleClick(); return }
             // edgeDrag=next|previous[&hold=<seconds>]: a row's drag held just past the sidebar's right or
             // left edge, which pages to the space on that side every SidebarEdgeDrag.delay (#499).
             if let edge = dict["edgeDrag"] {

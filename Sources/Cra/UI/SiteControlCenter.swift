@@ -239,12 +239,20 @@ final class SiteControlCenterView: NSView {
         }
         // Settings: three switch rows.
         let settings = SiteSectionView(title: "Settings", hoverText: nil, colors: colors, onHeaderClick: {})
+        let developer = store.settings.isDeveloperMode(url: url)
+        // Per site like Arc (#326); Settings ▸ Tabs keeps the default for the others.
+        let autoPiP = store.settings.allowsAutoPictureInPicture(url: url)
         let store = store, url = url
+        var rowsSpec: [(String, String, String, Bool, () -> Void)] = [
+            ("hammer.fill", "Developer Mode", developer ? "On" : "Off", developer, { store.settings.toggleDeveloperMode(url: url) }),
+            ("gearshape.fill", "Automatic Picture-In-Picture", autoPiP ? "Allowed" : "Disabled",
+             autoPiP, { store.settings.toggleAutoPictureInPicture(url: url) }),
+        ]
         // Chromium's blocker doesn't see a WebKit page: no switch that does nothing there.
-        var available = Set(SiteControlCenter.Setting.allCases)
-        if protectedMedia != nil { available.remove(.blockAdsAndTrackers) }
-        var rowsSpec: [(String, String, String, Bool, () -> Void)] = SiteControlCenter.settingRows(store.settings, url: url, available: available).map { r in
-            (r.symbol, r.title, r.subtitle, r.isOn, { SiteControlCenter.toggle(r.setting, in: &store.settings, url: url) })
+        if protectedMedia == nil, let host = AppSettings.filterHost(url) {
+            let active = store.settings.pausedFilterHosts?.contains(host) != true
+            rowsSpec.insert(("shield.fill", "Ad Blocking", active ? "On" : "Off · Reload page",
+                             active, { store.settings.toggleFilters(on: host) }), at: 1)
         }
         // A page that plays DRM, or one in WebKit: which engine plays this site, or for a mixed
         // site (YouTube) its protected videos or just this one (docs/protected-media.md).

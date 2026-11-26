@@ -1502,6 +1502,8 @@ final class ResizeHandleView: NSView {
     /// pointer, snaps at slow speeds and hides the sidebar when dragged far enough).
     var onResize: ((_ translation: CGFloat, _ speed: CGFloat) -> Void)?
     var onEnd: (() -> Void)?
+    /// A double click on the strip (the sidebar's: Arc's default width, #819). Its press starts no drag.
+    var onDoubleClick: (() -> Void)?
     /// The sidebar's side: on the right a drag toward the window's left makes it wider (#464).
     var side: SidebarSide = .left
     private var lastX: CGFloat = 0
@@ -1536,6 +1538,10 @@ final class ResizeHandleView: NSView {
     private func x(_ event: NSEvent) -> CGFloat { side.place(dx: event.locationInWindow.x) }
 
     override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2, let onDoubleClick {
+            onDoubleClick()
+            return
+        }
         lastX = x(event)
         startX = lastX
         lastTime = event.timestamp
@@ -1544,6 +1550,7 @@ final class ResizeHandleView: NSView {
         onBegin?()
     }
     override func mouseDragged(with event: NSEvent) {
+        guard dragging else { return }
         let x = x(event)
         let dt = event.timestamp - lastTime
         // Smoothed like a pan recognizer's velocity, so one quick event doesn't read as a fling.
@@ -1554,6 +1561,7 @@ final class ResizeHandleView: NSView {
         NSCursor.resizeLeftRight.set()
     }
     override func mouseUp(with event: NSEvent) {
+        guard dragging else { return }
         dragging = false
         onEnd?()
         superview?.needsLayout = true

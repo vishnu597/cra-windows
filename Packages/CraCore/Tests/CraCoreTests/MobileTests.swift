@@ -85,6 +85,17 @@ struct MobileChromeTests {
         #expect(frames.pill.midX == 187.5)
     }
 
+    /// Dragged down, the bar's top edge runs from its open place to the safe area's line: 776 to
+    /// 818 on this phone, its own 42 pt of travel, and no further.
+    @Test func theBarsTopEdgeRidesItsTravel() {
+        let size = CGSize(width: 393, height: 852)
+        #expect(MobileBottomBar.top(in: size, safeBottom: 34, progress: 0) == 776)
+        #expect(MobileBottomBar.top(in: size, safeBottom: 34, progress: 0.5) == 797)
+        #expect(MobileBottomBar.top(in: size, safeBottom: 34, progress: 1) == 818)
+        #expect(MobileBottomBar.top(in: size, safeBottom: 34, progress: 2) == 818, "clamped")
+        #expect(MobileBottomBar.top(in: size, safeBottom: 34, progress: -1) == 776, "clamped")
+    }
+
     /// With the bar scrolled away, a tap on the home indicator's strip brings it back (#509).
     @Test(.bug("https://github.com/VictorKildahl/cra/issues/509"))
     func aTapUnderThePageBringsTheBarBack() {
@@ -566,6 +577,20 @@ struct MobileTabCarouselTests {
         #expect(abs(previous.frame.minX - 10) < 0.1 && abs(previous.scale - 0.977) < 0.001)
         #expect(previous.dim == MobileTabCarousel.maximumDim)
         #expect(MobileTabCarousel.placement(relative: -0.5, in: Self.phone).dim == 0.08)
+    }
+
+    /// With only one tab, Arc Search puts its card in the middle of the screen (Brady Sewall's picture on #816, an
+    /// iPhone 440 pt wide: the card 66 to 374 pt); Cra kept it left of centre, where a card with a neighbour sits.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/816")) func aLoneCardSitsInTheMiddle() {
+        for screen in [Self.phone, CGSize(width: 440, height: 956)] {
+            let alone = MobileTabCarousel.placement(relative: 0, in: screen, alone: true).frame
+            #expect(abs(alone.midX - screen.width / 2) < 0.5, "centred on \(screen.width): \(alone)")
+            #expect(alone.size == MobileTabCarousel.placement(relative: 0, in: screen).frame.size)
+        }
+        let big = MobileTabCarousel.placement(relative: 0, in: CGSize(width: 440, height: 956), alone: true).frame
+        #expect(abs(big.minX - 66) < 2 && abs(big.maxX - 374) < 2, "where Arc Search has it: \(big)")
+        // With a neighbour the card in focus stays where Arc Search puts it, left of centre.
+        #expect(abs(MobileTabCarousel.placement(relative: 0, in: Self.phone).frame.minX - 83) < 0.1)
     }
 
     @Test func draggingFollowsTheFingerAndResistsPastTheEnds() {
@@ -1318,6 +1343,15 @@ struct MobileFavoritesTests {
 }
 
 struct MobileMotionTests {
+    /// The shared ease-out starts quick, ends soft and stays inside 0...1.
+    @Test func theEaseOutLeavesQuicklyAndSettlesSoftly() {
+        #expect(MobileMotion.easeOut(0) == 0 && MobileMotion.easeOut(1) == 1)
+        #expect(MobileMotion.easeOut(0.5) == 0.875)
+        #expect(MobileMotion.easeOut(-1) == 0 && MobileMotion.easeOut(2) == 1)
+        #expect(MobileMotion.easeOut(0.1) > 0.25, "a quick start")
+        #expect(MobileMotion.easeOut(0.9) > 0.99, "a soft end")
+    }
+
     /// Arc Search's tab row: each frame leaves about 0.54 of the distance of the frame before,
     /// once the motion is under way.
     @Test func theTabRowSettlesAtArcSearchsRate() {
@@ -1790,6 +1824,13 @@ struct MobileSelectionQueryTests {
 
 /// Links from other apps' share sheets, waiting in the App Group for the app.
 struct MobileShareInboxTests {
+    /// #829: "Tabs" and "Favorites" read like the Mac's synced Spaces, so a link seemed to go to the Mac and didn't. The
+    /// share sheet's places say they are the iPhone's own, until the phone can save into a Mac Space (Arc Search's places).
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/829")) func thePlacesSayTheyAreOnTheIPhone() {
+        #expect(MobileShareInbox.Destination.tabs.label == "iPhone Tabs")
+        #expect(MobileShareInbox.Destination.favorites.label == "iPhone Favorites")
+    }
+
     /// A saved link joins the row behind what is on screen.
     @Test func aSavedLinkJoinsTheRowWithoutTakingTheScreen() {
         let now = Date(timeIntervalSince1970: 0)
