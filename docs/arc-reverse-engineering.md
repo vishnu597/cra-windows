@@ -3933,9 +3933,17 @@ events, the window recorded with `screencapture -V`.
 
 - [O static] `LittleBrowser.State` holds `profile: Profile` and `shouldShowProfileIndicators: Bool`;
   `LittleBrowserCreationProfileType = profile(Profile) | lastUsedProfileFromStandardWindow`, and the window
-  record keeps the profile (`little { profile: … }` in StorableWindows.json, above). So a Little Arc gets
-  the profile of the window used last when it opens and keeps it; "Open in <space>" follows the window used
-  last separately (issue #92).
+  record keeps the profile (`little { profile: … }` in StorableWindows.json, above). A Little Arc keeps the
+  profile it opened with; which one that is, the next entry says.
+- [O live] Arc 1.173.1, 25 Nov 2026, an installed Arc with two profiles and a year of use, links sent with
+  `open <url>` from another app, `defaults read company.thebrowser.Browser domainToProfilePreferences` before and
+  after, and screenshots of the address pill. Picking a profile in a Little Arc's pill writes
+  `domainToProfilePreferences` {site: profile folder ("Default", "Profile 1")}; a later pick on the same site
+  replaces it, and opening a link writes nothing. The site is the host without `www.`, a subdomain a site of its
+  own, and for a link that redirected it is the link's host (bit.ly, not where it went). A later link to a site
+  there opens in that profile and "Open in <space>" names a space on it, whichever window was used last; a site
+  not there takes the window used last (`lastUsedProfileFromStandardWindow`). With two spaces on the profile Arc
+  named the first in the sidebar. Not seen: whether a pick made in the window used last is written too.
 - [O static] The toolbar's ViewState has `profileName: String?`, drawn as `URLField.Accessory.profileIndicator
   {profileName, onClick}` in the address field (AX id `littleBrowserProfileIndicator`) by ProfilesUI's
   `ProfileIndicatorView` (`ProfileIndicatorConfig {profileName, tooltip, theme, size condensed|full,
@@ -3955,7 +3963,13 @@ events, the window recorded with `screencapture -V`.
 - Cra: `LittleWindowState.profileID` (set when the window opens, kept), `LittleProfileChip` in the pill left of
   the extensions button (the tooltip pill's 22 pt metrics, white 31/255), the menu Default | profiles with the
   page's ticked, an NSAlert with that text and "Don’t ask again" (defaults
-  `shouldBypassConfirmLittleWindowProfileDialog`), then the page reloads in a new browser in that profile.
+  `shouldBypassConfirmLittleWindowProfileDialog`), then the page reloads in a new browser in that profile:
+  the link the window opened (or the address typed into its empty card), never where its redirects ended (a
+  sign-in page with the first profile's challenge), until the page goes on from that entry; then the page shown
+  (`LittleProfileChange`). Arc's own reload address is not measured yet (its pick is keyed by the link's host,
+  above). The pick is remembered for the reloaded address's site (`SiteProfiles` in windows.json); a link to the
+  site opens in the space used last when it is on that profile, else in the first space on it. An Arc import
+  brings `domainToProfilePreferences` over for the profiles its spaces are on.
 
 ## Peek and the copy toast's Share button (Arc 1.171, 3 Nov 2026, offline Arc)
 
@@ -5480,3 +5494,12 @@ ignore a press with no hover before it), read off full-screen 2x captures with t
   profile pair, 4,752 of 4,757 such entries were found, 12 of them in both (#729).
 - **Open question:** how Arc's bar ranks `searchHistory`'s results against open tabs, and its
   `maxResults`. Neither is in the strings.
+
+## Close Tab in a Favorite's menu (24 Nov 2026, Arc 1.173.1, #740)
+
+- **Seen in the reporter's Arc:** ⌘W on the Favorite shown only deselects it, and its page keeps running (c7541f37).
+  Close Tab in the Favorite's own right-click menu closes it: its page goes, and a click on the Favorite loads it again.
+  So the menu is the one way to let a Favorite's page go by hand.
+- **Cra:** `CloseSuccessor.pinnedClose(isFavorite:fromItsMenu:)`. The menu's Close Tab unloads the Favorite back to its
+  pinned page, whether it is shown or loaded behind another tab; ⌘W and every other close still only deselect it.
+- **Open questions:** Arc's Favorite split menu, and whether ⇧⌘T brings a Favorite closed this way back.

@@ -128,6 +128,9 @@ to Markdown or `docs/` alone runs nothing.
   few production files with `swiftc` against fakes (`Tests/BrowserManagerSupport` stands in
   for CraCEF and the rest of the app). When the manager calls something new from the app, add
   a stub to `AppServices.swift`.
+- `scripts/test-site-icons.sh`: `SiteIconLoader` and `FaviconCache` against an HTTP server on
+  127.0.0.1: a site that never answers, a dropped connection, redirects, the candidate limit, an
+  icon that claims 20000 px, and a PDF served as an icon.
 - `scripts/test-store.sh`: the real `SidebarStore`, `AppComposition` and importers on a
   `ManualScheduler`, against the made-up Arc and Chromium profiles in `Tests/Fixtures`.
 - `scripts/test-tidy-downloads.sh`: `TidyDownloadsService` and `TidyDownloadFiles` on real files
@@ -153,6 +156,8 @@ to Markdown or `docs/` alone runs nothing.
   checks remain in [release-checklist.md](release-checklist.md).
 - `Windows/scripts/test-cef-cache-version.ps1`: filesystem regressions for the Windows build's
   dependency cache, including stale CEF commit/Chromium versions and explicit version overrides.
+- `scripts/test-skipped-list.sh`: the import window's skipped list (`SkippedList`) off screen: 8,500
+  rows open in under 2 s, built as they scroll in, and the list is as tall as its rows up to 280 pt.
 - `scripts/test-content-blocker.sh`: the engine's ad and tracker matching
   (`Sources/CraCEF/CraContentBlocker.h`) on Cra's own list, through a C shim: sites' own hosts
   stay first party, and what a site needs to load isn't on the list (Reddit, #586).

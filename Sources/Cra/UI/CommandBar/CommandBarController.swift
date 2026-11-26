@@ -103,7 +103,7 @@ final class CommandBarController {
         selectedIndex = 0
         previewText = nil
         noticePressed = false
-        result = listed(engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown))
+        result = listed(engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown, folderSpace: window == .browser ? focusedSpaceID : nil))
         isOpen = true
         if onInstantLinks != nil { InstantLinksService.shared.prewarm(store) }
     }
@@ -147,7 +147,11 @@ final class CommandBarController {
             guard let self, self.isOpen, self.query == typed else { return }
             self.relist()
         }
-        result = listed(engine.suggestions(for: newQuery, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown))
+        engine.fetchHistory(for: typed, spaceShown: spaceShown) { [weak self] in
+            guard let self, self.isOpen, self.query == typed else { return }
+            self.relist()
+        }
+        result = listed(engine.suggestions(for: newQuery, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown, folderSpace: window == .browser ? focusedSpaceID : nil))
         if !allowCompletion { result.inlineCompletion = nil }
         selectedIndex = 0
         previewText = nil
@@ -157,7 +161,7 @@ final class CommandBarController {
     private func relist() {
         guard scope == nil else { return }
         let selectedID = result.items.indices.contains(selectedIndex) ? result.items[selectedIndex].id : nil
-        result = listed(engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown))
+        result = listed(engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown, folderSpace: window == .browser ? focusedSpaceID : nil))
         if !allowCompletion { result.inlineCompletion = nil }
         if let i = result.items.firstIndex(where: { $0.id == selectedID }) {
             selectedIndex = i
@@ -322,6 +326,28 @@ final class CommandBarController {
         onNoticeLearnMore()
     }
 
+    /// Whether row `index` is a visited page's, which Arc's ✕ and ⌥⌘⌫ delete (#779).
+    func canDelete(row index: Int) -> Bool {
+        guard scope == nil, result.items.indices.contains(index), !store.window().isIncognito else { return false }
+        return SuggestionDeletion.page(rowID: result.items[index].id) != nil
+    }
+
+    /// Arc's Delete Suggestion (#779): row `index` (the ✕ clicked) or the selected row (⌥⌘⌫) leaves the bar's
+    /// profile's history and the list; the selection stays on its line. false when the row isn't a visited page's.
+    @discardableResult
+    func delete(row index: Int? = nil) -> Bool {
+        let i = index ?? selectedIndex
+        guard canDelete(row: i), engine.delete(result.items[i]) else { return false }
+        let selectedID = i == selectedIndex ? nil : result.items.indices.contains(selectedIndex) ? result.items[selectedIndex].id : nil
+        result = listed(engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown))
+        if !allowCompletion { result.inlineCompletion = nil }
+        selectedIndex = result.items.firstIndex { $0.id == selectedID }
+            ?? SuggestionDeletion.selection(afterDeleting: i, count: result.items.count)
+        previewText = selectedIndex == 0 ? nil : result.items.indices.contains(selectedIndex) ? result.items[selectedIndex].fieldText(typed: query) : nil
+        previewVersion += 1
+        return true
+    }
+
     /// The pointer is over row `index`: it selects the row once the pointer has moved since the
     /// rows last changed (CraCore HoverGate, #382).
     func hover(row index: Int) {
@@ -395,6 +421,17 @@ final class CommandBarPanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// ⌥⌘⌫ deletes the selected visited page, as Arc's Delete Suggestion (#779). The field editor never turns it into a
+    /// command (⌘⌫ and ⌥⌫ are its own), so the panel takes it as it arrives; on any other row it does nothing.
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, SuggestionDeletion.isShortcut(keyCode: event.keyCode, modifiers: event.modifierFlags.rawValue),
+           let bar = contentView as? CommandBarView {
+            bar.deleteSelectedSuggestion()
+            return
+        }
+        super.sendEvent(event)
+    }
 
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 680, height: 60),

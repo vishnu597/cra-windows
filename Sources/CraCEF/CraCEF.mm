@@ -3331,6 +3331,7 @@ static NSView* FindRenderWidgetHostView(NSView* root) {
 - (NSArray<NSDictionary<NSString*, id>*>*)extensionActionMenuItems:(NSString*)extensionID { return @[]; }
 - (BOOL)runExtensionMenuItem:(NSString*)itemID extension:(NSString*)extensionID { return NO; }
 - (BOOL)uninstallExtension:(NSString*)extensionID { return NO; }
+- (void)allowAppLinkScheme:(NSString*)scheme fromOrigin:(NSString*)origin {}
 - (BOOL)runChromeCommand:(NSString*)name {
     if (!_browser) return NO;
     int command = cef_id_for_command_id_name(name.UTF8String);
@@ -3710,6 +3711,9 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
     g_extensionTabHandler = [handler copy];
 }
 + (void)setAppLinkHandler:(BOOL (^)(CraBrowser*, NSString*, BOOL))handler { g_appLinkHandler = [handler copy]; }
++ (NSString*)appLinkInitiatingOrigin { return nil; }
++ (BOOL)appLinkOriginIsRememberable { return NO; }
++ (BOOL)appLinkAllowedWithoutAsking { return NO; }
 + (void)setViewSourceHandler:(void (^)(CraBrowser*, NSString*))handler { g_viewSourceHandler = [handler copy]; }
 + (BOOL)runNextPageMenuCommand:(NSString*)name {
     int command = cef_id_for_command_id_name(name.UTF8String);
@@ -3831,6 +3835,14 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
         return NO;
     }
     return YES;
+}
+// Searching the profile's Chromium history is the engine's (#730); CEF builds find nothing there.
++ (void)searchHistory:(NSString*)text profilePath:(NSString*)profilePath maxCount:(NSInteger)maxCount
+           completion:(void (^)(NSArray<NSDictionary<NSString*, id>*>*))completion {
+    completion(@[]);
+}
++ (BOOL)deleteHistoryURL:(NSString*)url profilePath:(NSString*)profilePath {
+    return NO;
 }
 + (NSInteger)loadStateOfProfile:(NSString*)profilePath {
     if (!profilePath.length) return g_contextInitialized ? 2 : 1;

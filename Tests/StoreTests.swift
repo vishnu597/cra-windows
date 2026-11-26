@@ -26,9 +26,31 @@ enum StoreTests {
         try arcImport()
         try arcKeepsAnyAddress()
         try importedTabsKeepTheirOwnIcons()
+        try arcIconsBeyondTheSidebarCache()
         try diaImport()
+        try diaIconsFromItsDatabase()
         try ardiaImport()
+        try arcImportReport()
+        try arcSpacesOnOneProfileCountTheirFavoritesOnce()
+        try arcArchiveBeyondItsLimitIsListed()
+        try arcTabThatIsNoLiveItemIsListed()
+        try diaImportReport()
+        try ardiaImportReport()
+        try yabImportReport()
+        try yabFavoritesCountAsYabHoldsThem()
+        try arcCraAddressesAreListed()
+        diaSidebarCraAddressesAreListed()
+        try diaLegacyLeftOutAreListed()
+        chromiumImportReport()
+        firefoxImportReport()
+        zenImportReport()
+        try safariImportReport()
         try yabImport()
+        try yabOwnIcons()
+        pinPickerReadsTheImportsIconStores()
+        iconFilesAreDecodedSmall()
+        faviconDatabaseLookup()
+        try chromiumAndFirefoxPlansBringIcons()
         try yabKeepsAnyAddress()
         chromiumProfile()
         try firefoxImport()
@@ -36,6 +58,7 @@ enum StoreTests {
         try safariImport()
         deletedBrowserStillImports()
         protectedBrowserAsksForFullDiskAccess()
+        importListReadsNothingInsideABrowsersFolder()
         signedInChromeProfileImports()
         chromiumManifestV2Import()
         zenFaviconSize()
@@ -87,6 +110,7 @@ enum StoreTests {
         try arcLiveFolderImportsLive()
         try arcSpaceWithoutAnIconImportsAsADot()
         try arcSpaceIconTabGlyphImports()
+        try arcStubContainerBeforeTheSpaces()
         littleWindowProfile()
         tidyTabs()
         tidyExistingGroupIdentity()
@@ -154,6 +178,7 @@ enum StoreTests {
         expect(composition.store.integrityProblems().isEmpty, "the imported sidebar is sound")
         arcLinkRoutes(store: composition.store)
         arcProfiles(plan: plan, store: composition.store)
+        arcSiteProfiles(plan: plan, store: composition.store)
     }
 
     // promise: #742
@@ -252,6 +277,36 @@ enum StoreTests {
         expect(store.integrityProblems().isEmpty, "the imported sidebar is sound")
     }
 
+    /// Arc keeps icons beyond SidebarItemsFaviconCache: an archived tab's in ArchiveItemsFaviconCache
+    /// (md5 of its id, Tests/Fixtures/Arc), and every page it loaded in its profiles' Favicons databases.
+    @MainActor
+    private static func arcIconsBeyondTheSidebarCache() throws {
+        let cached = try Data(contentsOf: ArcImporter.supportDir.appendingPathComponent("ArchiveItemsFaviconCache/8a8bb7cd343aa2ad99b7d762030857a2"))
+        let plan = try ArcImporter.plan()
+        let old1 = plan.archive.first { $0.url == "https://example.com/old/1" }, old2 = plan.archive.first { $0.url == "https://example.com/old/2" }
+        expect(old1?.faviconPath.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) } == cached, "an archived tab comes with the icon Arc cached for it")
+        expect(old2 != nil && old2?.faviconPath == nil, "an archived tab Arc cached no icon for comes without one")
+
+        let store = AppComposition(clock: ManualScheduler()).store
+        store.apply(plan, includeArchive: true, includeSettings: false)
+        let archived = store.archive.first { $0.item.tab?.url == "https://example.com/old/1" }?.item
+        expect(archived?.tab?.faviconKey == archived.map { FaviconKey.key(site: "example.com", tabID: $0.id) },
+               "an archived tab's icon goes under its own key, the one the Library's row reads")
+        expect(savedFavicon(archived?.tab?.faviconKey) == cached, "and it is the icon Arc had for it")
+
+        // Arc's Favicons database, for the tabs Arc's sidebar cache has no file for.
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cra-arc-icons-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let userData = root.appendingPathComponent("User Data", isDirectory: true)
+        makeChromiumUserData(userData, bookmarks: [], icons: [("http://example.com/", 20)])
+        let withDatabase = try ArcImporter.plan(favicons: userData)
+        func all(_ items: [ImportedItem]) -> [ImportedItem] { items.flatMap { $0.isFolder ? all($0.children) : [$0] } }
+        let home = withDatabase.spaces.first { $0.title == "Home" }.map { all($0.pinned) + all($0.today) } ?? []
+        let uncached = home.first { $0.url == "https://example.com/today/1" }, news = home.first { $0.url == "https://example.com/news" }
+        expect(pixelsWide(uncached?.faviconPath) == 20, "a tab Arc cached no icon for takes its host's from Arc's Favicons database")
+        expect(news?.faviconPath != nil && news?.faviconPath == ArcImporter.faviconFile(forItemID: "home-p1"), "a tab Arc cached an icon for keeps that one")
+    }
+
     // promise: #258
     /// Air Traffic Control comes over pointed at the spaces of the same name; a Little Arc that
     /// names a space becomes a Little Window in it (#258).
@@ -265,6 +320,24 @@ enum StoreTests {
         expect(to("work.example.com") == .littleWindow(space: work), "a Little Arc in Work opens a Little Window in Work")
         expect(to("example.com/standup") == .space(home) && to("meet.google.com") == .mostRecentSpace, "space routes keep their space")
         expect(store.settings.defaultLinkDestination == .littleWindowInUse, "Little Arc as the default stays in the space in use")
+    }
+
+    // promise: #768
+    /// Arc's domainToProfilePreferences: the profile picked for each site in a Little Arc comes over on the
+    /// Cra profile its folder became.
+    @MainActor
+    private static func arcSiteProfiles(plan: ImportPlan, store: SidebarStore) {
+        let work = store.orderedSpaces.first { $0.title == "Work" }!, home = store.orderedSpaces.first { $0.title == "Home" }!
+        let client = store.profiles.first { $0.name == "Client" }
+        let sites = store.prefs.siteProfiles
+        expect(plan.settings.siteProfiles.map { "\($0.site) \($0.folder)" } == ["example.com Default", "other.example.com Profile 9", "work.example.com Profile 2"],
+               "the profile picked for each site in a Little Arc comes from the fixture's preferences, not this Mac's Arc")
+        expect(sites.profile(for: "https://work.example.com/a") == RememberedProfile(id: client?.id)
+               && sites.profile(for: "https://www.example.com/") == RememberedProfile(id: nil),
+               "each site keeps its Little Arc profile, on the Cra profile its folder became")
+        expect(sites.profile(for: "https://other.example.com/") == nil, "a site on a profile no imported space is on follows the window used last")
+        expect(sites.space(for: "https://work.example.com/", lastUsed: home.id, in: store.orderedSpaces) == work.id,
+               "so a Little Window on it opens in Work")
     }
 
     // promise: #131
@@ -350,6 +423,26 @@ enum StoreTests {
         expect(mode(target) == 0o600 && mode(target.deletingLastPathComponent()) == 0o700, "owner only, like Chromium's own")
     }
 
+    /// Dia's plan brings each tab's icon from its profiles' Favicons databases, here a copy of the
+    /// fixture's sidebar beside a Favicons made for the test.
+    @MainActor
+    private static func diaIconsFromItsDatabase() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cra-dia-icons-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let userData = root.appendingPathComponent("User Data", isDirectory: true)
+        makeChromiumUserData(userData, bookmarks: [], icons: [("https://example.com/", 21)])
+        let fixture = DiaImporter.userData.appendingPathComponent("Profile 1", isDirectory: true)
+        let profile = userData.appendingPathComponent("Profile 1", isDirectory: true)
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        for name in ["tabs.db", "tabs.db-wal"] {
+            try FileManager.default.copyItem(at: fixture.appendingPathComponent(name), to: profile.appendingPathComponent(name))
+        }
+        let plan = try DiaImporter.plan(secret: "cra-test-secret", userData: userData)
+        let home = plan.spaces.first { $0.title == "Home" }
+        expect(home?.favorites.first?.url == "https://example.com/mail" && pixelsWide(home?.favorites.first?.faviconPath) == 21,
+               "a Dia tab comes with its host's icon from Dia's Favicons database")
+    }
+
     /// Dia 1.55's encrypted sidebar (Tests/Fixtures/Dia, rebuilt by its make-fixture.py with the
     /// Safe Storage secret "cra-test-secret").
     @MainActor
@@ -395,6 +488,473 @@ enum StoreTests {
         expect(open.count == 6 && open.allSatisfy { $0.tab?.timeLastActiveAt == clock.now },
                "open tabs count as active at the import, so auto-archive doesn't take weeks-old Dia tabs at once")
         expect(composition.store.integrityProblems().isEmpty, "the imported sidebar is sound")
+    }
+
+    // MARK: Import reports
+
+    /// After an import the tabs, favorites and archive tiles each read "N of M" of their own kind,
+    /// on the base each showed before the import, so the numbers match. Arc's profile leaves
+    /// nothing out, and a second import of it counts what Cra already has as copied, not as skipped.
+    @MainActor
+    private static func arcImportReport() throws {
+        let plan = try ArcImporter.plan()
+        let store = AppComposition(clock: ManualScheduler()).store
+        let first = store.apply(plan, includeArchive: true, includeSettings: false)
+        let pinnedAndToday = plan.spaces.reduce(0) { $0 + $1.itemCount }
+        expect(first.report[.tabs] == ImportReport(.tabs, copied: pinnedAndToday) && first.report[.tabs].summary == "\(pinnedAndToday) of \(pinnedAndToday) tabs",
+               "the tabs tile counts the pinned and Today tabs, as before the import")
+        let download = ImportSkip(title: "Download", url: "blob:https://example.com/5f1c", reason: .onlyInItsBrowser, kind: .archive)
+        expect(first.report[.archive] == ImportReport(.archive, copied: 2, skipped: [download]) && first.report[.archive].summary == "2 of 3 tabs",
+               "the archive tile counts the archive, its blob: tab listed")
+        // Work's profile has no favorites of its own, so it shows Default's: Arc holds two favorites.
+        expect(plan.spaces.allSatisfy { $0.favorites.count == 2 } && first.report[.favorites] == ImportReport(.favorites, copied: 2),
+               "a space borrowing another profile's favorites counts them in that list, once, as Arc holds them")
+        let again = store.apply(plan, includeArchive: true, includeSettings: false)
+        expect(again.archived == 0, "the second import finds the archive already in Cra")
+        expect(again.report == first.report, "and counts it as copied: the same N of N, nothing listed")
+        for id in first.spaceIDs + again.spaceIDs { store.deleteSpace(id) }
+
+        // Favorites that belong to no space go to the focused one, where the second import finds them.
+        var favorites = ImportPlan(source: "Arc")
+        favorites.favorites = plan.spaces[0].favorites
+        _ = store.apply(favorites, includeArchive: false, includeSettings: false)
+        let twice = store.apply(favorites, includeArchive: false, includeSettings: false)
+        expect(twice.tabs == 0 && twice.report[.favorites] == ImportReport(.favorites, copied: favorites.favorites.count),
+               "favorites Cra already has count as copied, not as skipped")
+    }
+
+    /// Two Arc spaces on one profile share its favorites: the favorites tile counts the profile's
+    /// two, not two per space.
+    @MainActor
+    private static func arcSpacesOnOneProfileCountTheirFavoritesOnce() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Arc/StorableSidebar.json")
+        var root = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as! [String: Any]
+        var sidebar = root["sidebar"] as! [String: Any]
+        var containers = sidebar["containers"] as! [[String: Any]]
+        let main = containers.firstIndex { $0["spaces"] != nil }!
+        var spaces = containers[main]["spaces"] as! [Any]
+        let work = spaces.firstIndex { ($0 as? String) == "work" }! + 1
+        var space = spaces[work] as! [String: Any]
+        space["profile"] = ["default": true]
+        spaces[work] = space
+        containers[main]["spaces"] = spaces
+        sidebar["containers"] = containers
+        root["sidebar"] = sidebar
+        let plan = try ArcImporter.plan(sidebar: JSONSerialization.data(withJSONObject: root))
+        expect(plan.spaces.map(\.profile) == [nil, nil] && plan.spaces.allSatisfy { $0.favorites.compactMap(\.url) == ["https://example.com/mail", "https://example.com/calendar"] },
+               "both spaces are on Default and carry its favorites")
+        expect(plan.report(includeArchive: false)[.favorites].summary == "2 of 2 favorites", "the tile reads the profile's two")
+        let store = AppComposition(clock: ManualScheduler()).store
+        let result = store.apply(plan, includeArchive: false, includeSettings: false)
+        expect(result.report[.favorites] == ImportReport(.favorites, copied: 2), "and so does the import")
+        for id in result.spaceIDs { store.deleteSpace(id) }
+    }
+
+    /// Cra takes Arc's newest 1500 archived tabs; the older ones are listed, and only when the
+    /// archive comes over.
+    @MainActor
+    private static func arcArchiveBeyondItsLimitIsListed() throws {
+        let sidebar = try Data(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Arc/StorableSidebar.json"))
+        let entries: [[String: Any]] = (0...1500).map { i in
+            ["sidebarItem": ["id": "old-\(i)", "data": ["tab": ["savedURL": "https://example.com/old/\(i)", "savedTitle": "Old \(i)"]]],
+             "reason": "auto", "archivedAt": 700000000.0 + Double(i)]
+        }
+        let plan = try ArcImporter.plan(sidebar: sidebar, archive: JSONSerialization.data(withJSONObject: ["items": entries]))
+        expect(plan.archive.count == 1500 && plan.archiveSkipped == [ImportSkip(title: "Old 0", url: "https://example.com/old/0", reason: .olderArchive(limit: 1500), kind: .archive)],
+               "the oldest archived tab past 1500 is listed as left out")
+        var archiveOnly = ImportPlan(source: "Arc")
+        archiveOnly.archiveSkipped = plan.archiveSkipped
+        let store = AppComposition(clock: ManualScheduler()).store
+        expect(!store.apply(archiveOnly, includeArchive: false, includeSettings: false).report[.archive].isShown,
+               "without the archive its skipped tabs aren't listed")
+        let archiveKept = store.apply(archiveOnly, includeArchive: true, includeSettings: false).report
+        expect(archiveKept[.archive].isShown && archiveKept[.archive].skipped == plan.archiveSkipped && archiveKept[.archive].skipped.first?.kind == .archive,
+               "with the archive and no space picked, they are on the archive tile")
+    }
+
+    /// A tab someone put in Arc's GitHub live folder by hand stands for no pull request: the live
+    /// folder refills itself and leaves it out, and the list says so.
+    @MainActor
+    private static func arcTabThatIsNoLiveItemIsListed() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Arc/StorableSidebar.json")
+        var root = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as! [String: Any]
+        var sidebar = root["sidebar"] as! [String: Any]
+        var containers = sidebar["containers"] as! [[String: Any]]
+        let main = containers.firstIndex { $0["spaces"] != nil }!
+        var items = containers[main]["items"] as! [Any]
+        func item(_ id: String, children: [String] = [], data: [String: Any]) -> [Any] {
+            [id, ["id": id, "childrenIds": children, "createdAt": 800000000.0, "data": data] as [String: Any]]
+        }
+        let pr = "https://github.com/example/app/pull/1"
+        items += item("work-prs", children: ["work-pr1", "work-notes", "work-group"],
+                      data: ["list": ["automaticLiveFolderData": ["dataSource": ["github": [String: Any]()]]]])
+        items += item("work-pr1", data: ["tab": ["savedURL": pr, "savedTitle": "Pull 1", "liveItemID": ["url": ["_0": pr]]]])
+        items += item("work-notes", data: ["tab": ["savedURL": "https://example.com/notes", "savedTitle": "Notes"]])
+        items += item("work-group", children: ["work-deep"], data: ["list": [String: Any]()])
+        items += item("work-deep", data: ["tab": ["savedURL": "https://example.com/deep", "savedTitle": "Deep"]])
+        let pinned = items.firstIndex { ($0 as? String) == "work-pinned" }! + 1
+        var container = items[pinned] as! [String: Any]
+        container["childrenIds"] = ["work-prs"]
+        items[pinned] = container
+        containers[main]["items"] = items
+        sidebar["containers"] = containers
+        root["sidebar"] = sidebar
+        let plan = try ArcImporter.plan(sidebar: JSONSerialization.data(withJSONObject: root))
+
+        let store = AppComposition(clock: ManualScheduler()).store
+        let result = store.apply(plan, includeArchive: false, includeSettings: false)
+        let tabs = plan.spaces.reduce(0) { $0 + $1.itemCount }
+        expect(result.report[.tabs].skipped == [ImportSkip(title: "Notes", url: "https://example.com/notes", reason: .notALiveItem),
+                                                ImportSkip(title: "Deep", url: "https://example.com/deep", reason: .notALiveItem)],
+               "the hand-added tab, and the tab in a hand-added folder, are listed as no item of the live folder")
+        expect(result.report[.tabs].total == tabs && result.report[.tabs].copied == tabs - 2, "and count in the total only")
+        for id in result.spaceIDs { store.deleteSpace(id) }
+    }
+
+    /// Dia's archive takes web pages only (Tests/Fixtures/Dia/StorableAutoArchive.json has a
+    /// chrome:// one): the page is listed when the archive comes over.
+    @MainActor
+    private static func diaImportReport() throws {
+        let plan = try DiaImporter.plan(secret: "cra-test-secret")
+        expect(plan.archive.map(\.url) == ["https://example.com/archived"]
+               && plan.archiveSkipped == [ImportSkip(title: "Settings", url: "chrome://settings/", reason: .notAWebPage, kind: .archive)],
+               "a chrome:// page in Dia's archive is left out and listed; its blank and new tab pages were never tabs")
+        let store = AppComposition(clock: ManualScheduler()).store
+        let without = store.apply(plan, includeArchive: false, includeSettings: false)
+        expect(!without.report[.archive].isShown
+               && without.report[.tabs].skipped == [ImportSkip(title: "Odd 4", url: "blob:https://example.com/5f1c", reason: .onlyInItsBrowser)],
+               "without the archive, only the sidebar's blob: tab is listed")
+        let with = store.apply(plan, includeArchive: true, includeSettings: false)
+        expect(with.report[.archive] == ImportReport(.archive, copied: 1, skipped: plan.archiveSkipped)
+               && with.report[.archive].summary == "1 of 2 tabs", "with it, the archive tile lists its chrome:// page")
+        expect(with.report[.tabs] == without.report[.tabs], "and the tabs tile stays as it was")
+        var noSpaces = plan
+        noSpaces.spaces = []
+        expect(plan.report(includeArchive: true)[.archive].isShown && noSpaces.report(includeArchive: true)[.archive].skipped == plan.archiveSkipped,
+               "with every space left out, the archive tile still shows its skipped page")
+        for id in without.spaceIDs + with.spaceIDs { store.deleteSpace(id) }
+    }
+
+    /// A skip for a tab or bookmark at Cra's own cra: address, which an import leaves behind (#742).
+    private static func cra(_ title: String, _ url: String, _ kind: ImportKind = .tabs) -> ImportSkip {
+        ImportSkip(title: title, url: url, reason: .craAddress, kind: kind)
+    }
+
+    /// Ardia's cra: tab and blob: tab (Tests/Fixtures/Ardia) are listed; its empty new tab and blank
+    /// page were never tabs, and its other addresses come over (#742).
+    @MainActor
+    private static func ardiaImportReport() throws {
+        let plan = try ArdiaImporter.plan()
+        let download = ImportSkip(title: "Download", url: "blob:https://design.example.com/5f1c", reason: .onlyInItsBrowser)
+        expect(plan.spaces.map(\.skipped) == [[cra("Cra Settings", "cra://settings")], [download], []],
+               "Ardia's cra: tab and blob: tab are listed in their spaces, nothing else")
+        let store = AppComposition(clock: ManualScheduler()).store
+        let result = store.apply(plan, includeArchive: false, includeSettings: false)
+        let tabs = plan.spaces.reduce(0) { $0 + $1.itemCount }
+        expect(result.report[.tabs].copied == tabs && result.report[.tabs].summary == "\(tabs) of \(tabs + 2) tabs", "two short of the total")
+        var picked = plan
+        picked.spaces.removeFirst()
+        let others = store.apply(picked, includeArchive: false, includeSettings: false)
+        expect(others.report[.tabs].skipped == [download], "a space not picked lists nothing of its own")
+        for id in result.spaceIDs + others.spaceIDs { store.deleteSpace(id) }
+    }
+
+    /// Yab's about:blank tab (Tests/Fixtures/Yab/session.json) is a blank page, never a tab: nothing
+    /// is listed.
+    private static func yabImportReport() throws {
+        let plan = try YabImporter.plan(supportDir: YabImporter.supportDir, pinsInEverySpace: false)
+        expect(plan.spaces.allSatisfy(\.skipped.isEmpty), "Yab's blank page is not listed")
+    }
+
+    /// The favorites tile counts favorites as the source holds them: two Yab
+    /// spaces that each own a github.com tile bring two, the shared tiles every space shows bring
+    /// theirs once. Both spaces here sign in on one Chromium profile.
+    private static func yabFavoritesCountAsYabHoldsThem() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("cra-yab-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: dir) }
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let work = "4D3C2B1A-0000-4000-8000-0000000000AA"
+        func write(_ name: String, _ json: Any) throws { try JSONSerialization.data(withJSONObject: json).write(to: dir.appendingPathComponent(name)) }
+        let tiles: [[String: Any]] = [["id": "g", "url": "https://github.com/", "title": "GitHub", "pin": "G"],
+                                      ["id": "c", "url": "cra://settings", "title": "Cra Settings", "pin": "C"]]
+        try write("spaces.json", [["id": YabImporter.firstID, "name": "Personal"], ["id": work, "name": "Work"]])
+        try write("session.json", ["tabs": tiles + [["id": "n", "url": "https://news.example.com/", "title": "News"]]])
+        try write("session-\(work).json", ["tabs": tiles + [["id": "d", "url": "https://design.example.com/", "title": "Design"]]])
+        try write("session-\(YabImporter.sharedPinsID).json", ["tabs": tiles])
+        let settings = cra("Cra Settings", "cra://settings", .favorites)
+
+        let own = try YabImporter.plan(supportDir: dir, pinsInEverySpace: false).report(includeArchive: false)[.favorites]
+        expect(own.copied == 2 && own.skipped == [settings, settings], "each space's own tiles count for that space: 2 GitHub tiles, 2 rows")
+        let shared = try YabImporter.plan(supportDir: dir, pinsInEverySpace: true).report(includeArchive: false)[.favorites]
+        expect(shared.copied == 1 && shared.skipped == [settings], "the shared tiles count once, though every space shows them")
+    }
+
+    /// Arc's cra: tab, favorite and archived tab are listed, each on its own tile.
+    private static func arcCraAddressesAreListed() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Arc/StorableSidebar.json")
+        var root = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as! [String: Any]
+        var sidebar = root["sidebar"] as! [String: Any]
+        var containers = sidebar["containers"] as! [[String: Any]]
+        let main = containers.firstIndex { $0["spaces"] != nil }!
+        var items = containers[main]["items"] as! [Any]
+        func add(_ id: String, _ url: String, _ title: String, to container: String) {
+            items += [id, ["id": id, "childrenIds": [String](), "createdAt": 800000000.0, "data": ["tab": ["savedURL": url, "savedTitle": title]]] as [String: Any]]
+            let at = items.firstIndex { ($0 as? String) == container }! + 1
+            var c = items[at] as! [String: Any]
+            c["childrenIds"] = (c["childrenIds"] as? [String] ?? []) + [id]
+            items[at] = c
+        }
+        add("home-cra", "cra://settings", "Cra Settings", to: "home-today")
+        add("fav-cra", "cra://downloads", "Downloads", to: "fav")
+        containers[main]["items"] = items
+        sidebar["containers"] = containers
+        root["sidebar"] = sidebar
+        let archive = ["items": [["sidebarItem": ["id": "old-cra", "data": ["tab": ["savedURL": "cra://history", "savedTitle": "History"]]],
+                                  "reason": "auto", "archivedAt": 700000000.0]]]
+        let plan = try ArcImporter.plan(sidebar: JSONSerialization.data(withJSONObject: root), archive: JSONSerialization.data(withJSONObject: archive))
+        let report = plan.report(includeArchive: true)
+        expect(report[.tabs].skipped == [cra("Cra Settings", "cra://settings")], "a cra: tab is listed on the tabs tile")
+        expect(plan.skipped.isEmpty && report[.favorites].skipped.map(\.url) == ["cra://downloads"] && report[.favorites].total == 3,
+               "a cra: favorite on the favorites tile, once, though Home and Work both show Default's Top Apps")
+        expect(report[.archive].skipped == [cra("History", "cra://history", .archive)], "a cra: archived tab on the archive tile")
+        expect(plan.selecting(spaces: [1], favorites: true).report(includeArchive: false)[.favorites].skipped.map(\.url) == ["cra://downloads"]
+               && !plan.selecting(spaces: [], favorites: true).report(includeArchive: false)[.favorites].isShown,
+               "it shows with a space that shows its list, and not with none picked")
+
+        // Work's profile with Top Apps of its own, holding the same cra: favorite: Arc holds two.
+        let work: [String: Any] = ["custom": ["_0": ["directoryBasename": "Profile 2", "machineID": "fixture-machine"]]]
+        items += ["fav2", ["id": "fav2", "childrenIds": ["fav2-cra"], "createdAt": 800000000.0,
+                           "data": ["itemContainer": ["containerType": ["topApps": ["_0": work]]]]] as [String: Any]]
+        items += ["fav2-cra", ["id": "fav2-cra", "childrenIds": [String](), "createdAt": 800000000.0,
+                               "data": ["tab": ["savedURL": "cra://downloads", "savedTitle": "Downloads"]]] as [String: Any]]
+        containers[main]["items"] = items
+        sidebar["containers"] = containers
+        root["sidebar"] = sidebar
+        let two = try ArcImporter.plan(sidebar: JSONSerialization.data(withJSONObject: root), archive: nil).report(includeArchive: false)[.favorites]
+        expect(two.skipped.map(\.url) == ["cra://downloads", "cra://downloads"], "a left-out favorite counts once per Top Apps container")
+    }
+
+    /// Dia's sidebar database (a plain one made here, in tabs.db's schema): a cra: tab is listed, a
+    /// cra: favorite on the favorites tile.
+    private static func diaSidebarCraAddressesAreListed() {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("cra-dia-\(UUID().uuidString).db")
+        defer { try? FileManager.default.removeItem(at: file) }
+        var db: OpaquePointer?
+        sqlite3_open(file.path, &db)
+        sqlite3_exec(db, """
+            CREATE TABLE spaces (id TEXT PRIMARY KEY, title TEXT, creation_date DATE, theme TEXT);
+            CREATE TABLE nodes (id INTEGER PRIMARY KEY, kind TEXT, entity_id TEXT, parent_id INTEGER, "order" INTEGER, deleted_at DATETIME, space_id TEXT);
+            CREATE TABLE tabs (id TEXT PRIMARY KEY, node_id INTEGER, creation_date DATE);
+            CREATE TABLE tab_groups (id TEXT PRIMARY KEY, node_id INTEGER, title TEXT);
+            CREATE TABLE content_panes (id TEXT PRIMARY KEY, node_id INTEGER, custom_title TEXT);
+            CREATE TABLE web_contents (id INTEGER PRIMARY KEY, content_pane_id TEXT, url TEXT, title TEXT);
+            INSERT INTO spaces VALUES ('home', 'Home', '2026-10-01 08:00:00.000', 'neutral');
+            INSERT INTO nodes VALUES (1, 'window', 'w', NULL, 0, NULL, 'home'), (2, 'tab', 't-2', 1, 0, NULL, 'home'), (3, 'content_pane', 'p-3', 2, 0, NULL, 'home'),
+                (4, 'tab', 't-4', 1, 1, NULL, 'home'), (5, 'content_pane', 'p-5', 4, 0, NULL, 'home'),
+                (6, 'favorites', 'f', NULL, 1, NULL, 'home'), (7, 'tab', 't-7', 6, 0, NULL, 'home'), (8, 'content_pane', 'p-8', 7, 0, NULL, 'home');
+            INSERT INTO content_panes VALUES ('p-3', 3, NULL), ('p-5', 5, NULL), ('p-8', 8, NULL);
+            INSERT INTO web_contents (content_pane_id, url, title) VALUES ('p-3', 'https://example.com/open', 'Open'),
+                ('p-5', 'cra://settings', 'Cra Settings'), ('p-8', 'cra://downloads', 'Downloads');
+            """, nil, nil, nil)
+        sqlite3_close(db)
+        let spaces = SQLiteSnapshot(copying: file).map(DiaSidebar.spaces(in:)) ?? []
+        expect(spaces.first?.today.compactMap(\.url) == ["https://example.com/open"], "Dia's web page comes over")
+        expect(spaces.first?.skipped == [cra("Downloads", "cra://downloads", .favorites), cra("Cra Settings", "cra://settings")],
+               "its cra: favorite and cra: tab are listed, each on its own tile")
+    }
+
+    /// Dia's files from before 1.55 (a copy of Tests/Fixtures/Dia with cra: entries added): its open
+    /// tabs and favorites, and its bookmarks bar, list what they leave out, each on its tile.
+    private static func diaLegacyLeftOutAreListed() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("cra-dia-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: dir) }
+        try fm.copyItem(at: URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Dia"), to: dir)
+        func tab(_ url: String, _ title: String) -> [String: Any] {
+            ["contents": [["variant": ["webContent": ["_0": ["url": url, "title": title]]]]], "creationDate": 800000000.0]
+        }
+        let containers = dir.appendingPathComponent("StorableProfileContainers.json")
+        var root = try JSONSerialization.jsonObject(with: Data(contentsOf: containers)) as! [String: Any]
+        var list = root["containers"] as! [[String: Any]]
+        list[0]["tabs"] = (list[0]["tabs"] as! [Any]) + [tab("cra://downloads", "Downloads")]
+        list[1]["tabs"] = (list[1]["tabs"] as! [Any]) + [tab("cra://settings", "Cra Settings")]
+        root["containers"] = list
+        try JSONSerialization.data(withJSONObject: root).write(to: containers)
+        let bookmarksFile = dir.appendingPathComponent("User Data/Profile 1/Bookmarks")
+        var bookmarks = try JSONSerialization.jsonObject(with: Data(contentsOf: bookmarksFile)) as! [String: Any]
+        var roots = bookmarks["roots"] as! [String: Any], bar = roots["bookmark_bar"] as! [String: Any]
+        var kids = bar["children"] as! [[String: Any]]
+        kids[0]["children"] = (kids[0]["children"] as! [Any]) + [["type": "url", "name": "History", "url": "cra://history"]]
+        kids.append(["type": "url", "name": "Extensions", "url": "cra://extensions"])
+        bar["children"] = kids
+        roots["bookmark_bar"] = bar
+        bookmarks["roots"] = roots
+        try JSONSerialization.data(withJSONObject: bookmarks).write(to: bookmarksFile)
+
+        let plan = try DiaImporter.plan(supportDir: dir, userData: dir.appendingPathComponent("User Data"))
+        let download = ImportSkip(title: "Download", url: "blob:https://example.com/5f1c", reason: .onlyInItsBrowser)
+        let all = plan.report(includeArchive: false)
+        expect(all[.favorites].skipped == [cra("Downloads", "cra://downloads", .favorites), cra("Extensions", "cra://extensions", .favorites)]
+               && Set(all[.tabs].skipped.map(\.url)) == ["blob:https://example.com/5f1c", "cra://settings", "cra://history"] && all[.tabs].skipped.count == 4,
+               "a favorite and the bar's own bookmark go on the favorites tile, open tabs and folders' bookmarks on the tabs tile")
+        let dia = plan.spaces.firstIndex { $0.title == "Dia" }, reading = plan.spaces.firstIndex { $0.title == "Reading" }
+        expect(dia.map { plan.spaces[$0].skipped } == [download, cra("Cra Settings", "cra://settings")]
+               && reading.map { plan.spaces[$0].skipped } == [download, cra("History", "cra://history")],
+               "the open tabs' rows go with the Dia space, a folder's with the space it becomes")
+        let nothing = plan.selecting(spaces: [], favorites: false).report(includeArchive: false)
+        expect(!nothing[.tabs].isShown && !nothing[.favorites].isShown, "with no space and no favorites picked, nothing is listed")
+    }
+
+    /// Chrome's file: bookmark and its other addresses come over (#742); its new tab page and closed
+    /// tab were never tabs. A cra: bookmark or tab is listed. A session or Bookmarks file that can't
+    /// be read is one row.
+    @MainActor
+    private static func chromiumImportReport() {
+        let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Chromium")
+        let plan = (try? ChromiumImporter.plan(browser: "Chrome", userData: fixtures)) ?? ImportPlan(source: "Chrome")
+        let download = ImportSkip(title: "Download", url: "blob:https://example.com/5f1c", reason: .onlyInItsBrowser)
+        expect(plan.spaces.count == 1 && plan.spaces.first?.skipped == [download, download],
+               "Chrome's blob: bookmark and blob: tab are listed; its new tab page, blank page and closed tab are not")
+
+        // SNSS version 1: one tab at a cra: address. Pickles: uint32 payload size, then 4-byte aligned fields.
+        func pickle(_ fields: [Data]) -> Data { let body = fields.reduce(Data(), +); return le32(UInt32(body.count)) + body }
+        func le32(_ v: UInt32) -> Data { withUnsafeBytes(of: v.littleEndian) { Data($0) } }
+        func string(_ s: String) -> Data { let d = Data(s.utf8); return le32(UInt32(d.count)) + d + Data(count: (4 - d.count % 4) % 4) }
+        func string16(_ s: String) -> Data {
+            let units = Array(s.utf16), d = units.reduce(Data()) { $0 + withUnsafeBytes(of: $1.littleEndian) { Data($0) } }
+            return le32(UInt32(units.count)) + d + Data(count: (4 - d.count % 4) % 4)
+        }
+        func command(_ id: UInt8, _ body: Data) -> Data { withUnsafeBytes(of: UInt16(body.count + 1).littleEndian) { Data($0) } + Data([id]) + body }
+        let session = Data("SNSS".utf8) + le32(1)
+            + command(6, pickle([le32(7), le32(0), string("cra://settings"), string16("Cra Settings")]))
+            + command(7, le32(7) + le32(0))
+        var rows: [ImportSkip] = []
+        _ = ChromiumImporter.parseSession(session, file: "Session_8") { rows.append($0) }
+        expect(rows == [cra("Cra Settings", "cra://settings")], "a cra: tab in the session is listed")
+        rows = []
+        _ = ChromiumImporter.parseSession(Data("SNSS".utf8) + Data([4, 0, 0, 0]) + Data(repeating: 1, count: 16), file: "Session_9") { rows.append($0) }
+        expect(rows == [.unreadable("Open tabs", file: "Session_9")], "an encrypted session is one row")
+
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("cra-unreadable-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try? fm.createDirectory(at: root.appendingPathComponent("Default"), withIntermediateDirectories: true)
+        try? fm.createDirectory(at: root.appendingPathComponent("Profile 1"), withIntermediateDirectories: true)
+        try? Data(#"{"roots":{"bookmark_bar":{"children":[{"type":"url","name":"Docs","url":"https://docs.example.com/"},{"type":"url","name":"Cra Settings","url":"cra://settings"}]}}}"#.utf8)
+            .write(to: root.appendingPathComponent("Profile 1/Bookmarks"))
+        let bookmarks = root.appendingPathComponent("Default/Bookmarks")
+        try? Data("{not json".utf8).write(to: bookmarks)
+        let broken = (try? ChromiumImporter.plan(browser: "Chrome", userData: root)) ?? ImportPlan(source: "Chrome")
+        expect(broken.spaces.map(\.skipped) == [[cra("Cra Settings", "cra://settings")]], "a cra: bookmark is listed in its profile's space")
+        expect(broken.skipped == [.unreadable("Bookmarks", file: bookmarks.path)],
+               "a damaged Bookmarks file is one row, kept though the profile brings no space")
+        var noSpaces = broken
+        noSpaces.spaces = []
+        expect(noSpaces.report(includeArchive: false)[.tabs].isShown, "with no space to import, the tabs tile still shows, for the row")
+        let result = AppComposition(clock: ManualScheduler()).store.apply(noSpaces, includeArchive: false, includeSettings: false)
+        expect(result.report[.tabs].skipped == broken.skipped && result.report[.tabs].summary == "No tabs", "the row shows without a count")
+    }
+
+    /// A Firefox or Zen profile in a temporary folder: profiles.ini and the given files.
+    private static func firefoxProfile(_ files: [String: Data]) -> (root: URL, profile: URL) {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("cra-firefox-\(UUID().uuidString)", isDirectory: true)
+        let profile = root.appendingPathComponent("abc.default-release", isDirectory: true)
+        try? fm.createDirectory(at: profile.appendingPathComponent("sessionstore-backups"), withIntermediateDirectories: true)
+        try? Data("[Profile0]\nName=default-release\nIsRelative=1\nPath=abc.default-release\nDefault=1\n".utf8)
+            .write(to: root.appendingPathComponent("profiles.ini"))
+        fm.createFile(atPath: profile.appendingPathComponent("places.sqlite").path, contents: Data())
+        for (name, data) in files { try? data.write(to: profile.appendingPathComponent(name)) }
+        return (root, profile)
+    }
+
+    /// Firefox's cra: and place: bookmarks and cra: and blob: tabs are listed; a session store that
+    /// can't be read is one row.
+    private static func firefoxImportReport() {
+        let session = (try? mozLz4(["windows": [["tabs": [
+            ["entries": [["url": "https://example.com/open", "title": "Open"]], "index": 1],
+            ["entries": [["url": "cra://history", "title": "History"]], "index": 1],
+            ["entries": [["url": "blob:https://example.com/5f1c", "title": "Download"]], "index": 1],
+        ]]]])) ?? Data()
+        let (root, profile) = firefoxProfile(["sessionstore.jsonlz4": session])
+        defer { try? FileManager.default.removeItem(at: root) }
+        var db: OpaquePointer?
+        sqlite3_open(profile.appendingPathComponent("places.sqlite").path, &db)
+        sqlite3_exec(db, """
+            CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url TEXT, title TEXT);
+            CREATE TABLE moz_bookmarks(id INTEGER PRIMARY KEY, type INTEGER, fk INTEGER, parent INTEGER, position INTEGER, title TEXT, dateAdded INTEGER, guid TEXT);
+            INSERT INTO moz_places VALUES (1, 'https://example.com/docs', 'Docs'), (2, 'cra://settings', NULL), (3, 'place:sort=8&maxResults=10', NULL);
+            INSERT INTO moz_bookmarks VALUES (1, 2, NULL, 0, 0, '', 0, 'root________'), (2, 2, NULL, 1, 0, 'toolbar', 0, 'toolbar_____'),
+                (3, 1, 1, 2, 0, 'Docs', 0, 'b1'), (4, 1, 2, 2, 1, 'Cra Settings', 0, 'b2'), (5, 1, 3, 2, 2, 'Most Visited', 0, 'b3');
+            """, nil, nil, nil)
+        sqlite3_close(db)
+        let plan = (try? FirefoxImporter.plan(browser: "Firefox", root: root)) ?? ImportPlan(source: "Firefox")
+        expect(plan.spaces.first?.pinned.map(\.url) == ["https://example.com/docs"] && plan.spaces.first?.today.map(\.url) == ["https://example.com/open"],
+               "Firefox's web pages come over")
+        expect(plan.spaces.first?.skipped == [cra("Cra Settings", "cra://settings"),
+                                              ImportSkip(title: "Most Visited", url: "place:sort=8&maxResults=10", reason: .onlyInItsBrowser),
+                                              cra("History", "cra://history"),
+                                              ImportSkip(title: "Download", url: "blob:https://example.com/5f1c", reason: .onlyInItsBrowser)],
+               "its cra: bookmark, place: query, cra: tab and blob: tab are listed")
+
+        let (brokenRoot, brokenProfile) = firefoxProfile(["sessionstore.jsonlz4": Data("mozLz40\0garbage".utf8)])
+        defer { try? FileManager.default.removeItem(at: brokenRoot) }
+        var rows: [ImportSkip] = []
+        _ = FirefoxImporter.openTabs(profile: brokenProfile) { rows.append($0) }
+        expect(rows == [.unreadable("Open tabs", file: brokenProfile.appendingPathComponent("sessionstore.jsonlz4").path)],
+               "a session store that can't be read is one row")
+    }
+
+    /// Zen's cra: tab is listed, its cra: Essential on the favorites tile; its empty and glance tabs
+    /// were never tabs.
+    private static func zenImportReport() {
+        let sidebar = (try? mozLz4(["spaces": [["uuid": "s1", "name": "Home", "position": 0], ["uuid": "s2", "name": "Work", "position": 1]], "folders": [], "tabs": [
+            ["zenWorkspace": "s2", "entries": [["url": "https://example.com/b", "title": "B"]], "index": 1],
+            ["zenWorkspace": "s1", "entries": [["url": "https://example.com/a", "title": "A"]], "index": 1],
+            ["zenWorkspace": "s1", "entries": [["url": "cra://downloads", "title": "Downloads"]], "index": 1],
+            ["zenWorkspace": "s1", "zenEssential": true, "entries": [["url": "cra://settings", "title": "Cra Settings"]], "index": 1],
+            ["zenWorkspace": "s1", "zenIsEmpty": true, "entries": [["url": "about:blank", "title": ""]], "index": 1],
+            ["zenWorkspace": "s1", "zenIsGlance": true, "entries": [["url": "cra://history", "title": "History"]], "index": 1],
+        ]])) ?? Data()
+        let (root, _) = firefoxProfile(["zen-sessions.jsonlz4": sidebar])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let plan = (try? ZenImporter.plan(root: root)) ?? ImportPlan(source: "Zen")
+        expect(plan.spaces.first?.today.map(\.url) == ["https://example.com/a"], "Zen's web page comes over")
+        let settings = cra("Cra Settings", "cra://settings", .favorites)
+        expect(plan.spaces.first?.skipped == [cra("Downloads", "cra://downloads"), settings],
+               "its cra: tab is listed on the tabs tile, its cra: Essential on the favorites tile, the empty and glance tabs nowhere")
+        var work = plan
+        work.spaces.removeFirst()
+        expect(work.spaces.map(\.title) == ["Work"] && work.report(includeArchive: false)[.favorites].skipped == [settings],
+               "the Essentials come with every space, and so does the row of the one left out")
+        expect(plan.report(includeArchive: false)[.favorites].skipped == [settings], "listed once with both spaces picked")
+    }
+
+    /// Safari's exported cra: bookmark is listed. The Reading List isn't bookmarks: nothing in it is.
+    private static func safariImportReport() throws {
+        let fm = FileManager.default
+        let folder = fm.temporaryDirectory.appendingPathComponent("cra-safari-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: folder) }
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("""
+            <DL><p>
+            <DT><H3>Favorites</H3>
+            <DL><p>
+            <DT><A HREF="https://example.com/docs">Docs</A>
+            <DT><A HREF="cra://settings">Cra Settings</A>
+            </DL><p>
+            <DT><H3>Reading List</H3>
+            <DL><p>
+            <DT><A HREF="https://example.com/later">Later</A>
+            <DT><A HREF="cra://history">History</A>
+            </DL><p>
+            </DL><p>
+            """.utf8).write(to: folder.appendingPathComponent("Bookmarks.html"))
+        let plan = try SafariImporter.read(folder).plan
+        expect(plan.spaces.first?.pinned.map(\.url) == ["https://example.com/docs"]
+               && plan.spaces.first?.skipped == [cra("Cra Settings", "cra://settings")],
+               "Safari's cra: bookmark is listed; the Reading List stays out whole, so nothing in it is")
     }
 
     /// Ardia (X request, 18 Nov): its profiles are its spaces (Tests/Fixtures/Ardia/session.json).
@@ -503,6 +1063,221 @@ enum StoreTests {
                && result.profiles.craFolder(forSource: "space-00000000-0000-0000-0000-000000000001") == "Default",
                "the Work space's cookies go to its Cra profile, the shared ones to Default")
         expect(composition.store.integrityProblems().isEmpty, "the imported sidebar is sound")
+    }
+
+    /// Yab keeps icons of its own (Tests/Fixtures/Yab/icons): per page, listed in pages.json as
+    /// "<host><path>" and stored as pages/<hash>.png, else per host as <host>.png.
+    @MainActor
+    private static func yabOwnIcons() throws {
+        // A copy of the fixture with a second tab on news.example.com, at the page with an icon of its own.
+        let fixture = YabImporter.supportDir
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("cra-yab-icons-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.copyItem(at: fixture, to: copy)
+        setenv("CRA_YAB_DIR", copy.path, 1)
+        defer { setenv("CRA_YAB_DIR", fixture.path, 1); try? FileManager.default.removeItem(at: copy) }
+        let session = copy.appendingPathComponent("session.json")
+        guard var root = try JSONSerialization.jsonObject(with: Data(contentsOf: session)) as? [String: Any], var tabs = root["tabs"] as? [[String: Any]] else {
+            return expect(false, "the Yab fixture's session.json reads")
+        }
+        tabs.append(["id": "i", "url": "https://news.example.com/sport", "title": "Sport"])
+        root["tabs"] = tabs
+        try JSONSerialization.data(withJSONObject: root).write(to: session)
+
+        let icons = YabImporter.supportDir.appendingPathComponent("icons", isDirectory: true)
+        func shrunk(_ file: String) -> Data? { (try? Data(contentsOf: icons.appendingPathComponent(file))).flatMap { FaviconCache.png($0) } }
+        func icon(_ item: ImportedItem?) -> Data? { item?.faviconPath.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) } }
+        let plan = try YabImporter.plan(pinsInEverySpace: nil)
+        let personal = plan.spaces[0], work = plan.spaces[1]
+        let news = personal.today.first { $0.url == "https://news.example.com/" }, sport = personal.today.first { $0.url == "https://news.example.com/sport" }
+        expect(icon(sport) != nil && icon(sport) == shrunk("pages/5f0a1c2e3d4b5a6978695a4b.png"), "a tab on a page Yab has an icon for gets that page's icon")
+        expect(icon(news) != nil && icon(news) == shrunk("news.example.com.png"), "a tab on another page of the host gets the host's icon")
+        expect(icon(personal.favorites.first) != nil && icon(personal.favorites.first) == shrunk("mail.example.com.png"), "a tile gets its host's icon")
+        expect(work.today.first?.url == "https://design.example.com/" && work.today.first?.faviconPath == nil,
+               "a host with no icon file and no Favicons row gets none")
+
+        let store = AppComposition(clock: ManualScheduler()).store
+        let space = store.apply(plan, includeArchive: false, includeSettings: false).spaceIDs[0]
+        let today = (store.space(space)?.todayContainerID).map(store.tabs(under:)) ?? []
+        let newsTab = today.first { $0.tab?.url == "https://news.example.com/" }, sportTab = today.first { $0.tab?.url == "https://news.example.com/sport" }
+        expect(icon(news) != icon(sport) && savedFavicon(newsTab?.tab?.faviconKey) == icon(news) && savedFavicon(sportTab?.tab?.faviconKey) == icon(sport),
+               "two tabs on one host keep their different icons after the import")
+    }
+
+    /// The onboarding pin picker shows each site's icon from the stores the import reads: Yab's own
+    /// icons/ folder before its Favicons databases.
+    private static func pinPickerReadsTheImportsIconStores() {
+        let found = ImportSource.allCases.first { $0.id == "yab" }?.favicons(hosts: ["mail.example.com", "design.example.com"]) ?? [:]
+        expect(found["mail.example.com"] != nil, "a site Yab has an icon file for shows it in the pin picker")
+        expect(found["design.example.com"] == nil, "a site with no icon anywhere shows none")
+    }
+
+    /// Icon files come from other browsers' stores and, for unit 2, from sites: a bitmap is shrunk
+    /// without being decoded at the size it claims, so a 20000 px PNG of a few KB costs nothing.
+    private static func iconFilesAreDecodedSmall() {
+        let start = Date()
+        let bomb = FaviconCache.png(hugePNG(side: 20000))
+        expect(Date().timeIntervalSince(start) < 1, "a PNG claiming 20000 px is handled at once, not decoded at that size")
+        expect(bomb.flatMap(NSBitmapImageRep.init(data:)).map { $0.pixelsWide <= 64 } ?? true, "and gives at most a 64 px icon")
+
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 256, pixelsHigh: 128, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                   isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        let wide = rep?.representation(using: .png, properties: [:]).flatMap { FaviconCache.png($0) }.flatMap(NSBitmapImageRep.init(data:))
+        expect(wide?.pixelsWide == 64 && wide?.pixelsHigh == 32, "a 256 px bitmap icon is shrunk to 64 px, keeping its shape")
+        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="2000"><rect width="3000" height="2000" fill="orange"/></svg>"#
+        let drawn = FaviconCache.png(Data(svg.utf8)).flatMap(NSBitmapImageRep.init(data:))
+        expect(drawn != nil && (drawn?.pixelsWide ?? .max) <= 64, "an SVG, which ImageIO can't read, is drawn at 64 px")
+    }
+
+    /// A black 1-bit PNG `side` px square, a few KB of zlib: a decoder that trusts its size allocates GBs.
+    private static func hugePNG(side: Int) -> Data {
+        func be32(_ v: UInt32) -> Data { withUnsafeBytes(of: v.bigEndian) { Data($0) } }
+        func crc32(_ d: Data) -> UInt32 {
+            var c: UInt32 = 0xFFFF_FFFF
+            for byte in d {
+                c ^= UInt32(byte)
+                for _ in 0..<8 { c = c & 1 == 1 ? (c >> 1) ^ 0xEDB8_8320 : c >> 1 }
+            }
+            return ~c
+        }
+        func chunk(_ type: String, _ body: Data) -> Data { let t = Data(type.utf8) + body; return be32(UInt32(body.count)) + t + be32(crc32(t)) }
+        let raw = side * (1 + (side + 7) / 8)  // every row: filter byte 0, then zero bits
+        let deflated = ((try? (Data(count: raw) as NSData).compressed(using: .zlib)) as Data?) ?? Data()
+        // zlib wraps the deflate stream: a header, and an Adler-32 that for zeros is (n mod 65521) << 16 | 1.
+        let zlib = Data([0x78, 0x01]) + deflated + be32(UInt32(raw % 65521) << 16 | 1)
+        let header = be32(UInt32(side)) + be32(UInt32(side)) + Data([1, 0, 0, 0, 0])
+        return Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + chunk("IHDR", header) + chunk("IDAT", zlib) + chunk("IEND", Data())
+    }
+
+    /// Chromium's Favicons and Firefox's favicons.sqlite hold icons by page address. A tab finds its
+    /// host's under http or https, on any port, with www. added or dropped, but never a sibling's.
+    private static func faviconDatabaseLookup() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cra-favicon-db-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let rows: [(page: String, side: Int)] = [
+            ("http://plain.example.com/page", 11), ("https://ported.example.com:8443/", 12), ("https://bare.example.com/", 13),
+            ("https://www.prefixed.example.com/", 14), ("https://mail.example.com/", 15), ("https://look.example.com.evil.test/", 17),
+            ("https://wide.example.com/a", 16), ("https://wide.example.com/b", 32),
+        ]
+        let hosts = ["plain.example.com", "ported.example.com", "www.bare.example.com", "prefixed.example.com", "drive.example.com",
+                     "look.example.com", "wide.example.com"]
+        let chromium = root.appendingPathComponent("Chromium", isDirectory: true), firefox = root.appendingPathComponent("Firefox", isDirectory: true)
+        makeChromiumUserData(chromium, bookmarks: [], icons: rows)
+        makeFirefoxData(firefox, bookmarks: [], icons: rows)
+        for (name, found) in [("Chromium", ChromiumImporter.favicons(userData: chromium, hosts: hosts)), ("Firefox", FirefoxImporter.favicons(root: firefox, hosts: hosts))] {
+            let side = found.mapValues { NSBitmapImageRep(data: $0)?.pixelsWide ?? 0 }
+            expect(side["plain.example.com"] == 11, "\(name): a page loaded over http gives its host an icon")
+            expect(side["ported.example.com"] == 12, "\(name): so does a page on a port")
+            expect(side["www.bare.example.com"] == 13, "\(name): a www. host finds the bare host's icon")
+            expect(side["prefixed.example.com"] == 14, "\(name): a bare host finds the www. host's icon")
+            expect(side["drive.example.com"] == nil, "\(name): a host never takes a sibling subdomain's icon")
+            expect(side["look.example.com"] == nil, "\(name): nor that of a longer host that starts with it")
+            expect(side["wide.example.com"] == 32, "\(name): the widest icon of the host wins")
+        }
+    }
+
+    /// Chrome-family and Firefox imports bring each tab's icon from the profile's favicon database.
+    private static func chromiumAndFirefoxPlansBringIcons() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cra-favicon-plans-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pages = ["https://plain.example.com/", "https://drive.example.com/"], icons: [(page: String, side: Int)] = [("http://plain.example.com/page", 11)]
+        let chromium = root.appendingPathComponent("Chromium", isDirectory: true), firefox = root.appendingPathComponent("Firefox", isDirectory: true)
+        makeChromiumUserData(chromium, bookmarks: pages, icons: icons)
+        makeFirefoxData(firefox, bookmarks: pages, icons: icons)
+        let plans = [("Chrome", try ChromiumImporter.planWithIcons(browser: "Chrome", userData: chromium)), ("Firefox", try FirefoxImporter.plan(browser: "Firefox", root: firefox))]
+        for (name, plan) in plans {
+            let items = plan.spaces.first?.pinned ?? []
+            expect(pixelsWide(items.first { $0.url == pages[0] }?.faviconPath) == 11, "\(name): a bookmark comes with its host's icon from the profile's database")
+            expect(items.count == 2 && items[1].faviconPath == nil, "\(name): a bookmark on a host the database has no icon for comes without one")
+        }
+        // The import preview caches icons by path: another browser's plan must not overwrite them.
+        let other = root.appendingPathComponent("Other", isDirectory: true)
+        makeChromiumUserData(other, bookmarks: pages, icons: [("https://plain.example.com/", 12)])
+        let second = try ChromiumImporter.planWithIcons(browser: "Brave", userData: other)
+        expect(pixelsWide(second.spaces.first?.pinned.first?.faviconPath) == 12 && pixelsWide(plans[0].1.spaces.first?.pinned.first?.faviconPath) == 11,
+               "a second browser's plan leaves the first one's icon files alone")
+    }
+
+    /// A Chrome-family "User Data" folder whose Default profile has `bookmarks` on its bar and an icon
+    /// `side` px wide in its Favicons for each page of `icons`.
+    private static func makeChromiumUserData(_ userData: URL, bookmarks: [String], icons: [(page: String, side: Int)]) {
+        let profile = userData.appendingPathComponent("Default", isDirectory: true)
+        try? FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        try? Data("{}".utf8).write(to: profile.appendingPathComponent("Preferences"))
+        let bar = bookmarks.enumerated().map { ["type": "url", "name": "Mark \($0.offset)", "url": $0.element] }
+        try? JSONSerialization.data(withJSONObject: ["roots": ["bookmark_bar": ["type": "folder", "children": bar]]])
+            .write(to: profile.appendingPathComponent("Bookmarks"))
+        var sql = """
+            CREATE TABLE icon_mapping(id INTEGER PRIMARY KEY, page_url LONGVARCHAR NOT NULL, icon_id INTEGER, page_url_type INTEGER DEFAULT 0);
+            CREATE INDEX icon_mapping_page_url_idx ON icon_mapping(page_url);
+            CREATE TABLE favicons(id INTEGER PRIMARY KEY, url LONGVARCHAR NOT NULL, icon_type INTEGER DEFAULT 1);
+            CREATE TABLE favicon_bitmaps(id INTEGER PRIMARY KEY, icon_id INTEGER NOT NULL, last_updated INTEGER DEFAULT 0, image_data BLOB,
+              width INTEGER DEFAULT 0, height INTEGER DEFAULT 0, last_requested INTEGER DEFAULT 0);
+            """
+        for (i, icon) in icons.enumerated() {
+            sql += """
+                INSERT INTO favicons VALUES (\(i + 1), 'https://icons.test/\(i + 1).png', 1);
+                INSERT INTO icon_mapping(page_url, icon_id) VALUES ('\(icon.page)', \(i + 1));
+                INSERT INTO favicon_bitmaps(icon_id, image_data, width, height) VALUES (\(i + 1), \(squarePNG(icon.side)), \(icon.side), \(icon.side));
+                """
+        }
+        writeSQLite(profile.appendingPathComponent("Favicons"), sql)
+    }
+
+    /// A Firefox data folder whose default profile has `bookmarks` on its toolbar and an icon `side`
+    /// px wide in its favicons.sqlite for each page of `icons`.
+    private static func makeFirefoxData(_ root: URL, bookmarks: [String], icons: [(page: String, side: Int)]) {
+        let profile = root.appendingPathComponent("Profiles/test.default", isDirectory: true)
+        try? FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        try? Data("[Profile0]\nName=default\nIsRelative=1\nPath=Profiles/test.default\nDefault=1\n".utf8).write(to: root.appendingPathComponent("profiles.ini"))
+        var places = """
+            CREATE TABLE moz_places (id INTEGER PRIMARY KEY, url LONGVARCHAR, title LONGVARCHAR);
+            CREATE TABLE moz_bookmarks (id INTEGER PRIMARY KEY, type INTEGER, fk INTEGER, parent INTEGER, position INTEGER,
+              title LONGVARCHAR, dateAdded INTEGER, guid TEXT);
+            INSERT INTO moz_bookmarks VALUES (1, 2, NULL, 0, 0, '', 0, 'root________'), (2, 2, NULL, 1, 0, 'toolbar', 0, 'toolbar_____');
+            """
+        for (i, url) in bookmarks.enumerated() {
+            places += "INSERT INTO moz_places VALUES (\(i + 1), '\(url)', ''); INSERT INTO moz_bookmarks VALUES (\(i + 3), 1, \(i + 1), 2, \(i), 'Mark \(i)', 0, 'mark\(i)');"
+        }
+        writeSQLite(profile.appendingPathComponent("places.sqlite"), places)
+        var sql = """
+            CREATE TABLE moz_icons (id INTEGER PRIMARY KEY, icon_url TEXT NOT NULL, fixed_icon_url_hash INTEGER NOT NULL, width INTEGER NOT NULL DEFAULT 0,
+              root INTEGER NOT NULL DEFAULT 0, color INTEGER, expire_ms INTEGER NOT NULL DEFAULT 0, data BLOB);
+            CREATE TABLE moz_pages_w_icons (id INTEGER PRIMARY KEY, page_url TEXT NOT NULL, page_url_hash INTEGER NOT NULL);
+            CREATE TABLE moz_icons_to_pages (page_id INTEGER NOT NULL, icon_id INTEGER NOT NULL, expire_ms INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY (page_id, icon_id)) WITHOUT ROWID;
+            """
+        for (i, icon) in icons.enumerated() {
+            sql += """
+                INSERT INTO moz_icons(id, icon_url, fixed_icon_url_hash, width, data) VALUES (\(i + 1), 'https://icons.test/\(i + 1).png', \(i + 1), \(icon.side), \(squarePNG(icon.side)));
+                INSERT INTO moz_pages_w_icons VALUES (\(i + 1), '\(icon.page)', \(i + 1));
+                INSERT INTO moz_icons_to_pages(page_id, icon_id) VALUES (\(i + 1), \(i + 1));
+                """
+        }
+        writeSQLite(profile.appendingPathComponent("favicons.sqlite"), sql)
+    }
+
+    /// A square PNG `side` px wide, as an SQL blob literal.
+    private static func squarePNG(_ side: Int) -> String {
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { r in NSColor.orange.setFill(); r.fill(); return true }
+        return "X'" + (FaviconCache.png(image) ?? Data()).map { String(format: "%02x", $0) }.joined() + "'"
+    }
+
+    private static func writeSQLite(_ file: URL, _ sql: String) {
+        var db: OpaquePointer?
+        sqlite3_open(file.path, &db)
+        defer { sqlite3_close(db) }
+        expect(sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK, "the test's database \(file.lastPathComponent) is written")
+    }
+
+    /// The icon a key has in Cra's Favicons folder.
+    @MainActor
+    private static func savedFavicon(_ key: String?) -> Data? {
+        key.flatMap { try? Data(contentsOf: AppPaths.favicons.appendingPathComponent(FaviconCache.fileName($0))) }
+    }
+
+    /// How many pixels wide the image in a file is.
+    private static func pixelsWide(_ path: String?) -> Int? {
+        path.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }.flatMap(NSBitmapImageRep.init(data:))?.pixelsWide
     }
 
     // promise: #742
@@ -695,6 +1470,36 @@ enum StoreTests {
         let missing = ImportSource(id: "brave", name: "Brave", bundleID: "app.cra.tests.not-installed", kind: .chromium,
                                    dataDir: root.deletingLastPathComponent().appendingPathComponent("cra-none-\(UUID().uuidString)"))
         expect(!missing.isAvailable && !missing.needsFullDiskAccess, "a browser never used is neither offered nor asks")
+    }
+
+    // promise: #757
+    /// The import list decides from a browser's own folder being there, never from what's inside:
+    /// reading inside Chrome's folder on first launch made macOS show "Data Access Blocked … tried
+    /// to access your data from other apps" before anything was picked (#757). A folder with
+    /// nothing readable in it is offered; reading it waits until it's picked.
+    private static func importListReadsNothingInsideABrowsersFolder() {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("cra-757-\(UUID().uuidString)", isDirectory: true)
+        try? fm.createDirectory(at: root, withIntermediateDirectories: true)
+        try? fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+            try? fm.removeItem(at: root)
+        }
+        let chrome = ImportSource(id: "chrome", name: "Chrome", bundleID: "app.cra.tests.not-installed", kind: .chromium, dataDir: root)
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+        expect(chrome.isAvailable, "an empty Chrome folder that's there is offered: whether it holds a profile shows once it's picked")
+        try? fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
+        expect(chrome.isAvailable, "and so is one macOS won't let Cra read")
+        let arcHome = fm.temporaryDirectory.appendingPathComponent("cra-757-arc-\(UUID().uuidString)", isDirectory: true)
+        try? fm.createDirectory(at: arcHome, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: arcHome) }
+        let arc = ImportSource(id: "arc", name: "Arc", bundleID: "app.cra.tests.not-installed", kind: .arc,
+                               dataDir: arcHome.appendingPathComponent("User Data"), ownFolder: arcHome)
+        expect(arc.isAvailable, "Arc is offered from its own folder, not from StorableSidebar.json inside it")
+        let gone = ImportSource(id: "brave", name: "Brave", bundleID: "app.cra.tests.not-installed", kind: .chromium,
+                                dataDir: root.appendingPathComponent("never-made"))
+        expect(!gone.isAvailable, "a browser whose folder isn't there is listed dimmed")
     }
 
     /// Chrome signed in to a Google account keeps the bookmarks saved there in AccountBookmarks,
@@ -1680,6 +2485,37 @@ enum StoreTests {
         let icons = ids.map { store.space($0)?.icon }
         expect(icons == [.symbol("star.fill"), .emoji("🗂️")], "Arc's Icon-tab star imports as Cra's star, an unknown glyph as 🗂️ (\(icons))")
         for id in ids { store.deleteSpace(id) }
+    }
+
+    // promise: #749
+    /// A StorableSidebar.json can hold a second, older spaces container ahead of the real one: one
+    /// untitled space whose only container is an empty Today (the reporter's file, with a
+    /// `littleBrowser` container first). The import takes the container that holds the spaces' items,
+    /// not the first with a `spaces` key, which brought over one empty "Space" and none of the
+    /// real spaces (#749).
+    @MainActor
+    private static func arcStubContainerBeforeTheSpaces() throws {
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Arc/StorableSidebar.json")
+        var root = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as! [String: Any]
+        var sidebar = root["sidebar"] as! [String: Any]
+        var containers = sidebar["containers"] as! [[String: Any]]
+        let stub: [String: Any] = [
+            "spaces": ["STUB-SPACE", ["id": "STUB-SPACE", "profile": ["default": [:]], "customInfo": [:],
+                                      "containerIDs": ["unpinned", "STUB-TODAY"],
+                                      "newContainerIDs": [["unpinned": ["_0": ["shared": [:]]]], "STUB-TODAY"]] as [String: Any]],
+            "items": ["STUB-TODAY", ["id": "STUB-TODAY", "title": NSNull(), "parentID": NSNull(), "childrenIds": [],
+                                     "data": ["itemContainer": ["containerType": ["spaceItems": ["_0": "STUB-SPACE"]]]]] as [String: Any]],
+            "topAppsContainerIDs": [],
+        ]
+        let main = containers.firstIndex { $0["spaces"] != nil }!
+        containers.insert(stub, at: main)
+        containers.insert(["littleBrowser": [:]], at: 0)
+        sidebar["containers"] = containers
+        root["sidebar"] = sidebar
+        let plan = try ArcImporter.plan(sidebar: JSONSerialization.data(withJSONObject: root))
+        let titles = plan.spaces.map(\.title)
+        expect(titles == ["Home", "Work"], "the spaces come from the container holding them, not the stub ahead of it (#749: \(titles))")
+        expect(plan.spaces.contains { !$0.pinned.isEmpty }, "the real spaces bring their pinned tabs (#749)")
     }
 
     // promise: #30

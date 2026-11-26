@@ -1144,6 +1144,9 @@ final class BrowserWindow {
             if let t = store.selectedTabID(window: windowID) { _ = store.moveTabAndFollow(t, toSpace: id, window: windowID) }
         case .moveToFolder(let id):
             if let t = store.selectedTabID(window: windowID) { store.moveItem(t, to: id, index: nil) }
+        case .revealFolder:
+            // Listed only for a bar given `folderSpace` (the Mac's ⌘T, #777); Windows doesn't ask yet.
+            break
         }
     }
 

@@ -84,35 +84,46 @@ public enum ChromiumImporter {
         for p in profiles {
             let title = profiles.count == 1 ? browser : "\(browser) · \(p.name)"
             var space = ImportedSpace(title: title, emoji: "🌐", theme: nil)
-            let bm = bookmarks(profile: p.dir)
+            var skipped: [ImportSkip] = []
+            let bm = bookmarks(profile: p.dir, skip: { skipped.append($0) })
             space.pinned = bm.bar + (bm.other.isEmpty ? [] : [ImportedItem(customTitle: "Other Bookmarks", pageTitle: "Other Bookmarks", url: nil, isFolder: true, children: bm.other)])
-            space.today = openTabs(profile: p.dir)
-            if !space.pinned.isEmpty || !space.today.isEmpty { plan.spaces.append(space) }
+            space.today = openTabs(profile: p.dir, skip: { skipped.append($0) })
+            space.skipped = skipped
+            if !space.pinned.isEmpty || !space.today.isEmpty { plan.spaces.append(space) } else { plan.skipped += skipped }
         }
         return plan
     }
 
     /// The profile's bookmarks: Bookmarks, then AccountBookmarks, where Chrome signed in to a
-    /// Google account without Sync keeps the ones saved to the account.
-    public static func bookmarks(profile dir: URL) -> (bar: [ImportedItem], other: [ImportedItem]) {
+    /// Google account without Sync keeps the ones saved to the account. `skip` hears of each one left out.
+    public static func bookmarks(profile dir: URL, skip: (ImportSkip) -> Void = { _ in }) -> (bar: [ImportedItem], other: [ImportedItem]) {
         func file(_ name: String) -> (bar: [ImportedItem], other: [ImportedItem]) {
-            guard let data = try? Data(contentsOf: dir.appendingPathComponent(name)) else { return ([], []) }
-            return bookmarks(data)
+            let url = dir.appendingPathComponent(name)
+            guard let data = try? Data(contentsOf: url) else {
+                if FileManager.default.fileExists(atPath: url.path) { skip(.unreadable("Bookmarks", file: url.path)) }
+                return ([], [])
+            }
+            return bookmarks(data, file: url.path, skip: skip)
         }
         let local = file("Bookmarks"), account = file("AccountBookmarks")
         return (local.bar + account.bar, local.other + account.other)
     }
 
-    /// A Bookmarks file's bar, and its Other and Mobile (synced) bookmarks.
-    public static func bookmarks(_ data: Data) -> (bar: [ImportedItem], other: [ImportedItem]) {
+    /// A Bookmarks file's bar, and its Other and Mobile (synced) bookmarks. `file` names it in the row
+    /// an unreadable one adds; `skip` hears of each bookmark left out.
+    public static func bookmarks(_ data: Data, file: String = "", skip: (ImportSkip) -> Void = { _ in }) -> (bar: [ImportedItem], other: [ImportedItem]) {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let roots = root["roots"] as? [String: Any] else { return ([], []) }
+              let roots = root["roots"] as? [String: Any] else {
+            skip(.unreadable("Bookmarks", file: file))
+            return ([], [])
+        }
         func convert(_ node: [String: Any]) -> ImportedItem? {
             let name = node["name"] as? String ?? ""
             let created = (node["date_added"] as? String).flatMap(Int64.init).map(ChromiumTime.date) ?? Date()
             if node["type"] as? String == "url", let u = node["url"] as? String, ImportedAddress.keeps(u) {
                 return ImportedItem(customTitle: name.isEmpty ? nil : name, pageTitle: name, url: u, createdAt: created)
             }
+            if node["type"] as? String == "url" { ImportSkip.leftOut(node["url"] as? String, title: name).map(skip) }
             if node["type"] as? String == "folder" {
                 let kids = (node["children"] as? [[String: Any]] ?? []).compactMap(convert)
                 return kids.isEmpty ? nil : ImportedItem(customTitle: name, pageTitle: name, url: nil, isFolder: true, children: kids, createdAt: created)
@@ -131,8 +142,9 @@ public enum ChromiumImporter {
 
     /// The tabs of the last session, from the newest Sessions/Session_* file
     /// (older Chromium: "Current Session"). Commands are
-    /// `uint16 size, uint8 id, payload`; ids from session_service_commands.cc.
-    public static func openTabs(profile dir: URL) -> [ImportedItem] {
+    /// `uint16 size, uint8 id, payload`; ids from session_service_commands.cc. `skip` hears of each
+    /// tab left out, or of a session file that could not be read.
+    public static func openTabs(profile dir: URL, skip: (ImportSkip) -> Void = { _ in }) -> [ImportedItem] {
         let fm = FileManager.default
         let sessions = dir.appendingPathComponent("Sessions", isDirectory: true)
         func modified(_ url: URL) -> Date {
@@ -143,15 +155,19 @@ public enum ChromiumImporter {
             .map { sessions.appendingPathComponent($0) }
             .sorted { modified($0) > modified($1) }
         let file = candidates.first ?? dir.appendingPathComponent("Current Session")
-        guard let data = try? Data(contentsOf: file) else { return [] }
-        return parseSession(data)
+        guard let data = try? Data(contentsOf: file) else {
+            if fm.fileExists(atPath: file.path) { skip(.unreadable("Open tabs", file: file.path)) }
+            return []
+        }
+        return parseSession(data, file: file.path, skip: skip)
     }
 
-    public static func parseSession(_ data: Data) -> [ImportedItem] {
+    /// `file` names the session in the row an unreadable one adds.
+    public static func parseSession(_ data: Data, file: String = "", skip: (ImportSkip) -> Void = { _ in }) -> [ImportedItem] {
         let b = [UInt8](data)
-        guard b.count > 8, b[0] == 0x53, b[1] == 0x4E, b[2] == 0x53, b[3] == 0x53 else { return [] }
+        guard b.count > 8, b[0] == 0x53, b[1] == 0x4E, b[2] == 0x53, b[3] == 0x53 else { skip(.unreadable("Open tabs", file: file)); return [] }
         let version = le32(b, 4)
-        guard version == 1 || version == 3 else { return [] }   // 2 and 4 are encrypted
+        guard version == 1 || version == 3 else { skip(.unreadable("Open tabs", file: file)); return [] }   // 2 and 4 are encrypted
         struct Tab { var window: Int32 = 0; var index: Int32 = 0; var selected: Int32 = -1; var navs: [Int32: (String, String)] = [:] }
         var tabs: [Int32: Tab] = [:], closedTabs = Set<Int32>(), closedWindows = Set<Int32>()
         var p = 8
@@ -183,7 +199,8 @@ public enum ChromiumImporter {
         return tabs.filter { !closedTabs.contains($0.key) && !closedWindows.contains($0.value.window) }
             .sorted { ($0.value.window, $0.value.index) < ($1.value.window, $1.value.index) }
             .compactMap { _, t -> ImportedItem? in
-                guard let nav = t.navs[t.selected] ?? t.navs.max(by: { $0.key < $1.key })?.value, ImportedAddress.keeps(nav.0) else { return nil }
+                let nav = t.navs[t.selected] ?? t.navs.max(by: { $0.key < $1.key })?.value
+                guard let nav, ImportedAddress.keeps(nav.0) else { ImportSkip.leftOut(nav?.0, title: nav?.1 ?? "").map(skip); return nil }
                 return ImportedItem(pageTitle: nav.1, url: nav.0)
             }
     }

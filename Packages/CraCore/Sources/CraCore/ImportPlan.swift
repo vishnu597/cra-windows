@@ -17,10 +17,14 @@ public struct ImportedItem {
     public var liveFolder: LiveFolderData?
     /// The live item a tab in a live folder stands for (Arc: `liveItemID.url`).
     public var liveItemURL: String?
+    /// The source's list a favorite came from, when it isn't its space's (Arc: the Top Apps
+    /// container a space shows or borrows). The favorites tile counts each list once.
+    public var favoritesList: String?
 
     public init(customTitle: String? = nil, pageTitle: String = "", url: String? = nil, isFolder: Bool = false,
                 children: [ImportedItem] = [], createdAt: Date = Date(), faviconPath: String? = nil,
-                liveFolder: LiveFolderData? = nil, liveItemURL: String? = nil) {
+                liveFolder: LiveFolderData? = nil, liveItemURL: String? = nil, favoritesList: String? = nil) {
+        self.favoritesList = favoritesList
         self.customTitle = customTitle
         self.pageTitle = pageTitle
         self.url = url
@@ -45,9 +49,16 @@ public struct ImportedSpace {
     public var today: [ImportedItem]
     /// The source browser's profile the space was on, when it is not Default (Arc, GitHub #131).
     public var profile: ImportedProfile?
+    /// The source's list `favorites` is, when spaces share it (Zen's Essentials, Yab's shared tiles);
+    /// nil for the space's own. A favorite's own `favoritesList` comes first.
+    public var favoritesList: String?
+    /// What the importer left out of this space, listed after the import.
+    public var skipped: [ImportSkip]
 
     public init(title: String, emoji: String, symbol: String? = nil, theme: SpaceTheme? = nil, favorites: [ImportedItem] = [], pinned: [ImportedItem] = [],
-                today: [ImportedItem] = [], profile: ImportedProfile? = nil) {
+                today: [ImportedItem] = [], profile: ImportedProfile? = nil, favoritesList: String? = nil, skipped: [ImportSkip] = []) {
+        self.favoritesList = favoritesList
+        self.skipped = skipped
         self.title = title
         self.emoji = emoji
         self.symbol = symbol
@@ -77,8 +88,12 @@ public struct ImportedArchiveEntry {
     public var archivedAt: Date
     public var reason: ArchiveReason
     public var spaceTitle: String?
+    /// Cached favicon file in the source browser, if any.
+    public var faviconPath: String?
 
-    public init(customTitle: String?, pageTitle: String, url: String, archivedAt: Date, reason: ArchiveReason, spaceTitle: String?) {
+    public init(customTitle: String?, pageTitle: String, url: String, archivedAt: Date, reason: ArchiveReason, spaceTitle: String?,
+                faviconPath: String? = nil) {
+        self.faviconPath = faviconPath
         self.customTitle = customTitle
         self.pageTitle = pageTitle
         self.url = url
@@ -107,6 +122,17 @@ public struct ImportedLinkRoute {
     }
 }
 
+/// The profile folder picked for a site in a Little Arc.
+public struct ImportedSiteProfile: Equatable {
+    public var site: String
+    public var folder: String
+
+    public init(site: String, folder: String) {
+        self.site = site
+        self.folder = folder
+    }
+}
+
 public struct ImportedSettings {
     public var autoArchive: AutoArchiveThreshold?
     public var sidebarWidth: Double?
@@ -114,11 +140,14 @@ public struct ImportedSettings {
     public var toolbarShowsFullURL: Bool?
     public var linkRoutes: [ImportedLinkRoute] = []
     public var defaultLinkDestination: ImportedLinkDestination?
+    /// Arc's domainToProfilePreferences, by site, so two reads of one file are equal.
+    public var siteProfiles: [ImportedSiteProfile] = []
 
     public init() {}
 
     public var isEmpty: Bool {
         autoArchive == nil && sidebarWidth == nil && showToolbar == nil && toolbarShowsFullURL == nil && linkRoutes.isEmpty && defaultLinkDestination == nil
+            && siteProfiles.isEmpty
     }
 }
 
@@ -129,6 +158,10 @@ public struct ImportPlan {
     public var favorites: [ImportedItem] = []
     public var archive: [ImportedArchiveEntry] = []
     public var settings = ImportedSettings()
+    /// What the importer left out that belongs to no space it brings, listed after the import.
+    public var skipped: [ImportSkip] = []
+    /// Archived tabs the importer left out, listed when the archive comes over.
+    public var archiveSkipped: [ImportSkip] = []
 
     public init(source: String) {
         self.source = source
@@ -142,6 +175,40 @@ public struct ImportPlan {
     public var folderCount: Int {
         func count(_ items: [ImportedItem]) -> Int { items.reduce(0) { $0 + ($1.isFolder ? 1 + count($1.children) : 0) } }
         return spaces.reduce(count(favorites)) { $0 + count($1.favorites) + count($1.pinned) + count($1.today) }
+    }
+
+    /// The plan restricted to what the user picked.
+    public func selecting(spaces: Set<Int>, favorites: Bool) -> ImportPlan {
+        var p = self
+        p.spaces = spaces.sorted().compactMap { $0 < self.spaces.count ? self.spaces[$0] : nil }
+        if !favorites {
+            p.favorites = []
+            // What was left out of the favorites of no space goes with them.
+            p.skipped.removeAll { $0.kind == .favorites }
+        }
+        return p
+    }
+
+    /// What the import counts and lists, a tile each: the spaces' pinned and Today tabs, the
+    /// favorites, the archive when it comes over, and the skips that go with them. Favorites of no
+    /// space are a list of their own ("").
+    public func report(includeArchive: Bool) -> ImportReports {
+        func urls(_ items: [ImportedItem]) -> [String] { items.flatMap { $0.isFolder ? urls($0.children) : [$0.url].compactMap { $0 } } }
+        let lists = spaces.enumerated().map { i, sp in sp.favoritesList.map { "list " + $0 } ?? "space \(i)" }
+        let favorites = urls(favorites).map { (list: "", url: $0) } + spaces.indices.flatMap { i in
+            spaces[i].favorites.flatMap { item in urls([item]).map { (list: item.favoritesList.map { "list " + $0 } ?? lists[i], url: $0) } }
+        }
+        let skips = spaces.indices.flatMap { i in spaces[i].skipped.map { (list: $0.favoritesList.map { "list " + $0 } ?? lists[i], skip: $0) } }
+            + (skipped + (includeArchive ? archiveSkipped : [])).map { (list: "", skip: $0) }
+        return ImportReports(tabs: spaces.reduce(0) { $0 + $1.itemCount }, favorites: favorites, archive: includeArchive ? archive.count : 0, skipped: skips)
+    }
+}
+
+extension ImportedSpace {
+    /// The space's pinned and Today tabs, folders' tabs included.
+    public var itemCount: Int {
+        func count(_ items: [ImportedItem]) -> Int { items.reduce(0) { $0 + ($1.isFolder ? count($1.children) : 1) } }
+        return count(pinned) + count(today)
     }
 }
 

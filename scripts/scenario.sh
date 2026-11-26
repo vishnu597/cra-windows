@@ -47,6 +47,9 @@
 #                               import leaves an extension
 #   profile <folder>            its contents copied into the data folder before launch: files an
 #                               older Cra left (Tests/Fixtures/CEFProfile, Cra on CEF's cookies)
+#   hold-fds                    Cra starts with descriptors 3 and 4 already open (/dev/null), as a launcher that leaks
+#                               them, or macOS's own files opened before Chromium starts, leave them: where Chrome's
+#                               --remote-debugging-pipe has to go (#752)
 #   home                        a throwaway home folder, so downloads stay out of ~/Downloads
 #   crash-report <file>         copied into the throwaway home's Library/Logs/DiagnosticReports
 #                               before launch, as macOS leaves one (needs home)
@@ -65,6 +68,8 @@
 #   click sidebar-empty         a real click the same way on the docked sidebar's empty space, under its rows (#722)
 #   click row <id> [move]       a real click the same way on the middle of the sidebar row for that item; with `move`
 #                               the pointer only moves there, as a hand rests it on the row (#743)
+#   click bar-delete <text>     a real click the same way on the ✕ of the open command bar's row whose address holds
+#                               <text>, after selecting that row (#779)
 #   bare-helper <suffix>        runs the engine's "Cra Helper (<suffix>)" with no arguments, as macOS launches the
 #                               Alerts helper for a notification click after it quit; fails unless it exits 0 in 10 s
 #   replace-app [chrome]        Cra.app replaced while Cra runs, as `brew upgrade --greedy` does: a scenario with this
@@ -75,7 +80,7 @@
 #   requires screen
 #   port <n>                   serve ${PAGE} on a fixed port (snapshots show the address)
 # The fixture server answers an address with ?delay=<s> (or &delay=<s>) that many seconds late, and /auth with an
-# HTTP sign-in (401 Basic) until the browser sends a user name and password.
+# HTTP sign-in (401 Basic) until the browser sends a user name and password, and /redirect?to=<path> with a 302 there.
 # ${FIXTURES}, ${ORIGIN} (that server's http://127.0.0.1:<port>, which also answers a POST with 204,
 # logs it to server.log and keeps its body in posts/), ${PAGE} (Tests/Fixtures/Pages/page.html from a local server, so it has a host
 # for developer mode and tab sleep), ${WEBKIT} (that server as http://localhost:<port>, a host the
@@ -291,7 +296,7 @@ class Server(http.server.ThreadingHTTPServer):
 class Handler(http.server.SimpleHTTPRequestHandler):
     # ?delay=<s> anywhere in the address: the answer (a page, or a 404) comes that many seconds late.
     def do_GET(self):
-        import base64, html, re, time
+        import base64, html, re, time, urllib.parse
         # /auth: a page behind a user name and password (HTTP Basic), as a router or an intranet asks for one:
         # 401 until the browser sends credentials, then a page titled with the user it signed in as.
         if self.path.startswith("/auth"):
@@ -310,6 +315,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+        # /redirect?to=<path>: a 302 to that path on this server, as a link shortener or a sign-in hop answers.
+        if self.path.startswith("/redirect"):
+            to = re.search(r"[?&]to=([^&]+)", self.path)
+            self.send_response(302)
+            self.send_header("Location", urllib.parse.unquote(to.group(1)) if to else "/page.html")
+            self.end_headers()
             return
         m = re.search(r"[?&]delay=([0-9.]+)", self.path)
         if m:
@@ -429,10 +441,13 @@ while read -r _ f; do cp -R "$(expand "$f")/." "$DATA/"; done < <(grep '^profile
 while read -r _ f; do mkdir -p "$DATA/home/Library/Logs/DiagnosticReports" && cp "$(expand "$f")" "$DATA/home/Library/Logs/DiagnosticReports/"; done < <(grep '^crash-report ' "$FILE")
 for i in "${!app_env[@]}"; do app_env[$i]="$(expand "${app_env[$i]}")"; done
 
+# hold-fds: this shell holds 3 and 4 open while it starts Cra, so Cra inherits them (#752).
+grep -q '^hold-fds' "$FILE" && exec 3</dev/null 4</dev/null
 CRA_DATA_DIR="$DATA" CRA_COMMAND_FILE="$CMD" CRA_HITCH_LOG="$HITCH" CRA_TEST_BACKGROUND=1 CRA_WEBKIT_HOSTS=localhost \
   CRA_ARC_DIR="$FIXTURES/Arc" CRA_FLAGS="${CRA_FLAGS:-}" \
   "${app_env[@]}" "$EXE" ${app_args[@]+"${app_args[@]}"} >"$OUT/stdout.log" 2>&1 &
 PID=$!
+grep -q '^hold-fds' "$FILE" && exec 3<&- 4<&-
 PIDS+=("$PID")
 
 cleanup() {
@@ -580,6 +595,7 @@ while IFS= read -r raw || [ -n "$raw" ]; do
         page-top) ask="pageTop=point"; mark="page top point:" ;;
         sidebar-empty) ask="sidebarEmpty=point"; mark="sidebar empty point:" ;;
         row) ask="rowPoint=${3:-}"; mark="row point:" ;;
+        bar-delete) ask="commandBarDelete=${3:-}"; mark="command bar delete point:" ;;
         *) problem "click: unknown target ${2:-}"; continue ;;
       esac
       count=1; [ "${3:-}" = "double" ] && count=2
@@ -629,7 +645,7 @@ while IFS= read -r raw || [ -n "$raw" ]; do
       fi
       rm -rf "$APP" && mv "$next" "$APP"
       echo "  Cra.app replaced by $version${2:+ on another Chrome}" ;;
-    fresh|requires|port|seed|env|arg|extension|profile|home|crash-report) ;;
+    fresh|requires|port|seed|env|arg|extension|profile|home|crash-report|hold-fds) ;;
     *) problem "unknown scenario line: $line" ;;
   esac
 done < "$FILE"

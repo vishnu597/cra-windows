@@ -62,8 +62,9 @@ public enum ZenImport {
 
     /// Spaces in Zen's order, Essentials as every space's favorites, pinned tabs in their folders,
     /// the rest in Today, and Firefox's bookmarks in a Bookmarks folder of the first space.
-    /// `favicons` adds icons to the spaces before empty ones are dropped.
-    public static func plan(sidebar: Sidebar, bookmarks: [ImportedItem],
+    /// `favicons` adds icons to the spaces before empty ones are dropped. `bookmarksSkipped`: the
+    /// bookmarks Firefox's reader left out, listed with the first space.
+    public static func plan(sidebar: Sidebar, bookmarks: [ImportedItem], bookmarksSkipped: [ImportSkip] = [],
                             favicons: (inout [ImportedSpace]) -> Void = { _ in }) -> ImportPlan {
         var plan = ImportPlan(source: "Zen")
         let spaceData = sidebar.spaces.sorted { ($0["position"] as? Double ?? 0) < ($1["position"] as? Double ?? 0) }
@@ -93,16 +94,18 @@ public enum ZenImport {
             return chain
         }
 
-        var essentials: [ImportedItem] = []
+        var essentials: [ImportedItem] = [], essentialsSkipped: [ImportSkip] = []
         // Per space: pinned and Today trees, built in the session's tab order.
         let trees = spaces.map { _ in (pinned: ImportTree(), today: ImportTree()) }
         for t in sidebar.tabs {
-            guard let item = tabItem(t) else { continue }
+            let i = (t["zenWorkspace"] as? String).flatMap { spaceIndex[$0] } ?? 0
+            // An Essential left out is listed on the favorites tile, with every space as the Essentials are.
+            guard let item = tabItem(t, skip: { var s = $0
+                if flag(t["zenEssential"]) { s.kind = .favorites; essentialsSkipped.append(s) } else { spaces[i].skipped.append(s) } }) else { continue }
             if flag(t["zenEssential"]) {
                 if !essentials.contains(where: { $0.url == item.url }) { essentials.append(item) }
                 continue
             }
-            let i = (t["zenWorkspace"] as? String).flatMap { spaceIndex[$0] } ?? 0
             let chain = folderChain(t["groupId"] as? String)
             if flag(t["pinned"]) || !chain.isEmpty {
                 trees[i].pinned.insert(item, path: chain.map { ($0, folders[$0]!.name) })
@@ -114,14 +117,19 @@ public enum ZenImport {
         // Essentials sit above every space in Zen; Cra's favorites belong to a space.
         for i in spaces.indices {
             spaces[i].favorites = essentials
+            spaces[i].favoritesList = "essentials"
+            spaces[i].skipped += essentialsSkipped
             spaces[i].pinned = trees[i].pinned.items
             spaces[i].today = trees[i].today.items
         }
+        spaces[0].skipped += bookmarksSkipped
         if !bookmarks.isEmpty {
             spaces[0].pinned.append(ImportedItem(customTitle: "Bookmarks", pageTitle: "Bookmarks", url: nil, isFolder: true, children: bookmarks))
         }
         favicons(&spaces)
         plan.spaces = spaces.filter { !$0.favorites.isEmpty || !$0.pinned.isEmpty || !$0.today.isEmpty }
+        plan.skipped = spaces.filter { $0.favorites.isEmpty && $0.pinned.isEmpty && $0.today.isEmpty }.flatMap(\.skipped).filter { $0.kind != .favorites }
+            + (plan.spaces.isEmpty ? essentialsSkipped : [])
         return plan
     }
 
@@ -129,16 +137,21 @@ public enum ZenImport {
     static func flag(_ v: Any?) -> Bool { (v as? Bool) ?? ((v as? String) == "true") }
 
     /// A pinned tab keeps the URL it was pinned with (Arc's savedURL), not where it navigated, unless
-    /// that page can't be imported: then it comes at the page it shows.
-    static func tabItem(_ t: [String: Any]) -> ImportedItem? {
+    /// that page can't be imported: then it comes at the page it shows. `skip` hears of a tab left
+    /// out; an empty or glance tab was never one.
+    static func tabItem(_ t: [String: Any], skip: (ImportSkip) -> Void = { _ in }) -> ImportedItem? {
         if flag(t["zenIsEmpty"]) || flag(t["zenIsGlance"]) { return nil }
         let entries = t["entries"] as? [[String: Any]] ?? []
         let current = entries.isEmpty ? nil : entries[min(max((t["index"] as? Int ?? entries.count) - 1, 0), entries.count - 1)]
         let home = (t["_zenPinnedInitialState"] as? [String: Any])?["entry"] as? [String: Any]
         let pages = [flag(t["pinned"]) || flag(t["zenEssential"]) ? home : nil, current].compactMap { $0 }
-        guard let entry = pages.first(where: { ($0["url"] as? String).map(ImportedAddress.keeps) ?? false }),
-              let url = entry["url"] as? String else { return nil }
         let label = (t["zenStaticLabel"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        guard let entry = pages.first(where: { ($0["url"] as? String).map(ImportedAddress.keeps) ?? false }),
+              let url = entry["url"] as? String else {
+            let left = pages.first { ($0["url"] as? String).flatMap(ImportedAddress.leftOut) != nil }
+            ImportSkip.leftOut(left?["url"] as? String, title: label ?? left?["title"] as? String ?? "").map(skip)
+            return nil
+        }
         let title = (entry["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? current?["title"] as? String ?? ""
         return ImportedItem(customTitle: label, pageTitle: title, url: url)
     }

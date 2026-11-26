@@ -9,6 +9,8 @@ extension SidebarStore {
         public var spaceIDs: [UUID] = []
         /// The Cra profile each source profile of an imported space landed in.
         public var profiles = ImportProfileMap()
+        /// How much of the plan is in Cra, and what was left out, a tile each.
+        public var report = ImportReports(tabs: 0, favorites: [], archive: 0, skipped: [])
 
         public init() {}
     }
@@ -22,6 +24,8 @@ extension SidebarStore {
     public func apply(_ plan: ImportPlan, includeArchive: Bool, includeSettings: Bool, replacing: [UUID] = [],
                       favicons: URL?) -> ImportResult {
         var result = ImportResult()
+        // A tab or favorite Cra already has (an earlier import, the same address twice here) counts as copied.
+        result.report = plan.report(includeArchive: includeArchive)
 
         // A pinned tab that has navigated still counts as present via its home URL.
         func existingURLs(under container: UUID) -> Set<String> {
@@ -30,25 +34,27 @@ extension SidebarStore {
 
         // Each host's favicon first, for every item (also ones skipped as duplicates): what
         // suggestions and a tab imported with no icon show.
+        func copyFavicon(_ src: String?, url: String?) {
+            guard let favicons, let src, let key = url.flatMap(FaviconKey.key(for:)) else { return }
+            let dst = favicons.appendingPathComponent(FaviconKey.fileName(key))
+            if !FileManager.default.fileExists(atPath: dst.path) {
+                try? FileManager.default.copyItem(atPath: src, toPath: dst.path)
+            }
+        }
         func copyFavicons(_ items: [ImportedItem]) {
-            guard let favicons else { return }
             for it in items {
-                if it.isFolder { copyFavicons(it.children); continue }
-                guard let src = it.faviconPath, let url = it.url, let key = FaviconKey.key(for: url) else { continue }
-                let dst = favicons.appendingPathComponent(FaviconKey.fileName(key))
-                if !FileManager.default.fileExists(atPath: dst.path) {
-                    try? FileManager.default.copyItem(atPath: src, toPath: dst.path)
-                }
+                if it.isFolder { copyFavicons(it.children) } else { copyFavicon(it.faviconPath, url: it.url) }
             }
         }
         copyFavicons(plan.favorites)
         for sp in plan.spaces { copyFavicons(sp.favorites); copyFavicons(sp.pinned); copyFavicons(sp.today) }
+        if includeArchive { for e in plan.archive { copyFavicon(e.faviconPath, url: e.url) } }
 
         // The icon the other browser had for this very tab, under the tab's own key (FaviconKey, #211).
         // Arc keeps one per sidebar item, so a Google Doc and a Sheet come with different ones; under
         // the host alone they all showed one icon, and that of whichever page there loaded last (#673).
-        func ownIconKey(_ it: ImportedItem, tabID: UUID) -> String? {
-            guard let favicons, let src = it.faviconPath, let site = it.url.flatMap(FaviconKey.key(for:)) else { return nil }
+        func ownIconKey(_ src: String?, url: String?, tabID: UUID) -> String? {
+            guard let favicons, let src, let site = url.flatMap(FaviconKey.key(for:)) else { return nil }
             let key = FaviconKey.key(site: site, tabID: tabID)
             let dst = favicons.appendingPathComponent(FaviconKey.fileName(key))
             return (try? FileManager.default.copyItem(atPath: src, toPath: dst.path)) != nil ? key : nil
@@ -81,7 +87,7 @@ extension SidebarStore {
                     if var t = tab.tab {
                         t.timeLastActiveAt = pinned ? it.createdAt : clock.now
                         if self.items[parent]?.isLiveFolder == true { t.liveItemURL = it.liveItemURL }
-                        if let key = ownIconKey(it, tabID: tab.id) { t.faviconKey = key }
+                        if let key = ownIconKey(it.faviconPath, url: it.url, tabID: tab.id) { t.faviconKey = key }
                         tab.data = .tab(t)
                     }
                     insertItem(tab, into: parent, at: nil)
@@ -101,6 +107,12 @@ extension SidebarStore {
                 self.items[folder.id]?.liveFolder = live
                 setExpanded(folder.id, false)
                 result.folders += 1
+            }
+            // A child that stands for no live item stays out, a folder with every tab in it.
+            func tabs(_ item: ImportedItem) -> [ImportedItem] { item.isFolder ? item.children.flatMap(tabs) : [item] }
+            for tab in it.children.filter({ $0.liveItemURL == nil }).flatMap(tabs) {
+                result.report[.tabs].copied -= 1
+                if let url = tab.url { result.report[.tabs].skipped.append(ImportSkip(title: tab.customTitle ?? tab.pageTitle, url: url, reason: .notALiveItem)) }
             }
             insert(it.children.filter { $0.liveItemURL != nil }, into: folder.id, skip: existingURLs(under: folder.id), pinned: pinned)
         }
@@ -147,6 +159,10 @@ extension SidebarStore {
             for e in plan.archive where !known.contains(e.url) {
                 var item = SidebarItem.tab(e.url, title: e.pageTitle, parent: nil)
                 item.title = e.customTitle
+                if var t = item.tab, let key = ownIconKey(e.faviconPath, url: e.url, tabID: item.id) {
+                    t.faviconKey = key
+                    item.data = .tab(t)
+                }
                 let sid = e.spaceTitle.flatMap(spaceID(titled:))
                 appendArchived(ArchivedItem(archivedAt: e.archivedAt, reason: e.reason, sourceSpaceID: sid, wasPinned: false, item: item))
                 result.archived += 1
@@ -171,6 +187,14 @@ extension SidebarStore {
             for r in plan.settings.linkRoutes where !settings.linkRoutes.contains(where: { $0.match == r.match && $0.text == r.text }) {
                 settings.linkRoutes.append(LinkRoute(match: r.match, text: r.text, destination: destination(r.destination)))
             }
+            // Little Arc's profile per site, on the Cra profile its folder became; a folder no imported
+            // space is on has no Cra profile, and its sites follow the window used last.
+            func profile(folder: String) -> RememberedProfile? {
+                if folder == "Default" { return RememberedProfile(id: nil) }
+                return result.profiles.folders[folder].flatMap { dir in profiles.first { $0.directoryName == dir } }.map { RememberedProfile(id: $0.id) }
+            }
+            prefs.siteProfiles.adopt(Dictionary(plan.settings.siteProfiles.compactMap { pick in profile(folder: pick.folder).map { (pick.site, $0) } },
+                                                uniquingKeysWith: { a, _ in a }))
         }
         touchAfterImport()
         return result

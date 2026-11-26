@@ -420,6 +420,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             if mode == .editURL, let peek = self?.sidebarPeek { peek.openCommandBar() } else { self?.openCommandBar(mode, fromSidebarAddress: true) }
         }
         sidebarActions.closeTab = { [weak self] id in self?.closeTab(id) }
+        sidebarActions.closeTabFromItsMenu = { [weak self] id in self?.closeTab(id, fromItsMenu: true) }
         sidebarActions.moveBlankWindow = { [weak self] space in
             guard let self else { return }
             self.app.moveBlankWindow(self, toSpace: space)
@@ -2638,6 +2639,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                 return false
             }
         }
+        // An extension's shortcut comes before the page, as in Chrome and Arc: ⌘ keys reach Cra only here (#744).
+        if app.runExtensionCommandBeforePage(event) { return true }
         return app.handleReservedKey(event)
     }
     func browserManagerHandleUnhandledKey(_ event: NSEvent) -> Bool { app.handleUnhandledKey(event) }
@@ -3162,14 +3165,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     }
 
     /// Today tabs are archived. Pinned tabs and favorites stay; they unload
-    /// and return to their pinned page (Arc's close-on-pinned behaviour).
-    func closeTab(_ id: UUID) {
+    /// and return to their pinned page (Arc's close-on-pinned behaviour). A Favorite is only deselected, unless
+    /// `fromItsMenu` (its right-click menu's Close Tab), as in Arc (#740).
+    func closeTab(_ id: UUID, fromItsMenu: Bool = false) {
         guard let item = store.item(id), item.isTab else { return }
         if store.isPinned(id) {
             let panes = store.paneTabIDs(for: id)
             let wasSelected = selectedTabID.map(panes.contains) ?? false
             // A Favorite is only deselected: its page keeps running, and a click on it shows it as it was (#740).
-            if CloseSuccessor.pinnedClose(isFavorite: store.isFavorite(id)) == .deselectKeepingPage {
+            if CloseSuccessor.pinnedClose(isFavorite: store.isFavorite(id), fromItsMenu: fromItsMenu) == .deselectKeepingPage {
                 if wasSelected { store.selectTab(store.closeSuccessor(ofPinned: id, window: windowID), window: windowID) }
                 CraLog.note("close tab: favorite deselected, its page kept")
                 return
@@ -4649,6 +4653,25 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     func debugSiteControls() { showToolbarExtensionsMenu() }
 
+    /// cra://debug?commandBarIcon (#755): the open bar's n-th row's favicon.
+    func debugCommandBarIcon(_ i: Int) -> String { commandHost?.debugRowIcon(i) ?? "none" }
+    /// cra://debug?commandBarDelete (#779): the open bar's n-th row's ✕, in screen points; nil when it shows none.
+    func debugCommandBarDeletePoint(_ i: Int) -> NSPoint? { commandPanel.isVisible ? commandHost?.debugDeletePoint(i) : nil }
+    /// cra://debug?commandBarDeleteKey (#779): a key typed in the open bar's field, through the app as a key press goes
+    /// (the menus' key equivalents first), only while the bar holds the keys.
+    func debugCommandBarKey(characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+        guard commandPanel.isVisible, commandPanel.isKeyWindow else {
+            CraLog.note("command bar key: the bar doesn't hold the keys"); return
+        }
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            guard let ev = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: commandPanel.windowNumber, context: nil, characters: characters,
+                                            charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { continue }
+            NSApp.sendEvent(ev)
+        }
+        CraLog.note("command bar key: sent")
+    }
+
     /// `cra://debug?switcher` (`=all`: ⌃⌥Tab's, #467).
     func debugTabSwitcher(allSpaces: Bool = false, held: NSEvent.ModifierFlags = []) {
         let theme = focusedSpace.theme
@@ -4790,9 +4813,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// The Site Control Center's Safari's Engine switch: the site plays in WebKit (or Chromium)
     /// from now on, and the focused page opens again there. Choosing it is knowing about it: no toast.
     private func chooseSafariEngine(_ on: Bool, for url: String) {
-        PageEngines.choose(on ? .webKit : .chromium, for: url)
-        if on, let service = PageEngines.sites.serviceName(for: url) { PageEngines.told(service) }
-        if let id = browsers.visibleTabID { browsers.reopenInItsEngine(id) }
+        guard let id = browsers.visibleTabID else { return PageEngines.choose(on ? .webKit : .chromium, for: url) }
+        guard on else {
+            PageEngines.choose(.chromium, for: url)
+            return browsers.reopenInItsEngine(id)
+        }
+        // The page arrives signed in: its cookies go along (BrowserManager.moveSiteToSafariEngine).
+        browsers.moveSiteToSafariEngine(id, url: url)
+        if let service = PageEngines.sites.serviceName(for: url) { PageEngines.told(service) }
     }
 
     /// The help centre's page on why Spotify, Netflix and the others play in Safari's engine.
@@ -5485,6 +5513,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             store.focusSpace(id, window: windowID)
         case .moveToSpace(let id):
             if let t = selectedTabID { store.moveTabAndFollow(t, toSpace: id, window: windowID) }
+        case .revealFolder(let id):
+            guard store.spaceID(ofItem: id) == focusedSpaceID else { return }
+            store.revealInSidebar(id)
+            store.setExpanded(id, true)
+            if sidebarUI.libraryPage != nil { closeLibrary() }
+            if !sidebarVisible { toggleSidebar() }
+            sidebarUI.keyboardFocusID = id
+            let ui = sidebarUI, space = focusedSpaceID
+            DispatchQueue.main.async { SpaceListView.jumpToFolder(id, for: ui, space: space) }
         case .moveToFolder(let id):
             if let t = selectedTabID { store.moveItem(t, to: id, index: nil) }
         }
@@ -5955,7 +5992,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         guard (notification.object as? NSWindow) === window else { return }
         if let host = browsers.visibleRuntime?.hostWindow { ChromiumPageFocus.focus(host) }
         refreshMaterialActive()
-        browsers.windowVisibilityChanged(covered: false)
+        // Cra came forward for a press on Picture in Picture's window only (#741): this window is still behind the app in
+        // use, and an automatic Picture in Picture's video stays out.
+        if !PictureInPictureChrome.shared.isInFrontForWindow { browsers.windowVisibilityChanged(covered: false) }
         reclaimPages()
     }
 
@@ -6359,6 +6398,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 /// Window with Arc's taller title row: the traffic lights sit 24pt from the top.
 /// They always show in colour, like Dia (Arc mutes them to grey discs until hovered).
 final class CraWindow: NSWindow {
+    /// While Cra comes forward for a press on Picture in Picture's window (#741), a browser window takes neither the
+    /// keyboard nor main: the window's overlay has the keyboard, and the browser windows stay behind the app in use
+    /// (PictureInPictureChrome.pressed).
+    static var stayBehindWhileComingForward = false
+    override var canBecomeKey: Bool { !Self.stayBehindWhileComingForward && super.canBecomeKey }
+    override var canBecomeMain: Bool { !Self.stayBehindWhileComingForward && super.canBecomeMain }
+
     /// AppKit's private per-button hook: the window buttons keep their colours
     /// while the window or the app is inactive. Nothing else about the window's
     /// inactive look changes.

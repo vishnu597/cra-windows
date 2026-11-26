@@ -397,7 +397,7 @@ final class LittleWindow {
             refresh()
         case .moveToSpace(let id):
             promote(to: id)
-        case .moveToFolder:
+        case .moveToFolder, .revealFolder:
             break
         }
     }
