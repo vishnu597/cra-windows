@@ -4,8 +4,8 @@ Every feature of the Mac app, what the Windows app has of it, and where the code
 can share lives. The goal is the Mac app's features on Windows, built on the Mac's own logic:
 what decides something goes in CraCore once and both shells call it (CLAUDE.md, rule 1).
 
-<!-- upstream-reviewed: f48c11ab -->
-Upstream reviewed through **f48c11ab** (VictorKildahl/cra main, 26 Nov 2026), every commit triaged
+<!-- upstream-reviewed: 3ac3a029 -->
+Upstream reviewed through **3ac3a029** (VictorKildahl/cra main, 26 Nov 2026), every commit triaged
 under Waiting in upstream (sync #26: 16 commits after 15ae9afc). The Windows gaps below remain explicit rather
 than inheriting the Mac's status.
 
@@ -970,7 +970,7 @@ The command bar and the import code are the fork's CraCore copies, so upstream's
 | 67b3b490, 5800d06f, 0f2c79b8, 6339e7be | iPhone: the tab switcher shows each site's own icon (#793, `MobileFavicons`) | iPhone. ➖ |
 | 15b759cd, d31de211 | iPhone: Apple Intelligence switch (#792); Rippling Dots are the empty home's only look | iPhone. ➖ |
 
-### Sync #35: 18 commits after 176fcd4d, through f48c11ab
+### Sync #35: 19 commits after 176fcd4d, through 3ac3a029
 
 `SidebarStore` and `SuggestionEngine` are the fork's CraCore copies, so upstream's changes there were ported by hand:
 - **SidebarStore.** `favoritesClosedWithCmdW` (#784) and the `select:` flag on `addEmptyPane` and `openLinkInSplit` (#799) are `public`.
@@ -991,6 +991,7 @@ The command bar and the import code are the fork's CraCore copies, so upstream's
 | f48c11ab | Kana and Eisu switch the input source in Cra's own text fields again (#794) | macOS input sources. ➖ |
 | 93895c0b | Sidebar + menu stays dark on a grey space in light mode, pinned by a test (#822) | Sidebar creation menu row (test only). ➖ |
 | bbd9d6b9 | iPhone: only the tab row's focused card shows its title (#816, `MobileTabCarousel`) | iPhone. ➖ |
+| 3ac3a029 | Live Calendar: a Google Calendar favorite reads its events again, also when the page loads a frame late, on engine 159.0.8154.45-9 (#817) | Live Calendar row (Mac engine bridge and `LiveCalendarClient`). Windows has no Live Calendar yet. ❌ |
 
 ## Keeping this current
 
