@@ -300,7 +300,9 @@ final class SettingsWindow {
             let view = ShortcutsPaneView(bindings: WinKeyBindings.shared, palette: palette)
             built = SettingsPaneContent(element: view.root) { view.render() }
         default:
-            built = SettingsPanes.general(store: store, palette: palette, importData: { [weak self] in self?.onImport() }, exportSpaces: { [weak self] in
+            built = SettingsPanes.general(store: store, palette: palette, owner: { [weak self] in
+                self.map { UInt($0.appWindow.id.value) } ?? 0
+            }, importData: { [weak self] in self?.onImport() }, exportSpaces: { [weak self] in
                 guard let self else { return }
                 SettingsPanes.exportSpaces(store: self.store, owner: UInt(self.appWindow.id.value))
             })

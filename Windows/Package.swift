@@ -66,6 +66,7 @@ let package = Package(
                 .linkedLibrary("dwmapi"),  // DwmGetWindowAttribute (a Share sheet that draws nothing)
                 .linkedLibrary("d2d1"),  // an emoji drawn to pixels for the dock (CraEmoji.cpp)
                 .linkedLibrary("dwrite"),
+                .linkedLibrary("shlwapi"),  // AssocQueryString (Library ▸ Media's "Open in …")
             ]
         ),
         // Every Chromium subprocess (renderer, GPU, utility) runs this executable.
