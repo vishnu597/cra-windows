@@ -408,6 +408,18 @@ public final class SidebarStore {
         tookTab(id, into: window, open: true)
     }
 
+    /// A torn-off pinned tab (#219) stays where it is, in its folder too, and the Blank Window opens the same
+    /// address as a tab of its own (TabTearOff.copiesTab, Arc 1.174.2). The window takes the tab's profile (#288).
+    public func copyToBlankWindow(_ id: UUID, window: UUID) {
+        let sid = focusedSpaceID(window: window)
+        guard isBlank(space: sid), let space = spaces[sid], let tab = items[id]?.tab else { return }
+        if children(of: space.todayContainerID).isEmpty {
+            let profile = profileID(item: id)
+            spaces[sid]?.profileID = profile
+        }
+        createTab(url: tab.url, title: tab.savedTitle, in: sid, parent: space.todayContainerID, index: 0, window: window)
+    }
+
     /// A tab that came into a window's list from another window (a tear-off, or a drop on its
     /// sidebar): windows that had it open in another space let it go, and it opens here if it
     /// was open there (Arc showed a dropped tab in the window it was dropped on) or `open` says
@@ -956,9 +968,9 @@ public final class SidebarStore {
         return items[copy.id]
     }
 
-    /// Arc saves a duplicate read and never visited (isUnread false, no timeLastActiveAt): no unread
+    /// Arc saves a duplicate (and a Favorite's separated page, #801) read and never visited (isUnread false, no timeLastActiveAt): no unread
     /// dot, and not among ⌃Tab's recent tabs, unlike a tab a link opens in the background.
-    private func markDuplicateRead(_ id: UUID) {
+    public func markDuplicateRead(_ id: UUID) {
         guard var it = items[id], var t = it.tab else { return }
         t.timeLastActiveAt = nil
         it.data = .tab(t)
@@ -2442,6 +2454,86 @@ public final class SidebarStore {
         closedPinnedTabs.removeAll { $0.id == id }
     }
 
+    // MARK: Remove Favorite and ⌘Z (#806)
+
+    /// The favorite Remove Favorite took off last, as it was: ⌘Z puts it back (Arc's undo).
+    private struct RemovedFavorite {
+        var id: UUID
+        /// The favorite and, for a split, its panes.
+        var items: [SidebarItem]
+        var container: UUID
+        var index: Int
+        var removedAt: Date
+        /// Window → the favorite's tab it had selected.
+        var selected: [UUID: UUID]
+    }
+
+    @ObservationIgnored private var lastRemovedFavorite: RemovedFavorite?
+
+    /// Arc's Remove Favorite: a shared favorite is deleted; a space's own goes to the archive, where
+    /// Library can bring it back. Either way ⌘Z puts it back where it was (#806).
+    public func removeFavorite(_ id: UUID) {
+        let id = splitContaining(id)?.id ?? id
+        guard isFavorite(id), let it = items[id], let container = it.parentID,
+              let index = items[container]?.children.firstIndex(of: id) else { return }
+        var subtree: [SidebarItem] = []
+        func walk(_ i: UUID) {
+            guard let x = items[i] else { return }
+            subtree.append(x)
+            x.children.forEach(walk)
+        }
+        walk(id)
+        let tabs = subtree.filter(\.isTab).map(\.id)
+        var selected: [UUID: UUID] = [:]
+        for w in prefs.windows {
+            if let t = w.selectedTabPerSpace.values.first(where: tabs.contains) { selected[w.id] = t }
+        }
+        if profileList(ofItem: id) != nil { removeFromFavorites(id) } else { archiveTabs(tabs, reason: .manual) }
+        lastRemovedFavorite = RemovedFavorite(id: id, items: subtree, container: container, index: index,
+                                              removedAt: clock.now, selected: selected)
+    }
+
+    /// The removal ⌘Z can still undo: none once the favorite is back (Library, sync) or its list went.
+    private var undoableRemovedFavorite: RemovedFavorite? {
+        guard let r = lastRemovedFavorite, items[r.container] != nil, r.items.allSatisfy({ items[$0.id] == nil }) else { return nil }
+        return r
+    }
+
+    /// ⌘Z after Remove Favorite, when nothing was closed since (that comes back first, as in Arc's
+    /// undo): the favorite goes back in its place in the favorites, with its colour, icon and panes,
+    /// and out of the archive. Window `windowID` shows it again if it had it open.
+    public func undoRemoveFavorite(in windowID: UUID? = nil, peek: ReopenClosedTab.ClosedPeek? = nil) -> Bool {
+        guard let r = undoableRemovedFavorite else {
+            lastRemovedFavorite = nil
+            return false
+        }
+        let w = self.window(windowID).id
+        let here = focusedSpaceID(window: w)
+        // "Reopen tabs from this Space only" (#601): a favorite another space lists waits for it.
+        if settings.reopenClosedTabCurrentSpaceOnly, spaces[here]?.favoritesContainerID != r.container { return false }
+        let decision = ReopenClosedTab.next(
+            closedPinned: closedPinnedTabs, closedPeek: peek,
+            archived: archive.map { ReopenClosedTab.ArchivedTab(id: $0.id, archivedAt: $0.archivedAt) },
+            isPinnedTabAvailable: { [weak self] id in self?.items[id] != nil && self?.isPinned(id) == true },
+            isTabSelected: { [weak self] id in id == self?.selectedTabID(window: w) },
+            isInCurrentSpace: closedInSpace(here),
+            removedFavorite: ReopenClosedTab.RemovedFavorite(id: r.id, removedAt: r.removedAt))
+        guard decision?.restoration == .favorite(r.id) else { return false }
+        lastRemovedFavorite = nil
+        let ids = Set(r.items.map(\.id))
+        archive.removeAll { ids.contains($0.id) }
+        for var it in r.items {
+            if it.id == r.id { it.parentID = r.container }
+            items[it.id] = it
+        }
+        if var c = items[r.container] {
+            c.children.insert(r.id, at: min(r.index, c.children.count))
+            items[r.container] = c
+        }
+        if let t = r.selected[w] { selectTab(t, window: w) } else { touch() }
+        return true
+    }
+
     @discardableResult
     public func reopenLastClosed(in windowID: UUID? = nil, peek: ReopenClosedTab.ClosedPeek? = nil) -> ReopenClosedTab.Restoration? {
         let w = self.window(windowID).id
@@ -2449,13 +2541,7 @@ public final class SidebarStore {
         // #601, not in Arc: only what was closed in the window's space, which ⇧⌘T then stays in.
         // An archived tab counts by the space it was closed from; a pinned tab or a Peek's tab by
         // the space that lists it now (a shared favorite is in every space on its profile).
-        let here = focusedSpaceID(window: w)
-        let archivedFrom = Dictionary(archive.map { ($0.id, $0.sourceSpaceID) }, uniquingKeysWith: { a, _ in a })
-        let isInCurrentSpace: ((UUID) -> Bool)? = settings.reopenClosedTabCurrentSpaceOnly ? { [weak self] id in
-            guard let self else { return false }
-            if let from = archivedFrom[id] { return from == here }
-            return isInSpace(id, here)
-        } : nil
+        let isInCurrentSpace = closedInSpace(focusedSpaceID(window: w))
         guard let decision = ReopenClosedTab.next(
             closedPinned: closedPinnedTabs,
             closedPeek: peek,
@@ -2483,10 +2569,22 @@ public final class SidebarStore {
             selectTab(id, window: w)
         case .archived(let id):
             restoreArchived(id)
-        case .peek:
+        case .peek, .favorite:
             break
         }
         return decision.restoration
+    }
+
+    /// Settings ▸ Tabs ▸ "Reopen tabs from this Space only" (#601): whether a closed tab is space
+    /// `here`'s, nil with the setting off.
+    private func closedInSpace(_ here: UUID) -> ((UUID) -> Bool)? {
+        guard settings.reopenClosedTabCurrentSpaceOnly else { return nil }
+        let archivedFrom = Dictionary(archive.map { ($0.id, $0.sourceSpaceID) }, uniquingKeysWith: { a, _ in a })
+        return { [weak self] id in
+            guard let self else { return false }
+            if let from = archivedFrom[id] { return from == here }
+            return isInSpace(id, here)
+        }
     }
 
     public func removeFromArchive(_ id: UUID) {
@@ -2738,14 +2836,39 @@ public final class SidebarStore {
     }
 
     /// Today tabs idle longer than their space's profile's timer are archived (Arc:
-    /// ArchiveState+AutoArchive, autoArchiveTimeThreshold; per profile, #693).
-    public func runAutoArchive() {
+    /// ArchiveState+AutoArchive, autoArchiveTimeThreshold; per profile, #693). Returns how many went to the
+    /// Archive, for Arc's "Auto archived N tabs" toast (AutoArchiveNotice): an empty or incognito tab leaves no
+    /// entry there, so it isn't counted.
+    @discardableResult
+    public func runAutoArchive() -> Int {
+        var count = 0
         for space in orderedSpaces {
             let selected = Set(prefs.windows.compactMap { $0.selectedTabPerSpace[space.id] })
             let today = tabs(under: space.todayContainerID).map { AutoArchive.Tab(id: $0.id, lastActive: $0.tab?.timeLastActiveAt ?? $0.createdAt) }
-            archiveTabs(AutoArchive.due(today, selected: selected, choice: settings.autoArchive(profileID: space.profileID), now: clock.now),
-                        reason: .auto)
+            let due = AutoArchive.due(today, selected: selected, choice: settings.autoArchive(profileID: space.profileID), now: clock.now)
+            if !isIncognito(space: space.id) { count += due.filter { items[$0]?.isEmptyTab == false }.count }
+            archiveTabs(due, reason: .auto)
         }
+        return count
+    }
+
+    /// A tab's "Archive tabs after", by its space's profile: a tab in the sidebar, or one in the Archive by the space it
+    /// came from (SyncAutoArchive).
+    public func autoArchiveChoice(forTab id: UUID) -> AutoArchiveChoice {
+        let sid = spaceID(ofItem: id) ?? archive.first { $0.id == id }?.sourceSpaceID
+        return settings.autoArchive(profileID: sid.flatMap { spaces[$0]?.profileID })
+    }
+
+    /// The pass's archives, id → when, for the sync bundle (SyncAutoArchive.listed).
+    public var autoArchivedTabs: [(id: UUID, at: Date)] {
+        archive.filter { $0.reason == .auto }.map { (id: $0.id, at: $0.archivedAt) }
+    }
+
+    /// Tabs the archive pass took that sync brought back to the sidebar leave the Archive (SyncAutoArchive).
+    public func forgetAutoArchived(_ ids: Set<UUID>) {
+        guard !ids.isEmpty, archive.contains(where: { $0.reason == .auto && ids.contains($0.id) }) else { return }
+        archive.removeAll { $0.reason == .auto && ids.contains($0.id) }
+        touch()
     }
 
     // MARK: Spaces

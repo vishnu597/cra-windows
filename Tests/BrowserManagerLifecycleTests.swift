@@ -241,6 +241,8 @@ enum BrowserManagerLifecycleTests {
         await suspendedMediaSleepsCase()
         await sweepThatClosesNothingCase()
         devToolsCase()
+        devToolsFrontendCase()
+        devToolsPickerKeysCase()
         extensionTabActivationCase()
         await translationCase()
         await beforeUnloadCase()
@@ -1760,6 +1762,63 @@ enum BrowserManagerLifecycleTests {
         manager.closeAll()
     }
 
+    // promise: #776
+    /// The developer bar's Network and Inspect on closed DevTools (#88), and the keys: the engine opens them, the
+    /// frontend switches to Network or arms the picker once it says its first panel, and DevTools take the keys
+    /// then, and whenever a command keeps them shown (DevToolsFrontendCalls).
+    @MainActor
+    private static func devToolsFrontendCase() {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let observer = Observer()
+        manager.delegate = observer
+        let id = store.createTab(url: "https://example.test/devtools").id
+        manager.show(id, focus: false)
+        let browser = manager.runtime(for: id)!.browser
+        manager.runDevTools(.network)
+        manager.browser(browser, didCreateDevToolsView: NSView())
+        expect(browser.devToolsRequests == ["show"] && browser.devToolsScripts.isEmpty && observer.devToolsKeys.isEmpty,
+               "Network opens DevTools and waits for the frontend")
+        manager.browser(browser, devToolsShowsPanel: "elements")
+        expect(browser.devToolsScripts == ["InspectorFrontendAPI.showPanel('network')"] && observer.devToolsKeys == [id],
+               "once it says its first panel, it switches to Network and takes the keys")
+        manager.browser(browser, devToolsShowsPanel: "network")
+        expect(browser.devToolsScripts.count == 1 && observer.devToolsKeys == [id], "the switch it reports asks nothing more")
+        manager.runDevTools(.console)
+        expect(browser.devToolsScripts.last == "InspectorFrontendAPI.showPanel('console')" && observer.devToolsKeys == [id, id],
+               "Console on open DevTools switches at once, with the keys")
+        manager.runDevTools(.toggle)
+        manager.browserDidCloseDevTools(browser)
+        manager.runDevTools(.inspect)
+        expect(browser.devToolsAction == "elements", "Inspect on closed DevTools opens them on Elements")
+        manager.browser(browser, didCreateDevToolsView: NSView())
+        manager.browser(browser, devToolsShowsPanel: "elements")
+        expect(browser.devToolsScripts.last == DevToolsFrontendCalls.armPicker && observer.devToolsKeys.count == 3,
+               "and arms the picker once the frontend is up")
+        manager.closeAll()
+    }
+
+    // promise: #778
+    /// The element picker letting go after a pick (the frontend's bringToFront, or the picker's action turning off)
+    /// gives DevTools the keys back from the page the pick clicked.
+    @MainActor
+    private static func devToolsPickerKeysCase() {
+        let store = SidebarStore()
+        let manager = BrowserManager(store: store, favicons: FaviconCache(), container: NSView())
+        let observer = Observer()
+        manager.delegate = observer
+        let id = store.createTab(url: "https://example.test/devtools").id
+        manager.show(id, focus: false)
+        let browser = manager.runtime(for: id)!.browser
+        manager.runDevTools(.inspect)
+        manager.browser(browser, didCreateDevToolsView: NSView())
+        manager.browser(browser, devToolsShowsPanel: "elements")
+        let before = observer.devToolsKeys
+        manager.browserDevToolsWantsKeys(browser)
+        expect(observer.devToolsKeys == before + [id], "the frontend asking for the keys gets them")
+        manager.closeAll()
+    }
+
     // promise: #32
     /// The page's own onbeforeunload, asked in its world after the isolated probe, keeps it awake.
     @MainActor
@@ -2845,6 +2904,8 @@ private final class Observer: BrowserManagerDelegate {
     func browserManager(exclusiveAccessToast toast: ExclusiveAccessNotice.Toast, tabID: UUID) {}
     func browserManagerDevToolsHost(for tabID: UUID) -> NSView? { nil }
     func browserManagerDevToolsChanged() {}
+    var devToolsKeys: [UUID] = []
+    func browserManagerDevToolsTakeKeys(_ tabID: UUID) { devToolsKeys.append(tabID) }
     func browserManagerTabSharingChanged() {}
     func browserManagerDevToolsPageBoundsChanged() {}
     func browserManagerPageWindowsChanged(focus: Bool) { onPageWindowsChanged?() }

@@ -245,6 +245,8 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     /// The page's DevTools, docked in the page area as the browser window docks them in a pane
     /// (#348). ⌥⌘I opens and closes them (DevToolsToggle).
     private var devTools = DevToolsToggle()
+    /// What the frontend is asked once it is up, and when it takes the keys (CraCore DevToolsFrontendCalls).
+    private var devToolsCalls = DevToolsFrontendCalls()
     /// Chromium's window for the DevTools frontend, while they are open.
     private var devToolsView: NSView?
     /// The frontend is docked, Chrome's default; false once "Undock into separate window" is picked.
@@ -890,7 +892,13 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
                 + " shown=\(shown ? 1 : 0)"
                 + String(format: " size=%.0fx%.0f", frame.width, frame.height)
         }
+        // focus=devtools: the docked frontend is this window's first responder; panel=: the panel it last said it shows.
+        let responder = window.firstResponder as? NSView
+        let holder = EmbeddedDevTools.holder(of: browser?.devToolsWindow).flatMap { $0.window === window ? $0 : nil }
+        let focus = holder.flatMap { h in responder.map { $0.isDescendant(of: h) } } == true ? "devtools"
+            : browser.flatMap { b in responder.map { $0.isDescendant(of: b.containerView) } } == true ? "page" : "other"
         return out + " pageFills=\(same(page, area) ? 1 : 0)" + String(format: " area=%.0fx%.0f", area.width, area.height)
+            + " focus=\(focus) panel=\(devTools.panel ?? "-")"
     }
 
     /// cra://debug?littleCard=<step>: `go:<typed>` is Return on what was typed in the card's bar,
@@ -2338,11 +2346,20 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
             b.showDevTools()
             return
         }
+        let open = devTools.state == .open
         let (effect, frontend) = devTools.run(command)
         // A press made while DevTools close is done when they reopen (DevToolsToggle.didClose),
         // one made while they open once the frontend is up.
-        b.devToolsAction = frontend
+        let (engineAction, now) = devToolsCalls.command(frontend, shows: effect == .show || effect == .frontend, frontendUp: open)
+        b.devToolsAction = engineAction
         perform(effect)
+        take(now)
+    }
+
+    /// Runs a DevToolsFrontendCalls step in the page's frontend.
+    private func take(_ step: DevToolsFrontendCalls.Step) {
+        if let script = step.script { browser?.executeJavaScript(script, inDevTools: true) }
+        if step.takesKeys, let window, let dev = devToolsView?.window { EmbeddedDevTools.giveKeys(to: dev, in: window) }
     }
 
     private func perform(_ effect: DevToolsToggle.Effect) {
@@ -2397,7 +2414,16 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     }
 
     func browser(_ browser: CraBrowser, devToolsShowsPanel panel: String) {
-        if browser === self.browser { devTools.didShowPanel(panel) }
+        guard browser === self.browser else { return }
+        let first = devTools.panel == nil
+        devTools.didShowPanel(panel)
+        // A closing frontend's report is dropped (DevToolsToggle.didShowPanel).
+        guard devTools.state == .open || devTools.state == .opening else { return }
+        take(devToolsCalls.frontendShowsPanel(first: first))
+    }
+
+    func browserDevToolsWantsKeys(_ browser: CraBrowser) {
+        if browser === self.browser { take(.init(takesKeys: true)) }
     }
 
     /// Hangs the DevTools window on this one over the page area, under the page's own window, or,
@@ -3382,6 +3408,8 @@ final class LittleSpacesPopup: NSView, NSTextFieldDelegate {
     private let empty = NSTextField.sidebarLabel(size: 13)
     private var rows: [NSView] = []
     private var list: [Space] = []
+    /// "<space>:<tile>/<icon>" for each row whose space has an icon, for the debug readout.
+    private var iconColors: [String] = []
     private var selected = 0 { didSet { refreshSelection(); revealSelected() } }
     private var revealOnLayout = true
 
@@ -3455,6 +3483,7 @@ final class LittleSpacesPopup: NSView, NSTextFieldDelegate {
         let spaces = LittleMoveMenu.order(store.orderedSpaces.map(\.id), target: state.targetSpaceID).compactMap(store.space)
         list = q.isEmpty ? spaces : spaces.filter { $0.title.lowercased().contains(q) }
         rows.forEach { $0.removeFromSuperview() }
+        iconColors = []
         let rh = LittleMoveMenu.rowHeight, ts = LittleMoveMenu.tileSize
         rows = list.map { s in
             let row = FlippedView()
@@ -3463,7 +3492,8 @@ final class LittleSpacesPopup: NSView, NSTextFieldDelegate {
             tile.wantsLayer = true
             tile.layer?.cornerRadius = LittleMoveMenu.tileRadius
             tile.layer?.cornerCurve = .continuous
-            tile.layer?.backgroundColor = NSColor(hex: s.theme.shown.accent ?? s.theme.shown.colors.first ?? "#888888").cgColor
+            let fill = s.theme.shown.accent ?? s.theme.shown.colors.first ?? "#888888"
+            tile.layer?.backgroundColor = NSColor(hex: fill).cgColor
             // Arc 1.172.1: a 12 pt emoji, centred (a 🍎 12.5 pt wide in the 26 pt tile).
             let emoji = NSTextField.sidebarLabel(size: 12)
             emoji.stringValue = s.emoji
@@ -3474,7 +3504,10 @@ final class LittleSpacesPopup: NSView, NSTextFieldDelegate {
                 let glyph = NSImageView(frame: NSRect(x: 0, y: 0, width: ts, height: ts))
                 glyph.image = image
                 glyph.imageScaling = .scaleNone
-                glyph.contentTintColor = .white
+                let icon = LittleMoveMenu.iconColor(onTile: fill)
+                glyph.contentTintColor = NSColor(icon)
+                iconColors.append(String(format: "%@:%@/#%02X%02X%02X", s.title, fill, Int((icon.r * 255).rounded()),
+                                         Int((icon.g * 255).rounded()), Int((icon.b * 255).rounded())))
                 tile.addSubview(glyph)
             }
             row.addSubview(tile)
@@ -3535,8 +3568,8 @@ final class LittleSpacesPopup: NSView, NSTextFieldDelegate {
 
     // MARK: Debug (cra://debug?littleMenu=…)
 
-    /// rows, the first row, the highlighted one, how far the list is scrolled and whether the
-    /// highlighted row is whole in view.
+    /// rows, the first row, the highlighted one, how far the list is scrolled, whether the
+    /// highlighted row is whole in view, and each space icon's tile and colour.
     var debugState: String {
         layoutSubtreeIfNeeded()
         let clip = scroll.contentView.bounds
@@ -3544,6 +3577,7 @@ final class LittleSpacesPopup: NSView, NSTextFieldDelegate {
         let name = { (i: Int) in self.list.indices.contains(i) ? self.list[i].title : "-" }
         return String(format: "rows=%d first=%@ selected=%@ scroll=%.0f inView=%d empty=%d", list.count, name(0), name(selected),
                       clip.minY, shown ? 1 : 0, empty.isHidden ? 0 : 1)
+            + (iconColors.isEmpty ? "" : " icons=" + iconColors.joined(separator: ","))
     }
 
     func debugMove(down n: Int) {

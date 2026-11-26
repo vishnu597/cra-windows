@@ -431,13 +431,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         }
         // The sidebar's ← → ↻ act on the Peek its address field shows (#648), else on the tab.
         // The click made this window key: the keys go back to the Peek, so ⌘[ and ⌘R carry on there.
+        // ⌘-click opens the page that way in a new tab instead (#797).
         sidebarActions.goBack = { [weak self] in
-            guard let peek = self?.sidebarPeek else { self?.goBack(); return }
+            guard let self else { return }
+            guard let peek = self.sidebarPeek else { self.commandClicked ? self.openHistoryInNewTab(.back) : self.goBack(); return }
             peek.goBack()
             peek.focusPage()
         }
         sidebarActions.goForward = { [weak self] in
-            guard let peek = self?.sidebarPeek else { self?.currentBrowser?.goForward(); return }
+            guard let self else { return }
+            guard let peek = self.sidebarPeek else {
+                if self.commandClicked { self.openHistoryInNewTab(.forward) } else { self.currentBrowser?.goForward() }
+                return
+            }
             peek.browser?.goForward()
             peek.focusPage()
         }
@@ -487,6 +493,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         sidebarActions.resetPinnedTab = { [weak self] id in self?.resetPinnedTab(id) }
         sidebarActions.shareTabInstead = { [weak self] id in self?.shareTabInstead(id) }
         sidebarActions.separatePinnedTab = { [weak self] id in self?.separatePinnedTab(id) }
+        sidebarActions.separateFavorite = { [weak self] id in self?.separateFavorite(id) }
         sidebarActions.editPinnedURL = { [weak self] id in self?.editPinnedURL(id) }
         sidebarActions.showToast = { [weak self] text in self?.showToast(text) }
         sidebarActions.openURL = { [weak self] url in
@@ -509,14 +516,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                 }
                 return
             }
-            guard let tab = self.selectedTab, let id = self.selectedTabID else { return }
-            switch SidebarAddressEdit.commit(typed: typed, currentURL: tab.tab?.url ?? "", pinned: self.store.isPinned(id),
-                                             searchURL: self.commandBar.engine.searchURL) {
-            case .none: break
-            case .load(let url): self.loadInSelectedTab(url)
-            case .newTab(let url): self.store.createTab(url: url, window: self.windowID)
-            }
+            guard let id = self.selectedTabID else { return }
+            self.commitAddress(typed, in: id)
         }
+        sidebarActions.commitTabAddress = { [weak self] id, typed in self?.commitAddress(typed, in: id) }
         sidebarActions.openTyped = { [weak self] typed in
             guard let self else { return }
             let t = typed.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -534,8 +537,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             if self.selectedTabID != id { self.store.selectTab(id, window: windowID) }
             guard let b = self.browsers.runtime(for: id)?.browser else { return }
             switch what {
-            case "goBack": self.goBack(id)
-            case "goForward": b.goForward()
+            case "goBack": self.commandClicked ? self.openHistoryInNewTab(.back, from: id) : self.goBack(id)
+            case "goForward": self.commandClicked ? self.openHistoryInNewTab(.forward, from: id) : b.goForward()
             case "reload": b.isLoading ? b.stopLoading() : b.reload()
             default: break
             }
@@ -977,11 +980,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             CraLog.note("favorite menu \(label): no tile \(n)"); return
         }
         CraLog.note("favorite menu \(label): \(Self.menuReadout(menu))")
-        guard let run, let index = menu.items.firstIndex(where: { $0.title == run }) else { return }
-        menu.performActionForItem(at: index)
-        let id = tiles[n - 1].itemID
-        let page = app.runtime(for: id).map { $0.browser.isAudioMuted() ? "muted" : "unmuted" } ?? "not loaded"
-        CraLog.note("favorite menu \(label) ran \(run): saved=\(store.item(id)?.tab?.muted == true ? "muted" : "unmuted") page=\(page)")
+        guard let run else { return }
+        // A row the menu doesn't have (run=-) runs nothing: the lists below are read as they are (#806).
+        if let index = menu.items.firstIndex(where: { $0.title == run }) {
+            menu.performActionForItem(at: index)
+            let id = tiles[n - 1].itemID
+            let page = app.runtime(for: id).map { $0.browser.isAudioMuted() ? "muted" : "unmuted" } ?? "not loaded"
+            CraLog.note("favorite menu \(label) ran \(run): saved=\(store.item(id)?.tab?.muted == true ? "muted" : "unmuted") page=\(page)")
+        }
         // The space's favorites and Today after the row ran, a split as its panes' pages joined by +, and the open tab (#600).
         guard let space = store.space(focusedSpaceID) else { return }
         let query = { (id: UUID) in self.store.item(id)?.tab.flatMap { URL(string: $0.url)?.query } ?? "-" }
@@ -2482,6 +2488,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         positionPageWindows(lastPaneFrames)
     }
 
+    /// The tab's DevTools take the keys while it shows (EmbeddedDevTools.giveKeys).
+    func browserManagerDevToolsTakeKeys(_ tabID: UUID) {
+        guard let window, browsers.visibleTabIDs.contains(tabID), let dev = browsers.devToolsViews[tabID]?.window else { return }
+        EmbeddedDevTools.giveKeys(to: dev, in: window)
+    }
+
     /// The engine's docked frontends in their panes' cards, under the pages, which go where each left room; a card
     /// whose tab has none docked (closed, undocked, another tab now) lets go of the one it had.
     private func syncEmbeddedDevTools() {
@@ -3078,6 +3090,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         }
     }
 
+    /// Whether the Back or Forward being pressed now was ⌘-clicked (#797): a click, not ⌘[.
+    private var commandClicked: Bool {
+        guard let e = NSApp.currentEvent else { return false }
+        return BackForwardMenu.opensNewTab(commandHeld: e.modifierFlags.contains(.command),
+                                           byMouse: e.type == .leftMouseUp || e.type == .leftMouseDown)
+    }
+
+    /// ⌘-click on Back or Forward (#797): the nearest page that way in tab `tab`'s history (the tab in
+    /// front by default) opens in a new tab that comes to the front, where new tabs go, opened from
+    /// `tab`; `tab` stays on its page, as in Arc. Logs "history new tab: <direction> <address>".
+    func openHistoryInNewTab(_ direction: BackForwardMenu.Direction, from tab: UUID? = nil) {
+        guard let id = tab ?? browsers.visibleTabID, let b = browsers.runtime(for: id)?.browser else { return }
+        b.sendDevToolsMethod("Page.getNavigationHistory", params: "{}") { [weak self] result, _ in
+            MainActor.assumeIsolated {
+                guard let self, let result, let page = BackForwardMenu.newTabPage(history: result, direction: direction) else { return }
+                self.store.createTab(url: page.url, title: page.title, in: self.store.spaceID(ofItem: id), select: true,
+                                     window: self.windowID, referrer: id)
+                CraLog.note("history new tab: \(direction == .back ? "back" : "forward") \(page.url)")
+            }
+        }
+    }
+
     /// Right-click or hold Back or Forward (#416): the pages that way in tab `tab`'s history (a
     /// split pane's, or the tab in front), in Arc's menu under the button; a row goes straight to
     /// its page. Chromium's history comes over DevTools, so the main thread never waits for it.
@@ -3166,18 +3200,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     /// Today tabs are archived. Pinned tabs and favorites stay; they unload
     /// and return to their pinned page (Arc's close-on-pinned behaviour). A Favorite is only deselected, unless
-    /// `fromItsMenu` (its right-click menu's Close Tab), as in Arc (#740).
+    /// `fromItsMenu` (its right-click menu's Close Tab) or its page is making sound, as in Arc (#740, #803).
     func closeTab(_ id: UUID, fromItsMenu: Bool = false) {
         guard let item = store.item(id), item.isTab else { return }
         if store.isPinned(id) {
             let panes = store.paneTabIDs(for: id)
             let wasSelected = selectedTabID.map(panes.contains) ?? false
-            // A Favorite is only deselected: its page keeps running, and a click on it shows it as it was (#740).
-            if CloseSuccessor.pinnedClose(isFavorite: store.isFavorite(id), fromItsMenu: fromItsMenu) == .deselectKeepingPage {
+            let audible = panes.contains { app.runtime(for: $0)?.browser.isAudible == true }
+            let away = panes.filter { p in store.item(p)?.tab.map { !$0.savedURL.isEmpty && $0.url != $0.savedURL } ?? false }
+            // A silent Favorite is only deselected: its page keeps running, and a click on it shows it as it was (#740).
+            // Away from its pinned page, it goes back there in the background and stays loaded (#804).
+            // One playing sound unloads like a pinned tab, so a video in it stops (#803).
+            switch CloseSuccessor.pinnedClose(isFavorite: store.isFavorite(id), fromItsMenu: fromItsMenu,
+                                              audible: audible, awayFromPinnedPage: !away.isEmpty) {
+            case .deselectKeepingPage:
                 if wasSelected { store.selectTab(store.closeSuccessor(ofPinned: id, window: windowID), window: windowID) }
                 CraLog.note("close tab: favorite deselected, its page kept")
                 return
+            case .deselectGoingHome:
+                if wasSelected { store.selectTab(store.closeSuccessor(ofPinned: id, window: windowID), window: windowID) }
+                for p in away { resetPinnedTab(p) }
+                CraLog.note("close tab: favorite deselected, back to its pinned page")
+                return
+            case .unloadToPinnedPage:
+                break
             }
+            if audible, store.isFavorite(id) { CraLog.note("close tab: favorite playing sound unloaded") }
             // A pinned split closes as one: every pane unloads and goes back to its page.
             for p in store.closePinnedTab(id, wasOpen: wasSelected) {
                 for w in app.mainWindows { w.browsers.unload(p); w.dropPeeks(from: p) }
@@ -3213,6 +3261,19 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         _ = store.createTab(url: t.url, title: t.savedTitle, in: store.spaceID(ofItem: id), select: false, index: 0)
         resetPinnedTab(id)
         store.selectTab(id, window: windowID)
+    }
+
+    /// Arc's ⌘-click on a Favorite (#801, Arc 1.174.2 measured 25 Nov 2026): its page moves to a new Today
+    /// tab at the top, in the background and saved read, never visited; the Favorite stays open, back on its
+    /// pinned page if it was away, on it or not. Arc moves the live page; here the new tab loads it, and a
+    /// Favorite at home keeps its own.
+    func separateFavorite(_ id: UUID) {
+        guard let t = store.item(id)?.tab, store.isFavorite(id) else { return }
+        let page = store.createTab(url: t.url, title: t.savedTitle, in: store.spaceID(ofItem: id), select: false, index: 0)
+        store.markDuplicateRead(page.id)
+        if t.url != t.savedURL { resetPinnedTab(id) }
+        store.selectTab(id, window: windowID)
+        CraLog.note("favorite separated: page to a new Today tab at the top, favorite \(t.url != t.savedURL ? "back on its pinned page" : "kept")")
     }
 
     /// Edit Pinned URL… (#54): Arc's dialog with the pinned URL. A page showing the old
@@ -4927,6 +4988,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         return "panel compact w=\(Int(f.width.rounded())) h=\(Int(f.height.rounded())) " + (at ? "at field" : "away from field")
     }
 
+    /// Scenario hooks: the focused pane's toolbar address edited in place, as `debugURLFieldEdit`
+    /// drives the sidebar's: "click", "state", "type:<text>" (then Return) or "escape:<text>".
+    func debugToolbarAddressEdit(_ step: String) {
+        let bar = shell.focusedCard?.toolbarHost as? PaneToolbarView
+        let place = ", command bar " + (commandBar.isOpen ? "open" : "closed")
+        switch step {
+        case "click": CraLog.note("toolbar address click: " + (bar?.debugAddressClick() ?? "none") + place)
+        case "state": CraLog.note("toolbar address state: " + (bar?.debugAddressState ?? "none") + place)
+        default:
+            let commit = step.hasPrefix("type:")
+            let text = String(step.drop(while: { $0 != ":" }).dropFirst())
+            CraLog.note("toolbar address \(commit ? "return" : "escape"): " + (bar?.debugAddressType(text, commit: commit) == true ? "done" : "not editing"))
+        }
+    }
+
     func debugURLFieldPress(_ name: String) {
         let item: ToolbarComposition.Item = name == "copyURL" ? .copyURL : .extensions
         let pressed = (shell.sidebarHost as? SidebarView)?.debugURLFieldPress(item) == true
@@ -5701,6 +5777,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     }
 
     /// Navigate the focused tab (an empty split pane gets its first page here).
+    /// Return in an address edited in place (#344), for `id`: it loads there or, for another host
+    /// from a pinned tab, in a new tab (SidebarAddressEdit.commit). `id` is selected first, so a
+    /// split pane's bar loads in its own pane.
+    private func commitAddress(_ typed: String, in id: UUID) {
+        guard let item = store.item(id) else { return }
+        switch SidebarAddressEdit.commit(typed: typed, currentURL: item.tab?.url ?? "", pinned: store.isPinned(id),
+                                         searchURL: commandBar.engine.searchURL) {
+        case .none: break
+        case .load(let url):
+            if selectedTabID != id { store.selectTab(id, window: windowID) }
+            loadInSelectedTab(url)
+        case .newTab(let url): store.createTab(url: url, window: windowID)
+        }
+    }
+
     func loadInSelectedTab(_ url: String) {
         guard let id = selectedTabID else { return }
         // Typed over an incognito tab, Chrome's Settings or Extensions page opens in a new tab of the
