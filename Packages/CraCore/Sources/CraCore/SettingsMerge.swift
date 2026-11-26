@@ -30,8 +30,14 @@ public enum SettingsMerge {
     private static func same(_ a: Any?, _ b: Any?) -> Bool {
         switch (a, b) {
         case (nil, nil): true
-        case let (a?, b?): (a as AnyObject).isEqual(b as AnyObject)
+        case let (a?, b?): canonical(a) == canonical(b)
         default: false
         }
+    }
+
+    /// A JSON value written with sorted keys, so two equal values compare equal on every platform
+    /// (`isEqual` on AnyObject is Apple's Foundation only).
+    private static func canonical(_ value: Any) -> Data? {
+        try? JSONSerialization.data(withJSONObject: [value], options: [.sortedKeys])
     }
 }
