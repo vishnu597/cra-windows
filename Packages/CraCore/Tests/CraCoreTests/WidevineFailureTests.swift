@@ -63,6 +63,7 @@ struct WidevineFailureTests {
 
     /// The page's own sign-in goes with the site: the cookies it sends (its host's and its parent
     /// domains') and its subdomains'. Nothing of another site, nothing expired or partitioned.
+    #if canImport(Darwin)  // the cookie handoff is the Mac's (ProtectedVideoHandoff.cookies)
     @Test func theCookiesThePageSendsGoAlong() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let answer = """
@@ -87,6 +88,7 @@ struct WidevineFailureTests {
         #expect(ProtectedVideoHandoff.cookies(fromProtocolAnswer: answer, forPageAt: "chrome://settings", now: now).isEmpty)
         #expect(ProtectedVideoHandoff.cookies(fromProtocolAnswer: "", forPageAt: "https://watch.example.tv/", now: now).isEmpty)
     }
+    #endif
 
     #if canImport(JavaScriptCore)
     // MARK: How the page tells
