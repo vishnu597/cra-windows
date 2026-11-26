@@ -624,6 +624,12 @@ built release app with a test profile. Note anything that fails in the release's
   Cancel Download, and a paused row reads "Paused". ⌘Q while it runs asks "Downloads in progress";
   Keep browsing keeps it going. Once it finishes, a check replaces the arrow, and its row's menu
   reads Open / Copy <kind>, Show in Finder, Hide from Cra and Move to Trash.
+- **Screenshots in the downloads list:** on a Mac whose screenshots go to the Desktop (the default)
+  and where Cra hasn't been allowed the Desktop yet: launching asks nothing. Open the Library once:
+  macOS asks for Desktop access; allow it. Press ⇧⌘4 and take a screenshot: within a few seconds it is
+  the newest row when you hover the Library button, with its picture, and drags onto a page's upload
+  field. Unticking Screenshots in the Media button's "Show media" menu takes it out.
+  (`downloads-tray-screenshots` covers a screenshot in ~/Pictures; macOS's question needs a person.)
 - **PR #254:** with the release app as the default browser, open a page in Safari on an iPhone
   signed in to the same Apple Account and click the Handoff icon in the Dock. The page opens in
   Cra, in the space Air Traffic Control picks, and not in Safari.
@@ -681,6 +687,22 @@ built release app with a test profile. Note anything that fails in the release's
   hold it: it presses in under the finger (94 %, Arc Search's about 94.5 %) and comes back out without
   growing past its size (it puffed up to 106 %). `PillPressTests` covers a held press; a quick tap's way
   back needs an eye.
+
+- **Pull to refresh:** on a TestFlight build on a real iPhone with System Haptics on, pull a page down
+  from its top: the page's whole view comes down with the pull (its content stays at the top inside it, so
+  the page does not scroll) and the coloured band behind the status bar grows edge to edge to meet it, its
+  bottom staying on the page's visible top; letting go springs the page back. The reload ring sits in the
+  band, filling clockwise from the top in the status bar's ink (white or dark grey), clear at its tail with
+  the end ink fading in to 90 % opaque, and only the tip rounded; at the 128 pt line a solid second lap
+  springs out over its seam, further and bouncier the faster the pull (a slow pull barely nudges it).
+  Ticks start at 24 pt, one every 2 pt, faint and strengthening, and the strongest lands on that line as
+  a heavier tick; pushing the pull back up ticks down through them again, and past the line the pull can
+  go further in silence. Pushing it back past the top hands the drag to the page's scrolling, so it
+  continues without lifting. Letting go plays one medium impact as the page reloads; on a full pull the
+  solid second lap turns 108° in 0.3 s as it fades, and short of the line it unwinds back to the top. A
+  short pull and one dragged back up before letting go are silent. Nothing with System Haptics off.
+  `MobilePullHapticsTests` pins the sequence; `PullHapticsTests` counts the ticks and checks the band
+  meets the page.
 
 - **#536:** on a TestFlight build, sign in to a site with a passkey saved in iCloud Keychain and
   one saved in 1Password (webauthn.io works for both): iOS's passkey sheet comes up and the sign-in

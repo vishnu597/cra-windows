@@ -262,6 +262,7 @@ final class SidebarActions {
     /// Arc's "Share this tab instead" on a row (TabSharing): the call shares that tab, which shows.
     var shareTabInstead: (UUID) -> Void = { _ in }
     var separatePinnedTab: (UUID) -> Void = { _ in }
+    var separateFavorite: (UUID) -> Void = { _ in }
     var editPinnedURL: (UUID) -> Void = { _ in }
     var openURL: (String) -> Void = { _ in }
     /// Cra's one toast (ShinyToast) in this window.
@@ -296,6 +297,8 @@ final class SidebarActions {
     /// The sidebar URL field edited in place (#344): Return with what was typed, in the selected
     /// tab or, for another host from a pinned tab, a new one (SidebarAddressEdit.commit).
     var commitAddress: (String) -> Void = { _ in }
+    /// The toolbar's address edited in place: the same, for the tab its bar shows (a split pane's own).
+    var commitTabAddress: (UUID, String) -> Void = { _, _ in }
     /// A typed URL or search in a new tab (⌘ + New Tab pastes the clipboard's text).
     var openTyped: (String) -> Void = { _ in }
 }

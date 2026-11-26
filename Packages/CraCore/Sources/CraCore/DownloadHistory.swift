@@ -35,6 +35,10 @@ public final class DownloadHistory {
     }
 
     public private(set) var live: [Live] = []
+    /// Screenshots the system took lately, listed with the downloads in the hover list (ScreenshotWatcher).
+    public var screenshots: [Entry] = []
+    /// Hide from Cra on a screenshot: it stays off the list and Library ▸ Media.
+    @ObservationIgnored public var hideScreenshot: (String) -> Void = { _ in }
     /// When a download last finished, failed or was cancelled, for the Library button.
     @ObservationIgnored public private(set) var lastEnded: Date?
 
@@ -42,7 +46,7 @@ public final class DownloadHistory {
     /// or cancelled ones. A path shows once, with its newest download: Chromium reuses a name
     /// once its file is gone, and older downloads.json files can hold both.
     public var recent: [Listed] {
-        DownloadList.tray(entries: newestPerPath, live: live, limit: Self.listLimit, fileExists: fileExists)
+        DownloadList.tray(entries: newestPerPath, live: live, screenshots: screenshots, limit: Self.listLimit, fileExists: fileExists)
     }
 
     /// Library ▸ Downloads: every download, newest first, running ones included (#245).
@@ -98,6 +102,9 @@ public final class DownloadHistory {
     /// Hide from Cra removes the row while leaving the downloaded file in place.
     public func hide(_ row: Listed) {
         switch row {
+        case .finished(let entry) where isScreenshot(entry):
+            screenshots.removeAll { $0.id == entry.id }
+            hideScreenshot(entry.path)
         case .finished(let entry):
             entries.removeAll { $0.id == entry.id }
             file?.save(entries)
@@ -105,6 +112,9 @@ public final class DownloadHistory {
             live.removeAll { $0.id == download.id }
         }
     }
+
+    /// A row the screenshot feed put there, not a download.
+    public func isScreenshot(_ e: Entry) -> Bool { screenshots.contains { $0.id == e.id } }
 
     /// How a download Chromium went quiet about ended, read from the disk.
     public enum Settled: Equatable, Sendable {

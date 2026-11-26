@@ -100,6 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         store.tidyTabsChanged = { [unowned self] enabled in if !enabled { TidyTabsService.shared.cancelAll(store: self.store) } }
         store.tidyTabsSpaceRemoved = { [unowned self] in TidyTabsService.shared.cancel($0, store: self.store) }
         LinkSummaryPreviewController.shared.bindEligibility(to: store)
+        // Screenshots the system takes show up in the downloads list by themselves (Arc's Library button).
+        ScreenshotWatcher.shared.start(store: store)
         store.tidyTabTitlesChanged = { enabled in if !enabled { TidyTitlesService.shared.cancelAll() } }
         TidyTabsService.shared.titlesUnavailable = { TidyTitlesService.shared.cancelAll() }
         // A tip takes the tones of the space its browser window is in (the sidebar may be a
@@ -170,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         installCommandFileWatcher()
         handoff.start()
         MCPServer.shared.start(app: self)
-        composition.startPeriodicWork { [weak self] in self?.sleepIdleTabs() }
+        composition.startPeriodicWork(autoArchived: { [weak self] in self?.noteAutoArchived($0) }) { [weak self] in self?.sleepIdleTabs() }
         composition.sync.keybindingsChanged = { [weak self] in self?.bindings.reloadOverrides() }
         composition.sync.start()
         SharingService.shared.start(store: store, clock: composition.clock)
@@ -364,6 +366,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    // MARK: "Auto archived N tabs"
+
+    private static let autoArchiveNoticeKey = "autoArchiveNoticePending"
+    /// Arc's toast after an archive pass, held until someone is at Cra (AutoArchiveNotice). Kept in the defaults, so
+    /// the count from before an update restart overnight is still said in the morning.
+    private var autoArchiveNotice = AutoArchiveNotice(pending: UserDefaults.standard.integer(forKey: AppDelegate.autoArchiveNoticeKey)) {
+        didSet { UserDefaults.standard.set(autoArchiveNotice.pending, forKey: Self.autoArchiveNoticeKey) }
+    }
+    /// While a count waits with Cra in front: the first key, click or scroll there means someone is back.
+    private var autoArchiveReturnMonitor: Any?
+
+    private func noteAutoArchived(_ count: Int) {
+        guard count > 0 else { return }
+        autoArchiveNotice.archived(count)
+        CraLog.note("auto archive: \(count) tabs, \(autoArchiveNotice.pending) waiting for the toast")
+        showAutoArchiveNotice(becameActive: false)
+    }
+
+    private func showAutoArchiveNotice(becameActive: Bool) {
+        guard autoArchiveNotice.pending > 0, !isOnboarding, !mainWindows.isEmpty else { return }
+        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+        let present = becameActive || AutoArchiveNotice.userPresent(appActive: NSApp.isActive, idleSeconds: idle)
+        guard let text = autoArchiveNotice.take(userPresent: present) else {
+            watchForReturnToAutoArchiveNotice()
+            return
+        }
+        if let m = autoArchiveReturnMonitor { NSEvent.removeMonitor(m); autoArchiveReturnMonitor = nil }
+        CraLog.note("auto archive toast: \(text)")
+        // A click opens the Archive, where the tabs are.
+        let window = main
+        window?.showToast(text) { [weak window] in window?.showLibrary(.archive) }
+    }
+
+    private func watchForReturnToAutoArchiveNotice() {
+        guard autoArchiveReturnMonitor == nil else { return }
+        autoArchiveReturnMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel, .mouseMoved]) { [weak self] event in
+            // After the event, so a click that lands keeps its target and the toast comes up beside it.
+            DispatchQueue.main.async { self?.showAutoArchiveNotice(becameActive: false) }
+            return event
+        }
+    }
+
     /// Chromium's audio service as the Mac went to sleep: waking says whether it lived (#286).
     private var audioServiceBeforeSleep: pid_t?
 
@@ -523,6 +567,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 CraLog.note("key on coming forward: in use \(inUse)")
             }
         }
+        // Someone brought Cra forward: they're here to read what was archived while they were away.
+        showAutoArchiveNotice(becameActive: true)
     }
 
     /// The window order and the browser window in use as Cra comes forward, before AppKit raises its key and main
@@ -705,6 +751,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             main.showWindow(nil)
             if !HitchMonitor.background { NSApp.activate(ignoringOtherApps: true) }
             BoostInstall.offer(url, over: main.window, from: "another app")
+            return
+        }
+        // An easel's Open in Cra (crabrowser.app/easel): asked about first, as a boost is.
+        if EaselShare.isEaselLink(url) {
+            main.showWindow(nil)
+            if !HitchMonitor.background { NSApp.activate(ignoringOtherApps: true) }
+            EaselShare.offer(url, over: main.window, from: "another app")
             return
         }
         // Arc's Air Traffic Control: the first matching route, else the default ("Links from
@@ -999,8 +1052,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         target.showWindow(nil)
     }
 
-    /// A tab dragged out of every Cra window and let go (GitHub #219): as in Arc, it moves into
-    /// a new Blank Window placed where it was dropped, with its page as it was (no reload).
+    /// A tab dragged out of every Cra window and let go (GitHub #219): as in Arc, a Today tab moves into
+    /// a new Blank Window placed where it was dropped, with its page as it was (no reload); a pinned
+    /// one stays where it is and the window opens a copy (TabTearOff.copiesTab).
     /// `screenPoint` is where the pointer let go; the window takes the size of the one it came from.
     func tearOffTab(_ id: UUID, at screenPoint: NSPoint, from source: MainWindowController) {
         guard store.item(id)?.isTab == true, !store.isIncognito(item: id) else { return }
@@ -1008,6 +1062,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let screen = NSScreen.screens.first { NSMouseInRect(screenPoint, $0.frame, false) } ?? source.window?.screen ?? NSScreen.main
         let frame = TabTearOff.frame(size: size, droppedAt: screenPoint, visible: screen?.visibleFrame ?? .zero)
         let session = store.addBlankWindow(frame: NSStringFromRect(frame))
+        // A pinned tab stays in its place (its folder too) with its page, and the window opens a copy (Arc 1.174.2).
+        if TabTearOff.copiesTab(pinned: store.isPinned(id)) {
+            store.copyToBlankWindow(id, window: session.id)
+            _ = showNewWindow(session)
+            return
+        }
         store.moveToBlankWindow(id, window: session.id)
         let c = showNewWindow(session)
         // Handed over now, not left for whichever window is in use next to claim it.
@@ -1234,8 +1294,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
             }
         case "import":
-            // Headless import (scripting): cra://import?source=arc&archive=1&settings=1
-            let plan = try? (q("source") == "dia" ? DiaImporter.plan() : ArcImporter.plan(favicons: ArcImporter.userData))
+            // Headless import (scripting): cra://import?source=arc&archive=1&settings=1, source any
+            // ImportSource id that reads from disk (arc, dia, yab, ardia, phi, chrome, zen…).
+            let source = ImportSource.allCases.first { $0.id == (q("source") ?? "arc") }
+            let plan = try? source.flatMap { $0.needsExportedFile ? nil : try $0.plan() }
             if let plan {
                 let r = store.apply(plan, includeArchive: q("archive") != "0", includeSettings: q("settings") != "0")
                 favicons.reset()
@@ -1527,6 +1589,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             // instantLinks=<label>: the Instant Links row and the last run, as one line (#407).
             if let v = dict["instantLinksSetting"] { store.settings.instantLinks = v == "on"; return }
+            // editAddressInPlace=on|off: Settings ▸ Tabs ▸ "Edit the address in place" switched (#344).
+            if let v = dict["editAddressInPlace"] { store.settings.editAddressInPlace = v == "on"; return }
             // pageMarginSetting=<points>: Settings ▸ Pages ▸ Margin moved to that value, as the slider does (Ideas #366).
             if let v = dict["pageMarginSetting"].flatMap(Double.init) { store.settings.pageMargin = v; return }
             // nowPlayingTint=arc|theme: Settings ▸ Tabs ▸ "Player in the space's colour" switched (Ideas #366).
@@ -1751,6 +1815,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 let chromium = CraCEFRuntime.extensionSettings(forProfile: nil)?.contains(id) == true
                 let cra = ExtensionStore.shared.entries.contains { $0.extensionID == id }
                 CraLog.note("extension remove \(id.prefix(8)): in chromium=\(chromium ? 1 : 0) in cra=\(cra ? 1 : 0)")
+                return
+            }
+            // currentSpace=<label>: the window's space and the profile its pages use, so a scenario set up with spaces on
+            // other profiles shows it really ran there (#621's scenarios ran on Default while their seed didn't load).
+            if let label = dict["currentSpace"] {
+                let space = main.focusedSpace
+                CraLog.note("current space \(label): \(space.title) profile=\(main.store.profileName(space.profileID))")
                 return
             }
             // extensionMenu=<id>: the toolbar's right-click menu for that pinned extension (#695); press=<row> chooses one.
@@ -2209,6 +2280,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 // chromeKeyable=1: Chrome's own (hidden) DevTools window could take the keys from Cra's window.
                 let hidden = NSApp.windows.filter { $0.title.hasPrefix("DevTools") && $0.alphaValue == 0 && $0 !== window }
                 docked += " chromeKeyable=\(hidden.contains { $0.canBecomeKey } ? 1 : 0)"
+                // chromeExposed=1: one of them is on screen as a window Mission Control and ⌘` would show (empty).
+                docked += " chromeExposed=\(hidden.contains { $0.isVisible && !$0.collectionBehavior.contains(.transient) } ? 1 : 0)"
+                // panel=: the panel the frontend last said it shows (DevToolsToggle.panel), - before it says one.
+                docked += " panel=\(main.browsers.visibleRuntime?.devTools.panel ?? "-")"
                 CraLog.note("tab devtools \(label): windows=\(littleWindows.count) open=\(main.currentBrowser?.hasDevTools == true ? 1 : 0)"
                     + (dev.map { " drawn=\(drawn($0.layer) > 0 ? 1 : 0)" } ?? "") + docked)
                 return
@@ -2847,6 +2922,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // bundleIconPut=<id>: that icon on Cra.app as 0.1.54 put it, for a launch to take off (#724).
             if let id = dict["bundleIconPut"] { AppIconManager.shared.putBundleIconForTest(id); return }
             // How far the open downloads list's hover reaches below its rows, and what a press there hits (#575).
+            // fakeScreenshot=<name>: a small picture in ~/Pictures carrying macOS's screen-capture mark, as
+            // ⇧⌘4 leaves one, for Spotlight to find; fakeScreenshot=-<name> deletes it again.
+            if let name = dict["fakeScreenshot"] {
+                ScreenshotWatcher.writeFakeScreenshot(named: name)
+                return
+            }
+            // downloadsList=<label>: the hover list's rows, oldest first, screenshots marked (Arc's Library button).
+            if let label = dict["downloadsList"] {
+                let rows = DownloadHistory.shared.recent.map { row -> String in
+                    if case .finished(let e) = row, DownloadHistory.shared.isScreenshot(e) { return "screenshot:" + row.name }
+                    return row.name
+                }
+                CraLog.note("downloads list \(label): \(rows.joined(separator: " | "))")
+                return
+            }
             if let label = dict["downloadsTray"] {
                 let tray = (main.sidebarUI.downloadsTray as? DownloadsTrayView)?.hoverReadout ?? "none"
                 CraLog.note("downloads tray \(label): open=\(main.sidebarUI.downloadsListOpen) \(tray)")
@@ -2986,7 +3076,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             // themeEditor=1 opens it; themeEditor=intensity:<0…1> or noise:<0…1> moves its slider or
             // dial as a drag would, and logs how many ticks that played; swatch:<page><index>, add:1 and
-            // remove:1 press a swatch, + or −, and log "theme editor pad <n>: wheel=… key=…" (#632).
+            // remove:1 press a swatch, + or −, press:<pt> presses the pad that far right of its centre (#754), and
+            // log "theme editor pad <n>: wheel=… key=…" (#632).
             if let step = dict["themeEditor"] {
                 let parts = step.split(separator: ":").map(String.init)
                 guard parts.count == 2, let v = Double(parts[1]) else { main.showSpaceStyleEditor(space: store.focusedSpace); return }
@@ -3055,6 +3146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if let name = dict["urlFieldPress"] { main.debugURLFieldPress(name); return }
             // The URL field edited in place (#344): a click on it, then typing and Return or Escape.
             if let step = dict["urlFieldEdit"] { main.debugURLFieldEdit(step); return }
+            // The toolbar's address edited in place (Settings ▸ Tabs, with the toolbar shown).
+            if let step = dict["toolbarAddressEdit"] { main.debugToolbarAddressEdit(step); return }
             // The sidebar header's address row (#648): "sidebar address <label>: url=… back=… forward=…",
             // and a press on its back, forward or reload.
             if let label = dict["sidebarAddress"] {
@@ -3350,7 +3443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 main.testTabMenu(n, label: dict["label"] ?? "\(n)", run: dict["run"], folder: true)
                 return
             }
-            // favoriteMenu=<n>[&label=][&run=<row>]: the n-th favorite tile's menu, see testFavoriteMenu (#387).
+            // favoriteMenu=<n>[&label=][&run=<row>]: the n-th favorite tile's menu, see testFavoriteMenu (#387); run=- reads the lists only.
             if let n = dict["favoriteMenu"].flatMap(Int.init) {
                 main.testFavoriteMenu(tile: n, label: dict["label"] ?? "\(n)", run: dict["run"])
                 return
@@ -3962,15 +4055,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return false
     }
 
-    /// Arc: ⌘Z brings back the tab you closed last (closing registers an undo, GitHub #21), or undoes
-    /// the last Tidy, unless the keyboard is in something with text to undo: a text field, or an editable
-    /// element in a page (Chromium's page view reports its ui::TextInputType, 0 = none). On an Easel,
-    /// ⌘Z undoes canvas edits instead.
+    /// Arc: ⌘Z brings back the tab you closed last (closing registers an undo, GitHub #21), undoes
+    /// the last Tidy, or puts back a favorite taken off with Remove Favorite (#806), unless the keyboard
+    /// is in something with text to undo: a text field, or an editable element in a page (Chromium's
+    /// page view reports its ui::TextInputType, 0 = none). On an Easel, ⌘Z undoes canvas edits instead.
     private func undoClosedTab(_ event: NSEvent) -> Bool {
         guard Shortcut("z", NSEvent.ModifierFlags.command).matches(event), !textFieldHasKey(event), !easelHasKey(event) else { return false }
         // The last thing to undo may be a tidy (Arc's "Undo Tidy Tabs"); a tab closed since comes first.
-        if !store.undoTidy() { perform("reopenClosedTab") }
+        if store.undoTidy() || undoRemoveFavorite() { return true }
+        perform("reopenClosedTab")
         return true
+    }
+
+    /// ⌘Z's Remove Favorite undo in the front window, unless something closed since comes back first.
+    private func undoRemoveFavorite() -> Bool {
+        guard keyLittleWindow == nil, !main.isIncognito else { return false }
+        let peek = main.closedPeek.map { ReopenClosedTab.ClosedPeek(url: $0.url, tabID: $0.tabID, closedAt: $0.at) }
+        return store.undoRemoveFavorite(in: main.windowID, peek: peek)
     }
 
     private func easelHasKey(_ event: NSEvent) -> Bool { easelHasKey(in: event.window ?? NSApp.keyWindow) }

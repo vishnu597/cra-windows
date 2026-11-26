@@ -22,6 +22,7 @@ enum StoreTests {
         setenv("CRA_DIA_DIR", URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Dia").path, 1)
         setenv("CRA_ARDIA_DIR", URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Ardia").path, 1)
         setenv("CRA_YAB_DIR", URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Yab").path, 1)
+        setenv("CRA_PHI_DIR", URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Phi").path, 1)
 
         try arcImport()
         try arcKeepsAnyAddress()
@@ -30,6 +31,7 @@ enum StoreTests {
         try diaImport()
         try diaIconsFromItsDatabase()
         try ardiaImport()
+        try phiImport()
         try arcImportReport()
         try arcSpacesOnOneProfileCountTheirFavoritesOnce()
         try arcArchiveBeyondItsLimitIsListed()
@@ -63,6 +65,7 @@ enum StoreTests {
         chromiumManifestV2Import()
         zenFaviconSize()
         autoArchive()
+        autoArchiveCounts()
         longAutoArchive()
         profileAutoArchive()
         tabSleepCadence()
@@ -102,6 +105,7 @@ enum StoreTests {
         closeSuccessor()
         favoritesEmptyState()
         sharedFavorites()
+        removedFavoriteComesBackOnUndo()
         profileTabsSpaceBySpace()
         newDocumentApps()
         themePreview()
@@ -1005,6 +1009,66 @@ enum StoreTests {
         for id in result.spaceIDs { store.deleteSpace(id) }
     }
 
+    // promise: #802
+    /// Phi (#802): its SwiftData store (Tests/Fixtures/Phi/Phi/users/<account>/localDB, made with
+    /// Phi's own models, see make-store.swift.txt). Spaces come in Phi's order without its agent
+    /// spaces; a space's bookmark tree is its pinned section, folders nested and split bookmarks
+    /// a page each; pinned tabs are favorites, read in the store's Pinned Tab Scope (a space's own,
+    /// a profile's shared by its spaces, or one set for every space). A space on another Chromium
+    /// profile lands on a Cra profile, so its sign-ins follow.
+    @MainActor
+    private static func phiImport() throws {
+        expect(PhiImporter.isAvailable, "a LocalStore.sqlite under Phi/users counts as Phi data")
+        let plan = try PhiImporter.plan()
+        expect(plan.source == "Phi" && plan.spaces.map(\.title) == ["Home", "Work", "Reading"],
+               "Phi's spaces come over in its order; its agent spaces stay behind")
+        let home = plan.spaces[0], work = plan.spaces[1], reading = plan.spaces[2]
+        expect(home.favorites.compactMap(\.url) == ["https://mail.google.com/mail/u/0/", "https://www.youtube.com/"],
+               "a space's pinned tabs are its favorites, in Phi's order; other scopes' copies and open tabs stay out")
+        expect(home.pinned.map { $0.url ?? "folder " + $0.pageTitle } == ["folder Docs", "https://mail.google.com/", "https://calendar.google.com/",
+                                                                         "https://news.ycombinator.com/", "https://github.com/", "chrome://settings/"],
+               "the bookmark tree is the pinned section, in Phi's order; a split bookmark brings each page")
+        let docs = home.pinned[0].children
+        expect(docs.count == 2 && docs[0].url == "https://www.swift.org/" && docs[1].isFolder && docs[1].pageTitle == "Deep"
+               && docs[1].children.compactMap(\.url) == ["https://developer.apple.com/"], "folders nest")
+        expect(home.pinned[4].customTitle == "Code" && home.pinned[4].pageTitle == "GitHub · Where software is built"
+               && home.pinned[2].pageTitle == "Calendar", "a renamed bookmark keeps its name; a split's second page its own title")
+        expect(home.skipped == [cra("Cra Settings", "cra://settings")], "a cra: bookmark is listed")
+        expect(home.emoji == "🏠" && home.profile == nil && home.theme?.accent == "#3A6FF8",
+               "an emoji icon, the Default profile, the space's colour as its theme")
+        expect(work.favorites.compactMap(\.url) == ["https://app.slack.com/"] && work.skipped == [cra("Downloads", "cra://downloads", .favorites)]
+               && work.pinned.compactMap(\.url) == ["https://linear.app/"], "each space has its own favorites and pinned section")
+        expect(work.profile == ImportedProfile(folder: "Profile 1", name: "Work") && work.emoji == "" && work.symbol == nil,
+               "a space on \"Profile 1\" signs in there; a Phi artwork icon is a dot")
+        expect(reading.emoji == "9️⃣" && reading.pinned.isEmpty && reading.favorites.isEmpty && reading.profile == nil,
+               "an empty space still comes over; a many-code-point emoji is read whole")
+        expect(plan.favorites.isEmpty && home.today.isEmpty, "nothing is left without a space; Phi keeps open tabs in Chromium's session, not here")
+
+        let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Phi/scopes")
+        let byProfile = try PhiImporter.plan(store: fixtures.appendingPathComponent("profile.sqlite"))
+        expect(byProfile.spaces.map { $0.favorites.compactMap(\.url) } == [["https://profile.example/"], ["https://work-profile.example/"], ["https://profile.example/"]]
+               && byProfile.spaces.map(\.favoritesList) == ["profile Default", "profile Profile 1", "profile Default"],
+               "Pinned Tab Scope Profile: a profile's pinned tabs show in each of its spaces, counted once; a dormant one stays out")
+        let byApp = try PhiImporter.plan(store: fixtures.appendingPathComponent("app.sqlite"))
+        expect(byApp.spaces.allSatisfy { $0.favorites.compactMap(\.url) == ["https://app.example/"] && $0.favoritesList == "app" },
+               "Pinned Tab Scope App: the same pinned tabs in every space")
+
+        let phi = ImportSource.allCases.first { $0.id == "phi" }
+        expect(phi?.isAvailable == true && phi?.keychainService == "Phi Safe Storage" && phi?.keychainAccount == "Phi",
+               "Phi is listed from its folder, its passwords and cookies open with Phi's Keychain item")
+        expect(phi?.credentialProfiles.map(\.id) == ["Default", "Profile 1"], "Phi's Chromium profiles sit right in its folder")
+
+        let composition = AppComposition(clock: ManualScheduler())
+        let store = composition.store
+        let result = store.apply(plan, includeArchive: false, includeSettings: false)
+        expect(result.spaces == 3 && result.folders == 2, "applying adds the three spaces and the two folders")
+        let spaces = result.spaceIDs.compactMap { store.space($0) }
+        expect(spaces[0].profileID == nil && spaces[1].profileID != nil && spaces[2].profileID == nil,
+               "Work goes on a Cra profile of its own, Home and Reading stay on Default")
+        expect(store.integrityProblems().isEmpty, "the imported sidebar is sound")
+        for id in result.spaceIDs { store.deleteSpace(id) }
+    }
+
     // promise: #734
     /// Yab (X request, 18 Nov): spaces.json plus one session file per space
     /// (Tests/Fixtures/Yab). Tiles are favorites, kept tabs the pinned section in their folders,
@@ -1557,6 +1621,31 @@ enum StoreTests {
         let later = store.createTab(url: "https://example.com/later", select: false)
         clock.advance(by: 48 * 3600)
         expect(!archived(later.id), "with auto-archive off nothing is archived")
+    }
+
+    /// Each pass says how many tabs it sent to the Archive, for Arc's "Auto archived N tabs" toast (X, 25 Nov 2026:
+    /// tabs archived overnight looked lost). The launch's pass counts too: after a night away or an update restart it
+    /// is the one that archives. An empty tab leaves nothing in the Archive and isn't counted.
+    @MainActor
+    private static func autoArchiveCounts() {
+        let clock = ManualScheduler()
+        let composition = AppComposition(clock: clock)
+        let store = composition.store
+        store.settings.autoArchiveEnabled = true
+        store.settings.autoArchive = .twelveHours
+        _ = store.createTab(url: "https://example.com/night-one", select: false)
+        _ = store.createTab(url: "https://example.com/night-two", select: false)
+        _ = store.createTab(url: "", select: false)
+        _ = store.createTab(url: "https://example.com/shown", select: true)
+        // Away all night: the next launch's pass archives them.
+        clock.advance(by: 13 * 3600)
+        var passes: [Int] = []
+        composition.startPeriodicWork(autoArchived: { passes.append($0) }) {}
+        expect(passes == [2], "the launch's pass counts the two pages, not the empty tab or the selected one: \(passes)")
+        _ = store.createTab(url: "https://example.com/later", select: false)
+        clock.advance(by: 12 * 3600 + AppComposition.autoArchiveInterval + 1)
+        expect(passes.last == 1, "a later pass counts its own: \(passes)")
+        expect(passes.dropFirst().dropLast().allSatisfy { $0 == 0 }, "passes that archive nothing say 0: \(passes)")
     }
 
     // promise: #278
@@ -2749,6 +2838,78 @@ enum StoreTests {
         store.setFavoritesShared(true)
         expect(Set(now()) == asBefore() && now().count == Set(now()).count, "favorites shared by spaces are listed once")
         store.setFavoritesShared(false)
+    }
+
+    // promise: #806
+    /// ⌘Z after Remove Favorite (#806, asked for on X): the favorite goes back where it was in the
+    /// favorites, shared or a space's own, unless something closed since comes back first.
+    @MainActor
+    private static func removedFavoriteComesBackOnUndo() {
+        let clock = ManualScheduler()
+        let store = AppComposition(clock: clock).store
+        let sid = store.createSpace(title: "Undo Favorites", emoji: "↩️").id
+        let list = store.space(sid)!.favoritesContainerID
+        func favorites() -> [UUID] { store.children(of: list).map(\.id) }
+        func favorite(_ url: String) -> UUID {
+            let t = store.createTab(url: url, in: sid, select: false)
+            store.addToFavorites(t.id, in: sid)
+            return t.id
+        }
+        let a = favorite("https://example.com/undo-a"), b = favorite("https://example.com/undo-b"), c = favorite("https://example.com/undo-c")
+        let order = favorites()
+        store.setTileColor("#FF0000", for: [b])
+        store.selectTab(b)
+        let w = store.window(nil).id
+
+        store.removeFavorite(b)
+        expect(store.item(b) == nil && store.archive.first?.id == b && store.selectedTabID(window: w) != b,
+               "Remove Favorite on a space's own favorite archives it")
+        expect(store.undoRemoveFavorite(in: w), "⌘Z undoes it")
+        expect(favorites() == order && store.item(b)?.tab?.tileColor == "#FF0000" && !store.archive.contains { $0.id == b }
+               && store.selectedTabID(window: w) == b && store.integrityProblems().isEmpty,
+               "the favorite is back in its place, with its colour, out of the archive, shown again")
+        expect(!store.undoRemoveFavorite(in: w), "once")
+
+        // Arc's undo is a stack: a tab closed after the removal comes back first, then the favorite.
+        store.removeFavorite(a)
+        clock.advance(by: 1)
+        let today = store.createTab(url: "https://example.com/undo-today", in: sid, select: false)
+        store.archiveTab(today.id, reason: .manual)
+        expect(!store.undoRemoveFavorite(in: w), "a tab closed since comes first")
+        expect(store.reopenLastClosed(in: w) == .archived(today.id), "⇧⌘T's reopen takes it")
+        expect(store.undoRemoveFavorite(in: w) && favorites() == order, "then ⌘Z brings the favorite back")
+
+        // The Library brought it back first: nothing left to undo.
+        store.removeFavorite(c)
+        _ = store.restoreArchived(c)
+        expect(!store.undoRemoveFavorite(in: w), "a favorite the Library restored isn't put back twice")
+        store.removeFromArchive(c)
+        store.moveItem(c, to: list, index: nil)
+
+        // Share Favorites: Remove Favorite deletes it, and ⌘Z still brings it back.
+        store.setFavoritesShared(true)
+        let shared = store.space(sid)!.favoritesContainerID
+        let sharedOrder = store.children(of: shared).map(\.id)
+        let x = sharedOrder.first!
+        store.removeFavorite(x)
+        expect(store.item(x) == nil && !store.archive.contains { $0.id == x }, "a shared favorite is deleted, unarchived (Arc)")
+        expect(store.undoRemoveFavorite(in: w) && store.children(of: shared).map(\.id) == sharedOrder && store.integrityProblems().isEmpty,
+               "⌘Z puts a shared favorite back in its place")
+
+        // A split favorite comes back whole.
+        if let split = store.createSplit(with: [sharedOrder[1], sharedOrder[2]], inPlace: true) {
+            let splitOrder = store.children(of: shared).map(\.id)
+            let panes = store.children(of: split.id).map(\.id)
+            store.removeFavorite(panes[0])
+            expect(store.item(split.id) == nil && panes.allSatisfy { store.item($0) == nil }, "Remove Favorite on a shared split deletes it")
+            expect(store.undoRemoveFavorite(in: w) && store.children(of: shared).map(\.id) == splitOrder
+                   && store.children(of: split.id).map(\.id) == panes && store.integrityProblems().isEmpty,
+                   "⌘Z puts the split back with its panes")
+        } else {
+            expect(false, "two favorites make a split")
+        }
+        store.setFavoritesShared(false)
+        store.deleteSpace(sid)
     }
 
     // promise: #154
@@ -3965,6 +4126,9 @@ enum StoreTests {
         syncLeavesAMixToItsWriterOnANewMac()
         syncKeepsAClosedTabClosed()
         syncKeepsAClosedTabClosedAfterTwoWritesThere()
+        syncKeepsASettingChangedBeforeTheOtherMacWrote()
+        syncKeepsATabSeenOnTheOtherMac()
+        syncKeepsATabSeenHereThatTheOtherMacArchivedFirst()
     }
 
     /// A tab closed on one Mac came back (reported by a user, 13 Nov 2026). The other Mac still
@@ -4062,6 +4226,158 @@ enum StoreTests {
         clockB.advance(by: 60)
         syncB.poll()
         expect(b.item(doomed.id) == nil && b.item(opened.id) != nil, "the close reaches the second Mac and its tab stays")
+        syncA.disable(); syncB.disable()
+    }
+
+    /// A setting changed on one Mac was lost when the other Mac, before iCloud brought it the change, wrote its bundle
+    /// for a change of its own: the bundle's settings replaced this Mac's whole, while its sidebar was merged (X, Chris
+    /// Coyier, 25 Nov 2026: "Archive tabs after" Never on one Mac, 12 hours on the other). Settings are merged field by
+    /// field against the bundle both Macs had, as the sidebar is.
+    @MainActor
+    private static func syncKeepsASettingChangedBeforeTheOtherMacWrote() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-sync-settings-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clockA = ManualScheduler(), clockB = ManualScheduler(now: clockA.now)
+        let a = SidebarStore(clock: clockA), b = SidebarStore(clock: clockB)
+        a.settings.autoArchiveEnabled = true
+        a.settings.autoArchive = .twelveHours
+        a.settings.warnBeforeQuitting = false
+        let tab = a.createTab(url: "https://example.com/kept", title: "Kept")
+        let syncA = SettingsSyncService(store: a, clock: clockA, device: "Studio", deviceID: "studio")
+        expect(syncA.enable(folder: folder) == .synced, "the first Mac writes its bundle")
+        let syncB = SettingsSyncService(store: b, clock: clockB, device: "MacBook", deviceID: "macbook")
+        guard case .bundleFound = syncB.enable(folder: folder) else { return expect(false, "the second Mac is asked once") }
+        syncB.useRemote()
+        expect(b.settings.autoArchive(profileID: nil) == .after(.twelveHours), "both Macs start on 12 hours")
+
+        let bundle = folder.appendingPathComponent(SettingsSync.folderName)
+        let names = [SettingsSync.manifestName] + SettingsSync.fileNames
+        let before = Dictionary(uniqueKeysWithValues: names.map { ($0, try? Data(contentsOf: bundle.appendingPathComponent($0))) })
+        // The first Mac turns auto-archive off and writes; iCloud hasn't brought it to the second Mac yet.
+        clockA.advance(by: 10); clockB.advance(by: 10)
+        a.settings.setAutoArchive(.never, profileID: nil, otherProfiles: [])
+        syncA.poll()
+        for name in names { try? before[name]??.write(to: bundle.appendingPathComponent(name)) }
+        // Meanwhile the second Mac renames a tab and changes a setting of its own, and writes.
+        clockB.advance(by: 5)
+        b.updateTab(tab.id, title: "Kept, renamed")
+        b.settings.warnBeforeQuitting = true
+        syncB.poll()
+
+        clockA.advance(by: 60)
+        syncA.poll()
+        expect(a.settings.autoArchive(profileID: nil) == .never, "the first Mac keeps Never when the second Mac's bundle arrives")
+        expect(a.settings.warnBeforeQuitting, "and takes the setting the second Mac changed")
+        expect(a.item(tab.id)?.displayTitle == "Kept, renamed", "and its sidebar change")
+        clockB.advance(by: 60)
+        syncB.poll()
+        expect(b.settings.autoArchive(profileID: nil) == .never, "Never reaches the second Mac")
+        expect(b.settings.warnBeforeQuitting, "which keeps its own change")
+        syncA.disable(); syncB.disable()
+    }
+
+    /// A tab looked at on one Mac is in use: the other Mac's archive pass doesn't take it, also when that pass ran before
+    /// the other Mac's bundle arrived (at launch, after waking, iCloud still downloading). Its sidebar knew only the older
+    /// look, archived the tab, and the close went back to the first Mac, where it was gone and in neither Archive there.
+    @MainActor
+    private static func syncKeepsATabSeenOnTheOtherMac() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-sync-seen-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clockA = ManualScheduler(), clockB = ManualScheduler(now: clockA.now)
+        let a = SidebarStore(clock: clockA), b = SidebarStore(clock: clockB)
+        a.settings.autoArchiveEnabled = true
+        a.settings.autoArchive = .twelveHours
+        let shown = a.createTab(url: "https://example.com/shown", title: "Shown", select: true)
+        let seenAfterLook = a.createTab(url: "https://example.com/seen-after-look", title: "Seen, B looks first", select: false)
+        let seenBeforeLook = a.createTab(url: "https://example.com/seen-before-look", title: "Seen, B archives first", select: false)
+        let idle = a.createTab(url: "https://example.com/idle", title: "Idle on both", select: false)
+        let syncA = SettingsSyncService(store: a, clock: clockA, device: "Studio", deviceID: "studio")
+        expect(syncA.enable(folder: folder) == .synced, "the first Mac writes its bundle")
+        let syncB = SettingsSyncService(store: b, clock: clockB, device: "MacBook", deviceID: "macbook")
+        guard case .bundleFound = syncB.enable(folder: folder) else { return expect(false, "the second Mac is asked once") }
+        syncB.useRemote()
+        b.selectTab(shown.id)
+
+        // Eleven hours on, both tabs are looked at on the first Mac, which writes.
+        clockA.advance(by: 11 * 3600); clockB.advance(by: 11 * 3600)
+        a.selectTab(seenAfterLook.id)
+        a.selectTab(seenBeforeLook.id)
+        a.selectTab(shown.id)
+        syncA.poll()
+
+        // Two hours later on the second Mac: one pass after its look, as every 30 minutes.
+        clockA.advance(by: 2 * 3600); clockB.advance(by: 2 * 3600)
+        syncB.poll()
+        b.runAutoArchive()
+        expect(b.item(seenAfterLook.id) != nil, "a pass after the look keeps a tab looked at on the other Mac")
+        expect(b.item(idle.id) == nil, "a tab idle on both Macs is archived")
+
+        // The race: a pass before the look, as at launch or waking, then the look and the other Mac's.
+        a.selectTab(seenBeforeLook.id)
+        a.selectTab(shown.id)
+        syncA.poll()
+        clockA.advance(by: 13 * 3600 - 60); clockB.advance(by: 13 * 3600 - 60)
+        a.selectTab(seenAfterLook.id); a.selectTab(shown.id)
+        syncA.poll()
+        clockB.advance(by: 60)
+        b.runAutoArchive()
+        syncB.poll()
+        clockA.advance(by: 60)
+        syncA.poll()
+        expect(b.item(seenAfterLook.id) != nil, "the second Mac's early pass is undone for a tab the other Mac had looked at")
+        expect(!b.archive.contains { $0.id == seenAfterLook.id }, "and it leaves the second Mac's Archive")
+        expect(a.item(seenAfterLook.id) != nil, "the first Mac keeps the tab it looked at")
+        expect(a.item(seenBeforeLook.id) == nil && b.item(seenBeforeLook.id) == nil, "a tab idle past the limit on both is archived")
+        syncA.disable(); syncB.disable()
+    }
+
+    /// The other way round: the second Mac's pass took the tab and its bundle went up before iCloud brought it the first
+    /// Mac's look. The bundle lists its auto-archives, and the first Mac, which had looked at the tab, keeps it; the second
+    /// Mac then gets it back, out of its Archive.
+    @MainActor
+    private static func syncKeepsATabSeenHereThatTheOtherMacArchivedFirst() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-sync-seen-here-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clockA = ManualScheduler(), clockB = ManualScheduler(now: clockA.now)
+        let a = SidebarStore(clock: clockA), b = SidebarStore(clock: clockB)
+        a.settings.autoArchiveEnabled = true
+        a.settings.autoArchive = .twelveHours
+        let shown = a.createTab(url: "https://example.com/shown-here", title: "Shown", select: true)
+        let seen = a.createTab(url: "https://example.com/seen-here", title: "Seen here", select: false)
+        let manual = a.createTab(url: "https://example.com/closed-there", title: "Closed there", select: false)
+        let syncA = SettingsSyncService(store: a, clock: clockA, device: "Studio", deviceID: "studio")
+        expect(syncA.enable(folder: folder) == .synced, "the first Mac writes its bundle")
+        let syncB = SettingsSyncService(store: b, clock: clockB, device: "MacBook", deviceID: "macbook")
+        guard case .bundleFound = syncB.enable(folder: folder) else { return expect(false, "the second Mac is asked once") }
+        syncB.useRemote()
+        b.selectTab(shown.id)
+
+        let bundle = folder.appendingPathComponent(SettingsSync.folderName)
+        let names = [SettingsSync.manifestName] + SettingsSync.fileNames
+        let before = Dictionary(uniqueKeysWithValues: names.map { ($0, try? Data(contentsOf: bundle.appendingPathComponent($0))) })
+        // Thirteen hours on, the first Mac looks at the tab and writes; iCloud hasn't brought that to the second Mac.
+        clockA.advance(by: 13 * 3600); clockB.advance(by: 13 * 3600)
+        a.selectTab(seen.id); a.selectTab(manual.id); a.selectTab(shown.id)
+        syncA.poll()
+        for name in names { try? before[name]??.write(to: bundle.appendingPathComponent(name)) }
+        // Someone closes the other tab there by hand, the second Mac's pass takes this one, and it writes.
+        clockB.advance(by: 60)
+        b.archiveTab(manual.id, reason: .manual)
+        b.runAutoArchive()
+        syncB.poll()
+        expect(b.item(seen.id) == nil, "the second Mac archived it, knowing only the older look")
+
+        clockA.advance(by: 120)
+        syncA.poll()
+        expect(a.item(seen.id) != nil, "the first Mac keeps the tab it looked at")
+        expect(a.item(manual.id) == nil, "a tab closed by hand on the other Mac still closes")
+        clockB.advance(by: 120)
+        syncB.poll()
+        expect(b.item(seen.id) != nil, "the tab comes back on the second Mac")
+        expect(!b.archive.contains { $0.id == seen.id }, "and leaves its Archive")
         syncA.disable(); syncB.disable()
     }
 

@@ -720,6 +720,11 @@ from the focused space; Cra uses the measured values as a fixed palette):
   with none, "No results" 13 pt centred in 64 pt. ⇧⌘O opens the same menu. With one space the
   real ⌄ (the second `openInSpaceExpander`) isn't there: the button is "Open in Work ⌘O" alone.
   Cra: `LittleMoveMenu` (CraCore) and `LittleSpacesPopup`.
+- [O] Arc 1.174.3 (25 Nov 2026, screenshots of the menu with three icon spaces, light and dark Mac): on a light Mac
+  the menu is white and each tile a pale tint of the space colour carrying the icon in a dark shade of it; on a dark
+  Mac the tile is the space colour and the icon white, which barely shows on a light green or a peach. Cra keeps its
+  navy menu and the space colour, and draws the icon white only where white reads on the tile (4.5:1), else the
+  tile's hue darkened until it does (`LittleMoveMenu.iconColor`).
 - ⌘O ("Open in <space>") moves the page into that space; ⌥⌘N makes an empty Little Arc;
   Window ▸ Close Little Arc Windows exists;
 - opening: the window grows from a small rectangle under the pointer to its full frame in
@@ -3895,6 +3900,23 @@ properties {URL:…}`) on a local server that answers after 40 s; window capture
   `theme-editor-wheel` scenario. Not measured: what an empty pad's first tap starts on (it can't matter: + on
   one colour is always complimentary).
 
+## The theme pad's saturation and black (Arc 1.174.2, 25 Nov 2026, issue #754, offline Arc)
+- [O live] Offline Arc on a fake home (network denied), Spaces ▸ Edit Theme… over AX, View ▸ Appearance ▸ Dark;
+  presses and drags with the real pointer (cliclick), knob colours read off 2x window captures. The pad's centre is
+  195, 195 pt into the editor's 382 × 534 window (from three analogous knobs on one circle).
+- [O] Presses 40, 80, 120 and 160 pt right of the centre gave P3 saturation 0.78, 0.54, 0.32 and 0.12 at an even
+  brightness (0.92–0.98, from a 0.95 swatch): full at the centre, falling about 1/178 per point. A page-1 swatch at
+  0.55 sat 79 pt out. Dragged past the pad's corner the knob stopped 175 pt out at 0.10 and kept its hue.
+- [O] The black swatch (page 5, last) sits at the centre. Black on Dark at the default intensity reads 49/49/47 over a
+  black backdrop and 137 over white: the 31 Oct one-colour fit (`SpaceTheme.solidAlpha`, about 46 and 139 at
+  intensity 0.2) holds, so Arc's black isn't pure black either (about 17/255 at full intensity).
+- [U] Dragging from black (the reopened editor held another theme), and why the brightness creeps up toward the rim.
+- Cra (#754): `SpaceColorWheel.padSaturation(distance:)` (1 − d/178, never below 0.1) and `padDistance` place
+  presses and knobs; it had them the other way round (white at the centre, full at 153 pt, a number from the first
+  pad, #40). One drag for the whole pad picks the knob under the press (`grabbedKnob`); each knob's own drag over the
+  pad's often left a knob that had just been placed unmovable. Pinned by `padIsFullAtTheCentreAndPaleAtTheRim`,
+  `aPressTakesTheKnobUnderIt` and the `theme-editor-pad-press` scenario.
+
 ## The space's primary palette (Arc 1.172.2, 17 Nov 2026, issue #490, offline Arc)
 - [O live] Offline Arc on a fake home (network denied), Spaces ▸ Edit Theme… over AX, one swatch pressed, Escape,
   then StorableSidebar.json read once Arc had written it (the write lags the Escape by a few seconds; read too
@@ -4724,6 +4746,13 @@ Read from the arm64 slice's Swift field metadata (`__swift5_fieldmd`, case and f
   at (637, 450) and (37, 570). Near an edge it stays inside: dropped at (350, 300), a 1000 × 760 window sat at
   (20, 53), 20 pt inside the visible frame on both sides. Drags that read as clicks: the press selected an unloaded
   tab; select it first, then drag (scratch tool: CGEvent drag with deltas at 60 Hz).
+- [O] Pinned tabs (Arc 1.174.2, 25 Nov 2026, offline copy of a real sidebar, real HID drags; #219 follow-up): a pinned tab
+  in a folder, dragged out and let go over another app, stays in its folder (the folder still held its four tabs in
+  StorableSidebar.json) and its page stays in the window it left; the new Blank Window (`standalone` sidebar) holds a
+  new tab of its own (new id) with the same address. A top-level pinned tab did the same (let go over an existing Blank
+  Window's page, it went in there as a copy). A press on the selected tab's row then a click starts a rename: drag
+  without clicking a selected row first. Cra: `TabTearOff.copiesTab(pinned:)`, `SidebarStore.copyToBlankWindow`,
+  scenario blank-window-pinned.
 - [O] A tab dropped on a Blank Window's sidebar moved there out of the global sidebar.
 - [Reported, #288, 9 Nov 2026, video] A tab dragged out of a space on another profile opens in a window that stays
   on that profile: the page stays signed in. Cra's tear-off Blank Window takes the tab's profile
@@ -5503,3 +5532,46 @@ ignore a press with no hover before it), read off full-screen 2x captures with t
 - **Cra:** `CloseSuccessor.pinnedClose(isFavorite:fromItsMenu:)`. The menu's Close Tab unloads the Favorite back to its
   pinned page, whether it is shown or loaded behind another tab; ⌘W and every other close still only deselect it.
 - **Open questions:** Arc's Favorite split menu, and whether ⇧⌘T brings a Favorite closed this way back.
+
+## ⌘W on a Favorite playing sound (25 Nov 2026, Arc 1.174.2, #803)
+
+- **Measured** in an offline copy of Arc (fake home, localhost only), on a local page made the first Favorite. The page
+  posts its state every second (load id, `currentTime`, `paused`, `visibilityState`, Picture in Picture):
+  - A video **with sound**: ⌘W fired `pagehide` at once and nothing more came. A click on the Favorite loaded it
+    afresh (new load id, video at 0 s). No Picture in Picture; the window showed no page.
+  - A page **without media**: ⌘W only hid it (`visibilitychange` hidden, ticks went on), and a click showed the same
+    load again, as #740 measured in 1.173.1.
+  - A **muted** video: like the page without media. Chromium paused it while hidden (its rule for muted autoplay)
+    and it played on from the same second when shown again.
+- **Cra:** `CloseSuccessor.pinnedClose(isFavorite:fromItsMenu:audible:)`, with Chromium's `isAudible` (2 s hold) for
+  `audible`. A Favorite making sound unloads back to its pinned page on ⌘W; a silent one is only deselected. Scenario
+  `favorite-close-playing`.
+- **Open questions:** whether a page the user muted (tab Mute) counts as making sound in Arc.
+
+## ⌘W on a Favorite away from its pinned page (25 Nov 2026, Arc 1.174.2, #804)
+
+- **Measured** in the offline copy, as for #803: the first Favorite's pinned page (`pin.html`) moved itself to a second
+  page of the same site (`away.html`) 3 s after loading; both post their state every second.
+  - ⌘W deselected the Favorite (the window showed the space's other tab) and `away.html` went hidden. At the same
+    moment `pin.html` loaded again, hidden: Arc sent the Favorite back to its pinned page in the background.
+  - A click on the Favorite showed that load (same load id, `visibilitychange` visible, no new load).
+- **Cra:** `CloseSuccessor.pinnedClose(…, awayFromPinnedPage:)` → `.deselectGoingHome`: deselect, then reset every pane
+  away from its pinned page (`resetPinnedTab`, which loads the pinned page in the kept browser). Sound still closes it
+  (#803), Close Tab in its menu still unloads it (#740). Scenario `favorite-close-away`.
+- **Open questions:** whether ⇧⌘T brings back the page the Favorite was on.
+
+## ⌘-click on a Favorite (25 Nov 2026, Arc 1.174.2, #801)
+
+- **Measured** in the offline copy, as for #804 (the same two pages posting their state every second), ⌘-click on the
+  first Favorite's tile with the Favorite open, then the saved StorableSidebar.json read after quitting:
+  - **Away** (`away.html`): `away.html` went hidden and kept running (same load id), and `pin.html` loaded afresh,
+    visible. Saved: a new Today tab with `away.html` at index 0 (top), `isUnread` false and no `timeLastActiveAt`;
+    the Favorite's `timeLastActiveAt` = the click's moment. The page moved out to a background Today tab; the Favorite
+    went home and stayed shown: the pinned tab icon's "Separate From Pinned Tab" (#139), on the whole tile.
+  - **At home** (`pin.html`): the same. The running `pin.html` went hidden into a new top Today tab (read, never
+    visited), and the Favorite showed a fresh `pin.html`.
+- **Cra:** `FavoriteClick.separateFromFavorite` (⌘ alone) → `separateFavorite`: a new Today tab at the top with the
+  page, saved read (`markDuplicateRead`), the Favorite back on its pinned page if away (`resetPinnedTab`) and kept
+  selected. Arc moves the live page and reloads the Favorite; Cra loads the page in the new tab and a Favorite at
+  home keeps its own. Scenario `favorite-command-click`.
+- **Open questions:** a ⌘-click on a Favorite that isn't open (not loaded), on a Favorite split's pane, and ⌘⇧/⌘⌥.

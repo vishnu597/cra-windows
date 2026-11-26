@@ -24,7 +24,12 @@ extension DownloadHistory {
     func moveToTrash(_ entry: Entry) {
         NSWorkspace.shared.recycle([URL(fileURLWithPath: entry.path)]) { [weak self] _, error in
             guard error == nil else { return }
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.hide(.finished(entry)) } }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if self.isScreenshot(entry) { self.screenshots.removeAll { $0.id == entry.id } } else { self.hide(.finished(entry)) }
+                }
+            }
         }
     }
 }
