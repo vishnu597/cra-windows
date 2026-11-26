@@ -43,9 +43,8 @@ struct ComScope {
     }
 };
 
-}  // namespace
-
-extern "C" int cra_emoji_render(const char *text, int side, CraImage *out) {
+/// `text` in `family` (the first of a ';'-separated list the system has), centred in the square.
+int Render(const char *text, const wchar_t *families, int side, CraImage *out) {
     if (!text || !*text || side <= 0 || side > 512 || !out) return 0;
     *out = CraImage{};
     const std::wstring wide = Wide(text);
@@ -68,7 +67,27 @@ extern "C" int cra_emoji_render(const char *text, int side, CraImage *out) {
     // The emoji fills the square as XAML's 14 DIP glyph fills its 18 DIP box.
     Com<IDWriteTextFormat> format;
     const FLOAT size = FLOAT(side) * 0.75f;
-    if (FAILED(dwrite->CreateTextFormat(L"Segoe UI Emoji", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+    std::wstring family;
+    {
+        Com<IDWriteFontCollection> fonts;
+        std::wstring list(families);
+        size_t start = 0;
+        while (start <= list.size()) {
+            size_t end = list.find(L';', start);
+            if (end == std::wstring::npos) end = list.size();
+            std::wstring name = list.substr(start, end - start);
+            if (family.empty()) family = name;  // the first, should none be installed
+            UINT32 index = 0;
+            BOOL exists = FALSE;
+            if (!fonts && FAILED(dwrite->GetSystemFontCollection(&fonts))) break;
+            if (SUCCEEDED(fonts->FindFamilyName(name.c_str(), &index, &exists)) && exists) {
+                family = name;
+                break;
+            }
+            start = end + 1;
+        }
+    }
+    if (FAILED(dwrite->CreateTextFormat(family.c_str(), nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
                                         DWRITE_FONT_STRETCH_NORMAL, size, L"", &format)))
         return 0;
     format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -93,4 +112,14 @@ extern "C" int cra_emoji_render(const char *text, int side, CraImage *out) {
     out->height = side;
     out->pixels = pixels;
     return 1;
+}
+
+}  // namespace
+
+extern "C" int cra_emoji_render(const char *text, int side, CraImage *out) {
+    return Render(text, L"Segoe UI Emoji", side, out);
+}
+
+extern "C" int cra_symbol_render(const char *text, int side, CraImage *out) {
+    return Render(text, L"Segoe Fluent Icons;Segoe MDL2 Assets", side, out);
 }

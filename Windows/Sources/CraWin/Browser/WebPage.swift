@@ -179,8 +179,13 @@ final class WebPage: @unchecked Sendable {
         self.isIncognito = false
         self.profilePath = profilePath
         handle = (profilePath ?? "").withCString { profile in
-            cra_browser_create_in(UInt(parent), frame.x, frame.y, frame.width, frame.height, "", 0, profile, callbacks())
+            cra_browser_create_hidden_in(UInt(parent), frame.x, frame.y, frame.width, frame.height, "", 0, profile, callbacks())
         }
+        // Made hidden, out of sight until a tab takes it: made visible, the spare's blank page sat
+        // on top of the window's page and toolbar (the newest child window is topmost) until the
+        // next tab switch (PC test, 24 Nov 2026). Hiding it afterwards didn't reach Chromium's
+        // window. The window's layout shows it once a tab adopts it (isVisible = true).
+        isVisible = false
     }
 
     /// A spare taken by a tab: it moves into the tab's window and loads the tab's address.
@@ -215,6 +220,8 @@ final class WebPage: @unchecked Sendable {
     var canGoForward: Bool { handle.map { cra_browser_can_go_forward($0) != 0 } ?? false }
     var isCreated: Bool { handle.map { cra_browser_is_created($0) != 0 } ?? false }
     /// The page closed itself (window.close()).
+    /// False while the page has shown nothing: its only navigation became a download.
+    var hasDocument: Bool { handle.map { cra_browser_has_document($0) != 0 } ?? false }
     var closedByPage: Bool { handle.map { cra_browser_closed_by_page($0) != 0 } ?? false }
 
     var frame: PixelRect = PixelRect(x: 0, y: 0, width: 0, height: 0) {

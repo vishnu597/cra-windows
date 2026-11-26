@@ -142,6 +142,14 @@ char *cra_cef_preference_json(const char *profile_path, const char *name);
 /// An Explorer window on the file's folder with the file selected (Finder's "Show in Finder").
 /// Reuses a window already open on that folder, as Explorer's own "Open file location" does.
 void cra_shell_show_in_folder(const char *path);
+/// The name Windows gives the app that opens the file (Photos, Media Player), UTF-8 into `out`
+/// (`capacity` bytes): Library ▸ Media's "Open in …". 1 when Windows names one.
+int cra_shell_default_app_name(const char *path, char *out, size_t capacity);
+/// Drags the file out as Explorer does (its picture under the pointer, CF_HDROP and the shell's
+/// own formats): into Explorer, a mail, another app or a page's upload. Call while the mouse
+/// button that started it is still down; runs its own loop until the drop. 1 when it was dropped
+/// somewhere, 0 when it was let go nowhere or cancelled with Esc, -1 when it couldn't start.
+int cra_drag_file_out(const char *path);
 
 /// Hides Chrome's download-started animation (a download glyph that would fly from the page's
 /// top left to the toolbar Cra hides) for the next two seconds. Call when a download starts.
@@ -316,6 +324,9 @@ void cra_image_free(CraImage *image);
 /// `text` (an emoji) drawn in colour, centred in a `side` × `side` pixel square (CraEmoji.cpp),
 /// for the space dock to fade. 1 on success; free with cra_image_free. Any thread.
 int cra_emoji_render(const char *text, int side, CraImage *out);
+/// `text` (a Segoe Fluent Icons glyph, Segoe MDL2 Assets on Windows 10) drawn in black the same
+/// way: a symbol picked as a tab's custom icon (Change Icon…). 1 on success. Any thread.
+int cra_symbol_render(const char *text, int side, CraImage *out);
 /// A window icon (HICON) of premultiplied BGRA pixels, top-down, `width * 4` bytes a row (a
 /// CraImage's): for WM_SETICON, the app icon picked in Settings ▸ General. 0 on failure. Free
 /// with cra_icon_destroy once no window shows it.
@@ -522,6 +533,10 @@ CraBrowser *cra_browser_create(uintptr_t parent, int x, int y, int width, int he
 /// Default).
 CraBrowser *cra_browser_create_in(uintptr_t parent, int x, int y, int width, int height, const char *url,
                                   int incognito, const char *profile_path, CraBrowserCallbacks callbacks);
+/// The same, made hidden: Chromium's window starts without WS_VISIBLE (a spare page made ahead,
+/// which cra_browser_set_visible shows once a tab takes it).
+CraBrowser *cra_browser_create_hidden_in(uintptr_t parent, int x, int y, int width, int height, const char *url,
+                                         int incognito, const char *profile_path, CraBrowserCallbacks callbacks);
 void cra_browser_set_frame(CraBrowser *browser, int x, int y, int width, int height);
 /// Moves the page (and its docked DevTools) into another window, live: a Little Window's page
 /// going into a browser window. Set its frame for the new parent after.
@@ -549,6 +564,8 @@ int cra_browser_navigation_starts(CraBrowser *browser);
 const char *cra_browser_navigating_url(CraBrowser *browser);
 int cra_browser_can_go_back(CraBrowser *browser);
 int cra_browser_can_go_forward(CraBrowser *browser);
+/// Whether the page has shown a document: 0 while its only navigation became a download.
+int cra_browser_has_document(CraBrowser *browser);
 /// UTF-8, valid until the next call into this browser.
 const char *cra_browser_current_url(CraBrowser *browser);
 const char *cra_browser_current_title(CraBrowser *browser);

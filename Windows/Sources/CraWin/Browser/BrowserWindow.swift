@@ -58,6 +58,10 @@ final class BrowserWindow {
     private var downloads: DownloadsTray!
     /// Downloads this window's pages started (the stall check), and the ones it has recorded.
     private var windowDownloads: Set<UInt32> = []
+    /// Pages whose tab closed because they only downloaded, kept out of sight until their
+    /// downloads end: Chromium reports a download only to the page it came from (`DownloadOnlyTabs`).
+    private var downloadOnly = DownloadOnlyTabs<ObjectIdentifier>()
+    private var downloadOnlyPages: [ObjectIdentifier: WebPage] = [:]
     /// Delete Space…'s question while it is up.
     private var deleteSpaceSheet: AppDialog?
     private var finishedDownloads: Set<UInt32> = []
@@ -191,6 +195,16 @@ final class BrowserWindow {
     /// The sliders button at the end of the address pill, and the Site Control Center it opens.
     private var sliders: Button!
     private let slidersGlyph = FontIcon()
+    /// Page translation through Google Translate's website (#310, WebTranslate): each tab's
+    /// state, the language its original page is in, and the toast its next load owes.
+    private var translations: [UUID: PageTranslation] = [:]
+    private var translateSource: [UUID: String] = [:]
+    private var translateToast: [UUID: PageTranslation.Step] = [:]
+    private let translatePopover = TranslatePopover()
+    /// The address pill's second line, "Translation Available" (Arc's), while the toolbar is hidden.
+    private var translateLine: Button!
+    private let translateLabel = TextBlock()
+    private let translateGlyph = FontIcon()
     /// The pill's pinned extensions, before the sliders (syncPillPins), and what they show.
     private let pillPins = StackPanel()
     private var pillPinsShown: [ToolbarView.Pin]?
@@ -211,6 +225,14 @@ final class BrowserWindow {
     private var hiddenAt: [UUID: Date] = [:]
     private var sleepAskAfter: [UUID: Date] = [:]
     private var sleepTimer: WinAppSDK.DispatcherQueueTimer?
+    /// Which pages make sound (AudibleProbe), asked every second: stock CEF doesn't say.
+    private var audibleTimer: WinAppSDK.DispatcherQueueTimer?
+    private var audible = AudibleProbe.Tracker()
+    /// Arc's now-playing player at the bottom of the sidebar (#33): its cards and their view.
+    private var nowPlaying = NowPlayingList()
+    /// The pages that made sound at their last answer (no hold): music notes follow it.
+    private var soundPlaying: Set<UUID> = []
+    private let nowPlayingTray = NowPlayingTray()
     /// Arc's Ctrl+Tab switcher over the space's recent tabs.
     private var tabSwitcher: TabSwitcherWindow!
     /// Each tab's wait for its first response, and the tab whose "Still waiting" toast is up
@@ -244,6 +266,7 @@ final class BrowserWindow {
         commandBar = CommandBarView(engine: engine, store: store, windowID: session.id)
         sidebar = SidebarView(store: store, windowID: session.id, actions: self)
         downloads = DownloadsTray(history: .shared, dispatcher: dispatcher)
+        sidebar.attachNowPlaying(nowPlayingTray.root)
         sidebar.attachDownloads(button: downloads.button, list: downloads.list)
         // A private window shows only its own space: no Spaces page (Manage Spaces…).
         let spacesPage = incognito ? nil : SpacesManagerView(store: store, windowID: session.id, actions: self)
@@ -335,6 +358,7 @@ final class BrowserWindow {
         makeSiteControlCenter()
         toast = ToastView(owner: window) { [weak self] in self?.pageOnScreen() }
         startTabSleeping()
+        startAudibleProbe()
         makeTabSwitcher()
         // Chromium closes its pages before their parent window goes (CEF's DoClose order).
         window.shouldClose = { [weak self] in
@@ -445,6 +469,7 @@ final class BrowserWindow {
             syncSidebarSide()
             placeSidebarEdge()
             syncPages()
+            syncNowPlaying()
             syncSlowResponse()
             syncTopBar()
             showAddress(store.selectedTab(window: windowID)?.tab?.url ?? "")
@@ -630,8 +655,9 @@ final class BrowserWindow {
         permissionWindow?.hide()
         for request in permissions.all { request.answer(false) }
         permissions = PermissionLine()
-        let open = Array(pages.values)
+        let open = Array(pages.values) + Array(downloadOnlyPages.values)
         pages.removeAll()
+        downloadOnlyPages.removeAll()
         shownPage = nil
         paneIDs = []
         paneDrag = nil
@@ -749,6 +775,28 @@ final class BrowserWindow {
         try? Grid.setColumn(pillPins, 1)
         pill.children.append(sliders)
         try? Grid.setColumn(sliders, 2)
+        pill.rowDefinitions.append(UI.row(UI.auto))
+        pill.rowDefinitions.append(UI.row(UI.auto))
+        let line = StackPanel()
+        line.orientation = .horizontal
+        line.spacing = 5
+        translateGlyph.glyph = WinGlyph.code("character.bubble")
+        translateGlyph.fontSize = 11
+        translateGlyph.verticalAlignment = .center
+        line.children.append(translateGlyph)
+        translateLabel.fontSize = 11
+        translateLabel.verticalAlignment = .center
+        line.children.append(translateLabel)
+        translateLine = UI.button(line, padding: Thickness(left: 8, top: 1, right: 8, bottom: 3)) { [weak self] in
+            guard let self, let id = self.shownPage.flatMap(self.tabID(of:)) else { return }
+            self.showTranslate(id, from: self.translateLine)
+        }
+        translateLine.horizontalAlignment = .left
+        translateLine.visibility = .collapsed
+        try? AutomationProperties.setName(translateLine, "Translation Options")
+        pill.children.append(translateLine)
+        try? Grid.setRow(translateLine, 1)
+        try? Grid.setColumnSpan(translateLine, 3)
 
         sidebarNavigation = [back, forward, reload, more, pill]
         let parts: [FrameworkElement] = [toolbar, pill, sidebar.root]
@@ -787,6 +835,85 @@ final class BrowserWindow {
         address.foreground = url.isEmpty ? sidebar.secondaryTextColor : sidebar.textColor
         slidersGlyph.foreground = sidebar.secondaryTextColor
         syncPillPins()
+        syncTranslateLine()
+    }
+
+    // MARK: Translation
+
+    /// The language pages are translated to: the first of Windows' languages Google translates to.
+    private var translateTarget: String { WebTranslate.target(preferredLanguages: Locale.preferredLanguages) }
+
+    /// The pill's "Translation Available" for the page in front ("Translate" in a narrow sidebar).
+    private func syncTranslateLine() {
+        guard let translateLine else { return }
+        let offers = shownPage.flatMap(tabID(of:)).flatMap { translations[$0] }?.offersTranslation == true
+        translateLine.visibility = offers && topBar != .toolbar ? .visible : .collapsed
+        translateLabel.text = SidebarHeaderLayout.isNarrow(width: tabSidebarWidth) ? "Translate" : "Translation Available"
+        translateLabel.foreground = sidebar.secondaryTextColor
+        translateGlyph.foreground = sidebar.secondaryTextColor
+    }
+
+    private func syncTranslate() {
+        translations = translations.filter { pages[$0.key] != nil }
+        syncTranslateLine()
+        syncToolbar()
+    }
+
+    /// Once a page has loaded, it says its language; a translated page is the proxy's, and keeps
+    /// the language its original was in.
+    private func detectLanguage(_ page: WebPage, tab id: UUID) {
+        let url = page.currentURL
+        page.sendDevToolsMethod("Runtime.evaluate", params: WebTranslate.languageParams) { [weak self, weak page] reply, _ in
+            guard let self, let page, self.pages[id] === page, page.currentURL == url else { return }
+            let said = WebTranslate.language(fromReply: reply)
+            let translated = WebTranslate.original(url) != nil
+            if !translated, let said { self.translateSource[id] = said }
+            let step = self.translateToast.removeValue(forKey: id)
+            let state = WebTranslate.state(url: url, pageLanguage: translated ? self.translateSource[id] : said,
+                                           target: self.translateTarget, neverSites: TranslatePopover.NeverSites.shared.sites, step: step)
+            self.translations[id] = state
+            if let toast = state.toast, page === self.shownPage { self.showToast(toast) }
+            self.syncTranslate()
+        }
+    }
+
+    /// Arc's popover under the button that was pressed.
+    private func showTranslate(_ id: UUID, from anchor: FrameworkElement?) {
+        guard let anchor, let state = translations[id] else { return }
+        var actions = TranslatePopover.Actions()
+        actions.translate = { [weak self] target in self?.translatePage(id, to: target) }
+        actions.showOriginal = { [weak self] in self?.showOriginal(id) }
+        actions.neverTranslateSite = { [weak self] in self?.neverTranslateSite(id) }
+        translatePopover.show(state, under: anchor, actions: actions)
+    }
+
+    /// The page through Google Translate's website, to `target` or the user's language.
+    private func translatePage(_ id: UUID, to target: String?) {
+        guard let page = pages[id] else { return }
+        let url = WebTranslate.original(page.currentURL) ?? page.currentURL
+        let source = translateSource[id].flatMap { $0.isEmpty ? nil : $0 } ?? "auto"
+        guard let proxied = WebTranslate.proxy(url, to: target ?? translateTarget, from: source) else { return }
+        translateToast[id] = .translated
+        page.loadURL(proxied)
+    }
+
+    /// Arc's Show Original: the page's own address again.
+    private func showOriginal(_ id: UUID) {
+        guard let page = pages[id], let url = WebTranslate.original(page.currentURL) else { return }
+        if let state = translations[id] { showToast(state.revertedToast) }
+        page.loadURL(url)
+    }
+
+    /// Never Translate This Site: no more offers there, and a translated page goes back.
+    private func neverTranslateSite(_ id: UUID) {
+        guard let page = pages[id], let site = WebTranslate.site(page.currentURL) else { return }
+        TranslatePopover.NeverSites.shared.add(site)
+        if WebTranslate.original(page.currentURL) != nil { return showOriginal(id) }
+        if let state = translations[id] {
+            translations[id] = WebTranslate.state(url: state.url, pageLanguage: translateSource[id], target: translateTarget,
+                                                  neverSites: TranslatePopover.NeverSites.shared.sites)
+        }
+        syncTranslate()
     }
 
     /// The pill's pinned extensions while the toolbar is hidden (Arc 1.171, GitHub #226): the
@@ -1127,7 +1254,7 @@ final class BrowserWindow {
         case "resetTab": if let t = store.selectedTabID(window: windowID) { resetPinnedTab(t) }
         case "newFolder": sidebar.newFolder()
         case "newSpace": if !isIncognito { sidebar.newSpace() }
-        case "clearToday": store.clearToday(store.focusedSpaceID(window: windowID), playing: [])
+        case "clearToday": store.clearToday(store.focusedSpaceID(window: windowID), playing: sidebar.audibleTabIDs)
         case "showArchive": showLibrary(.archive)
         case "clearArchive": store.clearArchive()
         case "revealData": Shell.open(WinPaths.native(WinPaths.supportDir))
@@ -1282,6 +1409,89 @@ final class BrowserWindow {
     }
 
     private static let sleepRefusalBackoff: TimeInterval = 10 * 60
+
+    // MARK: Sound
+
+    private func startAudibleProbe() {
+        setUpNowPlaying()
+        audibleTimer = try? dispatcher.createTimer()
+        audibleTimer?.interval = TimeSpan(duration: Int64(AudibleProbe.Tracker.pollInterval * 10_000_000))
+        audibleTimer?.isRepeating = true
+        audibleTimer?.tick.addHandler { [weak self] _, _ in self?.probeAudible() }
+        try? audibleTimer?.start()
+    }
+
+    /// Arc's speaker on a tab that plays sound (TabSound, #28): each live page says whether a
+    /// player in it can be heard, and the speaker holds 2 s after it stops (as on the Mac).
+    private func probeAudible() {
+        guard !closing else { return }
+        audible.keep(only: Set(pages.keys))
+        nowPlaying.keep(only: Set(pages.keys))
+        soundPlaying.formIntersection(pages.keys)
+        showAudible()
+        syncNowPlaying()
+        for (id, page) in pages where page.isCreated {
+            page.sendDevToolsMethod("Runtime.evaluate", params: AudibleProbe.evaluateParams) { [weak self, weak page] reply, error in
+                guard let self, let page, self.pages[id] === page, !self.closing else { return }
+                let answer = error == nil ? AudibleProbe.answer(fromReply: reply) : nil
+                self.audible.note(id, audible: answer?.audible, now: Date())
+                if let answer {
+                    self.nowPlaying.heard(id, answer)
+                    if answer.audible { self.soundPlaying.insert(id) } else { self.soundPlaying.remove(id) }
+                }
+                self.showAudible()
+                self.syncNowPlaying()
+            }
+        }
+    }
+
+    /// The player's cards: tabs that played sound and aren't on screen, with the page's own title.
+    private func syncNowPlaying() {
+        let cards = nowPlaying.shown(onScreen: Set(paneIDs)).compactMap { entry -> NowPlayingTray.Card? in
+            guard let item = store.item(entry.id), let tab = item.tab else { return nil }
+            return .init(id: entry.id, title: tab.savedTitle.isEmpty ? item.displayTitle : tab.savedTitle,
+                         iconKey: tab.iconKey, playing: entry.playing, hasVideo: entry.hasVideo)
+        }
+        nowPlayingTray.show(cards, dark: sidebar.isDark)
+    }
+
+    private func setUpNowPlaying() {
+        nowPlayingTray.onRestingHeight = { [weak self] height in self?.sidebar.reserveBottom(height) }
+        nowPlayingTray.onShowTab = { [weak self] id in
+            guard let self else { return }
+            self.store.selectTab(id, window: self.windowID)
+        }
+        nowPlayingTray.onTogglePlayback = { [weak self] id in self?.playback(id, .toggle) }
+        nowPlayingTray.onPictureInPicture = { [weak self] id in self?.pages[id]?.requestPictureInPicture(automatic: false) }
+        nowPlayingTray.onDismiss = { [weak self] id in
+            guard let self else { return }
+            self.playback(id, .pause)
+            self.nowPlaying.remove(id)
+            self.syncNowPlaying()
+        }
+    }
+
+    /// The card's play/pause and ✕: the page's media elements, as the Mac's player runs a page
+    /// without media session handlers.
+    private func playback(_ id: UUID, _ op: NowPlayingList.Playback) {
+        guard let page = pages[id] else {
+            nowPlaying.remove(id)
+            return syncNowPlaying()
+        }
+        page.sendDevToolsMethod("Runtime.evaluate", params: NowPlayingList.playbackParams(op)) { [weak self] reply, _ in
+            guard let self, op == .toggle, let playing = NowPlayingList.playing(fromReply: reply) else { return }
+            self.nowPlaying.setPlaying(id, playing)
+            self.syncNowPlaying()
+        }
+    }
+
+    private func showAudible() {
+        let now = audible.audible(now: Date())
+        guard now != sidebar.audibleTabIDs || soundPlaying != sidebar.soundPlayingTabIDs else { return }
+        sidebar.audibleTabIDs = now
+        sidebar.soundPlayingTabIDs = soundPlaying
+        queueRefresh()
+    }
 
     // MARK: Tab switcher
 
@@ -1862,6 +2072,7 @@ final class BrowserWindow {
         state.showFullURL = store.settings.toolbarShowsFullURL
         state.autoHide = store.settings.autoHideToolbar
         state.pins = toolbarPins(scale: window?.scale ?? 1)
+        state.translatable = shownPage.flatMap(tabID(of:)).flatMap { translations[$0] }?.offersTranslation == true
         pageToolbar.show(state)
     }
 
@@ -1872,6 +2083,8 @@ final class BrowserWindow {
             guard let self else { return }
             switch id {
             case "siteControls": self.toggleSiteControlCenter()
+            case "translate":
+                if let tab = self.shownPage.flatMap(self.tabID(of:)) { self.showTranslate(tab, from: self.pageToolbar.translateButton) }
             case let id where id.hasPrefix(ToolbarView.pinAction):
                 let ext = String(id.dropFirst(ToolbarView.pinAction.count))
                 self.runExtension(ext, anchor: self.pageToolbar.pinButtons[ext].map { ($0, true) })
@@ -3059,6 +3272,12 @@ extension BrowserWindow: LibraryActions {
         library.focusSearch()
     }
 
+    func previewMedia(_ files: [MediaLibrary.File], at index: Int) {
+        guard !closing else { return }
+        // Back to the grid's search once it closes, as the Library was.
+        MediaPreviewWin.show(files, at: index, over: window, store: store) { [weak self] in self?.focusLibrary() }
+    }
+
     func focusLibrary() {
         guard libraryPage != nil, !closing else { return }
         window.focusXAML()
@@ -3300,9 +3519,18 @@ extension BrowserWindow: WebPageDelegate {
         guard let id = tabID(of: page) else { return }
         store.updateTab(id, url: url)
         if page === shownPage { showAddress(url) }
+        // The translate button waits for the new page to say its language.
+        if translations[id]?.url != url, translations[id] != nil {
+            translations[id] = nil
+            syncTranslate()
+        }
+        // A quiet page that navigates leaves the player; a playlist moving on keeps its card.
+        nowPlaying.navigated(id, audible: sidebar.audibleTabIDs.contains(id))
+        syncNowPlaying()
     }
 
     func page(_ page: WebPage, didFinishLoadingURL url: String, statusCode: Int) {
+        if let id = tabID(of: page) { detectLanguage(page, tab: id) }
         guard let id = tabID(of: page), !store.isIncognito(item: id) else { return }
         if url.hasPrefix("chrome://settings") { watchClearBrowsingData(page) }
         store.recordVisit(url: url, title: page.currentTitle, profile: store.profileID(item: id))
@@ -3457,13 +3685,33 @@ extension BrowserWindow: WebPageDelegate {
     }
 
     func page(_ page: WebPage, didUpdateDownload download: DownloadInfo) {
-        if windowDownloads.insert(download.identifier).inserted {
+        let first = windowDownloads.insert(download.identifier).inserted
+        if first {
             // Chrome's glyph would fly from the page's top left to a toolbar Cra hides; the
             // sidebar's downloads button shows the progress (ChromeDownloadAnimation on the Mac).
             cra_hide_download_started_animation()
             if download.state == .inProgress { throwDownloadGlyph() }
         }
         record(download)
+        // A tab whose page only downloaded closes, as Chrome's does (DownloadOnlyTabs).
+        let key = ObjectIdentifier(page)
+        switch downloadOnly.report(download.identifier, from: key, first: first, pageHasDocument: page.hasDocument,
+                                   running: download.state == .inProgress) {
+        case .none: break
+        case .holdAndCloseTab:
+            guard let id = tabID(of: page), pages[id] === page else { return downloadOnly.forget(key) }
+            pages[id] = nil
+            page.isVisible = false
+            downloadOnlyPages[key] = page
+            // After this callback, which comes from inside Chromium's download code.
+            _ = try? dispatcher.tryEnqueue { [weak self] in self?.closeTab(id) }
+        case .closeTab:
+            guard let id = tabID(of: page), pages[id] === page else { return }
+            _ = try? dispatcher.tryEnqueue { [weak self] in self?.closeTab(id) }
+        case .closePage:
+            downloadOnlyPages[key] = nil
+            _ = try? dispatcher.tryEnqueue { page.close() }
+        }
     }
 
     /// Arc's download flight: the glyph thrown from the pointer onto the sidebar's downloads
@@ -3586,6 +3834,8 @@ extension BrowserWindow: WebPageDelegate {
         pageLists[ObjectIdentifier(page)] = nil
         pageEntryCounts[ObjectIdentifier(page)] = nil
         newPages[ObjectIdentifier(page)] = nil
+        downloadOnly.forget(ObjectIdentifier(page))
+        downloadOnlyPages[ObjectIdentifier(page)] = nil
         if closing {
             // After this callback: it comes from inside CEF's OnBeforeClose, and destroying the
             // pages' parent window there crashed libcef.

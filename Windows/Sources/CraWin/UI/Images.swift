@@ -42,6 +42,17 @@ struct Pixels: Sendable {
         return cra_emoji_render(text, Int32(side), &image) != 0 ? Pixels(taking: &image) : nil
     }
 
+    /// A Segoe Fluent Icons glyph drawn in black in a `side` pixel square (cra_symbol_render).
+    static func symbol(_ glyph: String, side: Int) -> Pixels? {
+        var image = CraImage()
+        return cra_symbol_render(glyph, Int32(side), &image) != 0 ? Pixels(taking: &image) : nil
+    }
+
+    /// These pixels as a PNG file (CraCore's PNGFile).
+    var png: Data? {
+        PNGFile.encode(rgba: PNGFile.rgba(fromPremultipliedBGRA: bgra), width: width, height: height)
+    }
+
     /// The same picture desaturated to `saturation` (DockIconFade, the Mac's CIColorControls).
     func desaturated(_ saturation: Double) -> Pixels {
         Pixels(width: width, height: height, bgra: DockIconFade.desaturate(bgra: bgra, saturation: saturation))

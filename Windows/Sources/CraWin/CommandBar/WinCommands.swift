@@ -15,6 +15,7 @@ enum WinGlyph {
     static func known(_ symbol: String) -> String? {
         switch symbol {
         case "globe": return "\u{E774}"
+        case "character.bubble": return "\u{E8C1}"  // Characters: Arc's translate button
         case "clock": return "\u{E81C}"
         case "command": return "\u{E756}"
         case "folder": return "\u{E8B7}"
@@ -105,6 +106,10 @@ enum WinGlyph {
         case "photo.fill": return "\u{E91B}"  // Photo
         case "photo.on.rectangle": return "\u{E91B}"  // Photo: Library ▸ Media's opt-in card
         case "play.fill": return "\u{E768}"  // Play: a video tile
+        // Library ▸ Media's preview header.
+        case "chevron.left": return "\u{E76B}"  // ChevronLeft
+        case "chevron.right": return "\u{E76C}"  // ChevronRight
+        case "arrow.up.right": return "\u{E8A7}"  // OpenInNewWindow
         case "mic.fill": return "\u{E720}"  // Microphone
         case "speaker.wave.2.fill": return "\u{E767}"  // Volume
         case "gamecontroller.fill": return "\u{E7FC}"  // Game
