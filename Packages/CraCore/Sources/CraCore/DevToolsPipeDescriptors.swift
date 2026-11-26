@@ -1,3 +1,5 @@
+// Mac only (#752): Chromium on the Mac reads the DevTools pipe on fds 3 and 4; F_GETPATH is Darwin's.
+#if canImport(Darwin)
 import Foundation
 
 /// Descriptors 3 and 4, kept free for Chromium's DevTools pipe.
@@ -104,3 +106,4 @@ public enum DevToolsPipeDescriptors {
         return String(cString: buffer)
     }
 }
+#endif
