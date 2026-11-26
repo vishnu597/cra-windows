@@ -343,7 +343,7 @@ final class CommandBarController {
         if !allowCompletion { result.inlineCompletion = nil }
         selectedIndex = result.items.firstIndex { $0.id == selectedID }
             ?? SuggestionDeletion.selection(afterDeleting: i, count: result.items.count)
-        previewText = selectedIndex == 0 ? nil : result.items.indices.contains(selectedIndex) ? fillText(for: result.items[selectedIndex]) : nil
+        previewText = selectedIndex == 0 ? nil : result.items.indices.contains(selectedIndex) ? result.items[selectedIndex].fieldText(typed: query) : nil
         previewVersion += 1
         return true
     }
