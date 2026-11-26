@@ -15,6 +15,7 @@ enum WinGlyph {
     static func known(_ symbol: String) -> String? {
         switch symbol {
         case "globe": return "\u{E774}"
+        case "character.bubble": return "\u{E8C1}"  // Characters: Arc's translate button
         case "clock": return "\u{E81C}"
         case "command": return "\u{E756}"
         case "folder": return "\u{E8B7}"

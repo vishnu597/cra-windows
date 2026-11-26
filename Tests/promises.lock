@@ -580,6 +580,11 @@
 #310   Packages/CraCore/Tests/CraCoreTests/PageTranslationTests.swift::buttonOutlivesTheAutomaticOffer  8b6c61024b81
 #310   Packages/CraCore/Tests/CraCoreTests/PageTranslationTests.swift::decodesChromiumsState  b0c474fb3a4e
 #310   Packages/CraCore/Tests/CraCoreTests/ToolbarCompositionTests.swift::translatablePageHasTheButton  e4b3dfaf2f19
+#310   Packages/CraCore/Tests/CraCoreTests/WindowsWebTranslateTests.swift::aForeignPageOffersTranslation  2427c1e52d5f
+#310   Packages/CraCore/Tests/CraCoreTests/WindowsWebTranslateTests.swift::aPageGoesThroughTheProxyAndBack  7d67d6736183
+#310   Packages/CraCore/Tests/CraCoreTests/WindowsWebTranslateTests.swift::aTranslatedPageOffersShowOriginal  192e751e13e9
+#310   Packages/CraCore/Tests/CraCoreTests/WindowsWebTranslateTests.swift::languagesAsGoogleNamesThem  3b608b7f5efa
+#310   Packages/CraCore/Tests/CraCoreTests/WindowsWebTranslateTests.swift::onlyWhatTheProxyCanShow  5baa60ff5093
 #310   Tests/BrowserManagerLifecycleTests.swift::translationCase  3179a30235a7
 #310   Tests/Scenarios/translate.scenario  acf981ce24a3
 #314   Packages/CraCore/Tests/CraCoreTests/SearchSuggestionsNoticeTests.swift::aScopeOrASiteSearchTakesTheBadgesPlace  547c0b046d2b
