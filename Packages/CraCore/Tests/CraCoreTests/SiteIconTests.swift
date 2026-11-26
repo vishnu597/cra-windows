@@ -33,11 +33,13 @@ struct SiteIconFetchTests {
     @Test func localHostsAreThoseOfTheMacAndItsNetwork() {
         for host in ["localhost", "LOCALHOST.", "dev.localhost", "router", "printer.local", "127.0.0.1", "127.1", "2130706433", "0x7f000001",
                      "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "100.64.0.1", "100.127.255.255", "169.254.169.254", "0.0.0.0",
-                     "::1", "[::1]", "::", "fc00::1", "fd12:3456::1", "fe80::1", "fe80::1%en0", "::ffff:192.168.1.1", "::ffff:7f00:1"] {
+                     "::1", "[::1]", "::", "fc00::1", "fd12:3456::1", "fe80::1", "fe80::1%en0", "::ffff:192.168.1.1", "::ffff:7f00:1",
+                     "012.0.0.1", "10.65535", "::ffff:127.0.0.1"] {  // octal 10.0.0.1, the a.b form, mapped loopback
             #expect(SiteIcon.isLocal(host: host), "\(host)")
         }
         for host in ["example.com", "github.com", "172.32.0.1", "172.15.0.1", "100.128.0.1", "192.169.0.1", "8.8.8.8", "11.0.0.1",
-                     "2606:4700::1111", "::ffff:8.8.8.8", "local.example.com", "localhost.example.com"] {
+                     "2606:4700::1111", "::ffff:8.8.8.8", "local.example.com", "localhost.example.com",
+                     "010.0.0.1", "1:2:3:4:5:6:7:8:9", "fe80:::1"] {  // octal 8.0.0.1; not IPv6 addresses
             #expect(!SiteIcon.isLocal(host: host), "\(host)")
         }
     }
