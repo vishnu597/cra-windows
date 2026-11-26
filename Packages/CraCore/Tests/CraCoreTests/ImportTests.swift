@@ -69,11 +69,13 @@ struct ImportTests {
     @Test func readsAChromiumProfile() {
         let profile = Self.fixtures.appendingPathComponent("Chromium/Default", isDirectory: true)
         let tabs = ChromiumImporter.openTabs(profile: profile)
-        #expect(tabs.map(\.url) == ["https://example.com/one", "https://example.com/two-b"],
-                "open tabs: the selected navigation of each, closed tabs and chrome:// pages left out, in window order")
-        #expect(tabs.map(\.pageTitle) == ["One", "Two, then Ü"])
+        #expect(tabs.map(\.url) == ["https://example.com/one", "https://example.com/two-b", "file:///Users/me/notes.html",
+                                    "javascript:void(document.title)", "chrome://settings/"],
+                "open tabs: the selected navigation of each, whatever its address (#742), in window order; closed tabs, a new tab page, about:blank and blob: left out")
+        #expect(tabs.prefix(2).map(\.pageTitle) == ["One", "Two, then Ü"])
         let marks = ChromiumImporter.bookmarks(profile: profile)
-        #expect(marks.bar.map(\.pageTitle) == ["Docs", "Reading"] && marks.bar[1].children.map(\.url) == ["https://example.com/read"])
+        #expect(marks.bar.map(\.pageTitle) == ["Docs", "Reading", "Local", "Tools"] && marks.bar[1].children.map(\.url) == ["https://example.com/read"],
+                "the bookmarks bar keeps file: links, bookmarklets and browser pages (#742), drops empty folders")
         #expect(marks.other.map(\.url) == ["https://example.com/other"])
         #expect(ChromiumImporter.parseSession(Data("SNSS".utf8) + Data([4, 0, 0, 0]) + Data(repeating: 1, count: 16)).isEmpty,
                 "an encrypted session (version 4) gives nothing rather than garbage")
@@ -81,7 +83,7 @@ struct ImportTests {
         let plan = try? ChromiumImporter.plan(browser: "Chrome", userData: Self.fixtures.appendingPathComponent("Chromium", isDirectory: true))
         #expect(plan?.spaces.map(\.title) == ["Chrome"], "one profile: the space is named after the browser")
         #expect(plan?.spaces.first?.pinned.last?.customTitle == "Other Bookmarks")
-        #expect(plan?.spaces.first?.today.count == 2)
+        #expect(plan?.spaces.first?.today.count == 5)
     }
 
     @Test func discoversYabSpaceProfilesWithoutLocalState() {
@@ -162,7 +164,7 @@ struct ImportTests {
         #expect(arcPlan.spaces.map(\.title) == ["Home", "Work"] && arcPlan.settings.showToolbar == nil)
         let edgePlan = try #require(available.first { $0.id == "edge" }).plan(in: folders)
         #expect(edgePlan.source == "Edge" && edgePlan.spaces.map(\.title) == ["Edge"])
-        #expect(edgePlan.spaces[0].pinned.map(\.pageTitle) == ["Docs", "Reading", "Other Bookmarks"])
+        #expect(edgePlan.spaces[0].pinned.map(\.pageTitle) == ["Docs", "Reading", "Local", "Tools", "Other Bookmarks"])
     }
 
     @Test func readsWindowsFoldersFromTheEnvironment() {
