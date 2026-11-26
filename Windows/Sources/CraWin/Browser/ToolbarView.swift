@@ -39,6 +39,8 @@ final class ToolbarView {
         var autoHide = false
         /// The page's profile's pinned extensions that can run, in toolbar order.
         var pins: [Pin] = []
+        /// The page can be translated, or is (Arc's translate button, #310).
+        var translatable = false
         /// A split pane's own bar (Arc 1.171, GitHub #178): no toggle and no Split View button, the
         /// split's options and close instead; an unfocused pane shows only Arc's essentials until
         /// the pointer is over it (ToolbarComposition).
@@ -62,6 +64,8 @@ final class ToolbarView {
     let root = Grid()
     /// The Site Control Center's sliders, which it and an extension's popup hang from.
     private(set) var sliders: Button?
+    /// Arc's translate button, for its popover to hang from.
+    private(set) var translateButton: Button?
     /// A split pane's Split View Options button, which its menu hangs from.
     private(set) var splitOptions: Button?
     /// The pinned extensions' buttons by extension id, which their popups hang from.
@@ -95,10 +99,12 @@ final class ToolbarView {
 
         let bar = ToolbarComposition(kind: state.kind, inSplit: state.inSplit, sidebarVisible: state.sidebarVisible, sidebarSide: state.sidebarSide,
                                      focusedPane: state.focusedPane, hovered: state.hovered, canGoBack: state.canGoBack, canGoForward: state.canGoForward,
-                                     isLoading: state.isLoading, pinnedExtensions: state.pins.map(\.id))
+                                     isLoading: state.isLoading, pinnedExtensions: state.pins.map(\.id),
+                                     translatable: state.translatable)
         left.children.clear()
         right.children.clear()
         sliders = nil
+        translateButton = nil
         splitOptions = nil
         pinButtons = [:]
         for item in bar.left { if let b = button(item, dim: dim, hot: hot) { left.children.append(b) } }
@@ -187,6 +193,7 @@ final class ToolbarView {
         case .reload(let loading, let on):
             (symbol, name, action, enabled) = loading ? ("xmark", "Stop", "stop", on) : ("arrow.clockwise", "Refresh", "reload", on)
         case .extensions: (symbol, name, action, enabled) = ("slider.horizontal.3", "Site Controls", "siteControls", true)
+        case .translate: (symbol, name, action, enabled) = ("character.bubble", "Translation Options", "translate", true)
         case .addSplit: (symbol, name, action, enabled) = ("square.split.2x1", "Add Split View", "addSplitView", shown?.kind == .normal)
         case .splitOptions: (symbol, name, action, enabled) = ("rectangle.split.2x1", "Split View Options", "splitOptions", true)
         case .closePane: (symbol, name, action, enabled) = ("xmark", "Close this Split Pane", "closeSplitPane", true)
@@ -210,6 +217,7 @@ final class ToolbarView {
         ArcTip.set(b, name + keys)
         try? AutomationProperties.setName(b, name)
         if action == "siteControls" { sliders = b }
+        if action == "translate" { translateButton = b }
         if action == "splitOptions" { splitOptions = b }
         switch item {
         case .back: b.contextFlyout = menus?.back

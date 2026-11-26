@@ -195,6 +195,16 @@ final class BrowserWindow {
     /// The sliders button at the end of the address pill, and the Site Control Center it opens.
     private var sliders: Button!
     private let slidersGlyph = FontIcon()
+    /// Page translation through Google Translate's website (#310, WebTranslate): each tab's
+    /// state, the language its original page is in, and the toast its next load owes.
+    private var translations: [UUID: PageTranslation] = [:]
+    private var translateSource: [UUID: String] = [:]
+    private var translateToast: [UUID: PageTranslation.Step] = [:]
+    private let translatePopover = TranslatePopover()
+    /// The address pill's second line, "Translation Available" (Arc's), while the toolbar is hidden.
+    private var translateLine: Button!
+    private let translateLabel = TextBlock()
+    private let translateGlyph = FontIcon()
     /// The pill's pinned extensions, before the sliders (syncPillPins), and what they show.
     private let pillPins = StackPanel()
     private var pillPinsShown: [ToolbarView.Pin]?
@@ -765,6 +775,28 @@ final class BrowserWindow {
         try? Grid.setColumn(pillPins, 1)
         pill.children.append(sliders)
         try? Grid.setColumn(sliders, 2)
+        pill.rowDefinitions.append(UI.row(UI.auto))
+        pill.rowDefinitions.append(UI.row(UI.auto))
+        let line = StackPanel()
+        line.orientation = .horizontal
+        line.spacing = 5
+        translateGlyph.glyph = WinGlyph.code("character.bubble")
+        translateGlyph.fontSize = 11
+        translateGlyph.verticalAlignment = .center
+        line.children.append(translateGlyph)
+        translateLabel.fontSize = 11
+        translateLabel.verticalAlignment = .center
+        line.children.append(translateLabel)
+        translateLine = UI.button(line, padding: Thickness(left: 8, top: 1, right: 8, bottom: 3)) { [weak self] in
+            guard let self, let id = self.shownPage.flatMap(self.tabID(of:)) else { return }
+            self.showTranslate(id, from: self.translateLine)
+        }
+        translateLine.horizontalAlignment = .left
+        translateLine.visibility = .collapsed
+        try? AutomationProperties.setName(translateLine, "Translation Options")
+        pill.children.append(translateLine)
+        try? Grid.setRow(translateLine, 1)
+        try? Grid.setColumnSpan(translateLine, 3)
 
         sidebarNavigation = [back, forward, reload, more, pill]
         let parts: [FrameworkElement] = [toolbar, pill, sidebar.root]
@@ -803,6 +835,85 @@ final class BrowserWindow {
         address.foreground = url.isEmpty ? sidebar.secondaryTextColor : sidebar.textColor
         slidersGlyph.foreground = sidebar.secondaryTextColor
         syncPillPins()
+        syncTranslateLine()
+    }
+
+    // MARK: Translation
+
+    /// The language pages are translated to: the first of Windows' languages Google translates to.
+    private var translateTarget: String { WebTranslate.target(preferredLanguages: Locale.preferredLanguages) }
+
+    /// The pill's "Translation Available" for the page in front ("Translate" in a narrow sidebar).
+    private func syncTranslateLine() {
+        guard let translateLine else { return }
+        let offers = shownPage.flatMap(tabID(of:)).flatMap { translations[$0] }?.offersTranslation == true
+        translateLine.visibility = offers && topBar != .toolbar ? .visible : .collapsed
+        translateLabel.text = SidebarHeaderLayout.isNarrow(width: tabSidebarWidth) ? "Translate" : "Translation Available"
+        translateLabel.foreground = sidebar.secondaryTextColor
+        translateGlyph.foreground = sidebar.secondaryTextColor
+    }
+
+    private func syncTranslate() {
+        translations = translations.filter { pages[$0.key] != nil }
+        syncTranslateLine()
+        syncToolbar()
+    }
+
+    /// Once a page has loaded, it says its language; a translated page is the proxy's, and keeps
+    /// the language its original was in.
+    private func detectLanguage(_ page: WebPage, tab id: UUID) {
+        let url = page.currentURL
+        page.sendDevToolsMethod("Runtime.evaluate", params: WebTranslate.languageParams) { [weak self, weak page] reply, _ in
+            guard let self, let page, self.pages[id] === page, page.currentURL == url else { return }
+            let said = WebTranslate.language(fromReply: reply)
+            let translated = WebTranslate.original(url) != nil
+            if !translated, let said { self.translateSource[id] = said }
+            let step = self.translateToast.removeValue(forKey: id)
+            let state = WebTranslate.state(url: url, pageLanguage: translated ? self.translateSource[id] : said,
+                                           target: self.translateTarget, neverSites: TranslatePopover.NeverSites.shared.sites, step: step)
+            self.translations[id] = state
+            if let toast = state.toast, page === self.shownPage { self.showToast(toast) }
+            self.syncTranslate()
+        }
+    }
+
+    /// Arc's popover under the button that was pressed.
+    private func showTranslate(_ id: UUID, from anchor: FrameworkElement?) {
+        guard let anchor, let state = translations[id] else { return }
+        var actions = TranslatePopover.Actions()
+        actions.translate = { [weak self] target in self?.translatePage(id, to: target) }
+        actions.showOriginal = { [weak self] in self?.showOriginal(id) }
+        actions.neverTranslateSite = { [weak self] in self?.neverTranslateSite(id) }
+        translatePopover.show(state, under: anchor, actions: actions)
+    }
+
+    /// The page through Google Translate's website, to `target` or the user's language.
+    private func translatePage(_ id: UUID, to target: String?) {
+        guard let page = pages[id] else { return }
+        let url = WebTranslate.original(page.currentURL) ?? page.currentURL
+        let source = translateSource[id].flatMap { $0.isEmpty ? nil : $0 } ?? "auto"
+        guard let proxied = WebTranslate.proxy(url, to: target ?? translateTarget, from: source) else { return }
+        translateToast[id] = .translated
+        page.loadURL(proxied)
+    }
+
+    /// Arc's Show Original: the page's own address again.
+    private func showOriginal(_ id: UUID) {
+        guard let page = pages[id], let url = WebTranslate.original(page.currentURL) else { return }
+        if let state = translations[id] { showToast(state.revertedToast) }
+        page.loadURL(url)
+    }
+
+    /// Never Translate This Site: no more offers there, and a translated page goes back.
+    private func neverTranslateSite(_ id: UUID) {
+        guard let page = pages[id], let site = WebTranslate.site(page.currentURL) else { return }
+        TranslatePopover.NeverSites.shared.add(site)
+        if WebTranslate.original(page.currentURL) != nil { return showOriginal(id) }
+        if let state = translations[id] {
+            translations[id] = WebTranslate.state(url: state.url, pageLanguage: translateSource[id], target: translateTarget,
+                                                  neverSites: TranslatePopover.NeverSites.shared.sites)
+        }
+        syncTranslate()
     }
 
     /// The pill's pinned extensions while the toolbar is hidden (Arc 1.171, GitHub #226): the
@@ -1941,6 +2052,7 @@ final class BrowserWindow {
         state.showFullURL = store.settings.toolbarShowsFullURL
         state.autoHide = store.settings.autoHideToolbar
         state.pins = toolbarPins(scale: window?.scale ?? 1)
+        state.translatable = shownPage.flatMap(tabID(of:)).flatMap { translations[$0] }?.offersTranslation == true
         pageToolbar.show(state)
     }
 
@@ -1951,6 +2063,8 @@ final class BrowserWindow {
             guard let self else { return }
             switch id {
             case "siteControls": self.toggleSiteControlCenter()
+            case "translate":
+                if let tab = self.shownPage.flatMap(self.tabID(of:)) { self.showTranslate(tab, from: self.pageToolbar.translateButton) }
             case let id where id.hasPrefix(ToolbarView.pinAction):
                 let ext = String(id.dropFirst(ToolbarView.pinAction.count))
                 self.runExtension(ext, anchor: self.pageToolbar.pinButtons[ext].map { ($0, true) })
@@ -3385,12 +3499,18 @@ extension BrowserWindow: WebPageDelegate {
         guard let id = tabID(of: page) else { return }
         store.updateTab(id, url: url)
         if page === shownPage { showAddress(url) }
+        // The translate button waits for the new page to say its language.
+        if translations[id]?.url != url, translations[id] != nil {
+            translations[id] = nil
+            syncTranslate()
+        }
         // A quiet page that navigates leaves the player; a playlist moving on keeps its card.
         nowPlaying.navigated(id, audible: sidebar.audibleTabIDs.contains(id))
         syncNowPlaying()
     }
 
     func page(_ page: WebPage, didFinishLoadingURL url: String, statusCode: Int) {
+        if let id = tabID(of: page) { detectLanguage(page, tab: id) }
         guard let id = tabID(of: page), !store.isIncognito(item: id) else { return }
         if url.hasPrefix("chrome://settings") { watchClearBrowsingData(page) }
         store.recordVisit(url: url, title: page.currentTitle, profile: store.profileID(item: id))
