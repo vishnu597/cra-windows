@@ -8,7 +8,6 @@ extension SidebarStore {
                   clock: clock ?? LiveScheduler.shared, arcShowsToolbar: { ArcImporter.showsToolbar },
                   onProfileDeleted: ProfileCleanup.schedule)
     }
-}
 
     /// History saved before #609 has no profiles: once, off the main thread, at launch, the
     /// profiles' own Chromium histories say whose each page was (#729). Nothing changes if a
