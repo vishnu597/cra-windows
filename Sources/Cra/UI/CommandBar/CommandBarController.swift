@@ -28,6 +28,9 @@ final class CommandBarController {
     /// Arc's address panel (#663): opened by a click on the sidebar's address, it hangs from that
     /// field, sized to the address (CraCore SidebarAddressPanel), not centred in the window.
     var compact = false
+    /// Arc's ⌘L on a page with the developer bar (#663 follow-up): the bar's address edited in place, the panel over the
+    /// bar and across the card (CraCore DeveloperBarPanel). nil for every other bar.
+    var developer: CommandBarDeveloperInput?
     /// The space whose palette colours the selected row and the info badge (CraCore CommandBarTones).
     var theme: SpaceTheme?
     var focusedSpaceID: UUID?
@@ -103,6 +106,15 @@ final class CommandBarController {
         result = listed(engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown))
         isOpen = true
         if onInstantLinks != nil { InstantLinksService.shared.prewarm(store) }
+    }
+
+    /// The window's space changed under the open bar: its tab list follows, as Arc's does (#721).
+    /// "Only this space's tabs" and the other-space labels both read the space when the bar lists.
+    func follow(space: UUID) {
+        guard isOpen, focusedSpaceID != space else { return }
+        focusedSpaceID = space
+        engine.spaceChanged()
+        if scope == .tabs { update(query: query, allowCompletion: allowCompletion) } else { relist() }
     }
 
     /// Replace the typed text (scripting / tests).

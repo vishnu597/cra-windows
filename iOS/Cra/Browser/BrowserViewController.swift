@@ -13,7 +13,11 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     lazy var favorites = FavoritesStore(directory: LaunchOptions.dataDirectory)
 
     let backdrop = BackdropView()
+    /// The empty home screen: Cra's logo, which spins when flicked, and with Rippling Dots on (`MobileEmptyHome`)
+    /// dots a finger stirs under it and "Tap to search" over the pill.
     let logo = FidgetLogoView(image: UIImage(named: "LaunchMark"))
+    let dotField = DotFieldView()
+    let searchHint = SearchHintView()
     let pageContainer = PassthroughView()
     /// Darkens the page while it sits pushed back behind the search sheet.
     let pageDim = UIView()
@@ -22,6 +26,12 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     private var statusBandFill: String?
     var pagePushedBack = false
     let dismissArea = UIControl()
+    /// For UI tests (`-CraTraceSheetDrag YES`): of the last drag down on the open sheet, how many frames had the sheet
+    /// out of sight under the keyboard (#655).
+    let sheetDragTraceView = UIView()
+    var sheetDragTrace = (frames: 0, hidden: 0)
+    /// How far above the bar the open sheet's top was when a drag down on it started (#655).
+    var sheetDragStartPull: CGFloat?
     /// Over the home indicator's strip while scrolling has put the bar away: a tap there brings
     /// it back (#509). A button, since a plain control there loses its tap to the page's gestures.
     let barReveal = UIButton(type: .custom)
@@ -90,7 +100,9 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         view.addSubview(backdrop)
+        view.addSubview(dotField)
         view.addSubview(logo)
+        view.addSubview(searchHint)
         view.addSubview(pageContainer)
         pageDim.backgroundColor = .black
         pageDim.alpha = 0
@@ -106,6 +118,13 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         dismissArea.isHidden = true
         dismissArea.accessibilityIdentifier = "search-dismiss"
         view.addSubview(dismissArea)
+        if LaunchOptions.value("CraTraceSheetDrag") == "YES" {
+            sheetDragTraceView.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+            sheetDragTraceView.isAccessibilityElement = true
+            sheetDragTraceView.accessibilityIdentifier = "sheet-drag-trace"
+            sheetDragTraceView.isUserInteractionEnabled = false
+            view.addSubview(sheetDragTraceView)
+        }
 
         bar.tabsButton.addTarget(self, action: #selector(showTabs), for: .touchUpInside)
         bar.pill.addTarget(self, action: #selector(startSearch), for: .touchUpInside)
@@ -245,6 +264,7 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         switcher?.frame = bounds
         shownPage?.webView.frame = pageContainer.bounds
         pageDim.frame = pageContainer.bounds
+        dotField.frame = bounds
         updateStatusBand()
         let logoSide: CGFloat = 132
         logo.bounds = CGRect(x: 0, y: 0, width: logoSide, height: logoSide)
@@ -272,9 +292,16 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         let keyboardUpForPage = keyboardHeight > safeBottom && !isSearching
         if (barHiddenByScroll || keyboardUpForPage) && !isSearching { barFrame.origin.y = bounds.height }
         bar.frame = barFrame
+        let home = store.selected == nil && switcher == nil
+        let pull = isSearching ? nil : searchPull
+        let emptyHome = MobileEmptyHome(dots: settings.value.homeDots, home: home, searching: isSearching,
+                                        incognitoSearch: incognitoSearch, pulling: pull != nil)
+        backdrop.style = emptyHome.backdrop
+        // With the dots the bar has no slab: its buttons float on them.
+        bar.overBackdrop = emptyHome.barFloats
+        searchHint.place(centerX: bounds.midX, pillTop: frames.pill.minY + barFrame.minY - frames.bar.minY)
         // Pulled out of the pill (#623), the sheet's top follows the finger and its field grows
         // from the pill on the way up.
-        let pull = isSearching ? nil : searchPull
         let pulled = pull.map { MobileSwipe.searchPullProgress(dragUp: $0) }
         bar.controlsVisibility = isSearching ? 0 : 1 - (pulled ?? 0)
         barReveal.frame = MobileBottomBar.revealStrip(in: bounds.size, safeBottom: safeBottom)
@@ -292,7 +319,9 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         sheet.collapsedFieldFrame = bar.pillFrame
         sheet.openness = isSearching ? pulledSheetHold?.openness ?? 1 : pulled ?? 0
         dismissArea.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, top))
-        logo.alpha = isSearching || store.selected != nil || switcher != nil ? 0 : 1
+        logo.alpha = emptyHome.showsLogo ? 1 : 0
+        dotField.alpha = emptyHome.showsDots ? 1 : 0
+        searchHint.alpha = emptyHome.showsSearchHint ? 1 : 0
         layoutBrowseToggle(barTop: barFrame.minY)
         updatePageInsets()
     }
@@ -366,16 +395,18 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     }
 
     /// Puts the sheet away. With no page behind it that leaves the empty home screen: the
-    /// backdrop, the logo and the bar.
+    /// backdrop, the logo (over the dots and "Tap to search" with Rippling Dots on) and the bar.
     @objc func dismissSearch() {
         setSearching(false)
     }
 
-    func setSearching(_ searching: Bool, incognito: Bool? = nil) {
+    /// `keepingPull`: closing, the sheet stays this far above the bar under the finger (a drag down on it, #655)
+    /// instead of going into the pill; the drag moves it on from there.
+    func setSearching(_ searching: Bool, incognito: Bool? = nil, keepingPull: CGFloat? = nil) {
         guard searching != isSearching else { return }
         // A sheet pulled out of the pill is already laid out under the finger: it goes on from there.
         let pulled = searchPull != nil
-        searchPull = nil
+        searchPull = searching ? nil : keepingPull
         pulledSheetHold = searching && pulled ? (sheet.frame.minY, sheet.openness) : nil
         if searching, !pulled {
             prepareSearchSheet(incognito: incognito)
@@ -805,7 +836,7 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
             showSpaces()
         case .changeIcon:
             let picker = UINavigationController(rootViewController: UIHostingController(rootView: AppIconPicker()))
-            picker.sheetPresentationController?.detents = [.medium(), .large()]
+            picker.sheetPresentationController?.detents = appSettingsDetents()
             topPresenter.present(picker, animated: true)
         }
     }
@@ -882,6 +913,7 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     func presentSettings(site host: String?, startingAtSite: Bool) {
         let model = SettingsModel(store: settings, host: host, canSummarize: BrowseForMe.isOffered)
         model.done = { [weak self] in self?.dismiss(animated: true) }
+        model.changed = { [weak self] in self?.view.setNeedsLayout() }
         model.showArchive = { [weak self] in self?.showArchive() }
         model.showOnboarding = { [weak self] in self?.showOnboarding() }
         model.showIconDock = { [weak self] in
@@ -933,11 +965,15 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
             sheet.sheetPresentationController?.detents = [.custom { _ in 465 }, .large()]
         } else {
             sheet = UIHostingController(rootView: AppSettingsView(model: model))
-            sheet.sheetPresentationController?.detents = MobileSettingsSheet.appSettingsHeights(onPad: traitCollection.userInterfaceIdiom == .pad).map { ($0 == .medium ? UISheetPresentationController.Detent.medium : UISheetPresentationController.Detent.large)() }
+            sheet.sheetPresentationController?.detents = appSettingsDetents()
         }
         sheet.sheetPresentationController?.prefersGrabberVisible = true
         sheet.view.backgroundColor = .clear
         topPresenter.present(sheet, animated: true)
+    }
+
+    private func appSettingsDetents() -> [UISheetPresentationController.Detent] {
+        MobileSettingsSheet.appSettingsHeights(onPad: traitCollection.userInterfaceIdiom == .pad).map { ($0 == .medium ? UISheetPresentationController.Detent.medium : UISheetPresentationController.Detent.large)() }
     }
 
     // MARK: Handoff

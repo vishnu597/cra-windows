@@ -49,6 +49,7 @@ Launch arguments put the app in a state for a screenshot or a test:
 | `-CraOpenURL <address>` | Starts with that page in a tab |
 | `-CraType <text>` | Starts with that typed in the search field |
 | `-CraSearch NO` | Launches without the search sheet |
+| `-CraShortcut <type>` | Starts as the home-screen quick action of that type would (`change-icon`, `voice-search`, `search`) |
 | `-CraFakeModel YES` | Canned answers in place of the on-device model |
 | `-CraSummarize YES` | Summarizes the first page once it has loaded |
 | `-CraSyncDir <folder>` or `demo` | The folder the Mac's sidebar syncs into, or a made-up sidebar |
@@ -102,6 +103,15 @@ Xcode ▸ Settings ▸ Accounts, or with an App Store Connect API key given as `
 the repo). The app record for `dk.kildahl.cra` has to exist in App Store Connect before the
 first upload. Builds are for iPhone and iPad (`TARGETED_DEVICE_FAMILY = 1,2`); `CRA_IOS_SIM="Cra iPad" scripts/ios.sh test …` runs the UI tests on an iPad simulator.
 Create other iPads (13-inch, mini) by hand with `xcrun simctl create "<name>" <type id>`; names must not contain parentheses.
+
+## App Store
+
+Cra for iPhone is on the App Store (app 6834101298, "Cra Browser"): 0.1.0 (build 1265) was
+released on 23 November 2026. Every upload goes to TestFlight first; an App Store version takes
+one of those builds. Once a version is released, Apple takes no more builds with its number, so
+the next submission starts by raising `MARKETING_VERSION` in `iOS/Cra.xcodeproj` (all eight
+build settings, the app and its extensions alike) before archiving. App Store versions keep the
+listing, screenshots and age rating of the last one; only the release notes are new.
 
 ## Share extension
 

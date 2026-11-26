@@ -14,6 +14,19 @@ struct SidebarSurfaceTests {
         #expect(bytes(SidebarSurface.ink("#F8D558")) == [33, 28, 9])
     }
 
+    /// Settings ▸ Tabs ▸ "Translucent sidebar" (upstream cc6d026f, Ideas #366): every theme, an opaque
+    /// preset too, is its raw colours thin over the glass, at SidebarGlass's opacity.
+    @Test
+    func translucentSidebarMakesEveryThemeThinGlass() {
+        let ink = SpaceTheme.presets[0]
+        let c = SidebarSurface(resolved: ink, lightMaterial: false, glass: true)
+        #expect(c.overMaterial)
+        #expect(c.alphaTop == SidebarGlass.alpha(intensity: ink.intensity) && c.alphaBottom == c.alphaTop)
+        let first = HexColor.components("#1C242B")!
+        #expect(abs(c.stops[0].r - first.r) < 1e-9, "no pull toward black under the glass")
+        #expect(SidebarSurface(resolved: ink, lightMaterial: false) == SidebarSurface(resolved: ink, lightMaterial: false, glass: false))
+    }
+
     @Test
     func anOpaqueThemeIsItsColoursPulledByIntensity() {
         let ink = SpaceTheme.presets[0]  // #1C242B / #3A3660 at 0.85, dark

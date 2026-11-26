@@ -943,6 +943,22 @@ to Chromium's `RenderWidgetHostViewCocoa` (the view AppKit gives real key presse
 once activation is reported. (Until 26 Oct test videos had to be VP9/Opus WebM: Spotify's CEF build
 has no H.264/AAC. Cra now ships its own CEF build with them; see docs/release.md.)
 
+Document Picture in Picture let go past the edge (Arc 1.173, live, 23 Nov 2026, GitHub #702). Victor's Arc,
+a file:// page that calls `documentPictureInPicture.requestWindow({width: 400, height: 240})` on a key
+press (posted to Arc's pid), dragged with real HID events by the window's top bar, frames read from
+CGWindowList (top-left coordinates, 1728 × 1117 display, menu bar 33 pt). Arc opened the page in Little Arc.
+- [O] The window has Arc's own top bar (Back to Tab, the address, a chat glyph, Close), layer 3.
+- [O] Let go half past the left edge at y = 186: 1.75 s later at x = 10, y = 186. Half below the bottom:
+  its bottom at 1107 (10 pt up), x kept. Half past the right edge: x = 1318 (its right edge at 1718), y
+  kept. So it slides back the shortest way, 10 pt in from the edge it crossed, at its own size; unlike
+  a video's PiP it doesn't go into a corner.
+- [O] Reopened, it came back where it was last left (10, 186): `LastDocumentPIPPosition`. Not built.
+- [O] Victor's Rectangle snaps Cra's Document PiP to half the screen when the pointer reaches the
+  screen's edge in a drag; it left Arc's alone in the same drag. Not looked into.
+- Cra: `DocumentPictureInPictureDrag` (CraCore) decides; `DocumentPictureInPictureSpring` watches the window
+  move with the button held and, once it's up, slides it on the video PiP's spring. Real drags on
+  Cra land on the same numbers (10 / 1107 / 1318).
+
 ### Hover, toolbar colour, library glyph (24 Oct, late evening)
 
 - Row hover (pointer moved onto "Google Search Console", screen capture, same backdrop):
@@ -2341,6 +2357,15 @@ Arc's popup this time, so geometry is not measured.
   208×33 rows on a 43 pt pitch (32 pt circle #F0F1FE when on, #6A6A6F when off; title 14 pt semibold #DBDBDB,
   subtitle 13 pt #979798): Developer Mode On/Off, Block Ads & Trackers On/Off, Automatic Picture-In-Picture Allowed;
   a divider; footer: "Secure" pill 82×32 (#363536) and a 32 pt "More" circle (#403F40). Background #272728 (dark theme).
+- [O] ⌘E is "Open pinned extensions picker." (`openExtensionsPicker`; Arc 1.172, 23 Nov 2026, held ⌘ with HID taps
+  recorded): ⌘E opens the Site Control Center with the first extension tile ringed; each E after it, ⌘ still held,
+  rings the next tile in grid order (pinned, then the rest: the 3rd tap ringed an unpinned one); letting go of ⌘
+  closes the popover and opens the ringed extension's popup (one press and let go: the first pinned extension's).
+  Ring: 2 pt in the accent colour (#FAEEC2 in a cream theme, the pin badge's), centred on the tile's edge; the tile's
+  fill is unchanged. Past the last tile: no ring was visible, and a later tap opened an extension popup while ⌘ was
+  still held; not pinned down (Cra goes round to the first). Release notes: 2022 "Hold CMD and tap E to cycle through
+  your extensions", 2023 "Hold CMD and hit E to toggle through and open pinned extensions". Cra: `ExtensionPicker`
+  (CraCore), GitHub #709.
 - [O] Pinning: each tile carries a 14 pt `pin.fill` badge at (+37, +21) from its top-left. Pinned tiles always show
   it (#F0F1FE, AX "Unpin"); an unpinned tile shows it on hover only (#7F7E85, AX "Pin"). The badge glyph is the
   popover's background colour.
@@ -3106,6 +3131,15 @@ canvas, an unstyled page (no background, no color-scheme) showed black text on b
 (4 s with a slow image). The page now reports its background on every frame while it is parsed
 (kLoadingBackgroundProbe; frames wait for render-blocking stylesheets), so it turns white with its first paint.
 
+On Chrome's engine (23 Nov 2026, X report on the Arc-vs-Cra video: a Peek of GitHub flashed white for ~150 ms)
+the page's own view covers that fill: until its renderer's first frame, Chromium's compositor draws the view's
+colour, white by default (BrowserCompositorMac), and Chrome's ContentsWebView set its theme's #3C3C3C only on the
+page active in Cra's never-shown Chrome window. The bridge now gives every page's main-frame view the canvas
+(`applyPageCanvasTo:`, at each new view and on View ▸ Appearance), and cra-hosted-pages.patch keeps
+ContentsWebView off Cra's pages. Sampled on screen at 60 fps (`cra://debug?pageColours=`, scenario
+page-pre-frame-canvas, dark-late-paint.html): a Peek went 000000 → 4D4D4D for the 1.5 s hold → page; now
+000000 → page, as in Arc. An unstyled page still paints white once it draws.
+
 ### The toolbar on a tab switch (Arc 1.171, 2 Nov 2026, issue #84, app-only recordings at 100 fps)
 
 New tabs (⌘T + a file:// URL) in a fresh main window, macOS Dark, test pages with a 1 s busy-wait in `<head>`;
@@ -3180,9 +3214,19 @@ Cra's runs switch tabs with `cra://debug?selectTab=` in a CRA_TEST_BACKGROUND co
   rows keep "Switch to Tab" and its arrow.
 - Cra (#663): CraCore `SidebarAddressPanel` holds the numbers; `CommandBarController.compact` lays the bar out
   that way and MainWindowController hangs it from `SidebarView.addressFrameOnScreen`. #344's "Edit the address
-  in the sidebar" still edits in place, and ⌘L opens Cra's centred bar as Arc's does on an ordinary site. Not
-  built: ⌘L on a local page editing the developer bar in place with suggestions under it (Cra's developer bar edits
-  in place on a click, without suggestions, #42; ⌘L there opens the centred bar).
+  in the sidebar" still edits in place, and ⌘L opens Cra's centred bar as Arc's does on an ordinary site.
+- [O live] Arc's ⌘L over the developer bar (Arc 1.174.1, 22 Nov 2026, 127.0.0.1, 2x full-screen captures): one panel
+  covers the bar and drops across the page card, exactly the card's width (x 228–1718 in a 1728 pt window), its top on
+  the bar's (y 43.5) with a 1 px dark outline and a light rim inside it. The field row is the bar's 40 pt: the bar's
+  glyph where the bar draws it, the address selected in the bar's monospaced font; a 0.5 pt hairline the panel's whole
+  width under it; then the full bar's rows (titles with their addresses), the first highlight 6 pt under the hairline,
+  46 pt tall, inset 10, on a 50 pt pitch, and 11.5 pt under the last row: 303.5 pt for five rows. No ⓘ at the field's
+  end. A long soft shadow over the page below (≈169/255 on white just under it, back to ≈218 50 pt down).
+- Cra (#663 follow-up, Victor 22 Nov 2026): ⌘L on a page that shows the developer bar opens that panel
+  (CraCore `DeveloperBarPanel`; CommandBarController.developer lays CommandBarView out over the bar, the bar's glyph
+  and monospaced 12 pt address where `PaneToolbarView.developerBarOnScreen` reports them). A click on the bar's
+  address still edits it in place without suggestions (#42); Arc's click wasn't measured. Pinned by
+  `DeveloperBarPanelTests` and the `developer-bar-command-l` scenario.
   Pinned by `SidebarAddressPanelTests` and the `sidebar-address-panel` scenario. Not measured: whether Arc's
   panel grows while typing (Cra keeps the width it opened with).
 
@@ -5392,3 +5436,27 @@ ignore a press with no hover before it), read off full-screen 2x captures with t
   keeps its rounded outline. Not matched: the text shrinking when narrowed by a corner, and the 283 pt first wrap
   (Cra's box grows to 560 pt, #580). Pinned by `EaselResizeTests` (#680) and `resizeLikeArc` in
   scripts/test-easel-canvas.sh.
+
+## Double click on the toolbar (Arc 1.174.1, 22 Nov 2026, issue #685, offline Arc)
+- [O live] Toolbar shown, an ordinary site (site.lvh.me), the window set to 1200 × 800 over AX: a real double click
+  (cliclick) on the toolbar's empty part, between the reload button and the address, zoomed the window to the
+  screen's visible frame (1728 × 1084); a second double click there put it back at 1200 × 800. That is macOS's
+  "Double-click a window's title bar to" (Zoom here, the setting unset). A first try right after bringing Arc
+  forward did nothing; every later one zoomed.
+- Cra (#685): the toolbar's empty part runs CraWindow.performTitleDoubleClickAction on the second click of a
+  double click that stayed a click (CraCore `TitleBarDoubleClick`, which also reads the setting), as the sidebar's
+  top and the strip above the card already did. Pinned by `TitleBarDoubleClickTests` and the
+  `toolbar-double-click-zoom` scenario.
+
+
+## The app icon on the app (Arc 1.174.1, Victor's Arc, 22 Nov 2026)
+- [O] With an icon picked (`currentAppIconName = "arc.schoolbook"` in company.thebrowser.Browser's defaults),
+  /Applications/Arc.app carries Finder's custom icon: an empty `Icon\r` file at the bundle's root with the icon in
+  its resource fork, and the custom icon flag in the bundle's com.apple.FinderInfo. The file was written that
+  day, so Arc puts it back after updates replace the bundle. The main binary has
+  `ARCClients/Sources/AppIconClient/UI_macOS/AppIconApplier.swift` and calls `setIcon:forFile:`, with
+  `AppIconDockTile` for the Dock after Arc quits.
+- Cra: deliberately not. 0.1.54 and 0.1.55 did the same as Arc, but the attribute breaks the app's signature
+  (`codesign --strict` refuses com.apple.FinderInfo on the bundle; lsd kept registering it launch-disabled, GitHub
+  #724). AppIconManager never puts the icon on Cra.app and takes off one an earlier Cra left (AppIconBundle);
+  the Dock tile shows the pick. Scenario app-icon-signature.

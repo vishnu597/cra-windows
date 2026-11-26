@@ -198,7 +198,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     /// The click catcher's frame (screen coordinates), for cra://debug?peekCatcher.
     var dimFrame: NSRect? { dim?.frame }
     private var controls: PeekControlsPanel?
-    /// The Peek is on its way out (closePeekAnimated).
+    /// The Peek is on its way out (closePeekAnimated), or gone (endPeek).
     private(set) var closingPeek = false { didSet { if closingPeek != oldValue { peekParent?.syncPeekAddress() } } }
     /// The Peek is shrinking into place; a page window attaching now waits for the end.
     private var openingPeek = false
@@ -1200,7 +1200,10 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         }
         if let window, let p = window.parent { p.removeChildWindow(window) }
         peekParent?.endPeekVeil(for: peekID)
-        peekParent?.syncPeekAddress()
+        // On its way out however it goes: Expand, Add to Split, the page's window.close() end it here, in
+        // windowWillClose, with its window still visible. Unmarked, it stayed the Peek in front, and the
+        // sidebar's address field kept its page for every tab after (#706). The flag syncs the field.
+        if closingPeek { peekParent?.syncPeekAddress() } else { closingPeek = true }
         if !promoted, let pw = peekParent?.window, NSApp.isActive { pw.makeKeyAndOrderFront(nil) }
     }
 
@@ -1967,6 +1970,11 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
                                            littleWindowsLeft: next != nil),
               let other = NSRunningApplication(processIdentifier: pid), !other.isTerminated else { return }
         CraLog.note("Little Window closed: the app it was opened over comes forward (#430)")
+        // Cra is still the active app for a moment, or about to become it (the close button clicked while that app
+        // was in front): with this window gone, AppKit gave the keyboard to the browser window then, which came
+        // forward on its display over the app in use there (#659). The hold has it until Cra lets go of the front.
+        KeyboardHoldPanel.take(at: window.frame)
+        NSApp.yieldActivation(to: other)
         other.activate(from: .current, options: [])
     }
 

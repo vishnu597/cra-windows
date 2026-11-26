@@ -16,11 +16,13 @@ final class CommandTextField {
         field = Self.makeField(controller: controller, coordinator: coordinator)
     }
 
-    /// Arc's address panel (#663) types in 13 pt, the full bar in 18.
-    func setCompact(_ compact: Bool) {
-        let size: CGFloat = compact ? CGFloat(SidebarAddressPanel.fontSize) : 18
-        guard field.font?.pointSize != size else { return }
-        field.font = .systemFont(ofSize: size, weight: .medium)
+    /// Arc's address panel (#663) types in 13 pt, the full bar in 18; the developer bar's panel in the bar's own
+    /// monospaced 12 pt (#663 follow-up).
+    func setCompact(_ compact: Bool, developer: Bool = false) {
+        let size: CGFloat = developer ? 12 : compact ? CGFloat(SidebarAddressPanel.fontSize) : 18
+        let font: NSFont = developer ? .monospacedSystemFont(ofSize: size, weight: .regular) : .systemFont(ofSize: size, weight: .medium)
+        guard field.font != font else { return }
+        field.font = font
         field.placeholderAttributedString = Self.placeholder(controller.placeholder, size: size)
     }
 
@@ -76,7 +78,7 @@ final class CommandTextField {
             DispatchQueue.main.async {
                 field.window?.makeFirstResponder(field)
                 guard let editor = field.currentEditor() else { return }
-                if selected { editor.selectAll(nil) } else { editor.selectedRange = NSRange(location: (field.stringValue as NSString).length, length: 0) }
+                if selected { editor.selectAllShowingStart() } else { editor.selectedRange = NSRange(location: (field.stringValue as NSString).length, length: 0) }
             }
         }
         if coord.appliedPreview != controller.previewVersion {

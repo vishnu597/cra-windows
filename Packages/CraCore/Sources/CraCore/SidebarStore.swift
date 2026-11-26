@@ -825,7 +825,7 @@ public final class SidebarStore {
             if !isPinned(id) || t.savedURL.isEmpty || t.savedURL == "about:blank" { t.savedURL = url }
             t.faviconKey = FaviconKey.key(after: t.faviconKey, goingTo: url)
         }
-        if let liveURL = t.liveItemURL, t.url.hasPrefix(liveURL) {
+        if let liveURL = t.liveItemURL, LiveItemPage.shows(t.url, item: liveURL) {
             if let parentID = it.parentID,
                let item = items[parentID]?.liveFolder?.plugin?.snapshot?.items.first(where: { $0.url == liveURL }) {
                 t.savedTitle = item.title
@@ -2071,7 +2071,7 @@ public final class SidebarStore {
 
     private func invalidateLiveFolder(_ id: UUID) {
         liveFolderVersions[id] = UUID()
-        for tab in tabs(under: id) where tab.tab.map({ $0.liveItemURL == nil || $0.url != $0.liveItemURL }) == true {
+        for tab in tabs(under: id) where tab.tab.map({ t in t.liveItemURL.map { !LiveItemPage.shows(t.url, item: $0) } ?? true }) == true {
             if let sid = spaceID(ofItem: id), let today = spaces[sid]?.todayContainerID { moveItem(tab.id, to: today, index: nil) }
         }
         for child in items[id]?.children ?? [] { removeLiveTree(child) }
@@ -2208,8 +2208,7 @@ public final class SidebarStore {
             let preservesGroup = t.liveItemURL.flatMap { groups[$0] }.map { preserved.contains($0.lowercased()) } ?? false
             let hiddenGroup = t.liveItemURL.flatMap { groups[$0] }.map { live.filter.isRepositoryHidden($0) } ?? false
             if hiddenGroup || (filtersChanged && !preservesGroup) {
-                let url = t.liveItemURL
-                if t.url == url {
+                if let url = t.liveItemURL, LiveItemPage.shows(t.url, item: url) {
                     removeLiveTree(id)
                     for window in prefs.windows where window.selectedTabPerSpace.values.contains(id) {
                         updateWindow(window.id) { $0.selectedTabPerSpace = $0.selectedTabPerSpace.filter { $0.value != id } }
@@ -2258,7 +2257,7 @@ public final class SidebarStore {
         var changed = false
         for folder in liveFolders {
             for c in tabs(under: folder.id) where !open.contains(c.id) {
-                guard let tab = c.tab, tab.url == tab.liveItemURL,
+                guard let tab = c.tab, let item = tab.liveItemURL, LiveItemPage.shows(tab.url, item: item),
                       let goneAt = tab.liveGoneAt, clock.now.timeIntervalSince(goneAt) >= age else { continue }
                 detach(c.id)
                 items[c.id] = nil
@@ -2738,16 +2737,14 @@ public final class SidebarStore {
         return TodayClear.archived(rows, selected: selected, playing: playing)
     }
 
-    /// Today tabs idle longer than the threshold are archived (Arc:
-    /// ArchiveState+AutoArchive, autoArchiveTimeThreshold).
+    /// Today tabs idle longer than their space's profile's timer are archived (Arc:
+    /// ArchiveState+AutoArchive, autoArchiveTimeThreshold; per profile, #693).
     public func runAutoArchive() {
-        guard settings.autoArchiveEnabled else { return }
-        let cutoff = clock.now.addingTimeInterval(-settings.autoArchive.seconds)
         for space in orderedSpaces {
             let selected = Set(prefs.windows.compactMap { $0.selectedTabPerSpace[space.id] })
-            archiveTabs(tabs(under: space.todayContainerID).filter { t in
-                !selected.contains(t.id) && (t.tab?.timeLastActiveAt ?? t.createdAt) < cutoff
-            }.map(\.id), reason: .auto)
+            let today = tabs(under: space.todayContainerID).map { AutoArchive.Tab(id: $0.id, lastActive: $0.tab?.timeLastActiveAt ?? $0.createdAt) }
+            archiveTabs(AutoArchive.due(today, selected: selected, choice: settings.autoArchive(profileID: space.profileID), now: clock.now),
+                        reason: .auto)
         }
     }
 

@@ -730,9 +730,14 @@ public struct AppSettings: Codable, Equatable {
     /// Arc's searchSuggestEnabled: the command bar asks the search engine for suggestions
     /// as you type and fills its rows with them.
     public var searchSuggestions: Bool = true
-    /// GitHub #307, not in Arc: ⌘T searches and lists only the open tabs of the window's space
-    /// (`TabSearchScope.commandBarTabs`). Off is Arc's bar, which finds a tab in any space.
-    public var commandBarCurrentSpaceOnly: Bool = false
+    /// ⌘T searches and lists only the open tabs of the window's space (`TabSearchScope.commandBarTabs`),
+    /// as Arc's bar does: checked live in Arc 1.174 (23 Nov 2026, #716), a pinned tab of another space on
+    /// the same profile never came up as Switch to Tab, only as a history row. Off (#307's switch) finds a
+    /// tab in any space. Cra 0.1.38–0.1.54 had it off by default.
+    public var commandBarCurrentSpaceOnly: Bool = true
+    /// settings.json from before #716 had the switch off for everyone, by the old default: without this
+    /// mark it is turned on once, to Arc's behaviour.
+    public var commandBarScopeMigrated: Bool = true
     /// GitHub #601, not in Arc: ⇧⌘T reopens the tab closed last in the window's space and stays
     /// there (`ReopenClosedTab.next(isInCurrentSpace:)`). Off is Arc's, which switches to the space
     /// the tab closed last was in.
@@ -753,6 +758,15 @@ public struct AppSettings: Codable, Equatable {
     /// GitHub #24, not in Arc: the page fills the window with no margin and no rounded
     /// card, like a traditional browser. Off by default.
     public var edgeToEdgeContent: Bool = false
+    /// Ideas #582, not in Arc: edge to edge, the pages keep their rounded corners (CardFill.cornerRadius),
+    /// still with no margin or shadow. Only means something while `edgeToEdgeContent` is on.
+    public var edgeToEdgeRoundedCorners: Bool = false
+    /// Ideas #366, not in Arc: the room round the page card in a window, 1 to 10 pt (PageMargin). Arc's 10 by
+    /// default; edge to edge (`edgeToEdgeContent`) is its zero and wins while on.
+    public var pageMargin: Double = PageMargin.arc
+    /// Ideas #366, not in Arc: the sidebar and the window's ground are a thin glass over what is behind
+    /// the window, and the floating sidebar over the page it covers (SidebarGlass). Off by default.
+    public var translucentSidebar: Bool = false
     /// GitHub #464, not in Arc: the sidebar docks on the window's right (SidebarSide). Left is Arc's.
     public var sidebarSide: SidebarSide = .left
     /// GitHub #91, Settings ▸ Performance: Cra records its own performance on this Mac (stalls,
@@ -787,6 +801,11 @@ public struct AppSettings: Codable, Equatable {
     /// Arc's per-profile "New documents" (#375), by NewDocumentApp.key(profileID:): the app the
     /// command bar's "New …" command opens. A profile that isn't here has none (Arc's "——").
     public var newDocumentApps: [String: NewDocumentApp] = [:]
+    /// Arc's per-profile "Archive tabs after" (#693), by DownloadLocation.key(profileID:): "never" or an
+    /// AutoArchiveThreshold's name. Default's stays `autoArchive`/`autoArchiveEnabled`; a profile that isn't
+    /// here archives as Default does (`autoArchive(profileID:)`). Strings, so a name from a newer Cra
+    /// can't fail the file.
+    public var profileAutoArchive: [String: String] = [:]
     /// Settings ▸ Privacy ▸ "Share anonymous usage stats" and onboarding's Privacy step (Dia's
     /// "Help improve Dia" row): a daily UsageStats report. Off unless the user turns it on.
     public var shareUsageStats: Bool = false
@@ -1058,13 +1077,18 @@ extension AppSettings {
         calendarTimeToNextMeeting = try c.decodeIfPresent(Bool.self, forKey: .calendarTimeToNextMeeting) ?? true
         calendarMeetingLink = (try? c.decodeIfPresent(CalendarPreview.LinkTiming.self, forKey: .calendarMeetingLink)) ?? .twoMinutes
         searchSuggestions = try c.decodeIfPresent(Bool.self, forKey: .searchSuggestions) ?? true
-        commandBarCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .commandBarCurrentSpaceOnly) ?? false
+        if try c.decodeIfPresent(Bool.self, forKey: .commandBarScopeMigrated) == true {
+            commandBarCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .commandBarCurrentSpaceOnly) ?? true
+        }
         reopenClosedTabCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .reopenClosedTabCurrentSpaceOnly) ?? false
         commandBarSiteColor = try c.decodeIfPresent(Bool.self, forKey: .commandBarSiteColor) ?? false
         editAddressInPlace = try c.decodeIfPresent(Bool.self, forKey: .editAddressInPlace) ?? false
         showSpaceHeaderOnSingleSpace = try c.decodeIfPresent(Bool.self, forKey: .showSpaceHeaderOnSingleSpace) ?? true
         sharedFavorites = try c.decodeIfPresent(Bool.self, forKey: .sharedFavorites) ?? false
         edgeToEdgeContent = try c.decodeIfPresent(Bool.self, forKey: .edgeToEdgeContent) ?? false
+        edgeToEdgeRoundedCorners = try c.decodeIfPresent(Bool.self, forKey: .edgeToEdgeRoundedCorners) ?? false
+        pageMargin = (try? c.decodeIfPresent(Double.self, forKey: .pageMargin)) ?? PageMargin.arc
+        translucentSidebar = try c.decodeIfPresent(Bool.self, forKey: .translucentSidebar) ?? false
         sidebarSide = (try? c.decodeIfPresent(SidebarSide.self, forKey: .sidebarSide)) ?? .left
         perfRecording = try c.decodeIfPresent(Bool.self, forKey: .perfRecording) ?? Self.perfRecordingDefault
         perfHidesSiteNames = try c.decodeIfPresent(Bool.self, forKey: .perfHidesSiteNames) ?? false
@@ -1076,6 +1100,7 @@ extension AppSettings {
         instantLinks = try c.decodeIfPresent(Bool.self, forKey: .instantLinks) ?? false
         downloadLocations = (try? c.decodeIfPresent([String: DownloadLocation].self, forKey: .downloadLocations)) ?? [:]
         newDocumentApps = NewDocumentApp.decodeMap(try? c.decodeIfPresent([String: String].self, forKey: .newDocumentApps))
+        profileAutoArchive = (try? c.decodeIfPresent([String: String].self, forKey: .profileAutoArchive)) ?? [:]
         shareUsageStats = try c.decodeIfPresent(Bool.self, forKey: .shareUsageStats) ?? false
         crashReports = (try? c.decodeIfPresent(CrashReportChoice.self, forKey: .crashReports)) ?? .ask
         askedToShare = try c.decodeIfPresent(Bool.self, forKey: .askedToShare) ?? false

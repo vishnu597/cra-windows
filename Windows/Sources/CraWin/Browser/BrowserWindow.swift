@@ -1272,8 +1272,8 @@ final class BrowserWindow {
         case "recentTabAllSpacesBackward": cycleRecentTabs(-1, allSpaces: true)
         case "nextTab": cycleTab(1)
         case "previousTab": cycleTab(-1)
-        case "nextSpace": store.focusSpace(offset: 1, window: windowID)
-        case "previousSpace": store.focusSpace(offset: -1, window: windowID)
+        case "nextSpace": stepSpace(1)
+        case "previousSpace": stepSpace(-1)
         case "copyURL": copyURL(markdown: false)
         case "copyURLMarkdown": copyURL(markdown: true)
         case "copyURLQuote": copyURLAsQuote()
@@ -1557,6 +1557,23 @@ final class BrowserWindow {
         let tabs = store.visibleTabs(in: store.focusedSpaceID(window: windowID))
         guard !tabs.isEmpty else { return }
         store.selectTab((n == 9 ? tabs.last : tabs[min(n, tabs.count) - 1])?.id, window: windowID)
+    }
+
+    /// Spaces ▸ Next and Previous Space (Ctrl+Alt+Right and Left): the first space's previous page is the
+    /// Library and Next Space takes it back out, as a swipe does; elsewhere they wrap, and they wrap past
+    /// the Library where it can't come in (a hidden sidebar that isn't out). The Mac's stepSidebarPage
+    /// with `menu` (WheelSpaceSwitch.menuTarget, #707).
+    private func stepSpace(_ step: Int) {
+        let order = store.spaceOrder
+        let index = order.firstIndex(of: store.focusedSpaceID(window: windowID)) ?? 0
+        let libraryAllowed = sidebarDocked || floatingSidebar.isOut
+        switch WheelSpaceSwitch.menuTarget(step: step, index: index, count: order.count,
+                                           inLibrary: libraryPage != nil, libraryAllowed: libraryAllowed) {
+        case .space(let i)?: store.focusSpace(order[i], window: windowID)
+        case .openLibrary?: showLibrary(lastLibraryPage)
+        case .closeLibrary?: closeLibrary()
+        case nil: break
+        }
     }
 
     // MARK: Library

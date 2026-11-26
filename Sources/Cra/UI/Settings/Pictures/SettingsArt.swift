@@ -85,6 +85,12 @@ struct ArtWindow<Page: View>: View {
     var selected: Int? = 1
     var toolbar = false
     var edgeToEdge = false
+    /// Edge to edge, the page keeps its rounded corners (#582).
+    var roundedPage = false
+    /// The room round the page in the picture's points, in place of the usual 2 (Margin, #366).
+    var margin: CGFloat? = nil
+    /// The sidebar and the window's ground a dark glass over what is behind the window (#366).
+    var glass = false
     /// The sidebar, and the traffic lights in its top row, on the window's right (#464).
     var sidebarOnRight = false
     @ViewBuilder var page: Page
@@ -93,12 +99,17 @@ struct ArtWindow<Page: View>: View {
 
     var body: some View {
         let right = sidebar && sidebarOnRight
-        let inset: CGFloat = edgeToEdge ? 0 : 2
-        let x: CGFloat = right ? inset : sidebar ? sidebarWidth : (edgeToEdge ? 0 : 2)
+        let inset: CGFloat = edgeToEdge ? 0 : margin ?? 2
+        let x: CGFloat = right ? inset : sidebar ? sidebarWidth : inset
         // Where the sidebar's column starts.
         let column: CGFloat = right ? width - sidebarWidth : 0
         ZStack(alignment: .topLeading) {
-            tint.theme
+            if glass {
+                Color.black.opacity(0.5)
+                tint.theme.opacity(0.3)
+            } else {
+                tint.theme
+            }
             ArtLights().at(column + 3, 3.5)
             if sidebar {
                 ForEach(0..<rows, id: \.self) { i in
@@ -119,7 +130,7 @@ struct ArtWindow<Page: View>: View {
                 }
             }
             .frame(width: right ? width - sidebarWidth - inset : width - x - inset, height: height - 2 * inset, alignment: .topLeading)
-            .clipShape(RoundedRectangle(cornerRadius: edgeToEdge ? 0 : 2.5, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: edgeToEdge ? (roundedPage ? 4 : 0) : 2.5, style: .continuous))
             .at(x, inset)
         }
         .frame(width: width, height: height, alignment: .topLeading)

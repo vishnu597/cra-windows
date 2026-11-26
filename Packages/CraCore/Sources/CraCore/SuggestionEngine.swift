@@ -354,6 +354,13 @@ public final class SuggestionEngine {
         return i
     }
 
+    /// The window's space changed under the open bar (#721): the index holds the old space's tabs when the
+    /// bar searches only the window's space, so the next listing reads them again.
+    public func spaceChanged() {
+        index = nil
+        indexGeneration &+= 1
+    }
+
     /// The command bar opened or closed: what it searches may have changed since.
     public func resetIndex() {
         index = nil

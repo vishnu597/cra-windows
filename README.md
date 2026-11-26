@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/VictorKildahl/cra/releases/latest/download/Cra.dmg"><b>Download for macOS</b></a> ·
   <a href="https://github.com/VictorKildahl/cra/releases/latest/download/Cra-Intel.dmg">Intel Mac</a> ·
-  <a href="https://crabrowser.app/iphone">iPhone beta</a> ·
+  <a href="https://apps.apple.com/app/id6834101298">iPhone (App Store)</a> ·
   <a href="https://crabrowser.app">crabrowser.app</a> ·
   <a href="https://crabrowser.app/release-notes">What's new</a> ·
   <a href="https://crabrowser.app/help">Help</a>
@@ -33,8 +33,8 @@ that remember where they started, favorites, a command bar that searches everyth
 Today tabs that archive themselves, split view, Little Windows and Arc's keyboard
 shortcuts. Import your Arc sidebar in one go and carry on where you left off.
 
-The app is Swift (AppKit and SwiftUI) and the engine is Chromium, through the Chromium
-Embedded Framework, so sites and Chrome extensions work as they do in Chrome.
+The app is Swift (AppKit and SwiftUI) and the engine is Chrome's own framework, with Cra's
+layer built in, so sites and Chrome extensions work as they do in Chrome.
 
 ## Install
 
@@ -157,9 +157,11 @@ everyone.
 
 ### iPhone
 
-Cra for iPhone, the open-source take on Arc Search, is in public beta on TestFlight: join at
-[crabrowser.app/iphone](https://crabrowser.app/iphone). It needs iOS 17; Browse for Me and
-Summarize run on the iPhone's own Apple Intelligence. Its code is in [`iOS/`](iOS) and its
+Cra for iPhone, the open-source take on Arc Search, is free on the
+[App Store](https://apps.apple.com/app/id6834101298) for iPhone and iPad
+([crabrowser.app/iphone](https://crabrowser.app/iphone)). New builds reach the
+[TestFlight beta](https://testflight.apple.com/join/e7SdnNEr) first. It needs iOS 17; Browse for Me
+and Summarize run on the iPhone's own Apple Intelligence. Its code is in [`iOS/`](iOS) and its
 status in [docs/ios-parity.md](docs/ios-parity.md).
 
 ## Build from source

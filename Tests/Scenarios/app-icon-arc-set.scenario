@@ -1,0 +1,36 @@
+# Arc's icon set, redrawn around Cra's C by Provok (mat-up/cra-icons): each of the nine is in the Icon tab's
+# list and its picture ships in the app, so the Dock is given it ("given=<id>" needs the bundled PNG; an id the
+# list doesn't know is ignored). The pick never goes on Cra.app itself (#724). appIcon= picks without remembering,
+# so the run never writes the defaults the installed Cra reads.
+home
+seed settings.json {"hasSeenImportPrompt": true, "toolbarDefaultMigrated": true}
+cra://debug?appIcon=original
+cra://debug?dockTile=original
+expect-log dock tile original: .* given=original$
+cra://debug?appIcon=candy
+cra://debug?dockTile=candy
+expect-log dock tile candy: .* given=candy$
+cra://debug?appIcon=hologram
+cra://debug?dockTile=hologram
+expect-log dock tile hologram: .* given=hologram$
+cra://debug?appIcon=neon
+cra://debug?dockTile=neon
+expect-log dock tile neon: .* given=neon$
+cra://debug?appIcon=fluted-glass
+cra://debug?dockTile=fluted-glass
+expect-log dock tile fluted-glass: .* given=fluted-glass$
+cra://debug?appIcon=schoolbook
+cra://debug?dockTile=schoolbook
+expect-log dock tile schoolbook: .* given=schoolbook$
+cra://debug?appIcon=colorful
+cra://debug?dockTile=colorful
+expect-log dock tile colorful: .* given=colorful$
+cra://debug?appIcon=canary
+cra://debug?dockTile=canary
+expect-log dock tile canary: .* given=canary$
+cra://debug?appIcon=early-birds
+cra://debug?dockTile=early-birds
+expect-log dock tile early-birds: .* given=early-birds$
+cra://debug?appIcon=segments
+cra://debug?bundleIcon=end
+expect-log bundle icon end: custom=0 file=0
