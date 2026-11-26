@@ -780,6 +780,10 @@ public final class SidebarStore {
         selectTab(referrer, window: window)
     }
 
+    /// Favorites closed with ⌘W whose pages kept running (#740): ⌃Tab leaves them out until they're picked again,
+    /// as in Arc (RecentTabOrder.listsPane, #784). Not saved: a relaunch unloads them anyway.
+    public var favoritesClosedWithCmdW: Set<UUID> = []
+
     public func selectTab(_ id: UUID?, window: UUID? = nil) {
         var w = self.window(window).id
         // A space's tab picked while an incognito or Blank Window is in front (a link from
@@ -798,6 +802,7 @@ public final class SidebarStore {
             $0.focusedSpaceID = sid
             $0.selectedTabPerSpace[sid] = id
         }
+        favoritesClosedWithCmdW.remove(id)
         noteShown(id)
         if !isIncognito(space: sid) {
             var dates = ranking.recentlySwitchedToTabs[id] ?? []
@@ -1417,9 +1422,10 @@ public final class SidebarStore {
     }
 
     /// Arc's "Add Split View": an empty page becomes a new pane next to `tabID`
-    /// (after it by default). Returns the new tab.
+    /// (after it by default). Returns the new tab. `select: false` (an agent's split, #799) leaves the
+    /// window as it is: the split shows when the user next picks it.
     @discardableResult
-    public func addEmptyPane(nextTo tabID: UUID, after: Bool = true, url: String = "", title: String = "", window: UUID? = nil) -> SidebarItem? {
+    public func addEmptyPane(nextTo tabID: UUID, after: Bool = true, url: String = "", title: String = "", window: UUID? = nil, select: Bool = true) -> SidebarItem? {
         guard let anchor = items[tabID], anchor.isTab else { return nil }
         let split: SidebarItem
         if let s = splitContaining(tabID) { split = s } else if let s = createSplit(with: [tabID]) { split = s } else { return nil }
@@ -1431,7 +1437,7 @@ public final class SidebarStore {
         var sp = items[split.id]!
         sp.children.insert(tab.id, at: after ? idx + 1 : idx)
         items[split.id] = sp
-        selectTab(tab.id, window: window)
+        if select { selectTab(tab.id, window: window) } else { touch() }
         return tab
     }
 
@@ -1440,9 +1446,9 @@ public final class SidebarStore {
     /// Nil when the split already has its most panes, Arc's four or Cra's eight (`splitPaneLimit`; the
     /// window says "Cannot Add New Pane").
     @discardableResult
-    public func openLinkInSplit(_ url: String, from tabID: UUID, window: UUID? = nil) -> SidebarItem? {
+    public func openLinkInSplit(_ url: String, from tabID: UUID, window: UUID? = nil, select: Bool = true) -> SidebarItem? {
         guard items[tabID]?.isTab == true, paneTabIDs(for: tabID).count < splitPaneLimit else { return nil }
-        return addEmptyPane(nextTo: tabID, url: url, window: window)
+        return addEmptyPane(nextTo: tabID, url: url, window: window, select: select)
     }
 
     /// Add an existing tab as a pane of a split (Arc: onDropSidebarItem). A
