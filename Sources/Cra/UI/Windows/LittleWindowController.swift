@@ -230,6 +230,10 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     /// named, matching the page's profile, or the one picked in this window's command bar (#316),
     /// else the window used last's.
     private var target: LittleWindowTarget
+    /// The link the window opened, or the address typed into its empty card, before redirects: what a
+    /// profile change loads again while the page is still on that entry (CraCore LittleProfileChange).
+    /// Nil for a popup host and for an address typed over a page, which goes on from its entry.
+    private var openedURL: String?
     /// ⌥⌘N's card (GitHub #337, CraCore LittleCard): an empty Little Window is only its command bar,
     /// 490 × 329 pt at the top right of the screen, with no strip, traffic lights or page. A row that
     /// opens a page turns it into the full window (`expandCard`); anything else that closes the bar
@@ -265,10 +269,13 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         peekParent = parent
         peekSourceTab = parent == nil ? nil : fromTab
         // Little Windows are normal browsing: they target the last normal window's space
-        // (a Peek: the space of the window it covers; a cra://open: the space it names).
-        target = LittleWindowTarget(requested: parent == nil ? space : nil)
-        state = LittleWindowState(targetSpaceID: parent?.focusedSpaceID
-            ?? target.space(lastUsed: app.store.focusedSpaceID(window: app.store.lastNormalWindowID)))
+        // (a Peek: the space of the window it covers; a cra://open: the space it names; a link to a
+        // site whose profile was picked in a Little Window: a space on that profile).
+        let lastUsed = app.store.focusedSpaceID(window: app.store.lastNormalWindowID)
+        let siteSpace = parent == nil && space == nil && opener == nil && fromTab == nil
+            ? url.flatMap { app.store.prefs.siteProfiles.space(for: $0, lastUsed: lastUsed, in: app.store.orderedSpaces) } : nil
+        target = LittleWindowTarget(requested: parent == nil ? space ?? siteSpace : nil)
+        state = LittleWindowState(targetSpaceID: parent?.focusedSpaceID ?? target.space(lastUsed: lastUsed))
         commandBar = CommandBarController(engine: app.engine, store: app.store)
         let size = LittleWindowLayout.size(saved: app.store.prefs.littleWindowSize)
         openSize = size
@@ -383,6 +390,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         let b = PageEngines.makeBrowser(frame: shell.page.bounds, url: url.map { $0.isEmpty ? "about:blank" : $0 }, delegate: self,
                                         incognito: false, profilePath: app.store.profilePath(profile: state.profileID), opener: opener)
         attach(b)
+        openedURL = url
         state.url = (url == "about:blank" ? "" : url) ?? ""
         observeBarSetting()
     }
@@ -1428,7 +1436,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
             if isCard { openCommandBar() }
         case .moveToSpace(let id):
             promote(to: id)
-        case .moveToFolder:
+        case .moveToFolder, .revealFolder:
             break
         }
     }
@@ -1536,6 +1544,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         let empty = !hasPage && browser?.canGoBack == false
         expandCard()
         state.url = url
+        openedURL = empty ? url : nil
         // An empty window's page is about:blank: loading over it left that entry behind the first
         // page, so Back and the swipe back went to a blank page instead of closing the window
         // (#495). A new page at the address starts its history there.
@@ -1697,11 +1706,24 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         }
     }
 
-    /// A page can't move between profiles: a new browser in the other one loads its address.
-    private func reload(inProfile id: UUID?) {
-        guard browser != nil else { return }
+    /// `cra://debug?littleProfile=<name>`: the page moved to that profile, past the confirm `changeProfile` asks.
+    func debugChangeProfile(named name: String) {
+        let id = store.profiles.first { $0.name == name }?.id
+        guard id != nil || name == store.profileName(nil) else { return CraLog.note("little profile \(name): no such profile") }
+        let address = reload(inProfile: id)
+        CraLog.note("little profile \(name): \(store.profileName(state.profileID)) at \(address ?? "-")")
+    }
+
+    /// A page can't move between profiles: a new browser in the other one loads its address, which it returns. The
+    /// profile is remembered for that address's site, as Arc's domainToProfilePreferences.
+    @discardableResult
+    private func reload(inProfile id: UUID?) -> String? {
+        guard browser != nil else { return nil }
         state.profileID = id
-        replacePage(at: hasPage ? currentURL : "about:blank")
+        let address = LittleProfileChange.address(opened: openedURL, shown: currentURL, wentOn: browser?.canGoBack == true)
+        store.prefs.siteProfiles.remember(id, for: address)
+        replacePage(at: address)
+        return address
     }
 
     /// A new page at `url` in place of this window's, in the engine the address gets (a profile
@@ -2801,6 +2823,17 @@ struct BrowserWindowsBehind {
             guard w.isVisible, let anchor = LittleWindowRaise.anchor(for: w.windowNumber, in: stack, pid: pid) else { return nil }
             return (w, anchor)
         }
+    }
+
+    /// Out of sight while Cra comes forward for Picture in Picture's window (#741): AppKit raised a browser window then,
+    /// over the app the user was in, for a moment. Each is behind another window, so nothing shows going.
+    func takeOut() {
+        for (w, _) in pairs where w.isVisible { w.orderOut(nil) }
+    }
+
+    /// Back where `takeOut` found each: just behind the window that was in front of it.
+    func bringBackIn() {
+        for (w, anchor) in pairs where !w.isVisible { w.order(.below, relativeTo: anchor) }
     }
 
     /// Each goes back behind its window. `clickedIfKey`: the Little Window has had the keys, so a browser window that has

@@ -10,6 +10,7 @@ public enum SuggestionKind: Equatable {
     case command(String)
     case switchSpace(UUID)
     case moveToSpace(UUID)
+    case revealFolder(UUID)
     case moveToFolder(UUID)
 }
 
@@ -28,10 +29,22 @@ public struct Suggestion: Identifiable, Equatable {
     /// Matched only as scattered letters ("pota" in "grænselandsPOrTAl"): listed after the
     /// search engine's suggestions, which Arc shows instead of such matches.
     public var loose = false
+    /// A search engine's suggestion that is an address (a `.history` row the user may never have visited).
+    public var fromSearchEngine = false
+    /// A site the user may never have been to, whose icon is not asked for (SiteIconQueue): anything but
+    /// one of the user's tabs, archived tabs or visited pages.
+    public var isPresetSite: Bool {
+        switch kind {
+        case .switchToTab, .archived: return false
+        case .history: return fromSearchEngine
+        default: return true
+        }
+    }
 
     /// The memberwise initializer, public: the Mac app (another package) makes rows too.
-    public init(id: String, kind: SuggestionKind, title: String, subtitle: String, url: String?, faviconKey: String?,
-                symbol: String?, trailing: String?, score: Double, spaceID: UUID? = nil, loose: Bool = false) {
+    public init(id: String, kind: SuggestionKind, title: String, subtitle: String, url: String?, faviconKey: String? = nil,
+                symbol: String?, trailing: String?, score: Double, spaceID: UUID? = nil, loose: Bool = false,
+                fromSearchEngine: Bool = false) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -43,6 +56,7 @@ public struct Suggestion: Identifiable, Equatable {
         self.score = score
         self.spaceID = spaceID
         self.loose = loose
+        self.fromSearchEngine = fromSearchEngine
     }
 
     public var tabID: UUID? {
@@ -68,7 +82,7 @@ extension Suggestion {
     public func fieldText(typed query: String) -> String {
         if id == "typed" { return query }
         switch kind {
-        case .search, .command, .switchSpace, .moveToSpace, .moveToFolder:
+        case .search, .command, .switchSpace, .moveToSpace, .moveToFolder, .revealFolder:
             return title
         case .switchToTab, .archived, .history, .navigate, .topDomain:
             guard let url else { return title }
@@ -105,6 +119,9 @@ public final class SuggestionEngine {
     /// older setting standing in until it has one, and its keywords (SearchEngines on the Mac).
     private let readEngines: SearchEngineReader
     private let remote: SearchSuggestions
+    /// The profile's whole Chromium history, beyond history.json's newest 5,000 pages (#730): the app's
+    /// engine search (ChromiumHistory on the Mac), nil where the engine can't search it.
+    public var chromium: ChromiumHistorySource?
     /// Arc's command bar always lists five rows; search suggestions make up what the
     /// tabs, history and commands don't fill, so the bar keeps its height while you type.
     public static let maxRows = 5
@@ -127,7 +144,7 @@ public final class SuggestionEngine {
 
     /// `spaceShown` is the space the bar's window shows, which "Switch to" leaves out: a Little
     /// Window's own target (#316); nil, the focused space.
-    public func suggestions(for rawQuery: String, mode: CommandBarMode, currentTabID: UUID?, spaceShown: UUID? = nil) -> SuggestionResult {
+    public func suggestions(for rawQuery: String, mode: CommandBarMode, currentTabID: UUID?, spaceShown: UUID? = nil, folderSpace: UUID? = nil) -> SuggestionResult {
         let query = rawQuery.trimmingCharacters(in: .whitespaces)
         let q = query.lowercased()
         var result = SuggestionResult(query: query)
@@ -167,7 +184,7 @@ public final class SuggestionEngine {
 
         // Arc's order: the row that supplies the inline completion comes first,
         // then what you typed, then everything else.
-        let completion = incognito ? inlineCompletion(q, candidates: items)
+        var completion = incognito ? inlineCompletion(q, candidates: items)
             : typedCompletion(q, items: &items) ?? inlineCompletion(q, candidates: items)
         if let completion, let idx = items.firstIndex(where: { $0.id == completion.candidateID }) {
             let c = items.remove(at: idx)
@@ -179,6 +196,19 @@ public final class SuggestionEngine {
             items.insert(typed, at: 1)
         } else {
             items.insert(typed, at: 0)
+        }
+        if case .newTab = mode, let folderSpace, let space = store.space(folderSpace) {
+            // The bar shows `maxRows` rows: a folder named as typed comes first, and otherwise at most one
+            // whose name has a word starting with the query, so a letter or two never pushes the tabs out.
+            let folders = searchableFolders(in: space)
+            let named = folders.filter { $0.title.lowercased() == q }
+            let begins = folders.filter { f in
+                f.title.lowercased() != q && f.title.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).contains { $0.hasPrefix(q) }
+            }
+            let ranked = named + begins.prefix(1)
+            let exact = !named.isEmpty
+            items.insert(contentsOf: ranked, at: exact ? 0 : min(items.count, 2))
+            if exact { completion = nil }
         }
         if store.settings.searchSuggestions {
             let at = items.firstIndex(where: \.loose) ?? items.count
@@ -261,6 +291,25 @@ public final class SuggestionEngine {
         /// The visited pages whose address was entered in the bar, for TypedCompletion (#667), with their entries.
         var typedPages: [TypedCompletion.Page] = []
         var typedEntries: [String: HistoryEntry] = [:]
+    }
+
+    private var folderRows: (space: UUID, rows: [Suggestion])?
+
+    private func searchableFolders(in space: Space) -> [Suggestion] {
+        if let folderRows, folderRows.space == space.id { return folderRows.rows }
+        var rows: [Suggestion] = []
+        func collect(in parent: UUID) {
+            for folder in store.children(of: parent) where folder.isFolder && !folder.isTabGroup {
+                rows.append(Suggestion(id: "reveal:\(folder.id)", kind: .revealFolder(folder.id),
+                                       title: folder.displayTitle, subtitle: "Folder", url: nil, symbol: "folder",
+                                       trailing: "Show in Sidebar", score: 0))
+                collect(in: folder.id)
+            }
+        }
+        collect(in: space.pinnedContainerID)
+        collect(in: space.todayContainerID)
+        folderRows = (space.id, rows)
+        return rows
     }
 
     private var index: SearchIndex?
@@ -354,19 +403,34 @@ public final class SuggestionEngine {
         return i
     }
 
+    /// Arc's Delete Suggestion (#779): a visited page's row leaves the bar's profile's history, Cra's and Chromium's.
+    /// false for a row that isn't a visited page's (CraCore SuggestionDeletion).
+    @discardableResult
+    public func delete(_ s: Suggestion) -> Bool {
+        guard !incognito, let url = SuggestionDeletion.page(rowID: s.id) else { return false }
+        store.deleteHistoryPage(url, profile: barProfile)
+        chromium?.delete(url, profilePath: store.profilePath(profile: barProfile))
+        index = nil
+        indexGeneration &+= 1
+        return true
+    }
+
     /// The window's space changed under the open bar (#721): the index holds the old space's tabs when the
     /// bar searches only the window's space, so the next listing reads them again.
     public func spaceChanged() {
+        folderRows = nil
         index = nil
         indexGeneration &+= 1
     }
 
     /// The command bar opened or closed: what it searches may have changed since.
     public func resetIndex() {
+        folderRows = nil
         index = nil
         indexGeneration &+= 1
         enginesRead = nil
         remote.reset()
+        chromium?.reset()
     }
 
     // MARK: Search engines
@@ -406,6 +470,18 @@ public final class SuggestionEngine {
         remote.fetch(query, engine: searchEngine, done: done)
     }
 
+    /// Asks the bar's profile's Chromium history about `rawQuery` (#730); `done` runs when its answer is in,
+    /// to list again. Not in an incognito window, which suggests nothing from the normal profile.
+    public func fetchHistory(for rawQuery: String, spaceShown: UUID? = nil, done: @escaping @MainActor () -> Void) {
+        guard !incognito else { return }
+        let profile = profile(spaceShown: spaceShown)
+        chromium?.fetch(rawQuery, profile: profile, profilePath: store.profilePath(profile: profile),
+                       known: { [weak self] in
+                           guard let self, self.barProfile == profile else { return [] }
+                           return Set(self.searchIndex.history.map { $0.0.url })
+                       }, done: done)
+    }
+
     /// The engine's suggestions not already listed, as search rows (or site rows).
     private func searchSuggestions(_ query: String, after items: [Suggestion]) -> [Suggestion] {
         let engine = searchEngine
@@ -420,7 +496,7 @@ public final class SuggestionEngine {
             }
             guard !urls.contains(url) else { return nil }
             return Suggestion(id: "sugg:\(url)", kind: .history, title: r.text, subtitle: "", url: url,
-                              faviconKey: FaviconKey.key(for: url), symbol: "globe", trailing: nil, score: 0)
+                              faviconKey: FaviconKey.key(for: url), symbol: "globe", trailing: nil, score: 0, fromSearchEngine: true)
         }
     }
 
@@ -498,6 +574,16 @@ public final class SuggestionEngine {
             score += min(Double(h.visitCount), 20) * 1.5 + recencyBoost(h.lastVisit) * 0.6
             // Its favicon key (an address parse) comes in `finished`, for the rows shown (#617).
             out.append(Suggestion(id: index.historyIDs[n], kind: .history, title: h.title.isEmpty ? Self.humanURL(h.url) : h.title,
+                                  subtitle: "", url: h.url, faviconKey: nil,
+                                  symbol: "clock", trailing: nil, score: score, loose: text < Self.looseBelow))
+        }
+        // The pages only the profile's Chromium history has (#730), ranked the same way.
+        for (h, key) in chromium?.rows(for: q, profile: barProfile) ?? [] where !openURLs.contains(h.url) {
+            let text = Self.score(q, key)
+            var score = text * 0.8
+            if score < 30 { continue }
+            score += min(Double(h.visitCount), 20) * 1.5 + recencyBoost(h.lastVisit) * 0.6
+            out.append(Suggestion(id: "hist:\(h.url)", kind: .history, title: h.title.isEmpty ? Self.humanURL(h.url) : h.title,
                                   subtitle: "", url: h.url, faviconKey: nil,
                                   symbol: "clock", trailing: nil, score: score, loose: text < Self.looseBelow))
         }

@@ -34,11 +34,15 @@ public enum ArcImporter {
         public var showsToolbar: Bool?
         /// "Show Full URL" on the toolbar address (`toolbarShowFullURLsEnabledPreference`).
         public var showsFullURL: Bool?
+        /// `domainToProfilePreferences`: site → profile folder ("Default", "Profile 1"), written when a
+        /// profile is picked in a Little Arc (#768).
+        public var siteProfiles: [String: String]
 
-        public init(autoArchive: String? = nil, showsToolbar: Bool? = nil, showsFullURL: Bool? = nil) {
+        public init(autoArchive: String? = nil, showsToolbar: Bool? = nil, showsFullURL: Bool? = nil, siteProfiles: [String: String] = [:]) {
             self.autoArchive = autoArchive
             self.showsToolbar = showsToolbar
             self.showsFullURL = showsFullURL
+            self.siteProfiles = siteProfiles
         }
     }
 
@@ -61,14 +65,26 @@ public enum ArcImporter {
     /// of a name, for Arc's `symbol` icons (`ArcSpaceIcon`); Windows has none.
     public static func plan(sidebar data: Data, supportDir: URL, preferences: Preferences,
                             symbolExists: (String) -> Bool = { _ in false }) throws -> ImportPlan {
+        try plan(sidebar: data, archive: try? Data(contentsOf: supportDir.appendingPathComponent("StorableArchiveItems.json")),
+                 supportDir: supportDir, preferences: preferences, symbolExists: symbolExists)
+    }
+
+    /// The plan from a StorableSidebar.json's contents and a StorableArchiveItems.json's (nil: no archive).
+    public static func plan(sidebar data: Data, archive: Data?, supportDir: URL, preferences: Preferences,
+                            symbolExists: (String) -> Bool = { _ in false }) throws -> ImportPlan {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let sidebar = root["sidebar"] as? [String: Any],
               let containers = sidebar["containers"] as? [[String: Any]] else { throw ImportError.unreadable("Arc's sidebar") }
         var plan = ImportPlan(source: "Arc")
-        guard let main = containers.first(where: { $0["spaces"] != nil }) else { return plan }
+        // A file can hold an older spaces container ahead of the real one, one untitled space with an
+        // empty Today (#749): take the one holding the most items, the first of equals.
+        guard let main = containers.filter({ $0["spaces"] != nil })
+            .max(by: { pairs($0["items"]).count < pairs($1["items"]).count }) else { return plan }
         // A damaged file can list an id twice: the later entry wins, as when Arc decodes it.
         let items = Dictionary(pairs(main["items"]), uniquingKeysWith: { _, later in later })
         var spaceTitleByID: [String: String] = [:]
+        // What `convert` leaves out, taken by the list being converted.
+        var refused: [ImportSkip] = []
 
         func convert(_ id: String) -> ImportedItem? {
             guard let it = items[id], let dataDict = it["data"] as? [String: Any] else { return nil }
@@ -76,7 +92,10 @@ public enum ArcImporter {
             let created = refDate(it["createdAt"])
             let childIDs = it["childrenIds"] as? [String] ?? []
             if let tab = dataDict["tab"] as? [String: Any] {
-                guard let u = tab["savedURL"] as? String, ImportedAddress.keeps(u) else { return nil }
+                guard let u = tab["savedURL"] as? String, ImportedAddress.keeps(u) else {
+                    ImportSkip.leftOut(tab["savedURL"] as? String, title: custom ?? tab["savedTitle"] as? String ?? "").map { refused.append($0) }
+                    return nil
+                }
                 return ImportedItem(customTitle: custom, pageTitle: tab["savedTitle"] as? String ?? "", url: u, createdAt: created,
                                     faviconPath: faviconFile(forItemID: id, in: supportDir), liveItemURL: tagged(tab["liveItemID"], "url"))
             }
@@ -97,14 +116,17 @@ public enum ArcImporter {
         let profileNames = ChromiumImporter.profileNames(userData: userData(in: supportDir))
 
         // Favorites (topApps): one container per profile, shared by that profile's spaces.
-        var favoritesByProfile: [(profile: Data?, items: [ImportedItem])] = []
-        var allFavorites: [ImportedItem] = []
-        for (_, it) in items {
+        var favoritesByProfile: [(profile: Data?, id: String, items: [ImportedItem])] = []
+        var allFavorites: [ImportedItem] = [], favoritesSkipped: [String: [ImportSkip]] = [:]
+        for (id, it) in items {
             guard let d = it["data"] as? [String: Any], let c = d["itemContainer"] as? [String: Any],
                   let type = c["containerType"] as? [String: Any], let top = type["topApps"] as? [String: Any] else { continue }
-            let favs = (it["childrenIds"] as? [String] ?? []).compactMap(convert)
+            let favs = (it["childrenIds"] as? [String] ?? []).compactMap(convert).map { var f = $0; f.favoritesList = id; return f }
+            // A favorite left out goes with every space that shows its list, and is listed once.
+            favoritesSkipped[id] = refused.map { var s = $0; s.kind = .favorites; s.favoritesList = id; return s }
+            refused = []
             allFavorites += favs
-            if let profile = top["_0"] as? [String: Any] { favoritesByProfile.append((canonical(profile), favs)) }
+            if let profile = top["_0"] as? [String: Any] { favoritesByProfile.append((canonical(profile), id, favs)) }
         }
 
         for (sid, space) in pairs(main["spaces"]) {
@@ -127,28 +149,45 @@ public enum ArcImporter {
             // preset: that shifted every later space onto another colour (issue #30).
             var sp = ImportedSpace(title: title, emoji: icon.emoji, symbol: icon.symbol, theme: ArcThemeImport.theme(from: space) ?? SpaceTheme.presets[0])
             let profile = (space["profile"] as? [String: Any]).flatMap(canonical)
-            sp.favorites = favoritesByProfile.first { $0.profile != nil && $0.profile == profile }?.items ?? allFavorites
+            let own = favoritesByProfile.first { $0.profile != nil && $0.profile == profile }
+            sp.favorites = own?.items ?? allFavorites
+            sp.skipped = own.map { favoritesSkipped[$0.id] ?? [] } ?? favoritesSkipped.keys.sorted().flatMap { favoritesSkipped[$0] ?? [] }
             sp.profile = ImportProfileMap.arcProfileFolder(space["profile"]).map { ImportedProfile(folder: $0, name: profileNames[$0] ?? $0) }
             if let p = pinnedID, let c = items[p] { sp.pinned = (c["childrenIds"] as? [String] ?? []).compactMap(convert) }
             if let t = todayID, let c = items[t] { sp.today = (c["childrenIds"] as? [String] ?? []).compactMap(convert) }
+            sp.skipped += refused
+            refused = []
             plan.spaces.append(sp)
         }
 
         // Archive
-        if let adata = try? Data(contentsOf: supportDir.appendingPathComponent("StorableArchiveItems.json")),
+        if let adata = archive,
            let aroot = try? JSONSerialization.jsonObject(with: adata) as? [String: Any],
            let aitems = aroot["items"] as? [Any] {
             for case let e as [String: Any] in aitems {
                 guard let si = e["sidebarItem"] as? [String: Any], let d = si["data"] as? [String: Any],
-                      let tab = d["tab"] as? [String: Any], let u = tab["savedURL"] as? String, ImportedAddress.keeps(u) else { continue }
+                      let tab = d["tab"] as? [String: Any] else { continue }
+                guard let u = tab["savedURL"] as? String, ImportedAddress.keeps(u) else {
+                    let title = si["title"] as? String ?? tab["savedTitle"] as? String ?? ""
+                    ImportSkip.leftOut(tab["savedURL"] as? String, title: title, kind: .archive).map { plan.archiveSkipped.append($0) }
+                    continue
+                }
                 let reason = (e["reason"] as? String) == "auto" ? ArchiveReason.auto : .manual
                 var spaceTitle: String?
                 if let src = e["source"] as? [String: Any], let sp = src["space"] as? [String: Any], let id = sp["_0"] as? String { spaceTitle = spaceTitleByID[id] }
                 plan.archive.append(ImportedArchiveEntry(customTitle: si["title"] as? String, pageTitle: tab["savedTitle"] as? String ?? "",
-                                                         url: u, archivedAt: refDate(e["archivedAt"]), reason: reason, spaceTitle: spaceTitle))
+                                                         url: u, archivedAt: refDate(e["archivedAt"]), reason: reason, spaceTitle: spaceTitle,
+                                                         faviconPath: (si["id"] as? String).flatMap {
+                                                             faviconFile(forItemID: $0, in: supportDir, cache: "ArchiveItemsFaviconCache")
+                                                         }))
             }
             plan.archive.sort { $0.archivedAt > $1.archivedAt }
-            if plan.archive.count > 1500 { plan.archive.removeLast(plan.archive.count - 1500) }
+            if plan.archive.count > 1500 {
+                plan.archiveSkipped += plan.archive[1500...].map {
+                    ImportSkip(title: $0.customTitle ?? $0.pageTitle, url: $0.url, reason: .olderArchive(limit: 1500), kind: .archive)
+                }
+                plan.archive.removeLast(plan.archive.count - 1500)
+            }
         }
 
         // Settings
@@ -162,6 +201,7 @@ public enum ArcImporter {
         }
         plan.settings.showToolbar = preferences.showsToolbar
         plan.settings.toolbarShowsFullURL = preferences.showsFullURL
+        plan.settings.siteProfiles = preferences.siteProfiles.sorted { $0.key < $1.key }.map { ImportedSiteProfile(site: $0.key, folder: $0.value) }
         if let ldata = try? Data(contentsOf: supportDir.appendingPathComponent("StorableLinkRouting.json")),
            let lroot = try? JSONSerialization.jsonObject(with: ldata) as? [String: Any] {
             plan.settings.defaultLinkDestination = linkDestination(lroot["defaultDestination"], spaceTitles: spaceTitleByID)
@@ -216,9 +256,10 @@ public enum ArcImporter {
         return title(space).map { .space(title: $0) } ?? .mostRecentSpace
     }
 
-    /// Arc caches sidebar favicons as 32x32 PNGs named md5(item id).
-    public static func faviconFile(forItemID id: String, in supportDir: URL) -> String? {
-        let path = supportDir.appendingPathComponent("SidebarItemsFaviconCache", isDirectory: true)
+    /// Arc caches favicons as 32x32 PNGs named md5(item id): the sidebar's in SidebarItemsFaviconCache,
+    /// archived tabs' in ArchiveItemsFaviconCache.
+    public static func faviconFile(forItemID id: String, in supportDir: URL, cache: String = "SidebarItemsFaviconCache") -> String? {
+        let path = supportDir.appendingPathComponent(cache, isDirectory: true)
             .appendingPathComponent(MD5.hex(Data(id.utf8))).path
         return FileManager.default.fileExists(atPath: path) ? path : nil
     }

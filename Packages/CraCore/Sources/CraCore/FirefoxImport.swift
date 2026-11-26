@@ -71,8 +71,8 @@ public enum FirefoxImport {
     // MARK: Bookmarks
 
     /// The toolbar's bookmarks, then the menu's and the unsorted ones as folders, from
-    /// `bookmarksQuery`'s rows (integers as Int64, text as String).
-    public static func bookmarks(rows: [[String: Any]]) -> [ImportedItem] {
+    /// `bookmarksQuery`'s rows (integers as Int64, text as String). `skip` hears of each bookmark left out.
+    public static func bookmarks(rows: [[String: Any]], skip: (ImportSkip) -> Void = { _ in }) -> [ImportedItem] {
         var children: [Int64: [[String: Any]]] = [:]
         var idByGUID: [String: Int64] = [:]
         for r in rows {
@@ -87,7 +87,10 @@ public enum FirefoxImport {
             let created = (r["dateAdded"] as? Int64).map { Date(timeIntervalSince1970: Double($0) / 1_000_000) } ?? Date()
             switch r["type"] as? Int64 {
             case 1:
-                guard let u = r["url"] as? String, ImportedAddress.keeps(u) else { return nil }
+                guard let u = r["url"] as? String, ImportedAddress.keeps(u) else {
+                    ImportSkip.leftOut(r["url"] as? String, title: title.isEmpty ? (r["ptitle"] as? String ?? "") : title).map(skip)
+                    return nil
+                }
                 return ImportedItem(customTitle: title.isEmpty ? nil : title, pageTitle: title.isEmpty ? (r["ptitle"] as? String ?? "") : title,
                                     url: u, createdAt: created)
             case 2:
@@ -110,9 +113,14 @@ public enum FirefoxImport {
 
     // MARK: Session store
 
-    /// The first session file in `profile` that reads, as JSON.
-    public static func session(profile: URL, files: [String] = sessionFiles) -> [String: Any]? {
-        files.lazy.compactMap { json(profile.appendingPathComponent($0)) }.first
+    /// The first session file in `profile` that reads, as JSON. `skip` hears of a session store that is
+    /// there but could not be read.
+    public static func session(profile: URL, files: [String] = sessionFiles, skip: (ImportSkip) -> Void = { _ in }) -> [String: Any]? {
+        if let found = files.lazy.compactMap({ json(profile.appendingPathComponent($0)) }).first { return found }
+        if let there = files.map({ profile.appendingPathComponent($0) }).first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            skip(.unreadable("Open tabs", file: there.path))
+        }
+        return nil
     }
 
     /// A mozLz4 file's JSON object.
@@ -121,27 +129,32 @@ public enum FirefoxImport {
         return try? JSONSerialization.jsonObject(with: raw) as? [String: Any]
     }
 
-    /// The current page of every tab in every window.
-    public static func openTabs(session: [String: Any]) -> [ImportedItem] {
+    /// The current page of every tab in every window. `skip` hears of each tab left out.
+    public static func openTabs(session: [String: Any], skip: (ImportSkip) -> Void = { _ in }) -> [ImportedItem] {
         var out: [ImportedItem] = []
         for w in session["windows"] as? [[String: Any]] ?? [] {
             for t in w["tabs"] as? [[String: Any]] ?? [] {
                 guard let entries = t["entries"] as? [[String: Any]], !entries.isEmpty else { continue }
                 let index = min(max((t["index"] as? Int ?? entries.count) - 1, 0), entries.count - 1)
-                guard let u = entries[index]["url"] as? String, ImportedAddress.keeps(u) else { continue }
+                guard let u = entries[index]["url"] as? String, ImportedAddress.keeps(u) else {
+                    ImportSkip.leftOut(entries[index]["url"] as? String, title: entries[index]["title"] as? String ?? "").map(skip)
+                    continue
+                }
                 out.append(ImportedItem(pageTitle: entries[index]["title"] as? String ?? "", url: u))
             }
         }
         return out
     }
 
-    /// One space named for the browser: its bookmarks pinned, its open tabs in Today.
-    public static func plan(browser: String, bookmarks: [ImportedItem], openTabs: [ImportedItem]) -> ImportPlan {
+    /// One space named for the browser: its bookmarks pinned, its open tabs in Today, and what was
+    /// left out of them listed with it (with the plan when nothing came over).
+    public static func plan(browser: String, bookmarks: [ImportedItem], openTabs: [ImportedItem], skipped: [ImportSkip] = []) -> ImportPlan {
         var plan = ImportPlan(source: browser)
         var space = ImportedSpace(title: browser, emoji: "🦊", theme: nil)
         space.pinned = bookmarks
         space.today = openTabs
-        if !space.pinned.isEmpty || !space.today.isEmpty { plan.spaces.append(space) }
+        space.skipped = skipped
+        if !space.pinned.isEmpty || !space.today.isEmpty { plan.spaces.append(space) } else { plan.skipped = skipped }
         return plan
     }
 

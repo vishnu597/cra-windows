@@ -32,14 +32,32 @@ enum YabImporter {
     static let firstID = "00000000-0000-0000-0000-000000000001"
     static let sharedPinsID = "00000000-0000-0000-0000-000000000A11"
 
-    static func plan() throws -> ImportPlan {
+    /// Yab's Settings › Spaces › Pins "In Every Space". Unset means Yab hasn't decided yet, and it
+    /// decides In Each Space for a Mac that already has spaces (SharedPins.decide), so as off.
+    static var pinsInEverySpace: Bool? { UserDefaults(suiteName: "dev.serafim.fast")?.object(forKey: "pins.everySpace") as? Bool }
+
+    static func plan(pinsInEverySpace everySpace: Bool? = YabImporter.pinsInEverySpace) throws -> ImportPlan {
         guard isAvailable else { throw ImportError.notFound("Yab") }
-        // Yab's Settings › Spaces › Pins "In Every Space". Unset means Yab hasn't decided yet, and it
-        // decides In Each Space for a Mac that already has spaces (SharedPins.decide), so as off.
-        let everySpace = UserDefaults(suiteName: "dev.serafim.fast")?.object(forKey: "pins.everySpace") as? Bool
         var plan = try plan(supportDir: supportDir, pinsInEverySpace: everySpace)
-        ImportFavicons.attach(to: &plan.spaces, folder: "cra-yab-favicons") { ChromiumImporter.favicons(userData: userData, hosts: $0) }
+        ImportFavicons.attach(to: &plan, folder: "cra-yab-favicons", from: ImportSource.Kind.yab.iconStores(dataDir: userData))
         return plan
+    }
+
+    /// Yab's own icon file for a page: the page's in icons/pages.json (`[["<host><path>", "<hash>"]]`,
+    /// file icons/pages/<hash>.png), else its host's, icons/<host>.png, both with `:<port>` when there is one.
+    static func ownIcons(supportDir dir: URL) -> (String) -> URL? {
+        let icons = dir.appendingPathComponent("icons", isDirectory: true)
+        let listed = (try? Data(contentsOf: icons.appendingPathComponent("pages.json")))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String]] } ?? []
+        let pages = Dictionary(listed.compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }, uniquingKeysWith: { first, _ in first })
+        return { url in
+            guard let c = URLComponents(string: url), let host = c.host?.lowercased(), !host.isEmpty else { return nil }
+            let site = host + (c.port.map { ":\($0)" } ?? "")
+            let page = pages[site + (c.percentEncodedPath.isEmpty ? "/" : c.percentEncodedPath)]
+                .flatMap { hash in hash.allSatisfy { $0.isLetter || $0.isNumber } ? "pages/\(hash).png" : nil }
+            return [page, "\(site).png"].compactMap { $0 }.map { icons.appendingPathComponent($0) }
+                .first { FileManager.default.fileExists(atPath: $0.path) }
+        }
     }
 
     static func plan(supportDir dir: URL, pinsInEverySpace: Bool?) throws -> ImportPlan {
@@ -57,16 +75,19 @@ enum YabImporter {
             var rows = entries(dir.appendingPathComponent(file))
             // The shared tiles head a space that signs in where the first one does; one with sign-ins
             // of its own keeps its own tiles, as the shared ones would sign in as someone else there.
-            if pinsInEverySpace == true && s["ownSignIns"] as? Bool != true {
+            let sharesTiles = pinsInEverySpace == true && s["ownSignIns"] as? Bool != true
+            if sharesTiles {
                 rows = shared.filter(isTile) + rows.filter { !isTile($0) }
             }
 
             var favorites: [ImportedItem] = []
             let kept = ImportTree()
             var today: [ImportedItem] = []
+            var skipped: [ImportSkip] = []
             for e in rows {
                 let pinned = isTile(e) || e["kept"] as? Bool == true
-                guard let item = item(e, pinned: pinned) else { continue }
+                // A tile left out is listed on the favorites tile.
+                guard let item = item(e, pinned: pinned, skip: { var s = $0; if isTile(e) { s.kind = .favorites }; skipped.append(s) }) else { continue }
                 if isTile(e) {
                     if !favorites.contains(where: { $0.url == item.url }) { favorites.append(item) }
                 } else if pinned {
@@ -83,6 +104,8 @@ enum YabImporter {
             space.pinned = kept.items
             space.today = today
             space.profile = profile(of: s, among: spaces, supportDir: dir)
+            space.skipped = skipped
+            space.favoritesList = sharesTiles ? sharedPinsID : nil
             plan.spaces.append(space)
         }
         return plan
@@ -97,11 +120,16 @@ enum YabImporter {
     private static func isTile(_ e: [String: Any]) -> Bool { (e["pin"] as? String).map { !$0.isEmpty } ?? false }
 
     /// A tile or kept tab keeps the page it was pinned with (`home`), not where it navigated, unless
-    /// that page can't be imported: then it comes at the page it shows.
-    private static func item(_ e: [String: Any], pinned: Bool) -> ImportedItem? {
+    /// that page can't be imported: then it comes at the page it shows. `skip` hears of a tab left out.
+    private static func item(_ e: [String: Any], pinned: Bool, skip: (ImportSkip) -> Void) -> ImportedItem? {
         let home = pinned ? (e["home"] as? String).map { (url: $0, title: e["homeTitle"] as? String) } : nil
         let current = (e["url"] as? String).map { (url: $0, title: e["title"] as? String) }
-        guard let page = [home, current].compactMap({ $0 }).first(where: { ImportedAddress.keeps($0.url) }) else { return nil }
+        let pages = [home, current].compactMap { $0 }
+        guard let page = pages.first(where: { ImportedAddress.keeps($0.url) }) else {
+            let left = pages.first { ImportedAddress.leftOut($0.url) != nil }
+            ImportSkip.leftOut(left?.url, title: (e["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? left?.title ?? "").map(skip)
+            return nil
+        }
         let title = page.title.flatMap { $0.isEmpty ? nil : $0 } ?? e["title"] as? String ?? ""
         let custom = (e["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return ImportedItem(customTitle: custom, pageTitle: title, url: page.url)

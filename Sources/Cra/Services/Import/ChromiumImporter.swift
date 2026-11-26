@@ -19,15 +19,26 @@ extension ChromiumImporter {
         return TopSite.ranked(rows, limit: limit)
     }
 
-    /// The largest cached icon for each host, from the profiles' Favicons
-    /// databases (Dia imports Chromium favicons the same way).
-    static func favicons(userData: URL, hosts: [String]) -> [String: NSImage] {
-        var out: [String: NSImage] = [:]
+    /// CraCore's plan (bookmarks and last session, one space a profile), its tabs given their hosts'
+    /// icons from the profiles' Favicons databases.
+    static func planWithIcons(browser: String, userData: URL) throws -> ImportPlan {
+        var plan = try plan(browser: browser, userData: userData)
+        ImportFavicons.attach(to: &plan, folder: "cra-chromium-favicons", from: ImportSource.Kind.chromium.iconStores(dataDir: userData))
+        return plan
+    }
+
+    /// The largest cached icon for each host, from the profiles' Favicons databases.
+    static func favicons(userData: URL, hosts: [String]) -> [String: Data] {
+        var out: [String: Data] = [:]
         for p in profiles(userData: userData) {
             guard let db = SQLiteSnapshot(copying: p.dir.appendingPathComponent("Favicons")) else { continue }
             for host in hosts where out[host] == nil {
-                let rows = db.rows(TopSite.faviconQuery(host: host))
-                if let data = rows.first?["image_data"] as? Data, let img = NSImage(data: data) { out[host] = img }
+                let rows = db.rows("""
+                    SELECT fb.image_data FROM favicon_bitmaps fb JOIN icon_mapping im ON fb.icon_id = im.icon_id
+                    WHERE \(ImportFavicons.pages(of: host, column: "im.page_url"))
+                    ORDER BY fb.width DESC LIMIT 1
+                    """)
+                if let data = rows.first?["image_data"] as? Data { out[host] = data }
             }
         }
         return out
