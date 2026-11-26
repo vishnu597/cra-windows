@@ -1,3 +1,5 @@
+// Mac only (#752): Chromium on the Mac reads the DevTools pipe on fds 3 and 4; F_GETPATH is Darwin's.
+#if canImport(Darwin)
 import CraCore
 import Foundation
 import Testing
@@ -92,3 +94,4 @@ import Testing
             == "devtools pipe: descriptors 3 and 4 not all free (freed 4 only): Chromium starts without the pipe; macOS's own at launch, left: 3 (/System/HIToolbox.rsrc)")
     }
 }
+#endif
