@@ -1504,6 +1504,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             // characters are percent-encoded. zoomLevel logs the page's zoom. page=1 (devtools=1: its DevTools'): straight to the
             // current page, as the keyboard reaches a page that has it (a background copy has no key window);
             // with target=little, the newest Little Window's or Peek's page (#402).
+            // appKey=<keyCode>: a key-down with no characters through the application's sendEvent:, the way a real key
+            // comes in, to whatever has the keyboard (key=… goes to a window directly). #794: Eisu (102) and Kana (104).
+            if let code = dict["appKey"].flatMap(UInt16.init), let w = NSApp.keyWindow {
+                if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: w.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "",
+                                            isARepeat: false, keyCode: code) {
+                    CraLog.note("app key \(code) to \(String(describing: type(of: w.firstResponder ?? w)))")
+                    NSApp.sendEvent(e)
+                }
+                return
+            }
             if let k = dict["key"]?.split(separator: ",", omittingEmptySubsequences: false), k.count == 3,
                let code = UInt16(k[1]), let mods = UInt(k[2]), let w = main.window {
                 let flags = NSEvent.ModifierFlags(rawValue: mods)
@@ -1641,6 +1652,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     page?.close()
                     page = nil
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { NSLog("Cra hidden page closed") }
+                }
+                return
+            }
+            // pageState=<label>: "page state <label>: committed=… loading=…" for the window's shown page (#817: a frame
+            // loading after the page doesn't make it uncommitted).
+            if let label = dict["pageState"] {
+                let b = main.currentBrowser
+                CraLog.note("page state \(label): committed=\(b?.hasCommittedLoad == true ? 1 : 0) loading=\(b?.isLoading == true ? 1 : 0)")
+                return
+            }
+            // hiddenPageScript=<url>[&profile=<folder>]: a hidden page as Live Calendar's reader makes one (#817), in that profile: it runs a script once the
+            // page has loaded and logs "hidden page script answered <host> after <s> s", or nothing after 25 s.
+            if let url = dict["hiddenPageScript"] {
+                var page: HiddenPage?
+                let started = Date()
+                let profilePath = dict["profile"].map { AppPaths.chromiumCache.appendingPathComponent($0, isDirectory: true).path }
+                page = HiddenPage(url: url, profilePath: profilePath, script: "Promise.resolve(location.host || 'none')") { answer in
+                    CraLog.note("hidden page script answered \(answer ?? "nothing") after \(Int(Date().timeIntervalSince(started))) s")
+                    page?.close()
+                    page = nil
                 }
                 return
             }
@@ -1824,9 +1855,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 CraLog.note("current space \(label): \(space.title) profile=\(main.store.profileName(space.profileID))")
                 return
             }
-            // extensionMenu=<id>: the toolbar's right-click menu for that pinned extension (#695); press=<row> chooses one.
+            // extensionMenu=<id>: the toolbar's right-click menu for that pinned extension (#695); press=<row> chooses one,
+            // submenu=<row> lists (and presses in) that row's submenu instead.
             if let id = dict["extensionMenu"], let bar = main.shell.paneCards.first?.toolbarHost as? PaneToolbarView {
-                CraLog.note("extension menu \(dict["label"] ?? id): " + bar.debugExtensionMenu(id, press: dict["press"]))
+                CraLog.note("extension menu \(dict["label"] ?? id): " + bar.debugExtensionMenu(id, press: dict["press"], submenu: dict["submenu"]))
                 CraLog.note("extension pinned \(dict["label"] ?? id): \(ExtensionStore.shared.pinnedIDs(inProfile: "Default").contains(id) ? 1 : 0)")
                 // Which of the menu's pages the selected tab is now, not its address (cra.log keeps no addresses).
                 let url = main.store.selectedTabID(window: main.windowID).flatMap { main.store.item($0)?.tab?.url } ?? ""
@@ -2412,6 +2444,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     guard let self else { return }
                     CraLog.note("command bar icon \(text): row=\(i) selected=\(self.main.commandBar.selectedIndex) \(self.main.debugCommandBarIcon(i))")
                 }
+                return
+            }
+            // commandBarMove=<n> (#805): the open bar's selection moved n rows, as n presses of ↓ (↑ for a negative n) do.
+            // commandBarShown=<label>: "command bar shown <label>: listed=… first=… inView=… selected=… height=…", the rows in view.
+            if let n = dict["commandBarMove"].flatMap(Int.init) {
+                let bar = main.commandBar
+                for _ in 0..<abs(n) { bar.moveSelection(by: n < 0 ? -1 : 1) }
+                return
+            }
+            if let label = dict["commandBarShown"] {
+                CraLog.note("command bar shown \(label): \(main.debugCommandBarShown)")
                 return
             }
             // commandBarDeleteKey=1 (#779): ⌥⌘⌫ pressed in the open bar, through the app as a key press goes (the menus'

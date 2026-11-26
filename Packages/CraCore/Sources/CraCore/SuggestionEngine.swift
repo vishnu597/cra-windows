@@ -122,9 +122,10 @@ public final class SuggestionEngine {
     /// The profile's whole Chromium history, beyond history.json's newest 5,000 pages (#730): the app's
     /// engine search (ChromiumHistory on the Mac), nil where the engine can't search it.
     public var chromium: ChromiumHistorySource?
-    /// Arc's command bar always lists five rows; search suggestions make up what the
+    /// Arc's command bar always shows five rows; search suggestions make up what the
     /// tabs, history and commands don't fill, so the bar keeps its height while you type.
-    public static let maxRows = 5
+    /// More rows than that scroll behind them (CommandBarRowWindow, #805).
+    public static let maxRows = CommandBarRowWindow.visibleRows
 
     public typealias SearchEngineReader = @MainActor (_ profilePath: String?, _ legacy: SearchEngine)
         -> (default: ChromiumSearchEngine, keywords: [ChromiumSearchEngine])
@@ -216,8 +217,9 @@ public final class SuggestionEngine {
                 items.insert(contentsOf: searchSuggestions(query, after: items).prefix(Self.maxRows - at), at: at)
             }
         }
-        // Rows are scored without their subtitles; only the ones shown get them (#617).
-        result.items = items.prefix(Self.maxRows).map(finished)
+        // Rows are scored without their subtitles; only the ones listed get them (#617). The bar holds
+        // Arc's MaxSuggestions and shows five, the rest a scroll away (#805).
+        result.items = items.prefix(CommandBarRowWindow.maxSuggestions).map(finished)
         result.inlineCompletion = completion?.text
         result.scope = TabSearchScope.isOffered(by: query) ? .tabs
             : SiteSearch.match(q, completion: completion?.text, keywords: engines.keywords).map(CommandBarScope.site)

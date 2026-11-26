@@ -12,6 +12,9 @@ built release app with a test profile. Note anything that fails in the release's
 
 ### Themes and window chrome
 
+- **#739:** with Settings ▸ App Icon on Segments, System Settings ▸ Appearance ▸ Icon & widget style set to Dark, then Clear and Tinted,
+  turns Cra's Dock icon dark, clear and tinted like the other apps' (resources/AppIcon.icns is on Apple's grid, AppIconGridTests). A picked
+  icon stays as drawn.
 - **#372:** Settings opens at 684 × 650 pt on the first tab (your first name, "Cra" without one) every time, whatever tab it was closed on, and ⌘W closes it. Go through the
   ten tabs in dark and in light: the window is the system's window colour (not Arc's navy, Victor 12 Nov 2026), the chosen tab's pill
   (white 10 % with a hairline in dark, white with a shadow in light), 36 × 16 pt switches, the cards, Max's banner (Cra's mark and "Max"),
@@ -89,6 +92,8 @@ built release app with a test profile. Note anything that fails in the release's
 
 ### Sidebar, tabs and the command bar
 
+- **#794:** with Japanese (Romaji) input on, the Kana key (or Karabiner's ⌘ tap that sends it) switches to Japanese and Eisu back,
+  in the command bar, a tab's rename field and the find bar as on a web page (kana-key-cra-fields checks the routing).
 - **#483:** with no selected tab and the sidebar saved hidden, it comes straight out floating and
   stays visible when the pointer leaves and when another app comes to the front. Its button switches
   between docked and floating. Open a page: it remains while the pointer is over it, then slides away

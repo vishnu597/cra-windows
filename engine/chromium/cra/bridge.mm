@@ -26,6 +26,7 @@
 #include "cra/profile_prefs.h"
 
 #include <fcntl.h>
+#include <objc/message.h>
 #include <objc/runtime.h>
 #include <unistd.h>
 
@@ -150,6 +151,9 @@
 #include "extensions/browser/view_type_utils.h"
 #include "extensions/common/mojom/context_type.mojom.h"
 #include "extensions/browser/permissions/active_tab_permission_granter.h"
+#include "extensions/browser/permissions/site_permissions_helper.h"
+#include "extensions/browser/permissions_manager.h"
+#include "components/url_formatter/url_formatter.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/common/api/extension_action/action_info.h"
 #include "extensions/browser/extension_registrar.h"
@@ -2557,9 +2561,10 @@ bool HandleDebugMethod(content::WebContents* contents,
     return;
   }
   content::NavigationController& history = _contents->GetController();
-  if (_contents->IsLoading() && !_isLoading) {
-    _hasCommittedLoad = NO;
-  }
+  // A load that starts here keeps the page committed: a new main-frame document clears it in -pageStartedNavigation:,
+  // and anything else (a frame of the page, as signed-in Google pages load after theirs) is still the page that
+  // committed. Clearing it here left hasCommittedLoad NO for good once that frame loaded, so Live Calendar's hidden page
+  // never read Calendar and gave up after 25 s (#817).
   _isLoading = _contents->IsLoading();
   _canGoBack = history.CanGoBack();
   _canGoForward = history.CanGoForward();
@@ -3593,6 +3598,80 @@ static extensions::MenuItem* CraFindMenuItem(const extensions::MenuItem::OwnedLi
   ExternalProtocolHandler::SetBlockState(base::SysNSStringToUTF8(scheme), allowed, ExternalProtocolHandler::DONT_BLOCK,
                                          Profile::FromBrowserContext(_contents->GetBrowserContext()));
 }
+// Chrome's extension menu (ExtensionContextMenuModel::InitMenu and CreatePageAccessItems, which Arc's is): the line shows
+// when the extension can be affected by runtime host permissions or has activeTab here; "Can't read or change site's
+// data" when "on click" can't be picked; otherwise the three choices, each enabled as IsCommandIdEnabled has it (#695).
+static NSString* CraSiteAccessName(extensions::PermissionsManager::UserSiteAccess access) {
+  switch (access) {
+    case extensions::PermissionsManager::UserSiteAccess::kOnClick:
+      return @"onClick";
+    case extensions::PermissionsManager::UserSiteAccess::kOnSite:
+      return @"onSite";
+    case extensions::PermissionsManager::UserSiteAccess::kOnAllSites:
+      return @"onAllSites";
+  }
+  return @"";
+}
+- (NSDictionary<NSString*, id>*)extensionSiteAccess:(NSString*)extensionID {
+  if (!_contents) {
+    return nil;
+  }
+  content::BrowserContext* context = _contents->GetBrowserContext();
+  const extensions::Extension* extension =
+      extensions::ExtensionRegistry::Get(context)->enabled_extensions().GetByID(base::SysNSStringToUTF8(extensionID));
+  if (!extension) {
+    return nil;
+  }
+  using Access = extensions::PermissionsManager::UserSiteAccess;
+  auto* permissions = extensions::PermissionsManager::Get(context);
+  const GURL& url = _contents->GetLastCommittedURL();
+  if (!permissions->CanAffectExtension(*extension) && !permissions->HasActiveTabAndCanAccess(*extension, url)) {
+    return nil;
+  }
+  if (!permissions->CanUserSelectSiteAccess(*extension, url, Access::kOnClick)) {
+    return @{@"cantAccess" : @YES};
+  }
+  NSMutableArray<NSString*>* enabled = [NSMutableArray array];
+  for (Access access : {Access::kOnClick, Access::kOnSite, Access::kOnAllSites}) {
+    if (permissions->CanUserSelectSiteAccess(*extension, url, access)) {
+      [enabled addObject:CraSiteAccessName(access)];
+    }
+  }
+  // "On click" can be picked, so the page isn't restricted and GetUserSiteAccess may be asked.
+  std::u16string site = url_formatter::IDNToUnicode(url_formatter::StripWWW(url.GetHost()));
+  return @{
+    @"site" : base::SysUTF16ToNSString(site),
+    @"current" : CraSiteAccessName(permissions->GetUserSiteAccess(*extension, url)),
+    @"enabled" : enabled,
+  };
+}
+- (BOOL)setExtensionSiteAccess:(NSString*)access extension:(NSString*)extensionID {
+  if (!_contents) {
+    return NO;
+  }
+  content::BrowserContext* context = _contents->GetBrowserContext();
+  const extensions::Extension* extension =
+      extensions::ExtensionRegistry::Get(context)->enabled_extensions().GetByID(base::SysNSStringToUTF8(extensionID));
+  if (!extension) {
+    return NO;
+  }
+  using Access = extensions::PermissionsManager::UserSiteAccess;
+  std::optional<Access> wanted;
+  for (Access a : {Access::kOnClick, Access::kOnSite, Access::kOnAllSites}) {
+    if ([CraSiteAccessName(a) isEqualToString:access]) {
+      wanted = a;
+    }
+  }
+  auto* permissions = extensions::PermissionsManager::Get(context);
+  const GURL& url = _contents->GetLastCommittedURL();
+  // UpdateSiteAccess CHECKs both, as Chrome's menu guards its command (crbug.com/40068180).
+  if (!wanted || !permissions->CanAffectExtension(*extension) ||
+      !permissions->CanUserSelectSiteAccess(*extension, url, *wanted)) {
+    return NO;
+  }
+  extensions::SitePermissionsHelper(context).UpdateSiteAccess(*extension, _contents, *wanted, url::Origin::Create(url));
+  return YES;
+}
 - (BOOL)uninstallExtension:(NSString*)extensionID {
   if (!_contents) {
     return NO;
@@ -4615,6 +4694,19 @@ void DropFirstResponderAfterResigningException() {
 // hook (KeyEvent). Enabled macOS shortcuts (CraIsSystemHotKey) take the normal path, as in Chrome and Arc.
 - (void)sendEvent:(NSEvent*)event {
   cra::NoteLastPress(event);
+  // Chrome sends the JIS Eisu and Kana key-downs straight to the key window so a page sees them as keys
+  // (BrowserCrApplication); AppKit's own sendEvent: is what hands them to the input method, which switches the
+  // input source. A page's view hands them over itself, but Cra's own text fields (the command bar, a tab's rename,
+  // the find bar) never switched to Japanese: Karabiner's ⌘ tap sends Kana (#794). Outside a page they go AppKit's way.
+  if (event.type == NSEventTypeKeyDown && (event.keyCode == 0x66 || event.keyCode == 0x68)) {  // kVK_JIS_Eisu, kVK_JIS_Kana
+    NSResponder* responder = self.keyWindow.firstResponder;
+    if (!([responder isKindOfClass:[NSView class]] && CraIsInPageView(static_cast<NSView*>(responder)))) {
+      NSLog(@"Cra: %@ key to the input method", event.keyCode == 0x68 ? @"Kana" : @"Eisu");
+      struct objc_super appKit = {self, [NSApplication class]};
+      reinterpret_cast<void (*)(struct objc_super*, SEL, NSEvent*)>(objc_msgSendSuper)(&appKit, _cmd, event);
+      return;
+    }
+  }
   if ([_forwardedKeyEvents containsObject:event]) {
     [_forwardedKeyEvents removeObject:event];
     [super sendEvent:event];

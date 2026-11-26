@@ -3214,10 +3214,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             switch CloseSuccessor.pinnedClose(isFavorite: store.isFavorite(id), fromItsMenu: fromItsMenu,
                                               audible: audible, awayFromPinnedPage: !away.isEmpty) {
             case .deselectKeepingPage:
+                store.favoritesClosedWithCmdW.formUnion(panes)
                 if wasSelected { store.selectTab(store.closeSuccessor(ofPinned: id, window: windowID), window: windowID) }
                 CraLog.note("close tab: favorite deselected, its page kept")
                 return
             case .deselectGoingHome:
+                store.favoritesClosedWithCmdW.formUnion(panes)
                 if wasSelected { store.selectTab(store.closeSuccessor(ofPinned: id, window: windowID), window: windowID) }
                 for p in away { resetPinnedTab(p) }
                 CraLog.note("close tab: favorite deselected, back to its pinned page")
@@ -3240,12 +3242,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     }
 
     /// The space's open tabs, the latest first, a split as one card (#554). A pinned tab that was
-    /// closed (unloaded) isn't open: ⌃Tab doesn't list it, nor a pinned split none of whose panes is open.
+    /// closed (unloaded) isn't open: ⌃Tab doesn't list it, nor a pinned split none of whose panes is open,
+    /// nor a Favorite closed with ⌘W whose page kept running (#784, as in Arc).
     private func openRecentCards(limit: Int, allSpaces: Bool = false) -> [RecentTabOrder.Card] {
         let recent = allSpaces ? store.recentCardsInAllSpaces(limit: .max, window: windowID)
             : store.recentCards(in: focusedSpaceID, limit: .max, window: windowID)
         return TabSwitcherCycle.cards(recent, selected: selectedTabID, isPinned: { store.isPinned($0) },
-                                      isLoaded: { app.runtime(for: $0) != nil }, limit: limit)
+                                      isLoaded: { app.runtime(for: $0) != nil },
+                                      closedWithCmdW: { store.favoritesClosedWithCmdW.contains($0) }, limit: limit)
     }
 
     func resetPinnedTab(_ id: UUID) {
@@ -4716,6 +4720,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     /// cra://debug?commandBarIcon (#755): the open bar's n-th row's favicon.
     func debugCommandBarIcon(_ i: Int) -> String { commandHost?.debugRowIcon(i) ?? "none" }
+    /// cra://debug?commandBarShown (#805): which of the open bar's rows are in view.
+    var debugCommandBarShown: String { commandHost?.debugShown ?? "none" }
     /// cra://debug?commandBarDelete (#779): the open bar's n-th row's ✕, in screen points; nil when it shows none.
     func debugCommandBarDeletePoint(_ i: Int) -> NSPoint? { commandPanel.isVisible ? commandHost?.debugDeletePoint(i) : nil }
     /// cra://debug?commandBarDeleteKey (#779): a key typed in the open bar's field, through the app as a key press goes
@@ -6118,7 +6124,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             leaveIfCovered()
         }
         guard (notification.object as? NSWindow) === commandPanel, commandBar.isOpen else { return }
-        if Date().timeIntervalSince(commandBarOpenedAt) < 0.6 {
+        // A page made behind the bar takes the keys while it opens: it takes them back. A click took them
+        // (#807): that closes it, however soon after ⌘T.
+        let click = NSApp.currentEvent.map { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) && $0.window !== commandPanel } ?? false
+        let open = Date().timeIntervalSince(commandBarOpenedAt)
+        CraLog.note(String(format: "command bar lost the keys %.2f s after opening%@", open, click ? " to a click" : ""))
+        if CommandBarClosing.takesKeysBack(secondsOpen: open, byClick: click) {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.commandBar.isOpen else { return }
                 self.commandPanel.makeKeyAndOrderFront(nil)

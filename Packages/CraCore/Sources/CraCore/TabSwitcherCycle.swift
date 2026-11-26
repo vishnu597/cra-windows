@@ -54,9 +54,16 @@ public struct TabSwitcherCycle: Equatable, Sendable {
 
     /// The same rule for cards that may be splits (#554): a split's card stays while any of its
     /// panes is open (MainWindowController.openRecentCards, Windows' BrowserWindow).
+    /// A Favorite closed with ⌘W whose page kept running leaves the switcher until it's picked again (#784,
+    /// `RecentTabOrder.listsPane`).
     public static func cards(_ recent: [RecentTabOrder.Card], selected: UUID?, isPinned: (UUID) -> Bool,
-                             isLoaded: (UUID) -> Bool, limit: Int = TabSwitcherLayout.maxItems) -> [RecentTabOrder.Card] {
-        Array(recent.filter { card in card.panes.contains { $0 == selected || !isPinned($0) || isLoaded($0) } }.prefix(limit))
+                             isLoaded: (UUID) -> Bool, closedWithCmdW: (UUID) -> Bool = { _ in false },
+                             limit: Int = TabSwitcherLayout.maxItems) -> [RecentTabOrder.Card] {
+        Array(recent.filter { card in
+            card.panes.contains {
+                RecentTabOrder.listsPane(selected: $0 == selected, pinned: isPinned($0), loaded: isLoaded($0), closedWithCmdW: closedWithCmdW($0))
+            }
+        }.prefix(limit))
     }
 }
 
