@@ -17,6 +17,7 @@ xcrun swiftc -swift-version 5 -parse-as-library ${CRA_TEST_SWIFTC_FLAGS:-} \
   "$TEST_DIR/ChromiumProfileFolders+Production.swift" \
   Packages/CraCore/Sources/CraCore/ExtensionProfiles.swift \
   Packages/CraCore/Sources/CraCore/WebStoreInstalls.swift \
+  Packages/CraCore/Sources/CraCore/SharedExtensions.swift \
   Packages/CraCore/Sources/CraCore/UnpackedCopies.swift \
   Packages/CraCore/Sources/CraCore/ExtensionCopyRemovals.swift Packages/CraCore/Sources/CraCore/SHA256Hash.swift \
   Packages/CraCore/Sources/CraCore/PinnedExtensions.swift \

@@ -3571,6 +3571,9 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
 + (BOOL)chromeHosting { return g_chromeHosting; }
 + (BOOL)supportsSparePages { return g_chromeHosting; }
 
+// CEF uses the native domain filter.
++ (void)setBundledNetworkRulesExpected:(BOOL)expected {}
++ (void)synchronizeBundledNetworkFilter {}
 + (void)setContentBlockingEnabled:(BOOL)enabled { cra_blocker::Enabled().store(enabled); }
 + (BOOL)contentBlockingEnabled { return cra_blocker::Enabled().load(); }
 
@@ -3611,6 +3614,12 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
     }
     if (g_incognitoContext && g_incognitoReady) ApplyFingerprintingProtection(g_incognitoContext);
 }
++ (void)setContentBlockingPausedHosts:(NSArray<NSString*>*)hosts {
+    cra_blocker::DomainSet paused;
+    for (NSString* host in hosts) paused.insert(host.UTF8String ?: "");
+    cra_blocker::SetPausedHosts(std::move(paused));
+}
+
 + (void)setBlockedDomains:(NSArray<NSString*>*)domains {
     auto* set = new cra_blocker::DomainSet();
     set->reserve(domains.count);
@@ -3792,6 +3801,13 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
 + (void)setBrowserDevToolsEventHandler:(void (^)(NSString*, NSString*, NSString* _Nullable))handler {
     g_cdpEventHandler = [handler copy];
 }
+// Shared extensions (GitHub discussion #595) need Chrome's management policy, which CEF's runtime doesn't reach.
++ (void)setManagedExtensionIDs:(NSDictionary<NSString*, NSArray<NSString*>*>*)idsByProfile {}
++ (void)installWebStoreExtension:(NSString*)extensionID manifest:(NSString*)manifestJSON
+                     profilePath:(NSString*)profilePath completion:(void (^)(NSString*))completion {
+    completion(@"not on CEF");
+}
++ (BOOL)uninstallExtension:(NSString*)extensionID profilePath:(NSString*)profilePath { return NO; }
 + (NSString*)extensionSettingsForProfile:(NSString*)profilePath {
     // Quitting: the contexts are going away, and ProfileContext would make a new one.
     if (!g_contextInitialized || g_quitting) return nil;

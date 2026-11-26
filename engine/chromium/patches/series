@@ -31,6 +31,8 @@ cra-fullscreen-status.patch
 cra-devtools.patch
 cra-download-tabs.patch
 cra-content-blocking.patch
+cra-private-content-filter.patch
+cra-demand-content-filter.patch
 cra-page-menu.patch
 context-menu-embedded-view.patch
 cra-relaunch.patch
@@ -81,3 +83,5 @@ renderer-startup-reused-process.patch
 cra-close-without-asking.patch
 cra-history-no-expiry.patch
 cra-page-window-bounds.patch
+cra-download-started-animation.patch
+extension-managed-by-cra.patch
